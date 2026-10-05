@@ -42,9 +42,11 @@ func TestMarkExternalComparesAgainstTheCALLSOrg(t *testing.T) {
 //
 // Two shapes of bypass live in this package and only one of them is safe by
 // construction. A function that opens its OWN transaction and sets bypass at the
-// head of it (MarkDelivered, InternalChannelMembership, the task projector) can
-// never leak: the setting is transaction-local, and that transaction is entirely
-// theirs. rostersTx and clearLobbyTx are the other shape — they widen a
+// head of it (MarkDelivered, the task projector) can never leak: the setting is
+// transaction-local, and that transaction is entirely theirs. (InternalChannelMembership
+// used to be in this group too; it is now org-scoped like ChannelMemberIDs, since
+// it needs requireChannelMember's caller-membership check, not a bypass.)
+// rostersTx and clearLobbyTx are the other shape — they widen a
 // transaction the CALLER owns, for one statement, and every statement the caller
 // runs afterwards is exposed if the reset is ever dropped in a later edit.
 //

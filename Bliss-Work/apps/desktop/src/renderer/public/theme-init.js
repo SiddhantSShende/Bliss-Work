@@ -25,35 +25,8 @@
   // this pre-paint class and the one React settles on.
   const DEFAULT_THEME = "bluePurple";
 
-  // Login and Signup are FIXED to the default theme, regardless of what the
-  // signed-in user (or a previous session on this device) picked in
-  // Settings — kept in lock-step with the route list
-  // packages/app/src/App.tsx's ThemedTree uses for the same rule once React
-  // has mounted (that component is what keeps enforcing this after first
-  // paint, and what restores the real theme on navigating away). Checked
-  // against BOTH pathname (web's BrowserRouter) and hash (desktop's
-  // HashRouter) since this one script ships to both apps unchanged.
-  const AUTH_PATHS = ["/login", "/onboarding"];
-  function isAuthRoute() {
-    const path = (location.pathname || "").split("?")[0];
-    const hash = (location.hash || "").replace(/^#/, "").split("?")[0];
-    return AUTH_PATHS.indexOf(path) !== -1 || AUTH_PATHS.indexOf(hash) !== -1;
-  }
-
-  // A theme picked in Settings, or Dark Mode, still applies normally for the
-  // rest of that session and every session after — see ThemeProvider's
-  // `setTheme`/`toggle`. Only a brand-new visitor (nothing stored yet, or a
-  // stored value from before this theme system existed) falls back to
-  // DEFAULT_THEME here.
-  function storedOrDefaultTheme() {
-    try {
-      const stored = localStorage.getItem("tb-theme");
-      return Object.prototype.hasOwnProperty.call(THEME_CLASSES, stored ?? "") ? stored : DEFAULT_THEME;
-    } catch {
-      return DEFAULT_THEME;
-    }
-  }
-
-  const theme = isAuthRoute() ? DEFAULT_THEME : storedOrDefaultTheme();
-  document.documentElement.classList.add(...THEME_CLASSES[theme]);
+  // Authentication is established by the app after session restoration. Until
+  // then, every route starts with the same fixed theme; ThemeProvider hydrates
+  // the saved preference only after the session is confirmed.
+  document.documentElement.classList.add(...THEME_CLASSES[DEFAULT_THEME]);
 })();

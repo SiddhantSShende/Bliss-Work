@@ -1,5 +1,7 @@
 import type { ClientFrame } from "@taskboard/shared";
 import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
+import { logMicProcessing } from "./micDiagnostics";
+import i18n from "../i18n";
 
 export type CallMedia = "audio" | "video";
 
@@ -157,7 +159,7 @@ export class CallSession {
     };
     this.pc.onconnectionstatechange = () => {
       if (this.pc.connectionState === "connected") o.onConnected();
-      else if (this.pc.connectionState === "failed") this.close("connection failed");
+      else if (this.pc.connectionState === "failed") this.close(i18n.t("calls:endedReasons.connectionFailed"));
     };
   }
 
@@ -178,6 +180,7 @@ export class CallSession {
       return;
     }
     this.local = stream;
+    logMicProcessing("call:acquired", this.local.getAudioTracks()[0]);
     for (const track of this.local.getAudioTracks()) this.pc.addTrack(track, this.local);
     // One video slot, always — with the camera in it on a video call, and empty
     // on a voice call so the Video and Share Screen controls have somewhere to
@@ -298,11 +301,56 @@ export class CallSession {
     // Re-check rather than assume: close() or a failed state transition during
     // the awaits above would make createAnswer throw.
     if (this.pc.signalingState !== "have-remote-offer") return;
+    await this.reclaimVideoTransceiver();
     const answer = await this.pc.createAnswer();
     if (this.closed) return;
     await this.pc.setLocalDescription(answer);
     this.answered = true;
     this.o.sendFrame({ type: "rtc.answer", toUserId: this.o.peerId, offerId: this.o.callId, sdp: answer.sdp ?? "" });
+  }
+
+  /**
+   * Move the camera track onto whichever transceiver the browser actually
+   * associated with the offer's video m= section, if that turns out not to be
+   * `videoTx`.
+   *
+   * The class doc above already accounts for the "transceiver created BY the
+   * offer comes out recvonly" hazard by reserving `videoTx` in acquire(),
+   * BEFORE setRemoteDescription runs — but that guard turns out not to be
+   * sufficient on its own. Verified against Chromium 130, twice: once through
+   * this app end to end, and once in a two-line reproduction with no app code
+   * at all (two bare RTCPeerConnections, nothing else). A transceiver created
+   * via addTransceiver(track, {direction:"sendrecv"}) BEFORE the first
+   * setRemoteDescription is NOT reliably matched against that same offer's
+   * own m= section — the browser leaves it associated with nothing (mid stays
+   * null forever) and creates a SEPARATE, fresh transceiver for the m= line,
+   * defaulting that one to recvonly since it carries no track. `videoTx` ends
+   * up pointing at a transceiver that is not part of the session at all,
+   * while the one `createAnswer()` actually serializes has nothing to send —
+   * so the answer tells the caller "receive only", and the caller never gets
+   * a picture no matter what videoTx's sender later replaceTrack()s.
+   *
+   * Runs after setRemoteDescription (so the real transceiver exists to find)
+   * and before createAnswer (so the correction lands in THIS answer with no
+   * second negotiation, which this session does not support). Finds the
+   * associated transceiver by its mid + receiving kind — never by array
+   * index, since which slot ends up "the extra one" is an artifact of
+   * whichever transceiver the browser chose to (mis)reuse, not something this
+   * code controls — and re-points `videoTx` at it so a later setCam/
+   * startShare/stopShare keeps replacing tracks on the transceiver that is
+   * actually live, instead of one the peer will never see.
+   */
+  private async reclaimVideoTransceiver(): Promise<void> {
+    const associated = this.pc
+      .getTransceivers()
+      .find((t) => t.mid !== null && (t.receiver.track ?? t.sender.track)?.kind === "video");
+    if (!associated || associated === this.videoTx) return;
+    // Same track acquire() would have attached here: the camera if this is a
+    // video call, absent (an empty, reserved sendrecv slot) if it is a voice
+    // call — see the class doc on why the slot exists either way.
+    await associated.sender.replaceTrack(this.local?.getVideoTracks()[0] ?? null);
+    associated.direction = "sendrecv";
+    this.videoTx = associated;
   }
 
   onAnswer(sdp: string): Promise<void> {

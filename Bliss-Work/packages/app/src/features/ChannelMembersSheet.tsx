@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Ban, Crown, ShieldCheck, ShieldOff, UserMinus, UserPlus } from "lucide-react";
 import { Avatar, Badge, Button, Spinner } from "@taskboard/ui";
 import type { ChannelDTO, ChannelRole, UserDTO } from "@taskboard/shared";
@@ -30,6 +31,7 @@ export function ChannelMembersSheet({
   onClose: () => void;
   channel: ChannelDTO;
 }) {
+  const { t } = useTranslation("chatList");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
@@ -59,7 +61,7 @@ export function ChannelMembersSheet({
     qc.invalidateQueries({ queryKey: qk.channelRoster(channel.id) });
     qc.invalidateQueries({ queryKey: qk.channels });
   };
-  const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : "Action failed");
+  const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : t("channelMembers.actionFailed"));
 
   const act = useMutation({
     mutationFn: (op: { kind: "kick" | "block" | "unblock" | "role"; userId: string; role?: ChannelRole }) => {
@@ -77,7 +79,7 @@ export function ChannelMembersSheet({
     onSuccess: () => {
       setAdding(false);
       refresh();
-      toast.success("Added to the channel");
+      toast.success(t("channelMembers.addedToast"));
     },
     onError: fail,
   });
@@ -91,11 +93,11 @@ export function ChannelMembersSheet({
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted">
-            {members.length} member{members.length === 1 ? "" : "s"}
+            {t("common.memberCount", { count: members.length })}
           </p>
           {canManage && !adding && (
             <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
-              <UserPlus size={15} /> Add people
+              <UserPlus size={15} /> {t("channelMembers.addPeople")}
             </Button>
           )}
         </div>
@@ -125,22 +127,22 @@ export function ChannelMembersSheet({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm text-fg">
-                        {u?.displayName ?? m.userId}{isMe && " (you)"}
+                        {u?.displayName ?? m.userId}{isMe && t("channelMembers.youSuffix")}
                       </span>
                       {m.role !== "member" && (
-                        <Badge tone={m.role === "owner" ? "accent" : "neutral"}>{m.role}</Badge>
+                        <Badge tone={m.role === "owner" ? "accent" : "neutral"}>{t(`channelMembers.roles.${m.role}`)}</Badge>
                       )}
                       {/* Their ORG role, alongside their channel role — the two
                           are different things and admins conflate them. */}
-                      {u?.roles.includes("org_admin") && <Badge tone="neutral">Workspace admin</Badge>}
+                      {u?.roles.includes("org_admin") && <Badge tone="neutral">{t("channelMembers.workspaceAdmin")}</Badge>}
                     </div>
-                    <div className="truncate text-xs text-muted">@{u?.username ?? "unknown"}</div>
+                    <div className="truncate text-xs text-muted">@{u?.username ?? t("channelMembers.unknownUsername")}</div>
                   </div>
                   {canManage && !isMe && !protectedRow && (
                     <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
                       {canSetRoles && (
                         <Action
-                          title={m.role === "admin" ? "Remove as channel admin" : "Make channel admin"}
+                          title={m.role === "admin" ? t("channelMembers.actions.removeAdmin") : t("channelMembers.actions.makeAdmin")}
                           disabled={act.isPending}
                           onClick={() => act.mutate({
                             kind: "role", userId: m.userId,
@@ -152,25 +154,25 @@ export function ChannelMembersSheet({
                       )}
                       {canSetRoles && (
                         <Action
-                          title="Transfer ownership"
+                          title={t("channelMembers.actions.transferOwnership")}
                           disabled={act.isPending}
-                          onClick={() => setTransferTarget({ userId: m.userId, displayName: u?.displayName ?? "them" })}
+                          onClick={() => setTransferTarget({ userId: m.userId, displayName: u?.displayName ?? t("channelMembers.fallbackThem") })}
                         >
                           <Crown size={15} />
                         </Action>
                       )}
                       <Action
-                        title="Remove from channel"
+                        title={t("channelMembers.actions.removeFromChannel")}
                         disabled={act.isPending}
                         onClick={() => act.mutate({ kind: "kick", userId: m.userId })}
                       >
                         <UserMinus size={15} />
                       </Action>
                       <Action
-                        title="Block from channel"
+                        title={t("channelMembers.actions.blockFromChannel")}
                         danger
                         disabled={act.isPending}
-                        onClick={() => setBlockTarget({ userId: m.userId, displayName: u?.displayName ?? "them" })}
+                        onClick={() => setBlockTarget({ userId: m.userId, displayName: u?.displayName ?? t("channelMembers.fallbackThem") })}
                       >
                         <Ban size={15} />
                       </Action>
@@ -184,7 +186,7 @@ export function ChannelMembersSheet({
 
         {blocked.length > 0 && canManage && (
           <section className="space-y-1">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">Blocked</h4>
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">{t("channelMembers.blockedHeading")}</h4>
             <ul className="m-0 list-none space-y-0.5 p-0">
               {blocked.map((b) => {
                 const u = byId.get(b.userId);
@@ -200,7 +202,7 @@ export function ChannelMembersSheet({
                       disabled={act.isPending}
                       onClick={() => act.mutate({ kind: "unblock", userId: b.userId })}
                     >
-                      Unblock
+                      {t("channelMembers.unblock")}
                     </Button>
                   </li>
                 );
@@ -212,9 +214,9 @@ export function ChannelMembersSheet({
       <ConfirmDialog
         open={transferTarget !== null}
         onClose={() => setTransferTarget(null)}
-        title="Transfer ownership?"
-        message={`Make ${transferTarget?.displayName ?? "them"} the owner of #${channel.name}? You'll become an admin.`}
-        confirmLabel="Transfer"
+        title={t("channelMembers.transferConfirm.title")}
+        message={t("channelMembers.transferConfirm.message", { name: transferTarget?.displayName ?? t("channelMembers.fallbackThem"), channel: channel.name })}
+        confirmLabel={t("channelMembers.transferConfirm.confirmLabel")}
         danger
         busy={act.isPending}
         onConfirm={() => {
@@ -228,9 +230,9 @@ export function ChannelMembersSheet({
       <ConfirmDialog
         open={blockTarget !== null}
         onClose={() => setBlockTarget(null)}
-        title="Block from channel?"
-        message={`Block ${blockTarget?.displayName ?? "them"} from #${channel.name}? They'll be removed and can't rejoin.`}
-        confirmLabel="Block"
+        title={t("channelMembers.blockConfirm.title")}
+        message={t("channelMembers.blockConfirm.message", { name: blockTarget?.displayName ?? t("channelMembers.fallbackThem"), channel: channel.name })}
+        confirmLabel={t("channelMembers.blockConfirm.confirmLabel")}
         danger
         busy={act.isPending}
         onConfirm={() => {

@@ -11,8 +11,10 @@
  * this thing" panel in the app uses.
  */
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ExternalLink, FileText, Images, Link2, Play } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
+import type { AttachmentScope } from "@taskboard/shared";
 import {
   collectChatAssets,
   type AssetMessage,
@@ -20,8 +22,11 @@ import {
   type MediaAsset,
 } from "../lib/chatAssets";
 import { canPreviewDocInApp, prettySize } from "../lib/chatEnvelope";
+import { hasOutsideOpen, openOutsideApp } from "../lib/openAttachment";
+import { useRuntime } from "../lib/runtime";
 import { relativeTime } from "../lib/relativeTime";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
+import { useAttachmentActivity } from "../lib/useAttachmentActivity";
 import { Lightbox } from "./Lightbox";
 import { Sheet } from "./Modal";
 import { Tabs, type TabSpec } from "./Tabs";
@@ -33,6 +38,9 @@ export function ChatAssetsSheet({
   onClose,
   title,
   messages,
+  scope,
+  scopeId,
+  meId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -40,7 +48,18 @@ export function ChatAssetsSheet({
   title: string;
   /** The thread as it is currently loaded, in send order. */
   messages: readonly AssetMessage[];
+  /**
+   * Which conversation/channel this panel belongs to, so opening a Doc from
+   * here posts its activity notice into the SAME place useChatMedia's own
+   * bubble click does — see useAttachmentActivity.
+   */
+  scope: AttachmentScope;
+  scopeId: string;
+  meId: string;
 }) {
+  const { t } = useTranslation("chatList");
+  const { config } = useRuntime();
+  const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId);
   const [tab, setTab] = useState<AssetTab>("media");
   // A single doc opened from the Docs tab, previewed in the SAME Lightbox the
   // inline chat bubble and the Media tab use — one in-app viewer, not a
@@ -60,10 +79,25 @@ export function ChatAssetsSheet({
   );
   const { urlFor, isResolved } = useAttachmentLinks(ids);
 
+  // Same rule as the thread's bubble (useChatMedia.openItem): a doc with no
+  // in-app view leaves the app (desktop's own application, or a browser tab on
+  // web); the rest use the Lightbox. Both are the user OPENING the file, so both
+  // report "attachment_opened" — the same rule as openItem, see its comment.
+  // This panel offers no download of its own; that is the message's 3-dot menu.
+  const openDoc = (asset: MediaAsset) => {
+    const url = urlFor(asset.item.id);
+    if (url && openOutsideApp(config, asset.item.mime, url, asset.item.name)) {
+      reportAttachmentActivity("attachment_opened", asset.item);
+      return;
+    }
+    reportAttachmentActivity("attachment_opened", asset.item);
+    setDocPreview(asset);
+  };
+
   const tabs: readonly TabSpec<AssetTab>[] = [
-    { key: "media", label: "Media", badge: assets.media.length },
-    { key: "docs", label: "Docs", badge: assets.docs.length },
-    { key: "links", label: "Links", badge: assets.links.length },
+    { key: "media", label: t("chatAssets.tabs.media"), badge: assets.media.length },
+    { key: "docs", label: t("chatAssets.tabs.docs"), badge: assets.docs.length },
+    { key: "links", label: t("chatAssets.tabs.links"), badge: assets.links.length },
   ];
 
   return (
@@ -74,12 +108,20 @@ export function ChatAssetsSheet({
         {/* The bound, said once. Everything on this panel comes out of the
             messages on screen, and scrolling the thread up widens it. */}
         <p className="mb-3 text-xs text-muted">
-          From the {messages.length} message{messages.length === 1 ? "" : "s"} loaded here — load
-          older messages in the conversation to include more.
+          {t("chatAssets.scopeNote", { count: messages.length })}
         </p>
 
-        {tab === "media" && <MediaGrid assets={assets.media} urlFor={urlFor} isResolved={isResolved} />}
-        {tab === "docs" && <DocList assets={assets.docs} urlFor={urlFor} onPreview={setDocPreview} />}
+        {tab === "media" && (
+          <MediaGrid
+            assets={assets.media}
+            urlFor={urlFor}
+            isResolved={isResolved}
+            onOpen={(item) => reportAttachmentActivity("attachment_opened", item)}
+          />
+        )}
+        {tab === "docs" && (
+          <DocList assets={assets.docs} urlFor={urlFor} opensOutside={hasOutsideOpen(config)} onPreview={openDoc} />
+        )}
         {tab === "links" && <LinkList assets={assets.links} />}
       </Sheet>
 
@@ -115,17 +157,23 @@ function MediaGrid({
   assets,
   urlFor,
   isResolved,
+  onOpen,
 }: {
   assets: MediaAsset[];
   urlFor: (id: string | undefined) => string | undefined;
   isResolved: boolean;
+  /** Fired when a tile actually navigates (a resolved URL exists) — see the
+   *  tile's onClick below for why this is always "opened", never
+   *  "downloaded". */
+  onOpen: (item: MediaAsset["item"]) => void;
 }) {
+  const { t } = useTranslation("chatList");
   if (assets.length === 0) {
     return (
       <EmptyState
         icon={<Images size={22} />}
-        title="No photos or video yet"
-        hint="Images and clips shared in this conversation collect here."
+        title={t("chatAssets.emptyMedia.title")}
+        hint={t("chatAssets.emptyMedia.hint")}
       />
     );
   }
@@ -144,8 +192,18 @@ function MediaGrid({
             target="_blank"
             rel="noopener noreferrer"
             title={`${item.name}${senderName ? ` · ${senderName}` : ""}${at ? ` · ${relativeTime(at)}` : ""}`}
-            aria-label={`Open ${item.name}`}
+            aria-label={t("chatAssets.openItem", { name: item.name })}
             className="group relative aspect-square overflow-hidden rounded-xl bg-surface-2 ring-1 ring-border/60 transition hover:ring-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            // Only a genuine navigation (a resolved URL) counts as an open —
+            // an unresolved tile's href is empty and goes nowhere. Always
+            // "opened", never "downloaded": images/video are in the server's
+            // inline-safe allowlist (media.ServeAs), so this tab renders the
+            // file rather than triggering the browser's download handling,
+            // the same class of action as the in-app Lightbox — just a
+            // different viewer surface.
+            onClick={() => {
+              if (full) onOpen(item);
+            }}
           >
             {preview ? (
               <img
@@ -158,7 +216,7 @@ function MediaGrid({
               // Resolved with no URL means the file is not readable by this
               // viewer any more — a different statement from "still loading".
               <span className="flex h-full w-full items-center justify-center text-[10px] text-muted">
-                {isResolved ? "Unavailable" : ""}
+                {isResolved ? t("chatAssets.unavailable") : ""}
               </span>
             )}
             {isVideo && (
@@ -178,19 +236,24 @@ function MediaGrid({
 function DocList({
   assets,
   urlFor,
+  opensOutside,
   onPreview,
 }: {
   assets: MediaAsset[];
   urlFor: (id: string | undefined) => string | undefined;
-  /** Open a previewable doc in the shared in-app Lightbox. */
+  /** A doc with no in-app view leaves the app (desktop's own application, or a
+   *  browser tab on web), so the row must not say it cannot be previewed. */
+  opensOutside: boolean;
+  /** Open a doc — in the shared in-app Lightbox, or outside the app. */
   onPreview: (asset: MediaAsset) => void;
 }) {
+  const { t } = useTranslation("chatList");
   if (assets.length === 0) {
     return (
       <EmptyState
         icon={<FileText size={22} />}
-        title="No documents yet"
-        hint="Files that aren't photos or video — PDFs, spreadsheets, archives — collect here."
+        title={t("chatAssets.emptyDocs.title")}
+        hint={t("chatAssets.emptyDocs.hint")}
       />
     );
   }
@@ -202,12 +265,10 @@ function DocList({
         const previewable = canPreviewDocInApp(item.mime);
         // Openable once resolved, regardless of type — a type outside
         // canPreviewDocInApp has no in-app renderer (see MediaBubble's
-        // FileCard, which carries the full reasoning for why this can never
-        // fall back to a link: the server forces Content-Disposition:
-        // attachment for everything outside its own inline allowlist, so
-        // that link was a download wearing an Open label), but the shared
-        // Lightbox still opens for it and says so explicitly instead of the
-        // row doing nothing.
+        // FileCard for how such a file is opened: a browser tab on web, the
+        // OS's own application on desktop, and only a host with neither
+        // falls through to the shared Lightbox, which says so explicitly
+        // instead of the row doing nothing).
         const openable = !!url;
         const rowClass = `flex items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-surface-2 ${
           url ? "" : "pointer-events-none opacity-50"
@@ -226,8 +287,8 @@ function DocList({
                 </span>
                 <Shared senderName={senderName} at={at} />
               </span>
-              {url && !previewable && (
-                <span className="text-xs text-muted">Preview isn&apos;t available for this file type</span>
+              {url && !previewable && !opensOutside && (
+                <span className="text-xs text-muted">{t("chatAssets.previewUnavailable")}</span>
               )}
             </span>
           </>
@@ -242,7 +303,7 @@ function DocList({
               <button
                 type="button"
                 onClick={() => onPreview(asset)}
-                aria-label={`Open ${item.name}`}
+                aria-label={t("chatAssets.openItem", { name: item.name })}
                 className={`w-full ${rowClass}`}
               >
                 {row}
@@ -264,12 +325,13 @@ function DocList({
 }
 
 function LinkList({ assets }: { assets: LinkAsset[] }) {
+  const { t } = useTranslation("chatList");
   if (assets.length === 0) {
     return (
       <EmptyState
         icon={<Link2 size={22} />}
-        title="No links yet"
-        hint="Web addresses posted in this conversation collect here."
+        title={t("chatAssets.emptyLinks.title")}
+        hint={t("chatAssets.emptyLinks.hint")}
       />
     );
   }

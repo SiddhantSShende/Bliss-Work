@@ -121,6 +121,11 @@ def _batch(*messages):
     return {"tp": [_Msg(m, offset=i) for i, m in enumerate(messages)]}
 
 
+def test_malformed_kafka_bytes_are_skippable():
+    assert consumer._deserialize_event(b"not-json") is None
+    assert consumer._deserialize_event(b'{"type":"ok"}') == {"type": "ok"}
+
+
 # ── the poison-message case ──────────────────────────────────────────────────
 
 
@@ -266,3 +271,64 @@ async def test_a_non_dict_message_is_ignored(monkeypatch):
 
     assert ok is True
     assert len(rec.writes[0]) == 1
+
+
+# ── mail.attachment.downloaded through the real batch path ───────────────────
+
+
+def _download_event(**kw):
+    base = {
+        "eventId": str(uuid.uuid4()),
+        "orgId": ORG,
+        "type": "mail.attachment.downloaded",
+        "actorId": ALICE,
+        "mailId": str(uuid.uuid4()),
+        "attachmentId": str(uuid.uuid4()),
+        "filename": "Report.pdf",
+        "mime": "application/pdf",
+        "sizeBytes": 2048,
+        "occurredAt": "2026-10-01T09:00:00.000Z",
+    }
+    base.update(kw)
+    return base
+
+
+@pytest.mark.asyncio
+async def test_two_separate_downloads_of_one_file_are_both_recorded(monkeypatch):
+    """Each press has its own eventId, so each is its own row — legitimate
+    repeat downloads are never collapsed by the consumer's dedup."""
+    rec = _Recorder().install(monkeypatch)
+    c = consumer.TelemetryConsumer()
+    mail, att = str(uuid.uuid4()), str(uuid.uuid4())
+
+    ok = await c._process_batch(
+        _batch(
+            _download_event(mailId=mail, attachmentId=att),
+            _download_event(mailId=mail, attachmentId=att),
+        )
+    )
+
+    assert ok is True
+    assert [len(w) for w in rec.writes] == [2]
+    assert {r.action for r in rec.writes[0]} == {"mail.attachment.downloaded"}
+    assert rec.writes[0][0].target_id == rec.writes[0][1].target_id == att
+
+
+@pytest.mark.asyncio
+async def test_a_redelivered_download_event_is_written_once(monkeypatch):
+    """Kafka redelivery of the SAME eventId must not double-count a download."""
+    seen: set[str] = set()
+
+    def claim(ids):
+        won = {i for i in ids if i not in seen}
+        seen.update(won)
+        return won
+
+    rec = _Recorder(claim=claim).install(monkeypatch)
+    c = consumer.TelemetryConsumer()
+    evt = _download_event()
+
+    await c._process_batch(_batch(evt))
+    await c._process_batch(_batch(evt))
+
+    assert sum(len(w) for w in rec.writes) == 1

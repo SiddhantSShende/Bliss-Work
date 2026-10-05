@@ -227,7 +227,7 @@ func TestSendMail_ConcurrentDoubleSend_DeliversExactlyOnce(t *testing.T) {
 	if n := countMailRows(t, s, `SELECT count(*) FROM mail_deliveries WHERE mail_id = $1 AND owner_user_id = $2`, mailID, b); n != 1 {
 		t.Errorf("Bee's delivery rows = %d, want exactly 1", n)
 	}
-	if n := unreadCountFor(t, s, orgID, mailID, b); n != 1 {
+	if n := unreadCountFor(t, s, mailID, b); n != 1 {
 		t.Errorf("Bee's unread_count = %d, want 1 — a second concurrent send must not double-increment it", n)
 	}
 	if n := countMailRows(t, s, `SELECT count(*) FROM outbox WHERE kafka_key = $1 AND payload->>'type' = 'mail.delivered'`, mailID); n != 1 {

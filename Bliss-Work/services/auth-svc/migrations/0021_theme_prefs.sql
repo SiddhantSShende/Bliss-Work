@@ -1,0 +1,13 @@
+-- 0021_theme_prefs — the account's chosen UI theme, so web and desktop agree.
+--
+-- The theme used to live only in each client's localStorage, which is per
+-- origin: the web app and the desktop app could never see each other's choice.
+-- It is stored here as one small JSON document rather than columns because the
+-- shape is owned by the clients (which colour family, an optional custom
+-- palette, whether the custom palette is the active one) and changes whenever a
+-- family is added — none of which the database has any reason to know.
+--
+-- Plain jsonb, not encrypted like email/display_name/avatar: it is a colour
+-- preference, not personal data. NULL means "never chosen on any device", which
+-- is what lets a client with a pre-existing local choice publish it.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS theme_prefs jsonb;

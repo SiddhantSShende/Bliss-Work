@@ -7,9 +7,10 @@ import {
   Trash2,
   type LucideIcon,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useInboxPeers } from "../lib/useInboxPeers";
 import { ListHeader, rowClass } from "../features/ListPane";
-import { MAIL_FOLDERS, type MailFolder, mailSearch, folderOf, peerOf } from "../lib/mailView";
+import { MAIL_FOLDERS, type MailFolder, mailSearch, folderOf, peerOf, folderLabel } from "../lib/mailView";
 
 /**
  * Where every control in this column navigates to.
@@ -54,6 +55,7 @@ const FOLDER_ICONS: Record<MailFolder, LucideIcon> = {
  * in the message list, which is the container it acts on.
  */
 export function MailFolders() {
+  const { t } = useTranslation("mail");
   const [params] = useSearchParams();
   const folder = folderOf(params);
   const peerId = peerOf(params);
@@ -63,7 +65,7 @@ export function MailFolders() {
 
   return (
     <>
-      <ListHeader title="Mail" />
+      <ListHeader title={t("folders.title")} />
 
       <nav className="shrink-0 space-y-0.5 px-2 pb-2 pt-2">
         {MAIL_FOLDERS.map((box) => {
@@ -81,7 +83,11 @@ export function MailFolders() {
               // Without this the badge folds into the link's accessible name
               // and a screen reader announces "Inbox 3" — a bare number with
               // nothing saying what it counts.
-              aria-label={showRollup ? `${box.label}, ${unread} unread` : undefined}
+              aria-label={
+                showRollup
+                  ? t("folders.unreadAriaLabel", { folder: folderLabel(box.key), count: unread })
+                  : undefined
+              }
               className={rowClass(active)}
             >
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
@@ -92,7 +98,7 @@ export function MailFolders() {
                   active ? "text-fg" : "text-fg/90"
                 }`}
               >
-                {box.label}
+                {folderLabel(box.key)}
               </span>
               {showRollup && (
                 <span className="rounded-full bg-accent px-1.5 py-0.5 text-[11px] font-semibold text-accent-fg">

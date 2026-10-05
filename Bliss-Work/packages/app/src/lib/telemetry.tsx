@@ -22,6 +22,7 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useRuntime } from "./runtime";
+import { ensureFreshSession } from "./refresh";
 import { useSession } from "../store/session";
 import { surfaceOf } from "./section";
 import { TelemetryQueue, type QueuedEvent } from "./telemetryQueue";
@@ -93,7 +94,7 @@ export async function endTelemetrySession(): Promise<void> {
 }
 
 export function TelemetryBridge() {
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const location = useLocation();
   const status = useSession((s) => s.status);
   const authed = status === "authed";
@@ -118,6 +119,10 @@ export function TelemetryBridge() {
       // Desktop rows are distinguishable from web rows in the record, which
       // matters once the desktop agent starts contributing app usage too.
       typeof window !== "undefined" && "taskboard" in window ? "desktop" : "web",
+      // Skip the beacon rather than send one that is certain to fail (offline,
+      // or a token that expired while the machine slept): the browser logs
+      // every failed request to the console no matter how quietly it is handled.
+      () => ensureFreshSession(config.authBase, config.persistToken, config.getRefreshToken),
     );
     queueRef.current = queue;
     activeQueue = queue;
@@ -224,6 +229,13 @@ export function TelemetryBridge() {
     );
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
+    // Back online: don't sit out the remainder of a backoff that only existed
+    // because we weren't.
+    const onOnline = () => {
+      queue.clearBackoff();
+      void queue.flush();
+    };
+    window.addEventListener("online", onOnline);
 
     const flushTimer = window.setInterval(() => {
       accrue();
@@ -256,6 +268,7 @@ export function TelemetryBridge() {
       document.removeEventListener("visibilitychange", onVisibility);
       document.removeEventListener("visibilitychange", retuneHeartbeat);
       window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("online", onOnline);
       window.clearInterval(flushTimer);
       window.clearInterval(idleTimer);
       window.clearInterval(heartbeatTimer);

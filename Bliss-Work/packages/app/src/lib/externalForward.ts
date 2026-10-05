@@ -19,6 +19,7 @@
  * because a message forwarded to WhatsApp last month must still render
  * correctly even after a second destination becomes pickable.
  */
+import i18n from "../i18n";
 
 /** Matches the CHECK constraint on message_forwards.platform (and the newer
  *  messages/channel_messages.forward_platform) — the full set the schema can
@@ -54,5 +55,7 @@ export function externalPlatformDisplayName(platform: string): string {
  *  from trusted (server-set) metadata rather than from text stored in the
  *  message body. */
 export function externalForwardProvenanceText(platform: string): string {
-  return `Message forwarded to ${externalPlatformDisplayName(platform)}`;
+  return i18n.t("chatList:forwardBadge.messageForwardedTo", {
+    platform: externalPlatformDisplayName(platform),
+  });
 }

@@ -1,0 +1,170 @@
+{
+  "availablePeople": {
+    "searchPlaceholder": "Search teammates…",
+    "empty": {
+      "noMatchesTitle": "No matches",
+      "allBusyTitle": "Everyone's busy",
+      "noMatchesHint": "No available teammate matches that search.",
+      "allBusyHint": "People with no acknowledged tasks appear here."
+    },
+    "toasts": {
+      "hideFailed": "Couldn't hide that person",
+      "restoreFailed": "Couldn't restore that person"
+    },
+    "hiddenToggle": "Hidden from this list ({{count}})",
+    "hiddenBusyNote": "Has active tasks — won't reappear until they're free",
+    "restoreTitle": "Restore to Available",
+    "card": {
+      "selfTitle": "You can't allocate a task to yourself",
+      "assignTitle": "Allocate a task to {{name}}",
+      "youSuffix": " (you)",
+      "pendingBadge": "{{count}} pending, unacked",
+      "onCall": "on a call",
+      "hiddenFromOthers": "hidden from others",
+      "hideTitle": "Hide from Available"
+    }
+  },
+  "memberPicker": {
+    "searchPlaceholder": "Search teammates…",
+    "clearAll": "Clear all",
+    "selectAll": "Select all",
+    "emptyHint": "Everyone matching is already here.",
+    "cancelButton": "Cancel",
+    "addButton": "Add",
+    "sendOrganization": "Send organization"
+  },
+  "inviteePicker": {
+    "searchPlaceholder": "Search your organisation…",
+    "searchAriaLabel": "Search your organisation",
+    "empty": {
+      "noMatches": "No matches.",
+      "noneToInvite": "No one else to invite."
+    },
+    "loading": "Loading people…",
+    "you": "(You)"
+  },
+  "orgPage": {
+    "header": {
+      "title": "Organizations",
+      "subtitle": "Switch between the workspaces you belong to, or manage the current one."
+    },
+    "toasts": {
+      "switched": "Switched organization",
+      "switchFailedTitle": "Couldn't switch organization",
+      "switchFailedDescription": "Please try again."
+    },
+    "yourOrganizations": "Your organizations",
+    "loading": "Loading…",
+    "currentBadge": "Current",
+    "roleLabel": {
+      "admin": "Admin",
+      "member": "Member"
+    },
+    "activeLabel": "Active",
+    "switchButton": "Switch",
+    "switchingLabel": "Switching…",
+    "manageHeading": "Manage {{name}}",
+    "manageFallbackName": "this organization",
+    "membersButton": "Members",
+    "invitePeopleButton": "Invite people"
+  },
+  "orgActivity": {
+    "adminsOnly": {
+      "title": "Admins only",
+      "hint": "Your own activity is under Settings → Your activity."
+    },
+    "backToMembers": "Members",
+    "header": {
+      "title": "Workspace activity",
+      "subtitle": "How the team's time is spent."
+    },
+    "exportButton": "Export",
+    "empty": {
+      "title": "No activity in this period",
+      "hint": "Charts appear once the team has been using {{brand}} for a day."
+    },
+    "stats": {
+      "teamActiveTime": "Team active time",
+      "peopleActive": "People active",
+      "perPerson": "Per person",
+      "perPersonHint": "average over the range",
+      "sessions": "Sessions"
+    },
+    "sections": {
+      "teamActiveTimePerDay": "Team active time per day",
+      "activeTimeByMember": "Active time by member",
+      "allMembers": "All members"
+    },
+    "table": {
+      "member": "Member",
+      "active": "Active",
+      "idle": "Idle",
+      "sessions": "Sessions",
+      "actions": "Actions"
+    },
+    "chart": {
+      "active": "Active",
+      "idle": "Idle"
+    }
+  },
+  "orgSwitcher": {
+    "switchTitle": "Switch organization",
+    "workspaceFallback": "Workspace",
+    "yourOrganizations": "Your organizations",
+    "searchPlaceholder": "Search organizations...",
+    "loadMore": "Load more",
+    "loading": "Loading organizations...",
+    "empty": "No organizations found",
+    "loadFailed": "Couldn't load organizations. Click to retry.",
+    "roleLabel": {
+      "admin": "Admin",
+      "member": "Member"
+    },
+    "switchingLabel": "Switching…",
+    "toasts": {
+      "switchFailedTitle": "Couldn't switch organization",
+      "switchFailedDescription": "Please try again."
+    }
+  },
+  "deleteOrgSection": {
+    "toasts": {
+      "scheduledTitle": "Workspace scheduled for deletion",
+      "scheduledDescription": "Everyone has been signed out. You can cancel until the deadline.",
+      "scheduleFailedTitle": "Couldn't schedule deletion",
+      "cancelled": "Deletion cancelled",
+      "cancelFailedTitle": "Couldn't cancel deletion"
+    },
+    "scheduled": {
+      "heading": "This workspace is scheduled for deletion",
+      "message": "Everything in <bold>{{orgName}}</bold> — messages, files, tasks and activity — will be permanently destroyed on <bold>{{when}}</bold>. Until then this can be undone.",
+      "cancelButton": "Cancel deletion"
+    },
+    "dangerZone": {
+      "heading": "Danger zone",
+      "description": "Deleting this workspace permanently destroys every message, file, task and activity record in it, for everyone.",
+      "openButton": "Delete this workspace…"
+    },
+    "confirm": {
+      "instructions": "This cannot be undone once the grace period ends. Everyone is signed out immediately. To confirm, type the workspace identifier <code>{{slug}}</code> below.",
+      "ariaLabel": "Type the workspace identifier to confirm",
+      "deleteButton": "Delete workspace",
+      "cancelButton": "Cancel"
+    }
+  },
+  "leaveOrgButton": {
+    "leaveButton": "Leave",
+    "toasts": {
+      "failedTitle": "Couldn't leave organization",
+      "failedDescriptionFallback": "Please try again.",
+      "left": "You left {{orgName}}",
+      "signedOutTitle": "Signed out",
+      "signedOutDescription": "Please sign in again to continue."
+    },
+    "confirmDialog": {
+      "title": "Leave {{orgName}}?",
+      "message": "You'll lose access to every channel, message and task in <bold>{{orgName}}</bold>. Nothing you posted is deleted, and an admin there can invite you back.",
+      "movedMessage": " You'll be moved to <bold>{{orgName}}</bold>.",
+      "confirmLabel": "Leave organization"
+    }
+  }
+}

@@ -11,7 +11,7 @@ import type { StickyTaskDTO } from "@taskboard/shared";
 /**
  * How many tasks a terminal bucket shows.
  *
- * Completed, Left and Ignored are archives: they accumulate for as long as
+ * Completed, Left, Ignored and Missed are archives: they accumulate for as long as
  * someone uses the product and nothing is ever removed from them, so an
  * uncapped list is a screen that gets slower and less useful every month.
  *
@@ -22,14 +22,14 @@ export const TERMINAL_VIEW_LIMIT = 10;
 
 /** Whether `view` is an archive (capped) rather than outstanding work. */
 export function isTerminalView(view: string): boolean {
-  return view === "completed" || view === "left" || view === "ignored";
+  return view === "completed" || view === "left" || view === "ignored" || view === "missed";
 }
 
 /**
  * When a task reached its terminal state, for ordering the archives.
  *
- * Exactly one of the three timestamps is set for a given bucket, so reading all
- * three and taking the first present one is not ambiguity — it is one helper
+ * Exactly one of the four timestamps is set for a given bucket, so reading all
+ * four and taking the first present one is not ambiguity — it is one helper
  * instead of three.
  *
  * `assignedAt` is the fallback because the three are optional on the DTO, and a
@@ -42,5 +42,5 @@ export function isTerminalView(view: string): boolean {
  * has touched since.
  */
 export function terminalAt(t: StickyTaskDTO): string {
-  return t.completedAt ?? t.leftAt ?? t.ignoredAt ?? t.assignedAt;
+  return t.completedAt ?? t.leftAt ?? t.ignoredAt ?? t.missedAt ?? t.assignedAt;
 }

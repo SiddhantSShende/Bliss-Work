@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { EventType, type ChannelDTO, type ConversationDTO, type ServerEvent, type UserDTO } from '@taskboard/shared';
 import { useRuntime } from '@taskboard/app/lib/runtime';
@@ -8,6 +8,7 @@ import { onMailNotificationResponse, showMailNotification } from '../calls/mailN
 import { onTaskNotificationResponse, showTaskAssignedNotification } from '../calls/taskNotifications';
 import { navigationRef } from '../navigation/navigationRef';
 import { qk } from './queryKeys';
+import { handleEvent } from './wsBridgeEvents';
 
 /**
  * Mobile's own live-update bridge: subscribes to the already-connected `ws`
@@ -28,12 +29,30 @@ export function useWsBridge(): void {
   const { ws, api } = useRuntime();
   const qc = useQueryClient();
   const meId = useSession((s) => s.user?.id);
+  const meIdRef = useRef(meId);
+  meIdRef.current = meId;
+
+  // The socket is authenticated as ONE org membership, so it follows the active
+  // org like web's WsEventBridge: re-dialled under the new token on an org switch,
+  // and closed when this unmounts (sign-out). Before, nothing ever closed it —
+  // a signed-out user kept showing as Online, and the next user's connect() was a
+  // no-op on the previous user's live socket.
+  const orgId = useSession((s) => s.user?.orgId);
 
   useEffect(() => {
-    const off = ws.on((e) => handleEvent(e, qc, meId, api));
-    return off;
+    void ws.connect(); // a no-op when useConnectEventBridge already opened it
+    // Both handlers live in this one effect so they are (re)registered with every
+    // connect/close cycle: `handleEvent` is the shared cache layer (wsBridgeEvents.ts);
+    // `handleLocalEvent` is mobile's own layer — OS notifications and call-range refreshes.
+    const offCache = ws.on((e) => handleEvent(e, qc));
+    const offLocal = ws.on((e) => handleLocalEvent(e, qc, meIdRef.current, api));
+    return () => {
+      offCache();
+      offLocal();
+      ws.close();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, meId]);
+  }, [ws, orgId]);
 
   // Tapping a message notification — including one that launched the app from
   // a killed state — opens the real conversation/channel it was for. Same
@@ -66,85 +85,32 @@ export function useWsBridge(): void {
   }, []);
 }
 
-function handleEvent(e: ServerEvent, qc: QueryClient, meId: string | undefined, api: ReturnType<typeof useRuntime>['api']) {
-  const invalidate = (key: readonly unknown[]) => void qc.invalidateQueries({ queryKey: key as unknown[] });
-
+/**
+ * Mobile-only reactions to server events, on top of the shared cache layer in
+ * `wsBridgeEvents.ts`: a local OS notification for something that is not ours
+ * (a message, a channel message, a task assigned to us, a mail), and refreshing
+ * the meetings calendar ranges when a call changes.
+ */
+function handleLocalEvent(e: ServerEvent, qc: QueryClient, meId: string | undefined, api: ReturnType<typeof useRuntime>['api']) {
   switch (e.type) {
-    // Patches the same qk.presence cache usePresence's poll reconciles into —
-    // an online/offline edge flips a dot immediately instead of waiting up to
-    // 20s for the next poll tick.
-    case EventType.PresenceOnline:
-      qc.setQueryData<string[]>(qk.presence, (prev) => Array.from(new Set([...(prev ?? []), e.userId])));
-      break;
-    case EventType.PresenceOffline:
-      qc.setQueryData<string[]>(qk.presence, (prev) => (prev ?? []).filter((id) => id !== e.userId));
-      break;
-    case EventType.PresenceSnapshot:
-      qc.setQueryData<string[]>(qk.presence, e.online);
-      break;
     case EventType.MessageCreated:
-      invalidate(qk.messages(e.conversationId));
-      invalidate(qk.conversations);
       // Not our own message (echoed back to our own other device/session).
       if (e.senderId !== meId) void notifyNewChatMessage(e.conversationId, e.senderId, e.body, qc);
       break;
-    case EventType.MessageRead:
-    case EventType.MessageDelivered:
-    case EventType.MessageDeleted:
-    case EventType.MessageDismissed:
-      invalidate(qk.messages(e.conversationId));
-      break;
-    // Reactions live in their own cache (qk.reactions), not qk.messages — see
-    // that key's own doc — so a reaction event only needs to clear this.
-    case EventType.MessageReaction:
-      invalidate(qk.reactions(e.conversationId));
-      break;
-    case EventType.ConversationIgnored:
-    case EventType.ConversationBlocked:
-    case EventType.ConversationUnblocked:
-      invalidate(qk.conversations);
-      break;
     case EventType.ChannelMessageCreated:
-      invalidate(qk.channelMessages(e.channelId));
-      invalidate(qk.channels);
       if (e.senderId !== meId) void notifyNewChannelMessage(e.channelId, e.senderDisplayName ?? e.senderUsername, e.body, qc);
       break;
-    case EventType.ChannelMessageDeleted:
-      invalidate(qk.channelMessages(e.channelId));
-      invalidate(qk.channels);
-      break;
-    case EventType.ChannelMessageReaction:
-      invalidate(qk.channelReactions(e.channelId));
-      break;
-    case EventType.NotificationCreated:
-      invalidate(qk.notifications);
-      break;
     case EventType.TaskAssigned:
-      invalidate(qk.tasksAssigned);
       if (e.senderId !== meId) void notifyTaskAssigned(e.taskId, e.title, e.senderId, e.senderUsername, qc);
-      break;
-    case EventType.TaskAcknowledged:
-    case EventType.TaskCompleted:
-    case EventType.TaskIgnored:
-    case EventType.TaskLeft:
-    case EventType.TaskReviewed:
-      invalidate(qk.tasksAssigned);
-      invalidate(qk.tasksSent);
       break;
     case EventType.CallScheduled:
     case EventType.CallStarted:
     case EventType.CallParticipantAdded:
     case EventType.CallParticipantLeft:
-      invalidate(qk.myCalls);
-      invalidate(qk.callsRangePrefix);
-      break;
     case EventType.CallEnded:
-      invalidate(qk.myCalls);
-      invalidate(qk.callHistory);
-      invalidate(qk.callsRangePrefix);
+      void qc.invalidateQueries({ queryKey: qk.callsRangePrefix });
       break;
     case EventType.MailDelivered:
-      invalidate(qk.mailInbox);
       if (e.senderId !== meId) {
         void api
           .mail(e.mailId)

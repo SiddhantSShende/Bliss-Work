@@ -1,17 +1,18 @@
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ChannelMessageDTO, MessageDTO } from "@taskboard/shared";
+import { useTranslation } from "react-i18next";
+import type { CallDTO, ChannelDTO, ChannelMessageDTO, MessageDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { surfaceOf } from "../lib/section";
 import { getSessionId } from "../lib/telemetrySession";
-import { SCREENSHOT_BLOCKED_MESSAGE, watchCaptureKeys } from "../lib/screenGuard";
-import { useActiveThread } from "../lib/activeThread";
-import { qk } from "../lib/queryBridge";
+import { watchCaptureKeys } from "../lib/screenGuard";
+import { useActiveThread, type ActiveThread } from "../lib/activeThread";
+import { qk } from "../lib/queryKeys";
 
 /**
- * Warns the user on a detected screenshot attempt, and reports it to the server.
+ * Warns the user on a detected screenshot attempt, and records Desktop attempts.
  *
  * Renders nothing. Mounted once, next to the <Toaster />, because an attempt can
  * happen on any screen and the warning has to appear wherever the user is.
@@ -26,12 +27,11 @@ import { qk } from "../lib/queryBridge";
  *     detection and warning only. It is installed ONLY when the desktop host is
  *     absent; running both would double-report the same keystroke.
  *
- * The attempt is reported to telemetry-svc so the control leaves a record on the
- * SERVER rather than a toast that vanishes with the tab — an admin can see it in
- * the member's activity timeline. Reporting is skipped when the desktop has
- * already recorded it through the activity agent (`recorded`), and when there is
- * no session to attribute it to. The warning itself always fires: a signed-out
- * user still gets told, we simply have nobody to record it against.
+ * Desktop attempts are reported to telemetry-svc so the control leaves a record
+ * in the member's activity timeline. Browser key handling retains its warning
+ * behavior but does not create screenshot activity rows. Reporting is skipped
+ * when main already recorded an attempt and when there is no session to
+ * attribute it to. The warning itself always fires.
  *
  * ── The in-chat notice ────────────────────────────────────────────────────────
  * If a 1:1 chat or channel is open when the attempt happens, the SAME detected
@@ -39,9 +39,8 @@ import { qk } from "../lib/queryBridge";
  * screenshot" — via the same send path any other message takes
  * (kind: "screenshot_attempt"; see ChatThread/ThreadView for how it renders).
  * This is a DIFFERENT concern from the telemetry beacon above and fires on its
- * own schedule: it does not care whether the desktop's activity agent already
- * recorded the attempt (that gate is about consented device monitoring, not
- * about whether the people in this conversation get told), and it does nothing
+ * own schedule: it does not care whether the activity row was already recorded,
+ * and it does nothing
  * at all when no chat/channel is open — there is nowhere to post it. Which
  * thread is open comes from lib/activeThread, because this component is mounted
  * outside the router (see App.tsx) and cannot read that itself.
@@ -58,25 +57,27 @@ import { qk } from "../lib/queryBridge";
  * seq, so this writes the FINAL row, not a temp one to be swapped later.
  */
 export function ScreenshotNotice() {
+  const { t } = useTranslation("common");
   const { api, config } = useRuntime();
   const qc = useQueryClient();
   const authed = useSession((s) => s.status) === "authed";
   const user = useSession((s) => s.user);
 
   const onAttempt = useCallback(
-    (chord: string, alreadyRecorded: boolean) => {
+    (chord: string, alreadyRecorded: boolean, route?: string) => {
       // Read live, not via a closed-over hook value: this callback is bound
       // once and re-bound only when the effect below re-runs, so a value
       // captured at bind time can go stale between a route change and the
       // next render — a capture chord fired in that window would otherwise
       // post into the thread the user just navigated away from.
       const thread = useActiveThread.getState().thread;
-      toast.error(SCREENSHOT_BLOCKED_MESSAGE);
+      toast.error(t("screenshotBlocked"));
       // Both the beacon and the chat notice attribute to a signed-in user;
       // neither has anyone to report as without one.
       if (!authed || !user) return;
 
-      if (!alreadyRecorded) {
+      if (!alreadyRecorded && config.kind === "electron") {
+        const context = screenshotContext(route, thread, qc);
         // Flushed on its own rather than queued with the ordinary beacon traffic:
         // a security event that arrives half an hour later, if the tab survives
         // that long, is worth much less than one that arrives now. Failure is
@@ -85,7 +86,7 @@ export function ScreenshotNotice() {
         void api
           .sendBeacon({
             sessionId: getSessionId(),
-            source: config.kind === "web" ? "web" : "desktop",
+            source: "desktop",
             activeMs: 0,
             idleMs: 0,
             ended: false,
@@ -94,8 +95,17 @@ export function ScreenshotNotice() {
                 action: "screenshot.attempted",
                 category: "security",
                 occurredAt: new Date().toISOString(),
-                surface: surfaceOf(window.location.pathname) ?? undefined,
-                detail: { chord },
+                clientEventId: crypto.randomUUID(),
+                surface: context.surface,
+                targetKind: context.targetKind,
+                targetId: context.targetId,
+                detail: {
+                  chord,
+                  context: context.label,
+                  ...(context.route ? { route: context.route } : {}),
+                  ...(context.targetId ? { contextId: context.targetId } : {}),
+                  ...(context.name ? { contextName: context.name } : {}),
+                },
               },
             ],
           })
@@ -157,7 +167,7 @@ export function ScreenshotNotice() {
         })
         .catch((err) => console.error("[security] failed to post screenshot notice", err));
     },
-    [api, authed, config.kind, qc, user],
+    [api, authed, config.kind, qc, t, user],
   );
 
   useEffect(() => {
@@ -167,11 +177,61 @@ export function ScreenshotNotice() {
     // reason main keeps one: nothing else is watching.
     if (config.onScreenshotBlocked) {
       return config.onScreenshotBlocked((info) =>
-        onAttempt(info?.chord ?? "desktop", info?.recorded ?? false),
+        onAttempt(info?.chord ?? "desktop", info?.recorded ?? false, info?.route),
       );
     }
     return watchCaptureKeys((chord) => onAttempt(chord, false));
   }, [config, onAttempt]);
 
   return null;
+}
+
+function screenshotContext(route: string | undefined, thread: ActiveThread | null, qc: ReturnType<typeof useQueryClient>) {
+  const path = route?.startsWith("/") ? route.split("?")[0] : undefined;
+  const meetingId = path?.match(/^\/(?:call|app\/meetings)\/([^/]+)$/)?.[1];
+  if (meetingId && meetingId !== "all") {
+    const call = qc.getQueryData<CallDTO>(qk.call(meetingId));
+    const name = call?.title.trim() || undefined;
+    return {
+      label: name ? `Meeting: ${name}` : "Meeting",
+      name,
+      route: path,
+      surface: "meetings",
+      targetKind: "meeting",
+      targetId: meetingId,
+    };
+  }
+
+  const surface = path ? surfaceOf(path) : null;
+  const routeChannelId = path?.match(/^\/app\/channels\/([^/]+)$/)?.[1];
+  if (surface === "chats" && thread?.kind === "chat") {
+    const name = thread.peerName.trim() && thread.peerName !== "Unknown user" ? thread.peerName : undefined;
+    return {
+      label: name ? `Chat: ${name}` : "Chats",
+      name,
+      route: path,
+      surface,
+      targetKind: "conversation",
+      targetId: thread.conversationId,
+    };
+  }
+  if (
+    surface === "channels" &&
+    thread?.kind === "channel" &&
+    (!routeChannelId || routeChannelId === thread.channelId)
+  ) {
+    const name = qc.getQueryData<ChannelDTO[]>(qk.channels)?.find((channel) => channel.id === thread.channelId)?.name;
+    return {
+      label: name ? `Channel: #${name}` : "Channels",
+      name,
+      route: path,
+      surface,
+      targetKind: "channel",
+      targetId: thread.channelId,
+    };
+  }
+
+  const labels: Record<string, string> = { meetings: "Meetings" };
+  const label = surface ? labels[surface] ?? surface[0]!.toUpperCase() + surface.slice(1) : "BlissWork Desktop";
+  return { label, route: path, surface: surface ?? undefined };
 }

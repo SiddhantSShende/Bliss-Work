@@ -8,12 +8,29 @@
  * re-flatten on every render.
  */
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { ApiClient, InboxItemDTO, InboxItemKind, InboxPageDTO, MessageDTO } from "@taskboard/shared";
+import type { ApiClient, InboxItemDTO, InboxItemKind, InboxPageDTO, MessageDTO, NotificationPageDTO } from "@taskboard/shared";
 import { qk } from "./queryBridge";
 import { mergeOlderMessages } from "./threadPagination";
+import { flattenNotificationPages } from "./notificationPages";
 
 /** Server default for thread history is 12 — see services/messaging-svc/internal/api/threads.go */
 export const THREAD_PAGE_SIZE = 12;
+export const NOTIFICATION_PAGE_SIZE = 10;
+
+/** `read` false = the unread feed (default, `qk.notifications`); true = the read
+ *  feed (`qk.notificationsRead`). The filter runs on the server. */
+export function useNotificationPages(api: ApiClient, enabled: boolean, read = false) {
+  return useInfiniteQuery({
+    queryKey: read ? qk.notificationsRead : qk.notifications,
+    queryFn: ({ pageParam }) =>
+      api.notificationPage(pageParam as string | undefined, NOTIFICATION_PAGE_SIZE, read),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage: NotificationPageDTO) => lastPage.nextCursor ?? undefined,
+    enabled,
+  });
+}
+
+export const flatNotificationPages = flattenNotificationPages;
 
 /**
  * 25 per page, default. When peerId is given, the feed is narrowed to that

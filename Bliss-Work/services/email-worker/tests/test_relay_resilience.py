@@ -33,11 +33,28 @@
     through their mailbox a second time); _record_transport is best-effort
     like _mark_sent's write is; and _handle_outbound_mail now has the same
     catch-all boundary _handle already puts around the notification path.
+
+  * The reaper's abandonment window was a flat 30s, but a legitimate claim
+    could sit 'pending' far longer than that: the notification path's grace
+    wait alone can reach offline_threshold_seconds (60s default, operator-
+    configurable higher), and Mailer.send()'s own retry budget can reach
+    ~108s on top of that. _inflight only protects a row from ITS OWN
+    process's reaper — every replica's reaper sweeps every replica's rows
+    (there is no per-row owning-replica column), so replica B could delete
+    replica A's still-in-progress claim. The row vanishing mid-send meant
+    A's later _mark_sent silently updated zero rows, and a subsequent
+    redelivery found no claim at all and sent the message a second time.
+    _reap_after_seconds/_REAP_SEND_BUDGET_SECONDS widen the window to a real
+    upper bound (derived from live settings, not hardcoded, so raising
+    OFFLINE_THRESHOLD_SECONDS can't silently reopen this), and _touch_claim
+    resets a row's clock at each phase boundary so the window only has to
+    cover one phase at a time rather than their sum.
 """
 from __future__ import annotations
 
 import json
 import types
+from datetime import datetime, timedelta, timezone
 
 import asyncpg
 import pytest
@@ -64,7 +81,12 @@ def _relay_settings() -> types.SimpleNamespace:
     return types.SimpleNamespace(
         smtp_host="mailpit", smtp_port=1025, smtp_from="no-reply@test.local",
         smtp_username="", smtp_password="", smtp_starttls=False,
-        redis_url="redis://localhost:6379/0", poison_max_failures=3,
+        redis_url="redis://localhost:6379/0", relay_max_concurrency=4,
+        poison_max_failures=3,
+        # Read by _reap_once's _reap_after_seconds — present so this harness
+        # matches a real Settings object instead of failing with an
+        # AttributeError that reads as a broken reaper rather than a stale stub.
+        offline_threshold_seconds=60,
     )
 
 
@@ -153,16 +175,17 @@ class _FetchOnlyConn:
 
     def __init__(self, rows: list[dict]) -> None:
         self._rows = rows
-        self.updated: list[tuple] = []
+        self.deleted: list[tuple] = []
 
     async def fetch(self, *_a, **_kw):
         return [_Row(r) for r in self._rows]
 
-    async def executemany(self, _sql, rows):
-        self.updated.extend(rows)
+    async def executemany(self, sql, rows):
+        if "DELETE FROM email_consumed" in sql:
+            self.deleted.extend(rows)
 
 
-# ── _is_sent / _already_sent: a DB error must not propagate ─────────────────
+# ── dedup claims: a DB error must not propagate ─────────────────────────────
 
 
 async def test_relay_is_sent_survives_a_db_error():
@@ -174,11 +197,11 @@ async def test_relay_is_sent_survives_a_db_error():
     assert result is False  # treated as "not confirmed sent" -> normal retry path
 
 
-async def test_worker_already_sent_survives_a_db_error():
+async def test_worker_claim_survives_a_db_error():
     worker = EmailWorker(_relay_settings())
     worker._db = _Pool(_FailingConn())  # noqa: SLF001
 
-    result = await worker._already_sent("evt-1")  # noqa: SLF001
+    result = await worker._claim("evt-1", "recipient-1")  # noqa: SLF001
 
     assert result is False
 
@@ -231,7 +254,7 @@ async def test_reap_once_skips_rows_this_process_has_inflight():
 
     await consumer._reap_once()  # noqa: SLF001
 
-    assert conn.updated == [("evt-abandoned", "r2")]
+    assert conn.deleted == [("evt-abandoned", "r2")]
 
 
 async def test_reap_once_reclaims_nothing_when_everything_is_inflight():
@@ -242,7 +265,7 @@ async def test_reap_once_reclaims_nothing_when_everything_is_inflight():
 
     await consumer._reap_once()  # noqa: SLF001
 
-    assert conn.updated == []
+    assert conn.deleted == []
 
 
 async def test_reap_once_survives_a_db_error():
@@ -450,3 +473,171 @@ async def test_handle_outbound_mail_failure_does_not_stop_the_consumer_processin
     )
     assert second is True
     assert len(consumer._mailer.sends) == 1  # noqa: SLF001
+
+
+# ── reaper abandonment window: must be a real upper bound, not a flat 30s ───
+
+
+def test_reap_after_seconds_covers_the_wider_of_grace_window_and_send_budget():
+    consumer = RelayConsumer(_relay_settings())  # offline_threshold_seconds=60
+    assert consumer._reap_after_seconds() == relay_consumer._REAP_SEND_BUDGET_SECONDS  # noqa: SLF001
+
+    # An operator raising OFFLINE_THRESHOLD_SECONDS past the send budget must
+    # widen the reap window too, or that config change alone reopens the race.
+    consumer._settings.offline_threshold_seconds = relay_consumer._REAP_SEND_BUDGET_SECONDS + 500  # noqa: SLF001
+    assert consumer._reap_after_seconds() == relay_consumer._REAP_SEND_BUDGET_SECONDS + 500  # noqa: SLF001
+
+
+async def test_reap_once_queries_with_a_cutoff_that_reflects_the_widened_window():
+    consumer = RelayConsumer(_relay_settings())
+    conn = _CutoffRecordingConn()
+    consumer._db = _Pool(conn)  # noqa: SLF001
+
+    before = datetime.now(timezone.utc)
+    await consumer._reap_once()  # noqa: SLF001
+    after = datetime.now(timezone.utc)
+
+    assert len(conn.cutoffs) == 1
+    cutoff = conn.cutoffs[0]
+    window = consumer._reap_after_seconds()  # noqa: SLF001
+    assert before - timedelta(seconds=window) <= cutoff <= after - timedelta(seconds=window)
+    # The old bug in one number: a flat 30s window was shorter than even the
+    # default 60s offline_threshold_seconds grace wait alone.
+    assert (datetime.now(timezone.utc) - cutoff).total_seconds() > 30
+
+
+class _CutoffRecordingConn:
+    """Records the cutoff timestamp _reap_once queries with; no candidates."""
+
+    def __init__(self) -> None:
+        self.cutoffs: list[datetime] = []
+
+    async def fetch(self, _sql, cutoff):
+        self.cutoffs.append(cutoff)
+        return []
+
+
+# ── multi-replica: the actual race the widened window + _touch_claim close ──
+
+
+class _SharedEmailConsumedDB:
+    """A minimal in-memory stand-in for the shared `email_consumed` table —
+    shared across multiple RelayConsumer instances in one test the same way
+    the real table is shared across replicas, so the cross-replica race can
+    be exercised without a real Postgres."""
+
+    def __init__(self) -> None:
+        self.rows: dict[tuple[str, str], dict] = {}
+
+    def claim(self, event_id: str, recipient_id: str) -> bool:
+        key = (event_id, recipient_id)
+        if key in self.rows:
+            return False
+        self.rows[key] = {"state": "pending", "consumed_at": datetime.now(timezone.utc), "owner": "relay"}
+        return True
+
+    def touch(self, event_id: str, recipient_id: str) -> None:
+        row = self.rows.get((event_id, recipient_id))
+        if row is not None and row["state"] == "pending":
+            row["consumed_at"] = datetime.now(timezone.utc)
+
+    def reap_candidates(self, cutoff: datetime) -> list[tuple[str, str]]:
+        return [
+            k for k, r in self.rows.items()
+            if r["state"] == "pending" and r["owner"] == "relay" and r["consumed_at"] < cutoff
+        ]
+
+    def delete_pending(self, keys: list[tuple[str, str]]) -> None:
+        for k in keys:
+            row = self.rows.get(k)
+            if row is not None and row["state"] == "pending":
+                del self.rows[k]
+
+
+class _SharedConn:
+    """Dispatches the same SQL shapes _claim/_touch_claim/_reap_once issue
+    against one _SharedEmailConsumedDB, standing in for several replicas'
+    connections all pointed at the same real table."""
+
+    def __init__(self, db: _SharedEmailConsumedDB) -> None:
+        self.db = db
+
+    async def execute(self, sql: str, *args):
+        if "INSERT INTO email_consumed" in sql:
+            event_id, recipient_id = args
+            return "INSERT 0 1" if self.db.claim(event_id, recipient_id) else "INSERT 0 0"
+        if "UPDATE email_consumed SET consumed_at" in sql:
+            event_id, recipient_id = args
+            self.db.touch(event_id, recipient_id)
+            return "UPDATE 1"
+        raise AssertionError(f"unexpected execute in this test: {sql}")
+
+    async def fetch(self, _sql: str, cutoff: datetime):
+        return [_Row(event_id=k[0], recipient_id=k[1]) for k in self.db.reap_candidates(cutoff)]
+
+    async def executemany(self, _sql: str, rows):
+        self.db.delete_pending([tuple(r) for r in rows])
+
+
+def _shared_replica(db: _SharedEmailConsumedDB) -> RelayConsumer:
+    """One 'replica': its own RelayConsumer instance (own _inflight set, own
+    process-local state) pointed at the SAME shared table."""
+    replica = RelayConsumer(_relay_settings())
+    replica._db = _Pool(_SharedConn(db))  # noqa: SLF001
+    return replica
+
+
+async def test_two_replicas_do_not_race_a_row_still_inside_its_grace_wait():
+    """The bug this change exists to fix. Replica A claims a row and is
+    somewhere in its (up to offline_threshold_seconds) grace wait — 40s in,
+    past the OLD flat 30s window but well inside the default 60s window.
+    Replica B's reaper sweep runs concurrently, knowing nothing about A's
+    work (B's own _inflight is empty — that is exactly why _inflight alone
+    can never fix this: it only ever protects the SAME process's own rows).
+    The row must survive."""
+    db = _SharedEmailConsumedDB()
+    replica_a = _shared_replica(db)
+    replica_b = _shared_replica(db)  # a different process entirely
+
+    assert db.claim("evt-1", "alice") is True
+    db.rows[("evt-1", "alice")]["consumed_at"] = datetime.now(timezone.utc) - timedelta(seconds=40)
+    assert not replica_a._inflight and not replica_b._inflight  # noqa: SLF001 - the point: not what's protecting this
+
+    await replica_b._reap_once()  # noqa: SLF001
+
+    assert ("evt-1", "alice") in db.rows, "must survive: A is still legitimately inside its grace wait"
+    assert db.rows[("evt-1", "alice")]["state"] == "pending"
+
+
+async def test_a_genuinely_abandoned_row_past_the_full_send_budget_is_still_reclaimed():
+    """Widening the window must not turn the reaper into a no-op: a claim
+    with no touch for longer than the full send budget is a crashed replica,
+    not a slow one, and must still be released for redelivery."""
+    db = _SharedEmailConsumedDB()
+    replica_b = _shared_replica(db)
+
+    assert db.claim("evt-2", "bob") is True
+    stale = relay_consumer._REAP_SEND_BUDGET_SECONDS + 30  # noqa: SLF001
+    db.rows[("evt-2", "bob")]["consumed_at"] = datetime.now(timezone.utc) - timedelta(seconds=stale)
+
+    await replica_b._reap_once()  # noqa: SLF001
+
+    assert ("evt-2", "bob") not in db.rows, "genuinely abandoned past the full budget: reclaimed"
+
+
+async def test_a_touch_refresh_protects_a_row_whose_original_claim_is_long_past():
+    """_touch_claim is what lets the window stay a real (not inflated-for-
+    the-worst-case-ever) bound: a row claimed long ago but refreshed recently
+    — e.g. replica A just finished its grace wait and is about to send — must
+    survive even though its ORIGINAL claim time alone would not protect it."""
+    db = _SharedEmailConsumedDB()
+    replica_a = _shared_replica(db)
+    replica_b = _shared_replica(db)
+
+    assert db.claim("evt-3", "carol") is True
+    db.rows[("evt-3", "carol")]["consumed_at"] = datetime.now(timezone.utc) - timedelta(seconds=500)
+    await replica_a._touch_claim("evt-3", "carol")  # noqa: SLF001
+
+    await replica_b._reap_once()  # noqa: SLF001
+
+    assert ("evt-3", "carol") in db.rows, "the touch reset the clock; must not be reclaimed"

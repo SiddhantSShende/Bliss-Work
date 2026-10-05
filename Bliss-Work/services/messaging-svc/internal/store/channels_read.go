@@ -151,12 +151,20 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 			    mine.role,
 			    -- Same read-cursor mechanism 0028_channel_read_receipts.sql added for
 			    -- "Seen by" — mine.last_read_seq — turned into a count, mirroring
-			    -- ListConversations' own unread subquery exactly.
+			    -- ListConversations' own unread subquery exactly, including its
+			    -- exclusion of messages this caller cleared or hid: those only ever
+			    -- insert into message_hides and never move the cursor, so once every
+			    -- message is hidden nothing is left for the client to mark read and
+			    -- the badge would be stuck for good.
 			    COALESCE((
 			        SELECT count(*) FROM channel_messages m2
 			        WHERE m2.channel_id = c.id
 			          AND m2.sender_id <> $2
 			          AND m2.seq > mine.last_read_seq
+			          AND NOT EXISTS (
+			              SELECT 1 FROM message_hides h
+			              WHERE h.message_id = m2.id AND h.user_id = $2
+			          )
 			    ), 0) AS unread,
 			    lm.sender_id AS last_message_sender_id
 			FROM channels c
@@ -165,6 +173,8 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 			LEFT JOIN LATERAL (
 			    SELECT body, body_enc, sender_id FROM channel_messages m
 			    WHERE m.channel_id = c.id
+			      -- Unsent messages keep their body_enc; skip them (see ListConversations).
+			      AND m.deleted_for_all_at IS NULL
 			      -- Skips messages THIS caller cleared/hid, so the preview shows the
 			      -- newest message the caller can actually still see rather than one
 			      -- they deliberately hid (see ClearChannel/HideChannelMessage).

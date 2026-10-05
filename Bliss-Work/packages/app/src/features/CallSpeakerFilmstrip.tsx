@@ -1,20 +1,29 @@
 /**
- * Everyone besides (or including) the stage, small, capped so it never grows
- * to compete with the stage for space. Whoever the stage is currently
- * following always has a seat in it — bumped to the front if their natural
- * position would otherwise fall past the cap — so "who's the active speaker"
- * reads the same way here as it does above, instead of sometimes being
- * off-screen in this row.
+ * Everyone besides the stage, small, capped so it never grows to compete with
+ * the stage for space. The stage participant is deliberately left OUT —
+ * their tile is already the big one — with one exception: while they are
+ * SHARING, the big tile is showing their screen, not their face, so they get
+ * a seat here too (first, so a full row can never push it out), showing their
+ * camera instead (see CallTile's `source` prop). Leaving them in
+ * unconditionally, the way this component used to, spent one of the strip's
+ * limited seats on a second copy of the exact picture already on the stage —
+ * with four participants and a cap of three, that meant only two of the other
+ * three were ever reachable.
  *
- * Two orientations, chosen by the caller to match which of the redesign's two
+ * Three orientations, chosen by the caller to match which of the redesign's
  * main-content layouts is showing: a VERTICAL stack beside a speaking
  * participant's stage tile, a HORIZONTAL row below a shared screen (a wide
  * screen capture and a side column fight each other for width; a row below
- * it doesn't).
+ * it doesn't), or AUTO for the speaker layout, which is the vertical stack when
+ * the area is wide enough to spare a column and the horizontal row when it is
+ * not (a narrow window, or the chat panel open). "Wide enough" is asked of the
+ * nearest `@container` ancestor, not of the viewport, because the room the
+ * stage really has is what is left after the side panel took its share.
  */
 import { Users } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
-import { CallTile } from "./CallTile";
+import { CallTileSlot } from "./CallTileHost";
 import type { RoomParticipant } from "../lib/useCallRoom";
 
 export function CallSpeakerFilmstrip({
@@ -30,50 +39,75 @@ export function CallSpeakerFilmstrip({
   limit = orientation === "vertical" ? 3 : 5,
 }: {
   participants: RoomParticipant[];
-  /** Whoever is on the big stage right now — always kept visible and given
-   *  the highlight, wherever they'd otherwise fall in the row. */
+  /** Whoever is on the big stage right now — left out of this row entirely,
+   *  except as the camera-only entry described in the module doc above. */
   activeId: string | null;
   hands: Set<string>;
   pinned: string | null;
   onTogglePin: (identity: string) => void;
-  orientation?: "vertical" | "horizontal";
+  orientation?: "vertical" | "horizontal" | "auto";
   limit?: number;
 }) {
-  const active = participants.filter((p) => p.identity === activeId);
+  const { t } = useTranslation("calls");
+  const stage = participants.find((p) => p.identity === activeId);
   const rest = participants.filter((p) => p.identity !== activeId);
-  const shown = [...active, ...rest].slice(0, limit);
-  const overflow = participants.length - shown.length;
+  // See the module doc above: the stage rejoins the pool, camera-only, only
+  // while it is a screen share — anyone just speaking or pinned already has
+  // their one and only tile up on the big stage.
+  const pool = stage?.sharing ? [stage, ...rest] : rest;
+  const shown = pool.slice(0, limit);
+  const overflow = pool.length - shown.length;
   const vertical = orientation === "vertical";
+  const auto = orientation === "auto";
+
+  // A thumbnail's box, per orientation. 16:9 in every one — the shape a camera
+  // is — so the picture fills it: a row of them is as tall as the row, a stack
+  // of them as wide as the stack.
+  const thumb = auto
+    ? "aspect-video h-full @xl:h-auto @xl:w-full"
+    : vertical
+      ? "aspect-video w-full"
+      : "aspect-video h-full";
 
   return (
     <div
       className={cn(
         "flex shrink-0 gap-2",
-        vertical ? "h-full w-32 flex-col overflow-y-auto" : "h-24 overflow-x-auto",
+        auto
+          ? "h-24 overflow-x-auto @xl:h-full @xl:w-32 @xl:flex-col @xl:overflow-y-auto @xl:overflow-x-hidden"
+          : vertical
+            ? "h-full w-32 flex-col overflow-y-auto"
+            : "h-24 overflow-x-auto",
       )}
-      aria-label="Other participants"
+      aria-label={t("filmstrip.ariaLabel")}
     >
       {shown.map((p) => (
-        <div key={p.identity} className={cn("shrink-0", vertical ? "aspect-video w-full" : "h-full w-28")}>
-          <CallTile
-            p={p}
-            size="strip"
-            pinned={pinned === p.identity}
-            active={p.identity === activeId}
-            handRaised={hands.has(p.identity)}
-            onTogglePin={() => onTogglePin(p.identity)}
-          />
-        </div>
+        <CallTileSlot
+          key={p.identity}
+          className={cn("shrink-0", thumb)}
+          p={p}
+          size="strip"
+          pinned={pinned === p.identity}
+          active={p.identity === activeId}
+          // Only the stage's own re-included entry (see `pool` above) is
+          // ever the sharer — everyone else here already shows auto's
+          // ordinary camera-or-screen picture.
+          source={p.identity === activeId ? "camera" : "auto"}
+          handRaised={hands.has(p.identity)}
+          onTogglePin={() => onTogglePin(p.identity)}
+        />
       ))}
       {overflow > 0 && (
         <div
           className={cn(
             "flex shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-border/70 bg-surface-2 text-center text-muted",
-            vertical ? "aspect-video w-full" : "h-full w-28",
+            thumb,
           )}
         >
           <Users size={16} />
-          <span className="text-[11px] font-medium leading-tight">+{overflow} More members</span>
+          <span className="text-[11px] font-medium leading-tight">
+            {t("filmstrip.moreMembers", { count: overflow })}
+          </span>
         </div>
       )}
     </div>

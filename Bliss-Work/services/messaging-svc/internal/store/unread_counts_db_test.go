@@ -23,6 +23,8 @@ func TestUnreadCounts_MatchesConversationsSum(t *testing.T) {
 	orgID := uuid.NewString()
 	sender := uuid.NewString()
 	recipient := uuid.NewString()
+	seedUser(t, s, orgID, sender, "sender", "Sender")
+	seedUser(t, s, orgID, recipient, "recipient", "Recipient")
 
 	for i := 0; i < 3; i++ {
 		if _, err := s.SendMessage(ctx, orgID, sender, recipient, "hi", uuid.NewString(), SendOptions{}); err != nil {
@@ -99,9 +101,21 @@ func TestUnreadCounts_MatchesChannelsSum(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 
+	// Creating the channel already left the member unread system messages (the
+	// creation notice and the "added" notice), so measure that baseline rather
+	// than hard-coding how many there are.
+	seeded, err := s.ListChannels(ctx, orgID, member)
+	if err != nil {
+		t.Fatalf("ListChannels (before sends): %v", err)
+	}
+	var systemUnread int64
+	for _, c := range seeded {
+		systemUnread += c.Unread
+	}
+
 	var lastSeq int64
 	for i := 0; i < 4; i++ {
-		res, err := s.SendChannelMessage(ctx, orgID, ch.ID, creator, "hello", uuid.NewString(), "", "")
+		res, err := s.SendChannelMessage(ctx, orgID, ch.ID, creator, "hello", uuid.NewString(), "", "", "")
 		if err != nil {
 			t.Fatalf("SendChannelMessage %d: %v", i, err)
 		}
@@ -116,8 +130,8 @@ func TestUnreadCounts_MatchesChannelsSum(t *testing.T) {
 	for _, c := range channels {
 		wantSum += c.Unread
 	}
-	if wantSum != 4 {
-		t.Fatalf("test setup sanity check failed: ListChannels summed to %d, want 4", wantSum)
+	if wantSum != systemUnread+4 {
+		t.Fatalf("test setup sanity check failed: ListChannels summed to %d, want %d", wantSum, systemUnread+4)
 	}
 
 	counts, err := s.UnreadCounts(ctx, orgID, member)

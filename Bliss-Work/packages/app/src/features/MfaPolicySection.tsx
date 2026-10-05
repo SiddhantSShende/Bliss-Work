@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -13,6 +14,7 @@ import { errorText } from "../lib/errorText";
  * into enrollment. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7.
  */
 export function MfaPolicySection() {
+  const { t, i18n } = useTranslation("account");
   const { api } = useRuntime();
   const qc = useQueryClient();
 
@@ -27,11 +29,11 @@ export function MfaPolicySection() {
       qc.setQueryData(qk.orgMfaSettings, result);
       toast.success(
         result.requireMfaForAdmins
-          ? "Two-factor authentication is now required for admins"
-          : "Two-factor authentication is no longer required",
+          ? t("account:mfaPolicy.toasts.enabled")
+          : t("account:mfaPolicy.toasts.disabled"),
       );
     },
-    onError: (e) => toast.error("Couldn't update the policy", { description: errorText(e) }),
+    onError: (e) => toast.error(t("account:mfaPolicy.toasts.updateFailed"), { description: errorText(e) }),
   });
 
   if (isLoading || !data) return null;
@@ -44,11 +46,11 @@ export function MfaPolicySection() {
         <ShieldCheck size={18} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold text-fg">Require two-factor authentication for admins</div>
+        <div className="text-sm font-semibold text-fg">{t("account:mfaPolicy.title")}</div>
         <div className="mt-0.5 text-xs text-muted">
           {data.requireMfaForAdmins && deadline
-            ? `Non-enrolled admins are warned until ${deadline.toLocaleDateString()}, then blocked at sign-in until they enroll.`
-            : "Admins choose for themselves whether to enable it."}
+            ? t("account:mfaPolicy.descriptionWithDeadline", { deadline: deadline.toLocaleDateString(i18n.language) })
+            : t("account:mfaPolicy.descriptionNoDeadline")}
         </div>
       </div>
       <Button
@@ -57,7 +59,7 @@ export function MfaPolicySection() {
         disabled={toggle.isPending}
         onClick={() => toggle.mutate(!data.requireMfaForAdmins)}
       >
-        {data.requireMfaForAdmins ? "Turn off" : "Turn on"}
+        {data.requireMfaForAdmins ? t("account:mfaPolicy.turnOff") : t("account:mfaPolicy.turnOn")}
       </Button>
     </section>
   );

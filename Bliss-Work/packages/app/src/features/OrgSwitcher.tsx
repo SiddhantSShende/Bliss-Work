@@ -1,15 +1,18 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { create } from "zustand";
-import { Building2, Check, ChevronsUpDown } from "lucide-react";
+import { Building2, Check, ChevronsUpDown, LoaderCircle, Search } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { isMfaPending } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { broadcastSession } from "../lib/authChannel";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+
+const ORG_PAGE_SIZE = 2;
 
 /** What a switch attempt actually did. A non-throwing resolution is NOT
  *  enough on its own to mean "switched" — it is also what a redirect to
@@ -92,17 +95,37 @@ export function useSwitchOrg() {
  *  organizations this identity belongs to. Renders even with one org (shows the
  *  name); the dropdown only offers a switch when there are 2+. */
 export function OrgSwitcher() {
+  const { t } = useTranslation("org");
   const { api } = useRuntime();
   const user = useSession((s) => s.user);
   const switchOrg = useSwitchOrg();
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const busyOrgId = useOrgSwitchBusyId();
   const ref = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
 
-  const { data: orgs = [] } = useQuery({ queryKey: qk.myOrgs, queryFn: () => api.myOrgs() });
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
-  const label = user?.orgName || orgs.find((o) => o.active)?.orgName || "Workspace";
-  const canSwitch = orgs.length > 1;
+  const orgQuery = useInfiniteQuery({
+    queryKey: qk.myOrgsPage(debouncedSearch),
+    queryFn: ({ pageParam }) =>
+      api.myOrgsPage({ search: debouncedSearch, offset: pageParam, limit: ORG_PAGE_SIZE }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, _pages, lastOffset) =>
+      lastPage.hasMore ? lastOffset + ORG_PAGE_SIZE : undefined,
+    enabled: open,
+    staleTime: 60_000,
+  });
+  const orgs = Array.from(
+    new Map((orgQuery.data?.pages ?? []).flatMap((page) => page.items).map((org) => [org.orgId, org])).values(),
+  );
+
+  const label = user?.orgName || orgs.find((o) => o.active)?.orgName || t("org:orgSwitcher.workspaceFallback");
+  const waitingForSearch = search.trim() !== debouncedSearch;
 
   const onSelect = async (orgId: string) => {
     if (orgId === user?.orgId) {
@@ -115,30 +138,58 @@ export function OrgSwitcher() {
       // alone — closing the dropdown here could yank focus from under it.
       if (outcome !== "superseded") setOpen(false);
     } catch {
-      toast.error("Couldn't switch organization", { description: "Please try again." });
+      toast.error(t("org:orgSwitcher.toasts.switchFailedTitle"), {
+        description: t("org:orgSwitcher.toasts.switchFailedDescription"),
+      });
     }
   };
 
   return (
     <div ref={ref} className="relative shrink-0">
       <button
-        onClick={() => canSwitch && setOpen((o) => !o)}
-        title={canSwitch ? "Switch organization" : label}
-        className={`flex items-center gap-1.5 rounded-xl border border-border/70 bg-surface/60 px-2.5 py-1.5 text-sm font-medium text-fg transition-colors ${
-          canSwitch ? "hover:bg-surface-2" : "cursor-default"
-        }`}
+        onClick={() => setOpen((o) => !o)}
+        title={t("org:orgSwitcher.switchTitle")}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 rounded-xl border border-border/70 bg-surface/60 px-2.5 py-1.5 text-sm font-medium text-fg transition-colors hover:bg-surface-2"
       >
         <Building2 size={15} className="shrink-0 text-accent" />
         <span className="max-w-[9rem] truncate">{label}</span>
-        {canSwitch && <ChevronsUpDown size={13} className="shrink-0 text-muted" />}
+        <ChevronsUpDown size={13} className="shrink-0 text-muted" />
       </button>
-      {open && canSwitch && (
+      {open && (
         <div className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-surface shadow-card">
-          <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-            Your organizations
-          </div>
-          <div className="max-h-72 overflow-auto pb-1">
-            {orgs.map((o) => {
+          <label className="flex items-center gap-2 border-b border-border px-3 py-2">
+            <Search size={14} className="shrink-0 text-muted" />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("org:orgSwitcher.searchPlaceholder")}
+              aria-label={t("org:orgSwitcher.searchPlaceholder")}
+              className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-muted"
+            />
+          </label>
+          <div className="max-h-72 overflow-auto py-1">
+            {(orgQuery.isLoading || waitingForSearch) && (
+              <div className="flex items-center justify-center gap-2 px-3 py-4 text-sm text-muted" role="status">
+                <LoaderCircle size={15} className="animate-spin" />
+                {t("org:orgSwitcher.loading")}
+              </div>
+            )}
+            {orgQuery.isError && !waitingForSearch && (
+              <button
+                onClick={() => void orgQuery.refetch()}
+                className="w-full px-3 py-3 text-center text-sm text-muted hover:bg-surface-2"
+              >
+                {t("org:orgSwitcher.loadFailed")}
+              </button>
+            )}
+            {!orgQuery.isLoading && !orgQuery.isError && !waitingForSearch && orgs.length === 0 && (
+              <p className="px-3 py-4 text-center text-sm text-muted" role="status">
+                {t("org:orgSwitcher.empty")}
+              </p>
+            )}
+            {!waitingForSearch && orgs.map((o) => {
               const active = o.orgId === user?.orgId;
               return (
                 <button
@@ -153,11 +204,11 @@ export function OrgSwitcher() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium text-fg">{o.orgName}</div>
                     <div className="truncate text-[11px] text-muted">
-                      {o.roles.includes("org_admin") ? "Admin" : "Member"}
+                      {o.roles.includes("org_admin") ? t("org:orgSwitcher.roleLabel.admin") : t("org:orgSwitcher.roleLabel.member")}
                     </div>
                   </div>
                   {busyOrgId === o.orgId ? (
-                    <span className="text-[11px] text-muted">Switching…</span>
+                    <span className="text-[11px] text-muted">{t("org:orgSwitcher.switchingLabel")}</span>
                   ) : (
                     active && <Check size={15} className="shrink-0 text-accent" />
                   )}
@@ -165,6 +216,16 @@ export function OrgSwitcher() {
               );
             })}
           </div>
+          {orgQuery.hasNextPage && !waitingForSearch && (
+            <button
+              onClick={() => void orgQuery.fetchNextPage()}
+              disabled={orgQuery.isFetchingNextPage}
+              className="flex w-full items-center justify-center gap-2 border-t border-border px-3 py-2 text-sm font-medium text-accent hover:bg-surface-2 disabled:opacity-60"
+            >
+              {orgQuery.isFetchingNextPage && <LoaderCircle size={14} className="animate-spin" />}
+              {orgQuery.isFetchingNextPage ? t("org:orgSwitcher.loading") : t("org:orgSwitcher.loadMore")}
+            </button>
+          )}
         </div>
       )}
     </div>

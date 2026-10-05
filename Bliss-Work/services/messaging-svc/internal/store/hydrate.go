@@ -11,6 +11,8 @@ import "context"
 // field the original wire event carried is reconstructed faithfully since
 // they were NOT all individually confirmed droppable.
 type HydratedMessage struct {
+	OrgID           string
+	ClientMsgID     string
 	MessageID       string
 	ConversationID  string
 	ThreadID        string
@@ -52,13 +54,15 @@ func (s *Store) HydrateMessages(ctx context.Context, messageIDs []string) (map[s
 	}
 
 	var (
-		orgByMsg  map[string]string
-		raws      []rawMessage
-		threadIDs []string
+		orgByMsg    map[string]string
+		clientByMsg map[string]string
+		raws        []rawMessage
+		threadIDs   []string
 	)
 
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		orgByMsg = map[string]string{}
+		clientByMsg = map[string]string{}
 		raws = nil
 		threadIDs = nil
 
@@ -78,17 +82,22 @@ func (s *Store) HydrateMessages(ctx context.Context, messageIDs []string) (map[s
 		// scan order — the exact bug class threads.go's own comment on
 		// messageColumns warns about. Two cheap `= ANY($1)` queries in one
 		// transaction is a better trade than touching a shared constant.
-		orgRows, err := tx.Query(ctx, `SELECT id, org_id FROM messages WHERE id = ANY($1)`, messageIDs)
+		//
+		// client_msg_id rides along on the same query for the same reason: the
+		// rebuilt event needs it (the client schema requires it, and a sender's
+		// other devices reconcile their own messages by it).
+		orgRows, err := tx.Query(ctx, `SELECT id, org_id, client_msg_id FROM messages WHERE id = ANY($1)`, messageIDs)
 		if err != nil {
 			return err
 		}
 		for orgRows.Next() {
-			var id, orgID string
-			if err := orgRows.Scan(&id, &orgID); err != nil {
+			var id, orgID, clientMsgID string
+			if err := orgRows.Scan(&id, &orgID, &clientMsgID); err != nil {
 				orgRows.Close()
 				return err
 			}
 			orgByMsg[id] = orgID
+			clientByMsg[id] = clientMsgID
 		}
 		orgRows.Close()
 		if err := orgRows.Err(); err != nil {
@@ -183,6 +192,8 @@ func (s *Store) HydrateMessages(ctx context.Context, messageIDs []string) (map[s
 
 		th := threadByID[m.ThreadID]
 		out[m.ID] = HydratedMessage{
+			OrgID:           orgByMsg[m.ID],
+			ClientMsgID:     clientByMsg[m.ID],
 			MessageID:       m.ID,
 			ConversationID:  m.ConversationID,
 			ThreadID:        m.ThreadID,

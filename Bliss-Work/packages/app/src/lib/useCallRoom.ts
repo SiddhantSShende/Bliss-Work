@@ -8,13 +8,16 @@ import {
   RoomEvent,
   Track,
   VideoPresets,
+  type LocalTrack,
   type RemoteParticipant,
 } from "livekit-client";
 import { toast } from "sonner";
-import { EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
+import { useTranslation } from "react-i18next";
+import { ApiError, EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { decodeRoomMessage, encodeRoomMessage, type RoomMessage } from "./roomMessages";
 import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
+import { watchLivekitMic } from "./micDiagnostics";
 
 /**
  * A participant as the call UI needs to render them.
@@ -47,6 +50,8 @@ export type RoomStatus =
   | "waiting"
   | "connected"
   | "reconnecting"
+  /** A different active client owns this user's participant slot. */
+  | "switch_required"
   | "failed";
 
 /** How often to re-ask whether a call we are waiting for has started.
@@ -74,6 +79,26 @@ export function isGetUserMediaDenied(e: unknown): boolean {
 }
 
 /**
+ * Whether `track` is one `sync()` should still treat as live.
+ *
+ * A remote unpublish (RemoteParticipant.unpublishTrack in livekit-client)
+ * calls `track.stop()` — which sets the underlying MediaStreamTrack's
+ * `readyState` to "ended" synchronously — and only THEN clears the
+ * publication's own `.track` and emits TrackUnsubscribed, a tick before the
+ * publication is removed from the room altogether and TrackUnpublished
+ * fires. A resync that runs inside that window (which TrackUnsubscribed
+ * itself triggers) would otherwise see a publication that still exists, is
+ * not marked muted, and still points at this same stale, already-stopped
+ * track — exactly the shape of a genuinely live one. Reading the
+ * MediaStreamTrack's own `readyState` instead of trusting the SDK's
+ * bookkeeping to have caught up with itself is what tells the two apart
+ * regardless of which event this resync is reacting to.
+ */
+function isLive(track: Track | undefined): track is Track {
+  return !!track && track.mediaStreamTrack.readyState !== "ended";
+}
+
+/**
  * Joins the SFU room backing a call.
  *
  * ── Why an SFU and not the existing peer connection ──────────────────────────
@@ -91,23 +116,49 @@ export function isGetUserMediaDenied(e: unknown): boolean {
  * quietly staying in a room you are no longer entitled to would be the bug.
  *
  * ── The refresh itself is a real, brief reconnect ────────────────────────────
- * LiveKit has no API to hand a live connection a replacement token.
- * prepareConnection() only pre-warms DNS/TLS ahead of Room.connect() — it
- * no-ops once the room is already connected — and connect() itself no-ops
- * once state is already Connected. So scheduleRefresh below disconnects and
- * reconnects the SAME Room with the new token (LiveKit resets `engine` to
- * undefined on disconnect and rebuilds it on the next connect(), which is
- * what makes reusing one Room instance across that gap the supported
- * pattern — it also means every event listener registered in `join` stays
- * attached, so this is the one disconnect in this hook that must NOT run
- * the normal Disconnected handler's "the call is over" cleanup; see
- * `refreshingRef`). Camera/mic are re-published afterward if they were on —
- * silent, since the origin already holds that permission — but a screen
- * share cannot be resumed this way: getDisplayMedia() requires a fresh user
- * gesture in every major browser, so that gets reported to the sharer
- * instead of silently dropped.
+ * LiveKit 2.21 (the version pinned here — checked directly against
+ * node_modules/livekit-client before writing this) has no public API to hand
+ * a live connection a replacement token. `prepareConnection()` only pre-warms
+ * DNS/TLS ahead of `Room.connect()` — it no-ops once the room is already
+ * connected — and `connect()` itself no-ops once state is already Connected.
+ * The one token-swap-without-reconnect mechanism that exists at the protocol
+ * level, a server-pushed `refreshToken` signal message
+ * (`RTCEngine`'s private `onTokenRefresh`), is receive-only: nothing in the
+ * SDK's public surface lets a CLIENT request one, and this self-hosted
+ * `livekit-server` deployment (no `livekit-server-sdk` dependency anywhere in
+ * messaging-svc) was confirmed live, against a throwaway instance of the same
+ * pinned image, to never send it — a token is validated once, at the initial
+ * join handshake, and never re-checked for the life of that connection. So
+ * scheduleRefresh below disconnects and reconnects the SAME Room with the new
+ * token (LiveKit resets `engine` to undefined on disconnect and rebuilds it
+ * on the next connect(), which is what makes reusing one Room instance across
+ * that gap the supported pattern — it also means every event listener
+ * registered in `join` stays attached, so this is the one disconnect in this
+ * hook that must NOT run the normal Disconnected handler's "the call is
+ * over" cleanup; see `refreshingRef`).
+ *
+ * ── Camera/mic/screen survive the gap, not just resume after it ─────────────
+ * `room.disconnect(false)` — a documented, public parameter (Room.d.ts:
+ * `disconnect: (stopTracks?: boolean) => Promise<void>`) — tells LiveKit NOT
+ * to call `.stop()` on the local tracks it is about to unpublish (confirmed
+ * by reading `handleDisconnect`: with `stopTracks=false` it calls
+ * `track.stopMonitor()` instead of `track.detach()`+`track.stop()`). The
+ * actual camera/mic/screen `MediaStreamTrack`s keep capturing, uninterrupted,
+ * through the gap — this hook holds onto the `LocalTrack` objects themselves
+ * (not just on/off booleans) across the reconnect and republishes those SAME
+ * objects via `LocalParticipant.publishTrack()` afterward. Measured live
+ * (fake devices, real getUserMedia/getDisplayMedia call counting): this
+ * republish triggers ZERO new device-capture calls, where the previous
+ * `setMicrophoneEnabled(true)`/`setCameraEnabled(true)` approach triggered
+ * two. Screen share specifically could never be resumed the old way —
+ * `getDisplayMedia()` requires a fresh user gesture in every major browser —
+ * so it was unconditionally reported as lost; now the SAME capture is simply
+ * republished, with no gesture needed, because it was never stopped.
  */
 export function useCallRoom(callId: string | null) {
+  // Named `tr`, not `t`: this hook already uses `t` throughout for the
+  // call-token response (see scheduleRefresh/join below).
+  const { t: tr } = useTranslation("callRoom");
   const { api, ws, config } = useRuntime();
   // Subscribe to live ServerEvents the same way WsEventBridge does (see
   // queryBridge.tsx): through config.eventSource on Electron, where the
@@ -145,7 +196,7 @@ export function useCallRoom(callId: string | null) {
    *  while status is "failed". Reset at the start of every join attempt; a
    *  disconnect sets it directly instead, since that path never goes through
    *  join(). */
-  const [failStage, setFailStage] = useState<"token" | "connect" | "disconnected" | null>(null);
+  const [failStage, setFailStage] = useState<"token" | "connect" | "disconnected" | "displaced" | null>(null);
   const roomRef = useRef<Room | null>(null);
   /** Which call `roomRef.current` is connected — or connecting — to. Set
    *  alongside `roomRef.current`, cleared alongside it too.
@@ -230,6 +281,12 @@ export function useCallRoom(callId: string | null) {
       const cam = p.getTrackPublication(Track.Source.Camera);
       const mic = p.getTrackPublication(Track.Source.Microphone);
       const screen = p.getTrackPublication(Track.Source.ScreenShare);
+      // A live track, not merely a publication that hasn't been torn down
+      // yet — see isLive's own doc comment for the race this closes. Only
+      // the share needs this: a stale, stuck-on presentation is the actual
+      // bug; a stale camera/mic publication is not something a participant
+      // list is currently getting wrong.
+      const screenTrack = isLive(screen?.track) ? screen.track : undefined;
       rows.push({
         identity: p.identity,
         name: p.name || p.identity,
@@ -239,9 +296,9 @@ export function useCallRoom(callId: string | null) {
         // UI is concerned — the distinction only matters to the transport.
         micOn: !!mic && !mic.isMuted,
         camOn: !!cam && !cam.isMuted,
-        sharing: !!screen && !screen.isMuted,
+        sharing: !!screenTrack && !screen?.isMuted,
         videoTrack: cam?.track ?? null,
-        screenTrack: screen?.track ?? null,
+        screenTrack: screenTrack ?? null,
         audioTrack: mic?.track ?? null,
       });
     };
@@ -250,8 +307,18 @@ export function useCallRoom(callId: string | null) {
     setParticipants(rows);
   }, []);
 
+  /** Release whatever devices `heldTracks` still holds open. Only ever needed
+   *  on a refresh that did not end in a successful republish: `disconnect
+   *  (false)` deliberately left these live (see the module doc), so giving up
+   *  on the reconnect — for any reason — must stop them itself, or the
+   *  camera/mic/screen stay silently captured with nothing publishing them. */
+  function stopHeldTracks(tracks: (LocalTrack | undefined)[]): void {
+    for (const track of tracks) track?.stop();
+  }
+
   /** Re-mint the room token before the current one lapses, and hand it to
-   *  LiveKit via a real reconnect — see the module doc above for why. */
+   *  LiveKit via a real reconnect — see the module doc above for why, and for
+   *  why the local tracks are held across it instead of stopped. */
   const scheduleRefresh = useCallback(
     (room: Room, id: string, expiresAt: string) => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
@@ -266,11 +333,11 @@ export function useCallRoom(callId: string | null) {
         void (async () => {
           let t;
           try {
-            t = await apiRef.current.callToken(id);
+            t = await apiRef.current.callToken(id, "REFRESH");
           } catch {
             // Access was withdrawn (removed from the channel, call ended, or
             // the meeting link revoked). Leaving is the correct response.
-            toast.error("You no longer have access to this call");
+            toast.error(tr("errors.accessRevoked"));
             void room.disconnect();
             return;
           }
@@ -282,24 +349,33 @@ export function useCallRoom(callId: string | null) {
             void room.disconnect();
             return;
           }
-          const wasMicOn = room.localParticipant.isMicrophoneEnabled;
-          const wasCamOn = room.localParticipant.isCameraEnabled;
-          const wasSharing = room.localParticipant.isScreenShareEnabled;
+          // Hold the actual LocalTrack objects, not just on/off booleans —
+          // see the module doc's "survive the gap" section. Read BEFORE
+          // disconnecting: once unpublished there is nothing left to ask.
+          const micTrack = room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
+          const camTrack = room.localParticipant.getTrackPublication(Track.Source.Camera)?.track;
+          const screenTrack = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track;
+          const heldTracks = [micTrack, camTrack, screenTrack];
           setStatus("reconnecting");
           refreshingRef.current = true;
           try {
-            await room.disconnect();
+            // false: do not stop the local tracks on disconnect (see the
+            // module doc) — they get explicitly republished below, or
+            // explicitly stopped on whichever path gives up instead.
+            await room.disconnect(false);
             // Left, or switched calls, while disconnecting — the reconnect
             // below is no longer wanted; leave the (now genuinely closed)
             // room alone and let whatever left/switched handle its own state.
             if (roomRef.current !== room || roomCallId.current !== id) {
               refreshingRef.current = false;
+              stopHeldTracks(heldTracks);
               return;
             }
             await room.connect(t.url, t.token);
           } catch (e) {
             console.error("[CALL ROOM] Refresh reconnect failed", e);
             refreshingRef.current = false;
+            stopHeldTracks(heldTracks);
             void room.disconnect();
             return;
           }
@@ -307,45 +383,61 @@ export function useCallRoom(callId: string | null) {
           if (roomRef.current !== room || roomCallId.current !== id) {
             // Left, or switched calls, while the reconnect itself was in
             // flight — this room is no longer this hook's to keep.
+            stopHeldTracks(heldTracks);
             void room.disconnect();
             return;
           }
           setStatus("connected");
-          if (wasSharing) {
-            // Cannot be silently resumed — getDisplayMedia() requires a
-            // fresh user gesture in every major browser. Report it rather
-            // than leave the UI claiming a share that in fact stopped.
-            setSharing(false);
-            void apiRef.current.stopScreenShare(id).catch(() => {});
-            toast("Screen sharing stopped", {
-              description: "Reconnecting to the call ended your share — start it again if you're still presenting.",
-            });
-          }
-          if (wasMicOn) {
+          // Republish each track that was actually held, independently: one
+          // failing (a negotiation error, say) must not stop the others from
+          // going back up, matching the old per-control try/catch this
+          // replaces. Screen share gets the one behavior a failure here
+          // genuinely needs to report — see below — because unlike mic/cam it
+          // cannot be silently retried from a background refresh.
+          for (const track of [micTrack, camTrack] as const) {
+            if (!track) continue;
             try {
-              await room.localParticipant.setMicrophoneEnabled(true);
-              setMicOn(true);
-            } catch {
-              setMicOn(false);
+              await room.localParticipant.publishTrack(track);
+            } catch (e) {
+              console.error("[CALL ROOM] Failed to republish a track after refresh", e);
             }
           }
-          if (wasCamOn) {
+          if (screenTrack) {
             try {
-              await room.localParticipant.setCameraEnabled(true);
-              setCamOn(true);
-            } catch {
-              setCamOn(false);
+              await room.localParticipant.publishTrack(screenTrack);
+            } catch (e) {
+              console.error("[CALL ROOM] Failed to republish the screen share after refresh", e);
+              screenTrack.stop();
+              setSharing(false);
+              void apiRef.current.stopScreenShare(id).catch(() => {});
+              toast(tr("notify.screenShareStopped"), {
+                description: tr("notify.screenShareStoppedDescription"),
+              });
             }
           }
+          // Read back from the room rather than trust the booleans read
+          // before disconnecting: this is exactly what isMicrophoneEnabled/
+          // isCameraEnabled/isScreenShareEnabled themselves compute (published
+          // AND not muted), so it can never drift from what LiveKit itself
+          // would say immediately after.
+          setMicOn(room.localParticipant.isMicrophoneEnabled);
+          setCamOn(room.localParticipant.isCameraEnabled);
+          setSharing(room.localParticipant.isScreenShareEnabled);
           sync(room);
+          // See metrics.CallReconnectTotal's own doc: this reconnect is a
+          // deliberate disconnect()+connect(), which LiveKit does not surface
+          // as RoomEvent.Reconnected — relying on that event alone would
+          // leave the single most frequent reconnect a long call sees
+          // invisible on this counter.
+          void apiRef.current.callTelemetryReconnected(id, "token_refresh").catch(() => {});
           scheduleRefresh(room, id, t.expiresAt);
         })();
       }, delay);
     },
-    [sync],
+    [sync, tr],
   );
 
-  const join = useCallback(async () => {
+  const join = useCallback(async (opts?: { switchHere?: boolean }) => {
     if (!callId || joining.current) return;
     const currentRoom = roomRef.current;
     // `currentRoom` can belong to a call we have since switched away from —
@@ -388,7 +480,7 @@ export function useCallRoom(callId: string | null) {
     const attemptStartedAt = Date.now();
     try {
       console.debug("[CALL ROOM] Requesting meeting token");
-      const grant = await api.callToken(callId);
+      const grant = await api.callToken(callId, opts?.switchHere ? "SWITCH" : "JOIN");
       console.debug("[CALL ROOM] Token received");
       if (leaveRequestedWhileConnecting.current) {
         // leave() ran while this request was in flight — there was no room
@@ -484,9 +576,24 @@ export function useCallRoom(callId: string | null) {
         .on(RoomEvent.ParticipantDisconnected, resync)
         .on(RoomEvent.TrackSubscribed, (_t: RemoteTrack, _p: RemoteTrackPublication) => resync())
         .on(RoomEvent.TrackUnsubscribed, resync)
+        // A remote unpublish (the sharer clicked Stop, or their track ended)
+        // fires TrackUnsubscribed first and removes the publication — the
+        // moment isLive() above can finally see it's gone — only afterward,
+        // when THIS fires. Without listening here too, a resync that landed
+        // during that in-between window (see isLive's doc comment) was the
+        // last one anybody ran: the stage stayed on a screen share that had
+        // already ended until some unrelated event happened to trigger
+        // another sync.
+        .on(RoomEvent.TrackUnpublished, resync)
         .on(RoomEvent.TrackMuted, resync)
         .on(RoomEvent.TrackUnmuted, resync)
-        .on(RoomEvent.LocalTrackPublished, resync)
+        .on(RoomEvent.LocalTrackPublished, (pub) => {
+          // Fires for the first publish AND for the re-acquire after a token
+          // refresh (scheduleRefresh disconnects, reconnects, then republishes
+          // the mic) — the moments worth checking the capture settings at.
+          if (pub.source === Track.Source.Microphone && pub.audioTrack) watchLivekitMic(pub.audioTrack);
+          resync();
+        })
         .on(RoomEvent.LocalTrackUnpublished, (pub) => {
           // Chrome's own "Stop sharing" bar ends the track, and LiveKit
           // unpublishes it for us. Without this the app would go on claiming to
@@ -517,7 +624,7 @@ export function useCallRoom(callId: string | null) {
           // affect the call itself, only the dashboard measuring it.
           if (callId) {
             try {
-              void api.callTelemetryReconnected(callId).catch(() => {});
+              void api.callTelemetryReconnected(callId, "media").catch(() => {});
             } catch {
               // reported nowhere on purpose — see above.
             }
@@ -556,8 +663,9 @@ export function useCallRoom(callId: string | null) {
             return;
           }
           setStatus("failed");
-          setFailStage("disconnected");
-          if (callId && !leftRef.current) {
+          const displaced = reason === DisconnectReason.DUPLICATE_IDENTITY;
+          setFailStage(displaced ? "displaced" : "disconnected");
+          if (!displaced && callId && !leftRef.current) {
             leftRef.current = true;
             api.leaveCall(callId).catch(() => {});
           }
@@ -588,6 +696,11 @@ export function useCallRoom(callId: string | null) {
     } catch (e) {
       roomRef.current = null;
       roomCallId.current = null;
+      if (e instanceof ApiError && e.code === "call_session_active") {
+        setStatus("switch_required");
+        setFailStage(null);
+        return;
+      }
       setStatus("failed");
       setFailStage(stage);
       console.error(`[CALL ROOM] Join failed at "${stage}" stage`, e);
@@ -595,8 +708,8 @@ export function useCallRoom(callId: string | null) {
       // different problem from a denied join — say which.
       const msg =
         e instanceof Error && /503|not configured/i.test(e.message)
-          ? "Group calling is not enabled on this server"
-          : "Couldn't join the call";
+          ? tr("errors.notConfigured")
+          : tr("errors.couldNotJoin");
       toast.error(msg);
     } finally {
       // Released on EVERY exit, including the lobby's early return — that path
@@ -604,7 +717,7 @@ export function useCallRoom(callId: string | null) {
       // re-enter.
       joining.current = false;
     }
-  }, [api, callId, scheduleRefresh, stopWaiting, subscribeToEvents, sync]);
+  }, [api, callId, scheduleRefresh, stopWaiting, subscribeToEvents, sync, tr]);
 
   // Keep the lobby poll pointed at the current join without making join depend
   // on itself.
@@ -649,9 +762,9 @@ export function useCallRoom(callId: string | null) {
         api.leaveCall(callId).catch(() => {});
       }
       setEnded(true);
-      toast("This meeting has ended");
+      toast(tr("notify.meetingEnded"));
     });
-  }, [api, callId, stopWaiting, subscribeToEvents]);
+  }, [api, callId, stopWaiting, subscribeToEvents, tr]);
 
   /** Start the call we are waiting for, admitting everyone else waiting on it
    *  at the same moment. Only does anything for the people the server named in
@@ -665,12 +778,12 @@ export function useCallRoom(callId: string | null) {
     try {
       await api.startCall(callId);
     } catch {
-      toast.error("Couldn't start the call");
+      toast.error(tr("errors.couldNotStart"));
       return;
     }
     stopWaiting();
     await join();
-  }, [api, callId, join, stopWaiting]);
+  }, [api, callId, join, stopWaiting, tr]);
 
   /** Our own identity in the room, or "" before we are in one. */
   const identity = participants.find((p) => p.isLocal)?.identity ?? "";
@@ -696,6 +809,8 @@ export function useCallRoom(callId: string | null) {
         // entering the waiting room or connecting to the SFU. See
         // leaveRequestedWhileConnecting's own comment.
         leaveRequestedWhileConnecting.current = true;
+      } else if (status === "switch_required") {
+        setStatus("idle");
       }
       return;
     }
@@ -786,7 +901,7 @@ export function useCallRoom(callId: string | null) {
     } catch (e) {
       // Dismissing the picker is a normal thing to do, and not an error.
       if (!isGetUserMediaDenied(e)) {
-        toast.error("Couldn't share your screen");
+        toast.error(tr("errors.couldNotShareScreen"));
       }
       return;
     }
@@ -799,7 +914,7 @@ export function useCallRoom(callId: string | null) {
     // The API takes the browser's own spelling of what was picked, so this can
     // be forwarded as it came.
     await api.startScreenShare(callId, (settings?.displaySurface ?? "monitor") as "monitor").catch(() => {});
-  }, [api, callId, sharing, sync]);
+  }, [api, callId, sharing, sync, tr]);
 
   /**
    * Say something to the room — everyone, or named participants.

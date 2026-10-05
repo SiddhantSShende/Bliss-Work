@@ -9,15 +9,22 @@
  * owning the other.
  */
 import type { CallDTO } from "@taskboard/shared";
+import i18n from "../i18n";
 
 /** The three buckets a meeting can be in. These ARE the folders. */
 export type MeetingBucket = "upcoming" | "live" | "past";
 
-export const MEETING_BUCKETS: readonly { key: MeetingBucket; label: string }[] = [
-  { key: "upcoming", label: "Upcoming" },
-  { key: "live", label: "Live" },
-  { key: "past", label: "Past" },
+export const MEETING_BUCKETS: readonly { key: MeetingBucket }[] = [
+  { key: "upcoming" },
+  { key: "live" },
+  { key: "past" },
 ];
+
+/** Localized via the global i18next instance, same as dayLabel.ts — resolved
+ *  fresh on every call so it follows the in-app selected locale. */
+export function bucketLabel(key: MeetingBucket): string {
+  return i18n.t(`meetings:list.bucket.${key}`);
+}
 
 const DEFAULT_BUCKET: MeetingBucket = "upcoming";
 

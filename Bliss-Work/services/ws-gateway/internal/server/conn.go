@@ -212,6 +212,9 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 	beatTicker := time.NewTicker(store.PresenceHeartbeatInterval)
 	defer beatTicker.Stop()
 	defer cancel()
+	// This socket's own heartbeat count, for the presence TTL cadence. Per socket
+	// by design: see store.TouchPresence.
+	var beat uint64
 
 	for {
 		select {
@@ -275,9 +278,10 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 			// orgs the person is not currently looking at would age out of the
 			// stale window and show them offline while they are plainly
 			// connected — which is the bug this whole path exists to fix.
+			beat++
 			tctx, tc := context.WithTimeout(ctx, pingTimeout)
 			for _, m := range sess.claims.Load().Memberships {
-				if err := s.store.TouchPresence(tctx, m.OrgID, m.UserID, s.nodeID, conn.ConnID); err != nil {
+				if err := s.store.TouchPresence(tctx, m.OrgID, m.UserID, s.nodeID, conn.ConnID, beat); err != nil {
 					s.log.Warn("presence heartbeat failed", "err", err, "user", m.UserID, "org", m.OrgID)
 				}
 			}
@@ -410,6 +414,9 @@ func (s *Server) handleSignalingFrame(ctx context.Context, conn *hub.Conn, sess 
 		// Bad target or self-send. Quietly drop.
 		return
 	}
+	if !f.relayFieldsOK() {
+		return
+	}
 	frame := signal.Frame{
 		Type:                 f.Type,
 		OfferID:              f.OfferID,
@@ -445,6 +452,9 @@ func (s *Server) handleTypingFrame(ctx context.Context, sess *session, f *client
 		return
 	}
 	if f.State != "start" && f.State != "stop" {
+		return
+	}
+	if !f.relayFieldsOK() {
 		return
 	}
 	_ = s.signal.Forward(ctx, sess.claims.Load().OrgID, sess.claims.Load().UserID, f.ToUserID, signal.Frame{
@@ -491,6 +501,9 @@ func (s *Server) handleCallFrame(ctx context.Context, conn *hub.Conn, sess *sess
 		return
 	}
 	if f.ToUserID == "" || f.ToUserID == sess.claims.Load().UserID || f.CallID == "" {
+		return
+	}
+	if !f.relayFieldsOK() {
 		return
 	}
 

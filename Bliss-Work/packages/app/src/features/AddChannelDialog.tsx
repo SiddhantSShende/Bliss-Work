@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Check, Compass, Globe, Lock, LogIn, Search } from "lucide-react";
 import { Button, EmptyState, Input } from "@taskboard/ui";
 import type { ChannelDTO } from "@taskboard/shared";
@@ -36,6 +37,7 @@ const ALL_OPEN_LIMIT = 200;
  * the same data, not a redesign.
  */
 export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation("chatList");
   const { api } = useRuntime();
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"create" | "browse">("create");
@@ -87,7 +89,7 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
   const joinMut = useJoinChannel();
 
   return (
-    <Modal open={open} onClose={onClose} title="Add Channel">
+    <Modal open={open} onClose={onClose} title={t("addChannel.title")}>
       <div className="flex flex-col gap-3.5">
         <div className="grid grid-cols-2 gap-2">
           <button
@@ -97,7 +99,7 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
               tab === "create" ? "border-accent bg-accent-soft text-accent" : "border-border text-muted hover:bg-surface-2"
             }`}
           >
-            Create New Channel
+            {t("addChannel.tabs.create")}
           </button>
           <button
             type="button"
@@ -106,7 +108,7 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
               tab === "browse" ? "border-accent bg-accent-soft text-accent" : "border-border text-muted hover:bg-surface-2"
             }`}
           >
-            Add Channel
+            {t("addChannel.tabs.browse")}
           </button>
         </div>
 
@@ -120,20 +122,20 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
                 className="pl-9"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search channels…"
+                placeholder={t("addChannel.searchPlaceholder")}
                 autoFocus
               />
             </div>
 
             <div className="max-h-80 min-h-32 space-y-0.5 overflow-y-auto">
               {loading ? (
-                <div className="py-8 text-center text-sm text-muted">Loading channels…</div>
+                <div className="py-8 text-center text-sm text-muted">{t("addChannel.loading")}</div>
               ) : filtered.length === 0 ? (
                 <EmptyState
                   className="py-8"
                   icon={<Compass size={20} />}
-                  title={query ? "No matching channels" : "No channels yet"}
-                  hint={query ? "Try another search." : "Create one from the other tab."}
+                  title={query ? t("addChannel.emptySearch.title") : t("addChannel.empty.title")}
+                  hint={query ? t("addChannel.emptySearch.hint") : t("addChannel.empty.hint")}
                 />
               ) : (
                 filtered.map((c) => (
@@ -149,9 +151,9 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
 
             {openFailed && (
               <div className="flex items-center justify-between gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
-                Couldn't load the full channel directory.
+                {t("addChannel.loadError")}
                 <button type="button" onClick={() => void retryOpen()} className="font-semibold underline">
-                  Retry
+                  {t("addChannel.retry")}
                 </button>
               </div>
             )}
@@ -171,6 +173,7 @@ function AddChannelRow({
   onJoin: () => void;
   joining: boolean;
 }) {
+  const { t } = useTranslation("chatList");
   const Icon = c.isLocked ? Lock : Globe;
   return (
     <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-surface-2">
@@ -185,20 +188,20 @@ function AddChannelRow({
               c.isLocked ? "bg-warning/15 text-warning" : "bg-accent-soft text-accent"
             }`}
           >
-            {c.isLocked ? "Private" : "Public"}
+            {c.isLocked ? t("addChannel.row.private") : t("addChannel.row.public")}
           </span>
         </div>
         <div className="truncate text-xs text-muted">
-          {c.memberCount} member{c.memberCount === 1 ? "" : "s"}
+          {t("common.memberCount", { count: c.memberCount })}
         </div>
       </div>
       {c.iAmMember ? (
         <span className="flex shrink-0 items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold text-muted">
-          <Check size={13} /> Joined
+          <Check size={13} /> {t("addChannel.row.joined")}
         </span>
       ) : (
         <Button size="sm" variant="subtle" onClick={onJoin} loading={joining}>
-          <LogIn size={13} /> Join
+          <LogIn size={13} /> {t("common.join")}
         </Button>
       )}
     </div>

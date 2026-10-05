@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RuntimeProvider } from '@taskboard/app/lib/runtime';
+import { clearCacheOnIdentityChange } from '@taskboard/app/lib/clearCacheOnIdentityChange';
 import { refreshSession } from '@taskboard/app/lib/refresh';
 import { queryRetryDelay, shouldRetryQuery } from '@taskboard/app/lib/retryPolicy';
 import { useSession } from '@taskboard/app/store/session';
@@ -28,6 +29,9 @@ const queryClient = new QueryClient({
     mutations: { retry: 0 },
   },
 });
+// Sign-out, a different user signing in, or an org switch must not leave the
+// previous session's cached chats, tasks and mail to be the next one's first paint.
+clearCacheOnIdentityChange(queryClient);
 
 // devEndpoints()'s "localhost"/"10.0.2.2" defaults (constants/endpoints.ts)
 // only resolve on an emulator/simulator running on the SAME machine as the

@@ -14,7 +14,7 @@ name: Security (secrets, SAST rules, SBOM)
 # whole checkout so a leak anywhere in the repo (this one included) is caught.
 on:
   push:
-    branches: [main]
+    branches: [Prod-Sid]
   pull_request:
 
 permissions:

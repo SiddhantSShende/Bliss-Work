@@ -1,0 +1,155 @@
+{
+  "errors": {
+    "accessRevoked": "You no longer have access to this call",
+    "notConfigured": "Group calling is not enabled on this server",
+    "couldNotJoin": "Couldn't join the call",
+    "couldNotStart": "Couldn't start the call",
+    "couldNotShareScreen": "Couldn't share your screen"
+  },
+  "notify": {
+    "screenShareStopped": "Screen sharing stopped",
+    "screenShareStoppedDescription": "Reconnecting to the call ended your share — start it again if you're still presenting.",
+    "meetingEnded": "This meeting has ended"
+  },
+  "preJoin": {
+    "readyToJoinLabel": "Ready to join",
+    "leave": "Leave",
+    "cameraOffPlaceholder": "Your camera is off",
+    "error": {
+      "deniedTitle": "Camera and microphone are blocked",
+      "otherTitle": "Couldn't access your camera or microphone",
+      "deniedHint": "Check this app's camera and microphone permission, then try again.",
+      "otherHint": "Make sure a camera and microphone are connected and not already in use, then try again.",
+      "tryAgain": "Try again",
+      "openCameraSettings": "Open camera settings",
+      "openMicrophoneSettings": "Open microphone settings"
+    },
+    "muteMic": "Mute microphone",
+    "unmuteMic": "Unmute microphone",
+    "cameraOff": "Turn camera off",
+    "cameraOn": "Turn camera on",
+    "heading": "Ready to join?",
+    "description": "Check your camera and microphone before entering the meeting.",
+    "joinButton": "Join meeting"
+  },
+  "waitingRoom": {
+    "canStartHint": "You're the first one here. Start it to let everyone else in.",
+    "waitingHint": "This hasn't been opened yet. You'll join automatically the moment it starts.",
+    "leave": "Leave",
+    "starting": "Starting…",
+    "startNow": "Start now"
+  },
+  "joinFailed": {
+    "anotherDeviceTitle": "You’re already in this meeting on another device",
+    "anotherDeviceHint": "You’re currently connected to this meeting from another device.",
+    "switchHere": "Switch here",
+    "displacedTitle": "You joined this meeting on another device",
+    "displacedHint": "This meeting is now active on another device.",
+    "tokenTitle": "Unable to obtain meeting credentials",
+    "disconnectedTitle": "Disconnected from the meeting",
+    "genericTitle": "Unable to connect to the meeting",
+    "tokenHint": "The token request didn't go through. Check your connection and try again.",
+    "disconnectedHint": "The connection to the meeting was lost and couldn't be recovered. Check your connection, then rejoin.",
+    "genericHint": "The connection to the meeting server didn't go through. Check your connection and try again.",
+    "leave": "Leave",
+    "retrying": "Retrying…",
+    "retry": "Retry"
+  },
+  "room": {
+    "defaultTitleChannel": "Channel call",
+    "defaultTitleMeeting": "Meeting",
+    "youFallbackName": "You",
+    "addPeopleDefaultTitle": "Add people",
+    "channelAlreadyInvited": "Everyone in the channel is already invited",
+    "header": {
+      "participantsPresent_one": "{{count}} Participant Present",
+      "participantsPresent_other": "{{count}} Participants Present",
+      "external": "{{count}} external",
+      "recording": "Recording",
+      "reconnecting": "Reconnecting…",
+      "connecting": "Connecting…"
+    },
+    "stage": {
+      "speaking": "Speaking",
+      "presenting": "Presenting",
+      "connectingPlaceholder": "Connecting…"
+    },
+    "toasts": {
+      "recordingSaved": "Recording saved to your downloads",
+      "recordingUnsupported": "This browser can't record meetings",
+      "recordingStarted": "Recording started — it will save to this device",
+      "inviteLinkCopied": "Invite link copied"
+    }
+  },
+  "controls": {
+    "addPeopleDefault": "Add people",
+    "stopSharing": "Stop sharing your screen",
+    "startSharing": "Share your screen",
+    "callDurationAriaLabel": "Call duration",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "cameraOff": "Turn camera off",
+    "cameraOn": "Turn camera on",
+    "endCall": "End call"
+  },
+  "roster": {
+    "ariaLabel": "Participants",
+    "title": "Participants",
+    "searchPlaceholder": "Search members…",
+    "searchAriaLabel": "Search members",
+    "inMeetingCount": "In meeting · {{count}}",
+    "youSuffix": " (you)",
+    "sharing": "Sharing",
+    "handUp": "Hand up",
+    "pin": "Pin {{name}}",
+    "unpin": "Unpin {{name}}",
+    "showMore": "+{{count}} more members",
+    "showLess": "Show less",
+    "noMatches": "No members match \"{{query}}\".",
+    "inviteMembers": "Invite members"
+  },
+  "tile": {
+    "presentingScreen": "You're presenting your screen",
+    "pin": "Pin {{name}}",
+    "unpin": "Unpin {{name}}",
+    "handRaisedTitle": "{{name}} has their hand up",
+    "youSuffix": " (you)",
+    "unpinStageTitle": "Unpin {{name}} from the main view",
+    "unpinStageAriaLabel": "Unpin the main view",
+    "unpinStageButton": "Unpin"
+  },
+  "callUi": {
+    "couldNotOpenRoom": "Couldn't open the call room",
+    "movingToRoom": "Moving everyone to the room…",
+    "decline": "Decline",
+    "accept": "Accept",
+    "incomingVideo": "Incoming video call…",
+    "incomingVoice": "Incoming voice call…",
+    "peerFallbackName": "User",
+    "subtitle": {
+      "sharing": "{{peer}} is sharing their screen",
+      "connected": "Connected",
+      "callEnded": "Call ended",
+      "calling": "Calling…"
+    },
+    "audioBlocked": {
+      "title": "Tap to hear the call",
+      "description": "Your browser blocked audio playback until you interact."
+    }
+  },
+  "addPeopleDialog": {
+    "shareTitle": "Share meeting link",
+    "shareDescription": "Invite teammates to join this meeting with a secure link.",
+    "cancel": "Cancel",
+    "sendLink": "Send link",
+    "sendTitle": "Send meeting link",
+    "linkSentWithExceptions": "Link sent with some exceptions",
+    "linkSentWithExceptionsDescription": "{{sent}} sent, {{failed}} could not be reached.",
+    "linkSent": "Link sent",
+    "linkSentToMembers": "Link sent to {{count}} members",
+    "addedToCall": "Added to the call",
+    "addedPeople": "Added {{count}} people",
+    "couldNotAdd": "Couldn't add anyone to this call",
+    "groupCallingUnavailable": "Group calling may not be available on this server."
+  }
+}

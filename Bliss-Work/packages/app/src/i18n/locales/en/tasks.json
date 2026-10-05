@@ -1,0 +1,342 @@
+{
+  "liveEvents": {
+    "newTask": "New task: {{title}}",
+    "newTaskFrom": "from {{sender}}",
+    "taskLeftBy": "Task left by {{assignee}}",
+    "taskIgnoredBy": "Task ignored by {{assignee}}",
+    "taskReviewed": "{{reviewer}} reviewed your task",
+    "taskAcknowledgedBy": "Task acknowledged by {{assignee}}",
+    "taskCompletedBy": "Task completed by {{assignee}}",
+    "taskMissedBy": "Task missed by {{assignee}}",
+    "taskMissed": "A task's deadline passed. It moved to Missed.",
+    "taskWithdrawn": "Task allocation withdrawn"
+  },
+  "deadline": {
+    "label": "Deadline",
+    "relative": "{{amount}} {{unit}} after each occurrence",
+    "fixed": "{{time}} on each occurrence's date",
+    "unit": {
+      "MINUTES_one": "minute",
+      "MINUTES_other": "minutes",
+      "HOURS_one": "hour",
+      "HOURS_other": "hours",
+      "DAYS_one": "day",
+      "DAYS_other": "days"
+    }
+  },
+  "tasksList": {
+    "header": "Tasks",
+    "categories": {
+      "mine": "My tasks",
+      "allocated": "Allocated to me",
+      "available": "Available",
+      "completed": "Completed",
+      "left": "Left",
+      "ignored": "Ignored",
+      "missed": "Missed"
+    }
+  },
+  "tasksPage": {
+    "titles": {
+      "mine": "My tasks",
+      "allocated": "Allocated to me",
+      "available": "Available",
+      "completed": "Completed",
+      "left": "Left",
+      "ignored": "Ignored",
+      "missed": "Missed",
+      "default": "Tasks"
+    },
+    "buckets": {
+      "allocated": "Allocated",
+      "available": "Available",
+      "mine": "My tasks",
+      "completed": "Completed",
+      "left": "Left",
+      "ignored": "Ignored",
+      "missed": "Missed"
+    },
+    "export": {
+      "title": "Export tasks to Excel",
+      "button": "Export"
+    },
+    "newTask": "New task",
+    "empty": {
+      "title": "Nothing here",
+      "hint": "Tasks appear here as they arrive.",
+      "missedHint": "A task whose deadline passes before you finish it moves here."
+    },
+    "actionVerbs": {
+      "acknowledge": "acknowledge",
+      "complete": "complete",
+      "ignore": "ignore",
+      "leave": "leave"
+    },
+    "toasts": {
+      "actionFailed": "Couldn't {{verb}} the task",
+      "completed": "Task completed — the sender has been notified.",
+      "left": "You left the task — the sender has been notified."
+    },
+    "unpin": "Unpin",
+    "pinTask": "Pin task",
+    "unpinTask": "Unpin task",
+    "pinFailed": "Couldn't pin the task",
+    "unpinFailed": "Couldn't unpin the task",
+    "pagination": {
+      "previous": "Previous",
+      "next": "Next",
+      "pageOf": "Page {{current}} of {{total}}"
+    }
+  },
+  "participants": {
+    "label": "Participants",
+    "add": "Add",
+    "addMember": "Add member",
+    "addTitle": "Add participants",
+    "tabPeople": "People",
+    "tabChannels": "Channels",
+    "selected": "Selected participants",
+    "kindPerson": "Person",
+    "kindChannel": "Channel",
+    "removeSelected": "Remove {{name}}",
+    "unknownPerson": "Unknown person",
+    "unknownChannel": "Unknown channel",
+    "withdraw": "Withdraw",
+    "withdrawUser": "Withdraw {{name}}",
+    "withdrawSelf": "Withdraw from this task",
+    "added": "Participants added",
+    "withdrawn": "Participant withdrawn",
+    "failed": "Could not update participants"
+  },
+  "myTasksBoard": {
+    "scheduledChannels": "Channels: {{names}}",
+    "scheduledChannelCount_one": "{{count}} channel",
+    "scheduledChannelCount_other": "{{count}} channels",
+    "loading": "Loading your tasks…",
+    "loadError": {
+      "title": "Couldn't load your tasks.",
+      "retry": "Retry"
+    },
+    "empty": {
+      "title": "You haven't sent any tasks",
+      "hint": "Create one with “New task”."
+    },
+    "filters": {
+      "statusHeading": "Status",
+      "peopleHeading": "People",
+      "clear": "Clear filters"
+    },
+    "noMatch": {
+      "title": "No tasks match these filters",
+      "hint": "Older tasks aren't loaded yet — load more below."
+    },
+    "loadMore": "Load more",
+    "loadingMore": "Loading...",
+    "reassign": {
+      "label": "Reassign",
+      "pending": "Reassigning…",
+      "done_one": "Task sent back to {{count}} person",
+      "done_other": "Task sent back to {{count}} people",
+      "failed": "Couldn't reassign this task"
+    },
+    "milestones": {
+      "allocated": "Allocated",
+      "acknowledged": "Acknowledged",
+      "ignored": "Ignored",
+      "completed": "Completed",
+      "left": "Left",
+      "missed": "Missed",
+      "reviewed": "Reviewed"
+    },
+    "review": {
+      "write": "Write review",
+      "edit": "Edit review"
+    },
+    "scheduled": "Scheduled",
+    "cancelSchedule": "Cancel schedule",
+    "cancelRecurring": "Cancel recurring task"
+  },
+  "createTaskDialog": {
+    "title": "New task",
+    "fields": {
+      "title": "Title",
+      "titlePlaceholder": "What needs doing?",
+      "description": "Description",
+      "descriptionPlaceholder": "Add details…",
+      "assignTo": "Assign to",
+      "you": "(You)",
+      "channelHint": "Every member of the channel receives the task with the same Acknowledge / Ignore flow.",
+      "unknownPerson": "Unknown person",
+      "peopleLabel": "People",
+      "assignToEmpty": "No one assigned yet.",
+      "addPeople": "Add people",
+      "removePerson": "Remove {{name}}",
+      "done": "Done",
+      "channelsLabel": "Channels",
+      "assignToChannelEmpty": "No channels added yet.",
+      "addChannels": "Add channels",
+      "unknownChannel": "Unavailable channel",
+      "removeChannel": "Remove {{name}}"
+    },
+    "deadline": {
+      "label": "Deadline",
+      "none": "No deadline",
+      "at": "Date & time",
+      "relative": "Relative",
+      "fixed": "Fixed time",
+      "amount": "Deadline amount",
+      "unit": "Deadline unit",
+      "units": {
+        "MINUTES": "Minutes",
+        "HOURS": "Hours",
+        "DAYS": "Days"
+      },
+      "afterEach": "after each occurrence",
+      "fixedTime": "Deadline time",
+      "onEachDate": "on each occurrence's date",
+      "date": "Deadline date",
+      "time": "Deadline time"
+    },
+    "errors": {
+      "needTitle": "Give the task a title",
+      "needAssignee": "Pick at least one assignee",
+      "invalidSchedule": "Choose a future date and time",
+      "invalidStart": "Choose a future recurring start",
+      "needWeekday": "Choose at least one weekday",
+      "invalidMonthlyRule": "Choose a valid monthly day",
+      "invalidOccurrences": "Occurrences must be greater than zero",
+      "invalidEndDate": "The end date must be after the start",
+      "needDeadlineAt": "Choose a deadline date and time",
+      "deadlineNotFuture": "The deadline must be in the future",
+      "deadlineBeforeStart": "The deadline must be after the task is scheduled",
+      "invalidDeadlineAmount": "Enter a whole number for how long after each occurrence",
+      "needDeadlineTime": "Choose a deadline time",
+      "fixedDeadlineBeforeStart": "The fixed deadline time must be later than the start time",
+      "createFailed": "Could not create task"
+    },
+    "toasts": {
+      "sentPlain": "Task sent",
+      "scheduled": "Task scheduled",
+      "genericChannelFallback": "channel",
+      "sentToChannel_one": "Task sent to #{{channelName}} — {{count}} member",
+      "sentToChannel_other": "Task sent to #{{channelName}} — {{count}} members"
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "create": "Create Task",
+      "creating": "Creating…"
+    },
+    "allocation": {
+      "title": "Allocation",
+      "now": "Now",
+      "scheduled": "Schedule for later",
+      "recurring": "Recurring task",
+      "nowDescription": "Assign immediately",
+      "scheduledDescription": "Set date and time",
+      "recurringDescription": "Repeat automatically",
+      "startDate": "Start date",
+      "startTime": "Start time",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "everyDay": "Every N day(s)",
+      "everyWeek": "Every N week(s)",
+      "everyMonth": "Every N month(s)",
+      "noEnd": "No end date",
+      "afterOccurrences": "End after N occurrences",
+      "onDate": "End on specific date",
+      "peopleCount_one": "{{count}} person",
+      "peopleCount_other": "{{count}} people",
+      "noTargetYet": "no target chosen yet",
+      "summary": "This task will be assigned to {{who}} on {{when}}."
+    }
+  },
+  "exportTasksDialog": {
+    "title": "Export tasks to Excel",
+    "scopeHeading": "Which tasks",
+    "scopes": {
+      "all": "All my tasks",
+      "sent": "Allocated by me",
+      "received": "Assigned to me"
+    },
+    "rangeHeading": "Time range",
+    "ranges": {
+      "week": "Past week",
+      "month": "Past month",
+      "year": "Past year",
+      "all": "All time",
+      "custom": "Custom range"
+    },
+    "from": "From",
+    "to": "To",
+    "footerNote": "Times are exported in your device's local timezone. One row per person the task was allocated to.",
+    "actions": {
+      "cancel": "Cancel",
+      "export": "Export",
+      "exporting": "Exporting…"
+    },
+    "toasts": {
+      "nothingTitle": "Nothing to export",
+      "nothingDescription": "No tasks in the selected range.",
+      "exported_one": "Exported {{count}} row to Excel",
+      "exported_other": "Exported {{count}} rows to Excel",
+      "cappedTitle": "Export was capped",
+      "cappedDescription": "Only the most recent {{cap}} rows were included — narrow the date range for the rest.",
+      "failedTitle": "Export failed"
+    }
+  },
+  "miniTaskCalendar": {
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month"
+  },
+  "dropConfirm": {
+    "title_one": "Attach this file?",
+    "title_other": "Attach these {{count}} files?",
+    "description": "Nothing is sent yet — they go to the message box, and you still press Send.",
+    "cancel": "Cancel",
+    "attach": "Attach"
+  },
+  "createReviewDialog": {
+    "title": "Review {{name}}'s work",
+    "ratingOptional": "Rating (optional)",
+    "starCount_one": "{{count}} star",
+    "starCount_other": "{{count}} stars",
+    "clear": "Clear",
+    "feedback": "Feedback",
+    "feedbackPlaceholder": "How did they do?",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "saveReview": "Save review",
+    "saved": "Review saved",
+    "couldNotSave": "Couldn't save review",
+    "writeFirst": "Write a short review first"
+  },
+  "xlsxExport": {
+    "sheetName": "Task Timeline",
+    "columns": {
+      "task": "Task",
+      "description": "Description",
+      "allocatedBy": "Allocated by",
+      "allocatedByEmail": "Allocated by (email)",
+      "allocatedTo": "Allocated to",
+      "allocatedToEmail": "Allocated to (email)",
+      "status": "Status",
+      "allocatedAt": "Allocated at ({{tz}})",
+      "acknowledgedAt": "Acknowledged at ({{tz}})",
+      "ignoredAt": "Ignored at ({{tz}})",
+      "completedAt": "Completed at ({{tz}})",
+      "leftAt": "Left at ({{tz}})",
+      "timeToComplete": "Time to complete",
+      "reviewedAt": "Reviewed at ({{tz}})",
+      "review": "Review",
+      "rating": "Rating"
+    },
+    "status": {
+      "SENT": "Sent (awaiting)",
+      "ACKNOWLEDGED": "Acknowledged",
+      "COMPLETED": "Completed",
+      "IGNORED": "Ignored",
+      "LEFT": "Left"
+    }
+  }
+}

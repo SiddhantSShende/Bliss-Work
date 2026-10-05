@@ -142,6 +142,15 @@ func (s *Store) ForwardMessages(
 					res.MessageIDs = append(res.MessageIDs, msgID)
 				}
 			}
+			// One notice per private source channel for the WHOLE batch, not per
+			// message or per destination: the key is the batch id, so the first
+			// destination to commit writes it and every later one dedupes. It is
+			// written only here, after this destination's forwards succeeded, so
+			// a batch whose every destination fails posts nothing.
+			if err := s.writeForwardNotices(ctx, tx, orgID, forwarderID, t.channelID(),
+				"batch:"+clientBatchID, fcs...); err != nil {
+				return err
+			}
 			return tx.Commit(ctx)
 		})
 		res.Err = txErr

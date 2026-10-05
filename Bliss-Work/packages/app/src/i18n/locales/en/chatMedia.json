@@ -1,0 +1,64 @@
+{
+  "mediaBubble": {
+    "openFile": "Open {{name}}",
+    "uploading": "Uploading… {{percent}}%",
+    "notAvailable": "Not available to you",
+    "previewUnavailable": "Preview isn't available for this file type"
+  },
+  "fileAttachment": {
+    "downloadsOff": "File downloads are turned off.",
+    "decline": "Decline",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "directTransfer": "Direct transfer — peer-to-peer.",
+    "establishingConnection": "Establishing peer connection…",
+    "transferComplete": "Transfer complete.",
+    "cancelledByPeer": "Cancelled by peer",
+    "couldNotReadFile": "Could not read the file",
+    "couldNotAnnounceFile": "Could not announce the file",
+    "declined": "Declined",
+    "couldNotSend": "Couldn't send {{name}}",
+    "transferUnavailable": "Direct transfer unavailable",
+    "badAnswer": "Bad answer",
+    "peerUnreachable": "Peer unreachable",
+    "offerCreationFailed": "Offer creation failed",
+    "checksumMismatch": "Checksum mismatch",
+    "cancelled": "Cancelled",
+    "sinkWriteFailed": "Sink write failed: {{message}}",
+    "answerCreationFailed": "Answer creation failed",
+    "receiverSetupFailed": "Receiver setup failed"
+  },
+  "location": {
+    "sharedLocation": "Shared location",
+    "openInMapsAriaLabel": "Open {{title}} in Maps",
+    "mapAlt": "Map showing {{title}}",
+    "accuracySuffix": " · ±{{accuracy}} m",
+    "openInMapsTitle": "Open in Maps",
+    "open": "Open"
+  },
+  "emojiPicker": {
+    "insertEmoji": "Insert an emoji"
+  },
+  "attachments": {
+    "tooManyFiles": "You can send up to {{max}} files at a time.",
+    "overSizePeerToPeer": "{{name}} is over {{size}} — sending peer-to-peer. You both need to stay online until it finishes.",
+    "tooLarge": "{{name}} is larger than {{size}}.",
+    "uploadFailed": "Upload failed",
+    "attachFailedSingle": "Couldn't attach {{name}}: {{message}}",
+    "attachFailedMultiple": "Couldn't attach {{count}} files: {{names}}",
+    "attachFailedGeneric": "Couldn't attach that file. Please try again."
+  },
+  "shareLocation": {
+    "gettingLocation": "Getting your location…",
+    "approximateShared": "Shared an approximate location",
+    "reasons": {
+      "desktopAccessOff": "Location access is off for desktop apps, so this is based on your network.",
+      "noPreciseFix": "Your device couldn't get a precise fix, so this is based on your network.",
+      "noProvider": "This build has no precise location provider, so this is based on your network."
+    },
+    "openSettings": "Open settings",
+    "notAvailable": "Location sharing isn't available on this device.",
+    "permissionDenied": "Location permission denied. Enable it in your site settings to share your location.",
+    "determineFailed": "Couldn't determine your location. Try again, or check that location services are on."
+  }
+}

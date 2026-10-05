@@ -1,0 +1,132 @@
+{
+  "search": {
+    "title": "Search",
+    "resultsFor": "Results for “{{query}}”",
+    "empty": {
+      "title": "Search {{brand}}",
+      "hint": "Find people, channels, chats, and tasks."
+    },
+    "noResults": {
+      "title": "No matches",
+      "hint": "Nothing matched “{{query}}”."
+    },
+    "groups": {
+      "people": "People",
+      "channels": "Channels",
+      "chats": "Chats",
+      "tasks": "Tasks"
+    },
+    "channelMembers_one": "{{count}} member",
+    "channelMembers_other": "{{count}} members"
+  },
+  "nav": {
+    "mail": "Mail",
+    "meetings": "Meetings",
+    "chats": "Chats",
+    "tasks": "Tasks",
+    "channels": "Channels",
+    "members": "Members",
+    "org": "Org",
+    "settings": "Settings",
+    "more": "More"
+  },
+  "railBtn": {
+    "titleWithBadge": "{{label}} ({{count}} new)",
+    "unreadAriaLabel": "{{count}} unread"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "empty": {
+      "noneYet": "No notifications yet",
+      "allCaughtUp": "You're all caught up",
+      "hint": "Updates and activity will show up here.",
+      "hintNothingUnread": "Nothing unread. Earlier notifications are under “View read”."
+    },
+    "row": {
+      "markRead": "Mark read"
+    },
+    "toggleHideRead": "Hide read",
+    "toggleShowRead": "View read ({{total}})",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…"
+  },
+  "profileMenu": {
+    "accountMenuTitle": "{{name}} — account menu",
+    "accountMenuAriaLabel": "Account menu",
+    "online": "Online",
+    "editProfile": "Edit profile",
+    "settings": "Settings",
+    "lightMode": "Light mode",
+    "darkMode": "Dark mode",
+    "signOut": "Sign out"
+  },
+  "getAppButton": {
+    "getDesktopApp": "Get the desktop app",
+    "downloadForPlatform": "Download {{brand}} for {{platform}} — {{requirement}}",
+    "getApp": "Get App",
+    "downloadHeading": "Download {{brand}}",
+    "requirement": {
+      "windows": "Windows 10 & 11 · 64-bit",
+      "mac": "macOS 11 Big Sur or later",
+      "linux": "AppImage (universal) or .deb"
+    }
+  },
+  "roleBadge": {
+    "admin": "Admin",
+    "member": "Member"
+  },
+  "activityNotice": {
+    "message": "Your activity in {{brand}} is recorded so you and your workspace admins can review it.",
+    "seeRecorded": "See what's recorded"
+  },
+  "listPane": {
+    "back": "Back"
+  },
+  "exportActivity": {
+    "customRange": "Custom range",
+    "title": {
+      "forMember": "Export {{name}}'s activity",
+      "workspace": "Export activity"
+    },
+    "from": "From",
+    "to": "To",
+    "description": "One row per member per day: active and idle time, sessions, recorded actions, and the section they spent most time in. Dates are counted in your own timezone.",
+    "cancel": "Cancel",
+    "exportButton": "Export .xlsx",
+    "toasts": {
+      "nothingToExport": "No activity in that period — nothing to export.",
+      "exported_one": "Exported {{count}} row",
+      "exported_other": "Exported {{count}} rows",
+      "exportFailedFallback": "Export failed"
+    }
+  },
+  "activityExport": {
+    "sheets": {
+      "summary": "Summary",
+      "daily": "Daily",
+      "sessions": "Sessions"
+    },
+    "columns": {
+      "member": "Member",
+      "email": "Email",
+      "day": "Day",
+      "active": "Active",
+      "activeHours": "Active (hours)",
+      "idle": "Idle",
+      "signedIn": "Signed in",
+      "sessions": "Sessions",
+      "actions": "Actions",
+      "firstSeen": "First seen ({{tz}})",
+      "lastSeen": "Last seen ({{tz}})",
+      "topSection": "Top section",
+      "daysActive": "Days active",
+      "avgPerActiveDay": "Avg per active day",
+      "device": "Device",
+      "started": "Started ({{tz}})",
+      "ended": "Ended ({{tz}})",
+      "endedBecause": "Ended because",
+      "network": "Network"
+    },
+    "stillActive": "still active"
+  }
+}

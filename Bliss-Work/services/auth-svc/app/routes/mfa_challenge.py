@@ -23,13 +23,12 @@ from .. import service
 from ..db import engine
 from ..logging_config import log
 from ..net import request_context
-from ..schemas import MfaChallengeRequest, MfaMethodsDTO, MfaStepUpRequest, SessionDTO
+from ..schemas import MfaChallengeRequest, MfaStepUpRequest, SessionDTO
 from ..security.auth_dep import Principal, get_principal
 from ..security.origin import enforce_origin
 from crypto import cryptor
 from . import mfa_service, session_events
 from .cookies import set_refresh_cookie
-from .mfa_webauthn import verify_webauthn_assertion
 
 router = APIRouter(prefix="/auth/mfa", tags=["mfa"])
 
@@ -87,17 +86,6 @@ async def verify_challenge(body: MfaChallengeRequest, request: Request, response
                 ok = await mfa_service.verify_totp_replay_safe(conn, user_id, secret, body.totpCode)
         elif body.backupCode:
             ok = await mfa_service.verify_and_consume_backup_code(conn, user_id, body.backupCode)
-        elif body.webauthnCredential:
-            try:
-                waid, _waorg = await verify_webauthn_assertion(conn, body.webauthnCredential)
-            except HTTPException:
-                # Wrong/replayed/malformed assertion — normalize to a failed
-                # verification, same as mfa_service.verify_step_up does for
-                # this same call, so it flows through the failed-attempt/
-                # lockout bookkeeping below instead of raising past it.
-                ok = False
-            else:
-                ok = waid == user_id  # the challenge itself is scoped to this pending session
 
         if not ok:
             locked_secs = await service.register_failed_login(conn, ident)
@@ -135,15 +123,6 @@ async def verify_challenge(body: MfaChallengeRequest, request: Request, response
     return session
 
 
-@router.get("/methods", response_model=MfaMethodsDTO)
-async def mfa_methods(principal: Principal = Depends(get_principal)) -> MfaMethodsDTO:
-    """Which second factors the CALLER has registered — lets Settings decide
-    whether to offer a passkey as a step-up shortcut (see MfaMethodsDTO)."""
-    async with engine.connect() as conn:
-        await service.set_org_guc(conn, principal.org_id)
-        methods = await mfa_service.enrolled_methods(conn, principal.user_id)
-    return MfaMethodsDTO(methods=methods)
-
 
 @router.post("/disable", status_code=status.HTTP_204_NO_CONTENT)
 async def disable_mfa(
@@ -160,7 +139,6 @@ async def disable_mfa(
             body.password,
             body.totpCode,
             body.backupCode,
-            body.webauthnCredential,
         )
         if not ok:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "re-authentication failed")
@@ -171,10 +149,6 @@ async def disable_mfa(
                 "mfa_enrolled = false, mfa_enrolled_at = NULL WHERE id = :id"
             ),
             {"id": principal.user_id},
-        )
-        await conn.execute(
-            text("DELETE FROM mfa_webauthn_credentials WHERE user_id = :uid"),
-            {"uid": principal.user_id},
         )
         await conn.execute(
             text("DELETE FROM mfa_backup_codes WHERE user_id = :uid"), {"uid": principal.user_id}

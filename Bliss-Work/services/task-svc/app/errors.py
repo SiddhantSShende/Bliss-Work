@@ -6,6 +6,7 @@ across services) so each service stays independently deployable.
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -63,7 +64,11 @@ async def _validation_exception_handler(
         "validation_error",
         "request validation failed",
         rid,
-        {"fields": exc.errors()},
+        # A validator that raises ValueError (every model-level rule: "scheduledFor
+        # must be in the future", "deadlineAt must be ...") leaves the exception
+        # itself in `ctx.error`, which json cannot serialize — without this the 422
+        # for those rules was an unhandled TypeError and the client got a 500.
+        {"fields": jsonable_encoder(exc.errors(), custom_encoder={Exception: str})},
     )
     response = JSONResponse(status_code=422, content=body)
     response.headers["X-Request-Id"] = rid

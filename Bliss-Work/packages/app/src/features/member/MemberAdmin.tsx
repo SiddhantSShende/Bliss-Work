@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AlertTriangle, ShieldCheck, ShieldOff, UserMinus, UserPlus } from "lucide-react";
+import { Trans, useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Badge, Button, EmptyState, Spinner } from "@taskboard/ui";
 import { ApiError, type ActiveSessionDTO, type MemberDTO, type Role } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
@@ -28,6 +30,7 @@ export function MemberAdmin({
   isSelf: boolean;
   onChanged: (m: MemberDTO) => void;
 }) {
+  const { t } = useTranslation("members");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState<"suspend" | "remove" | null>(null);
@@ -38,13 +41,17 @@ export function MemberAdmin({
     qc.invalidateQueries({ queryKey: qk.directory });
     qc.invalidateQueries({ queryKey: qk.audit(member.id) });
   };
-  const failed = (e: unknown) => toast.error(e instanceof Error ? e.message : "Action failed");
+  const failed = (e: unknown) => toast.error(e instanceof Error ? e.message : t("members:admin.toasts.actionFailed"));
 
   const role = useMutation({
     mutationFn: (r: Role) => api.changeMemberRole(member.id, r),
     onSuccess: (m) => {
       settled(m);
-      toast.success(`${m.displayName} is now ${m.roles.includes("org_admin") ? "an admin" : "a member"}`);
+      toast.success(
+        m.roles.includes("org_admin")
+          ? t("members:admin.toasts.nowAdmin", { name: m.displayName })
+          : t("members:admin.toasts.nowMember", { name: m.displayName }),
+      );
     },
     onError: failed,
   });
@@ -61,10 +68,10 @@ export function MemberAdmin({
       setConfirm(null);
       toast.success(
         m.status === "active"
-          ? `${m.displayName} can sign in again`
+          ? t("members:admin.toasts.reactivated", { name: m.displayName })
           : m.status === "suspended"
-            ? `${m.displayName} is suspended`
-            : `${m.displayName} was removed from the workspace`,
+            ? t("members:admin.toasts.suspended", { name: m.displayName })
+            : t("members:admin.toasts.removed", { name: m.displayName }),
       );
     },
     onError: (e) => {
@@ -76,9 +83,7 @@ export function MemberAdmin({
   if (isSelf) {
     return (
       <p className="rounded-xl bg-surface-2 p-4 text-sm text-muted">
-        You can't change your own role or membership. Ask another admin — that rule is
-        what stops the last admin locking everyone, including themselves, out of the
-        workspace.
+        {t("members:admin.selfGuard")}
       </p>
     );
   }
@@ -89,8 +94,8 @@ export function MemberAdmin({
   return (
     <div className="space-y-5">
       <Section
-        title="Role"
-        hint="Admins can invite people, manage members and see the audit trail. Changing a role signs the member out of every device so their new permissions take effect immediately."
+        title={t("members:admin.sections.role.title")}
+        hint={t("members:admin.sections.role.hint")}
       >
         <div className="flex items-center gap-2">
           <RoleBadge isAdmin={isAdmin} />
@@ -102,29 +107,29 @@ export function MemberAdmin({
             onClick={() => role.mutate(isAdmin ? "member" : "org_admin")}
           >
             {isAdmin ? <ShieldOff size={15} /> : <ShieldCheck size={15} />}
-            {isAdmin ? "Demote to member" : "Make admin"}
+            {isAdmin ? t("members:admin.actions.demote") : t("members:admin.actions.makeAdmin")}
           </Button>
         </div>
         {member.status !== "active" && (
-          <p className="text-xs text-muted">Reactivate this member before changing their role.</p>
+          <p className="text-xs text-muted">{t("members:admin.reactivateFirst")}</p>
         )}
       </Section>
 
       <Section
-        title="Access"
-        hint="Suspending keeps everything and can be undone at any time. Removing revokes the membership — their messages, tasks and history stay exactly where they are, and they can be re-invited later."
+        title={t("members:admin.sections.access.title")}
+        hint={t("members:admin.sections.access.hint")}
       >
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={member.status === "active" ? "success" : member.status === "suspended" ? "warning" : "danger"}>
-            {member.status}
+            {statusLabel(member.status, t)}
           </Badge>
           {member.status === "active" ? (
             <>
               <Button size="sm" variant="secondary" disabled={busy} onClick={() => setConfirm("suspend")}>
-                <ShieldOff size={15} /> Suspend
+                <ShieldOff size={15} /> {t("members:admin.actions.suspend")}
               </Button>
               <Button size="sm" variant="danger" disabled={busy} onClick={() => setConfirm("remove")}>
-                <UserMinus size={15} /> Remove
+                <UserMinus size={15} /> {t("members:admin.actions.remove")}
               </Button>
             </>
           ) : (
@@ -136,11 +141,11 @@ export function MemberAdmin({
                 disabled={busy}
                 onClick={() => lifecycle.mutate("reactivate")}
               >
-                <UserPlus size={15} /> Reactivate
+                <UserPlus size={15} /> {t("members:admin.actions.reactivate")}
               </Button>
               {member.status === "suspended" && (
                 <Button size="sm" variant="danger" disabled={busy} onClick={() => setConfirm("remove")}>
-                  <UserMinus size={15} /> Remove
+                  <UserMinus size={15} /> {t("members:admin.actions.remove")}
                 </Button>
               )}
             </>
@@ -153,29 +158,40 @@ export function MemberAdmin({
       <ConfirmDialog
         open={confirm !== null}
         onClose={() => !lifecycle.isPending && setConfirm(null)}
-        title={confirm === "remove" ? "Remove from workspace?" : "Suspend member?"}
+        title={confirm === "remove" ? t("members:admin.confirmDialog.removeTitle") : t("members:admin.confirmDialog.suspendTitle")}
         message={
           confirm === "remove" ? (
-            <>
-              <strong className="text-fg">{member.displayName}</strong> will lose access to this
-              workspace immediately and disappear from the directory. Everything they wrote stays.
-              You can invite them back at any time.
-            </>
+            <Trans
+              i18nKey="members:admin.confirmDialog.removeMessage"
+              values={{ name: member.displayName }}
+              components={{ bold: <strong className="text-fg" /> }}
+            />
           ) : (
-            <>
-              <strong className="text-fg">{member.displayName}</strong> will be signed out
-              everywhere and won't be able to sign back in until you reactivate them. Nothing is
-              deleted.
-            </>
+            <Trans
+              i18nKey="members:admin.confirmDialog.suspendMessage"
+              values={{ name: member.displayName }}
+              components={{ bold: <strong className="text-fg" /> }}
+            />
           )
         }
-        confirmLabel={confirm === "remove" ? "Remove" : "Suspend"}
+        confirmLabel={confirm === "remove" ? t("members:admin.actions.remove") : t("members:admin.actions.suspend")}
         danger
         busy={lifecycle.isPending}
         onConfirm={() => lifecycle.mutate(confirm === "remove" ? "remove" : "suspend")}
       />
     </div>
   );
+}
+
+function statusLabel(status: MemberDTO["status"], t: TFunction): string {
+  switch (status) {
+    case "active":
+      return t("members:status.active");
+    case "suspended":
+      return t("members:status.suspended");
+    case "removed":
+      return t("members:status.removed");
+  }
 }
 
 /**
@@ -190,6 +206,7 @@ export function MemberAdmin({
  * whether an admin or the member themselves is looking at it.
  */
 function MemberSessionsSection({ memberId }: { memberId: string }) {
+  const { t } = useTranslation("members");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [confirmSession, setConfirmSession] = useState<ActiveSessionDTO | null>(null);
@@ -209,12 +226,14 @@ function MemberSessionsSection({ memberId }: { memberId: string }) {
       qc.setQueryData<ActiveSessionDTO[]>(qk.memberActiveSessions(memberId), (prev) =>
         (prev ?? []).filter((s) => s.id !== target.id),
       );
-      toast.success(`Signed out ${target.device}`);
+      toast.success(t("members:admin.sessions.signedOutToast", { device: target.device }));
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         await qc.invalidateQueries({ queryKey: qk.memberActiveSessions(memberId) });
       } else {
-        toast.error("Couldn't sign out that session", { description: "Please try again." });
+        toast.error(t("members:admin.sessions.revokeFailedToast.title"), {
+          description: t("members:admin.sessions.revokeFailedToast.description"),
+        });
       }
     } finally {
       setRevokingId(null);
@@ -224,8 +243,8 @@ function MemberSessionsSection({ memberId }: { memberId: string }) {
 
   return (
     <Section
-      title="Active sessions"
-      hint="Signing out a session ends it immediately — the device will need to sign in again."
+      title={t("members:admin.sections.activeSessions.title")}
+      hint={t("members:admin.sections.activeSessions.hint")}
     >
       {isLoading ? (
         <div className="flex justify-center p-4">
@@ -234,11 +253,11 @@ function MemberSessionsSection({ memberId }: { memberId: string }) {
       ) : isError ? (
         <EmptyState
           icon={<AlertTriangle size={22} />}
-          title="Sessions could not be loaded"
-          hint="Check your connection and try again."
+          title={t("members:admin.sessions.loadError.title")}
+          hint={t("members:admin.sessions.loadError.hint")}
         />
       ) : !sessions || sessions.length === 0 ? (
-        <p className="text-sm text-muted">No active sessions.</p>
+        <p className="text-sm text-muted">{t("members:admin.sessions.none")}</p>
       ) : (
         <ActiveSessionsList sessions={sessions} revokingId={revokingId} onRevoke={setConfirmSession} />
       )}
@@ -246,14 +265,15 @@ function MemberSessionsSection({ memberId }: { memberId: string }) {
       <ConfirmDialog
         open={confirmSession !== null}
         onClose={() => !revokingId && setConfirmSession(null)}
-        title="Sign out this session?"
+        title={t("members:admin.sessions.confirmDialog.title")}
         message={
-          <>
-            <strong className="text-fg">{confirmSession?.device}</strong> will be signed out
-            immediately and will need to sign in again.
-          </>
+          <Trans
+            i18nKey="members:admin.sessions.confirmDialog.message"
+            values={{ device: confirmSession?.device }}
+            components={{ bold: <strong className="text-fg" /> }}
+          />
         }
-        confirmLabel="Sign out"
+        confirmLabel={t("members:admin.sessions.confirmDialog.confirmLabel")}
         danger
         busy={revokingId === confirmSession?.id}
         onConfirm={confirmRevoke}

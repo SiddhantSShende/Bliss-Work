@@ -7,4 +7,5 @@ export const STATUS_LABEL: Record<AssigneeStatus, string> = {
   COMPLETED: 'Completed',
   IGNORED: 'Ignored',
   LEFT: 'Left',
+  MISSED: 'Missed',
 };

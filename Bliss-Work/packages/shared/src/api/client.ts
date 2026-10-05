@@ -18,6 +18,8 @@ import {
   BulkForwardResultDTO,
   CaptchaChallengeDTO,
   CallDTO,
+  MeetingRecurrenceInput,
+  MeetingSeriesDTO,
   CallChatMessageDTO,
   CallChatPageDTO,
   CallNoteDTO,
@@ -34,6 +36,7 @@ import {
   type ChannelRole,
   ChannelMessageDTO,
   ChannelReadReceiptDTO,
+    CustomThemeDTO,
   ConversationDTO,
   ReactionDTO,
   type Role,
@@ -50,22 +53,27 @@ import {
   MessageDTO,
   type MessageKind,
   MfaBackupCodesResult,
-  MfaMethodsResult,
   MfaTotpEnrollConfirmResult,
+  I18nCatalogDTO,
+  I18nLanguagesDTO,
   MfaTotpEnrollStartResult,
-  MfaWebauthnRegisterFinishResult,
   type ThreadOrigin,
   NotificationDTO,
+  NotificationPageDTO,
   OrgMembershipDTO,
+  OrgMembershipPageDTO,
   OrgLifecycleDTO,
   OrgMfaSettingsDTO,
   ReviewResponse,
+  DeadlineRule,
+  ScheduledTaskDTO,
   SentTaskDTO,
   StickyTaskDTO,
   TaskExportRow,
   OrgActivitySummaryDTO,
   ThreadDTO,
   TimelinePage,
+  ThemePrefsDTO,
   UserDTO,
   SessionDTO,
 } from "../types/domain";
@@ -75,6 +83,7 @@ import {
   httpStatusToCode,
 } from "../types/errors";
 import type { GraphqlOperationName } from "../graphql/operations";
+import type { ClientPlatform } from "../policy/clientPlatform";
 
 export interface ApiConfig {
   authBase: string; // e.g. http://localhost:8001
@@ -172,6 +181,7 @@ function asErrorCode(code: string | undefined): ErrorCode | undefined {
     "forbidden",
     "not_found",
     "conflict",
+    "call_session_active",
     "validation_error",
     "rate_limited",
     "internal_error",
@@ -190,6 +200,20 @@ function asErrorCode(code: string | undefined): ErrorCode | undefined {
  * the thread it draws them from grows without limit as older pages load.
  */
 const CHANNEL_RECEIPT_IDS_MAX = 100;
+
+const StickyPinStateSchema = z.enum(["PINNED", "UNPINNED"]);
+/** sticky-svc's answer to PUT/DELETE /sticky/pins/{taskId}. `state` is CLOSED
+ *  once the task has finished — the lifecycle's doing, never an Unpin. */
+const StickyPinStateResult = z.object({
+  taskId: z.string(),
+  state: z.enum(["PINNED", "UNPINNED", "CLOSED"]),
+  updatedAt: z.string(),
+});
+export type StickyPinStateResult = z.infer<typeof StickyPinStateResult>;
+/** Mirrors the largest page task-svc will serve (_MAX_LIMIT in tasks_read.py). */
+const TASK_LIST_PAGE_SIZE = 100;
+/** 2,000 tasks; past that the list is truncated rather than fetched without end. */
+const TASK_LIST_MAX_PAGES = 20;
 
 export class ApiClient {
   constructor(private readonly cfg: ApiConfig) {}
@@ -344,8 +368,18 @@ export class ApiClient {
   }
   /** Returns either a session, or an MfaPendingDTO when a second factor is
    *  still owed — check with `isMfaPending()` before treating the result as
-   *  a session. */
-  login(body: { email: string; password: string; captchaId: string; captchaValue: string }) {
+   *  a session.
+   *
+   *  `captchaId`/`captchaValue` may be omitted only by a client that declares an
+   *  exempt `clientPlatform` (see policy/clientPlatform.ts); the server still
+   *  decides, and answers 400 if it wants the CAPTCHA anyway. */
+  login(body: {
+    email: string;
+    password: string;
+    captchaId?: string;
+    captchaValue?: string;
+    clientPlatform?: ClientPlatform;
+  }) {
     return this.req(this.cfg.authBase, "/auth/login", {
       method: "POST",
       body: JSON.stringify(body),
@@ -606,11 +640,28 @@ export class ApiClient {
   me() {
     return this.req(this.cfg.authBase, "/auth/me", {}, UserDTO);
   }
-  /** Both fields are independently optional — the Profile page saves a
-   *  display-name edit and an avatar upload as two separate actions that
-   *  happen to share this endpoint. `avatarUrl` is a client-resized
-   *  `data:image/(jpeg|png|webp);base64,...` URI (see lib/thumbnail.ts). */
-  updateProfile(body: { displayName?: string; avatarUrl?: string }) {
+  /** The locales auth-svc can currently translate the UI into — live from
+   *  Google Cloud Translation (Redis-cached server-side), never a client-side
+   *  hardcoded list. Empty when no Google credential is configured. */
+  i18nLanguages() {
+    return this.req(this.cfg.authBase, "/i18n/languages", {}, I18nLanguagesDTO);
+  }
+  /** The translated UI-string catalog for `locale`, one namespace bundle per
+   *  key — see LanguageProvider, which is the only caller. Never sends the
+   *  strings themselves; the server already holds the English source and
+   *  translates from that on demand. */
+  i18nCatalog(locale: string) {
+    return this.req(this.cfg.authBase, `/i18n/catalog?locale=${encodeURIComponent(locale)}`, {}, I18nCatalogDTO);
+  }
+  /** These fields are independently optional. `customTheme` synchronizes the
+   *  shared palette; theme selection stays local. `themePrefs` is retained for
+   *  legacy clients. */
+  updateProfile(body: {
+    displayName?: string;
+    avatarUrl?: string;
+    themePrefs?: ThemePrefsDTO;
+    customTheme?: CustomThemeDTO | null;
+  }) {
     return this.req(this.cfg.authBase, "/auth/me", {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -632,6 +683,32 @@ export class ApiClient {
   /** Organizations the signed-in identity belongs to (for the switcher). */
   myOrgs() {
     return this.req(this.cfg.authBase, "/auth/orgs/mine", {}, z.array(OrgMembershipDTO));
+  }
+  async myOrgsPage(params: { search: string; offset: number; limit: number }): Promise<OrgMembershipPageDTO> {
+    const query = new URLSearchParams({
+      search: params.search,
+      offset: String(params.offset),
+      limit: String(params.limit),
+    });
+    const res = await this.req(
+      this.cfg.authBase,
+      `/auth/orgs/mine?${query}`,
+      {},
+      z.union([OrgMembershipPageDTO, z.array(OrgMembershipDTO)]),
+    );
+    if (!Array.isArray(res)) return res;
+    // An auth-svc that predates paging ignores limit/offset/search and answers
+    // with the whole (already server-authorized) list — the route's response
+    // model is `list | page`. Page it here the way the paged path does:
+    // case-insensitive name match, ordered by name then id.
+    const needle = params.search.trim().toLowerCase();
+    const matches = res
+      .filter((o) => !needle || o.orgName.toLowerCase().includes(needle))
+      .sort((a, b) => a.orgName.toLowerCase().localeCompare(b.orgName.toLowerCase()) || a.orgId.localeCompare(b.orgId));
+    return {
+      items: matches.slice(params.offset, params.offset + params.limit),
+      hasMore: matches.length > params.offset + params.limit,
+    };
   }
   /** The current org plus any pending deletion. Admin-only. */
   org() {
@@ -732,15 +809,14 @@ export class ApiClient {
     return this.req<void>(this.cfg.authBase, "/auth/email/resend", { method: "POST" });
   }
 
-  // ── MFA (TOTP + WebAuthn) ─────────────────────────────────────────────────────
+  // ── MFA (TOTP) ────────────────────────────────────────────────────────────────
   /** Verify the second factor a pending login is waiting on. Exactly one of
-   *  totpCode/backupCode/webauthnCredential should be set. On success this
+   *  totpCode or backupCode should be set. On success this
    *  IS the session — nothing further to call. */
   mfaChallengeVerify(body: {
     pendingToken: string;
     totpCode?: string;
     backupCode?: string;
-    webauthnCredential?: unknown;
   }) {
     return this.req(
       this.cfg.authBase,
@@ -750,17 +826,12 @@ export class ApiClient {
     );
   }
   /** Step-up re-auth (password + a still-valid second factor) to turn MFA off.
-   *  Exactly one of totpCode/backupCode/webauthnCredential should be set. */
-  mfaDisable(body: { password: string; totpCode?: string; backupCode?: string; webauthnCredential?: unknown }) {
+   *  Exactly one of totpCode/backupCode should be set. */
+  mfaDisable(body: { password: string; totpCode?: string; backupCode?: string }) {
     return this.req<void>(this.cfg.authBase, "/auth/mfa/disable", {
       method: "POST",
       body: JSON.stringify(body),
     });
-  }
-  /** Which second factors the CALLER has registered — lets Settings decide
-   *  whether to offer a passkey as a step-up shortcut (see MfaMethodsResult). */
-  mfaMethods() {
-    return this.req(this.cfg.authBase, "/auth/mfa/methods", {}, MfaMethodsResult);
   }
   /** Generate a TOTP secret + otpauth:// URI. `pendingToken` only when
    *  authenticating via the restricted enrollment credential (no session yet). */
@@ -785,66 +856,17 @@ export class ApiClient {
   }
   /** Step-up re-auth; invalidates every unused prior code before minting the
    *  new batch — the old codes stop working immediately. Exactly one of
-   *  totpCode/backupCode/webauthnCredential should be set. */
+   *  totpCode or backupCode should be set. */
   mfaRegenerateBackupCodes(body: {
     password: string;
     totpCode?: string;
     backupCode?: string;
-    webauthnCredential?: unknown;
   }) {
     return this.req(
       this.cfg.authBase,
       "/auth/mfa/totp/backup-codes/regenerate",
       { method: "POST", body: JSON.stringify(body) },
       MfaBackupCodesResult,
-    );
-  }
-  /** WebAuthn registration ceremony options (PublicKeyCredentialCreationOptions,
-   *  base64url-encoded per the spec) — feed straight to the enrollment page's
-   *  `navigator.credentials.create()` call after decoding. */
-  mfaWebauthnRegisterStart(pendingToken?: string) {
-    return this.req<Record<string, unknown>>(
-      this.cfg.authBase,
-      "/auth/mfa/webauthn/register/start",
-      { method: "POST", body: JSON.stringify({ pendingToken }) },
-    );
-  }
-  mfaWebauthnRegisterFinish(body: {
-    credential: unknown;
-    nickname?: string;
-    pendingToken?: string;
-    /** Required when adding a credential to an ALREADY-enrolled account —
-     *  see mfaDisable's doc comment for why. Omitted for first-time
-     *  enrollment (nothing yet to step up from). */
-    stepUp?: { password: string; totpCode?: string; backupCode?: string; webauthnCredential?: unknown };
-  }) {
-    return this.req(
-      this.cfg.authBase,
-      "/auth/mfa/webauthn/register/finish",
-      { method: "POST", body: JSON.stringify(body) },
-      MfaWebauthnRegisterFinishResult,
-    );
-  }
-  /** WebAuthn authentication ceremony options for a pending login — feed to
-   *  `navigator.credentials.get()`, then pass the result as
-   *  `mfaChallengeVerify`'s `webauthnCredential`. */
-  mfaWebauthnAuthStart(pendingToken: string) {
-    return this.req<Record<string, unknown>>(
-      this.cfg.authBase,
-      "/auth/mfa/webauthn/auth/start",
-      { method: "POST", body: JSON.stringify({ pendingToken }) },
-    );
-  }
-  /** WebAuthn authentication ceremony options for STEP-UP re-auth (an
-   *  already signed-in caller) — feed to `navigator.credentials.get()`, then
-   *  pass the result as `mfaDisable`/`mfaRegenerateBackupCodes`'s
-   *  `webauthnCredential`. Identity comes from the Bearer token, unlike
-   *  `mfaWebauthnAuthStart` above (a pending login, no session yet). */
-  mfaWebauthnStepUpStart() {
-    return this.req<Record<string, unknown>>(
-      this.cfg.authBase,
-      "/auth/mfa/webauthn/step-up/start",
-      { method: "POST" },
     );
   }
   /** The org's mandatory-MFA-for-admins policy + grace-period deadline. */
@@ -953,11 +975,26 @@ export class ApiClient {
       }),
     );
   }
-  reply(conversationId: string, body: string, clientMsgId?: string, replyToId?: string) {
+  reply(
+    conversationId: string,
+    body: string,
+    clientMsgId?: string,
+    replyToId?: string,
+    /**
+     * Optional system kind (e.g. "attachment_opened"); absent means an
+     * ordinary reply. Mirrors sendMessage's Kind — see its doc comment.
+     */
+    kind?: MessageKind,
+    /** Required alongside kind "attachment_opened"/"attachment_downloaded". */
+    attachmentId?: string,
+  ) {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/conversations/${conversationId}/reply`,
-      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), replyToId }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), replyToId, kind, attachmentId }),
+      },
       z.object({ messageId: z.string(), seq: z.number(), threadId: z.string() }),
     );
   }
@@ -1206,6 +1243,20 @@ export class ApiClient {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/mail/${mailId}/read`, {
       method: "POST",
     });
+  }
+
+  /**
+   * Records, in the admin-facing activity timeline, that the caller pressed
+   * Download on one of this mail's files. "Download initiated" only — the bytes
+   * come from the signed /media URL, and Preview/Open never call this. The
+   * acting user is the token's; nothing is sent to the mail's sender.
+   */
+  recordMailAttachmentDownload(mailId: string, attachmentId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/mail/${mailId}/attachments/${attachmentId}/downloaded`,
+      { method: "POST" },
+    );
   }
 
   // ── chat attachments ────────────────────────────────────────────────────────
@@ -1755,26 +1806,75 @@ export class ApiClient {
     title: string;
     description: string;
     assigneeIds?: string[];
-    /** Optional: allocate to a channel. Server resolves the channel's
-     *  current members and fans the task out to each. Future joiners are
-     *  auto-added via the ChannelMemberJoined consumer in task-svc.
-     *  When set, `assigneeIds` is ignored — server is the source of truth. */
+    /** Optional: allocate to channels, with or without `assigneeIds` — all of it
+     *  ONE task. The server resolves each channel's current members, counts a
+     *  person named here and also in a channel once, and keeps the channels
+     *  attached to the task so future joiners are auto-added via the
+     *  ChannelMemberJoined consumer. At least one of the two must be non-empty. */
+    channelIds?: string[];
+    /** The original single-channel form; equivalent to `channelIds: [id]`. */
     channelId?: string;
+    allocation?: "NOW" | "SCHEDULED" | "RECURRING";
+    scheduledFor?: string;
+    /** One concrete deadline (instant or one-off scheduled task). A recurring task
+     *  takes `recurrence.deadline` instead. Omitted = no deadline. */
+    deadlineAt?: string;
+    recurrence?: {
+      startAt: string;
+      frequency: "DAILY" | "WEEKLY" | "MONTHLY";
+      interval: number;
+      weekdays?: number[];
+      monthlyRule?: "DAY_OF_MONTH" | "WEEKDAY_PATTERN";
+      monthlyDay?: number;
+      monthlyOrdinal?: number;
+      monthlyWeekday?: number;
+      endCondition: "NO_END" | "AFTER_OCCURRENCES" | "ON_DATE";
+      endAt?: string;
+      occurrenceCount?: number;
+      /** How each occurrence's deadline is derived. Omitted = no deadline. */
+      deadline?: DeadlineRule;
+    };
   }, idempotencyKey?: string) {
     return this.req(this.cfg.taskBase, "/api/v1/tasks", {
       method: "POST",
       headers: { "idempotency-key": idempotencyKey ?? uuid() },
       body: JSON.stringify(body),
-    }, z.object({ taskId: z.string() }));
+    }, z.object({ taskId: z.string(), scheduleId: z.string().optional() }));
+  }
+  /**
+   * Every row of one of the caller's task lists, walking the server's pages.
+   *
+   * These endpoints cap a response at 100 rows (50 by default) and callers used to
+   * read only the first, so anyone past that many open tasks silently lost the rest
+   * — and the desktop sticky refresh treated a task missing from the first page as
+   * no longer wanted and unpinned it. The pages are ordered totally (see
+   * tasks_read.py), so walking them neither skips nor repeats a row.
+   *
+   * Bounded, like the server's own cap: TASK_LIST_MAX_PAGES pages, so a runaway
+   * list cannot turn one refresh into an unbounded run of requests.
+   */
+  private async taskListAllPages(path: string): Promise<StickyTaskDTO[]> {
+    const rows: StickyTaskDTO[] = [];
+    for (let page = 0; page < TASK_LIST_MAX_PAGES; page++) {
+      const batch = await this.req(
+        this.cfg.taskBase,
+        `${path}?limit=${TASK_LIST_PAGE_SIZE}&offset=${page * TASK_LIST_PAGE_SIZE}`,
+        {},
+        z.array(StickyTaskDTO),
+      );
+      rows.push(...batch);
+      if (batch.length < TASK_LIST_PAGE_SIZE) break;
+    }
+    return rows;
   }
   taskInbox() {
-    return this.req(this.cfg.taskBase, "/api/v1/tasks/inbox", {}, z.array(StickyTaskDTO));
+    return this.taskListAllPages("/api/v1/tasks/inbox");
   }
   taskAssigned() {
-    return this.req(this.cfg.taskBase, "/api/v1/tasks/assigned", {}, z.array(StickyTaskDTO));
+    return this.taskListAllPages("/api/v1/tasks/assigned");
   }
   tasksSticky() {
-    return this.req(this.cfg.taskBase, "/api/v1/tasks/sticky", {}, z.array(StickyTaskDTO));
+    return this.taskListAllPages("/api/v1/tasks/sticky");
   }
   /**
    * Task ids sticky-svc says still have an open commitment for this user.
@@ -1793,6 +1893,57 @@ export class ApiClient {
       z.array(z.object({ taskId: z.string() })),
     );
     return rows.map((r) => r.taskId);
+  }
+  /**
+   * The caller's open pins WITH the user's own choice on each: the ids the user
+   * has PINNED and the ids they have explicitly UNPINNED. Authoritative server
+   * state — what Web and Desktop both render from, so a pin made on one is the
+   * pin on the other.
+   *
+   * Walks the pages (bounded like taskListAllPages) so a user past one page of
+   * commitments does not silently lose the rest. Null when no stickyBase is
+   * configured, so a caller can tell "not deployed" from "no pins".
+   */
+  async stickyPinStates(): Promise<{ pinned: string[]; unpinned: string[] } | null> {
+    const base = this.cfg.stickyBase;
+    if (!base) return null;
+    const pinned: string[] = [];
+    const unpinned: string[] = [];
+    for (let page = 0; page < TASK_LIST_MAX_PAGES; page++) {
+      const batch = await this.req(
+        base,
+        `/api/v1/sticky/pins?includeUnpinned=true&limit=${TASK_LIST_PAGE_SIZE}&offset=${page * TASK_LIST_PAGE_SIZE}`,
+        {},
+        z.array(z.object({ taskId: z.string(), pinState: StickyPinStateSchema.default("PINNED") })),
+      );
+      for (const r of batch) (r.pinState === "UNPINNED" ? unpinned : pinned).push(r.taskId);
+      if (batch.length < TASK_LIST_PAGE_SIZE) break;
+    }
+    return { pinned, unpinned };
+  }
+  /**
+   * Pin — or RE-pin — a task: the user's explicit choice, stored server-side and
+   * pushed to all their devices. Idempotent (a target state, not a toggle), so a
+   * retry cannot invert it. 409 when the task has already finished; 404 when it
+   * is not assigned to the caller. Rejects when no stickyBase is configured —
+   * there is deliberately no local fallback, since a pin only one device knows
+   * about is the bug this exists to fix.
+   */
+  stickyPin(taskId: string) {
+    return this.stickyPinWrite(taskId, "PUT");
+  }
+  /** Unpin a task. The commitment is untouched; `stickyPin` brings the note back. */
+  stickyUnpin(taskId: string) {
+    return this.stickyPinWrite(taskId, "DELETE");
+  }
+  private stickyPinWrite(taskId: string, method: "PUT" | "DELETE") {
+    if (!this.cfg.stickyBase) return Promise.reject(new Error("sticky service is not configured"));
+    return this.req(
+      this.cfg.stickyBase,
+      `/api/v1/sticky/pins/${encodeURIComponent(taskId)}`,
+      { method },
+      StickyPinStateResult,
+    );
   }
   /**
    * Confirm a note actually reached this user's screen.
@@ -1817,8 +1968,40 @@ export class ApiClient {
   taskDetail(taskId: string) {
     return this.req(this.cfg.taskBase, `/api/v1/tasks/${taskId}/detail`, {}, StickyTaskDTO);
   }
-  tasksSent() {
-    return this.req(this.cfg.taskBase, "/api/v1/tasks/sent", {}, z.array(SentTaskDTO));
+  /** Tasks I sent, newest first. The server pages by task (default 50, max 100);
+   *  pass `limit`/`offset` to walk further back. A task whose assignee ignored it
+   *  is hidden from the sender unless `includeIgnored` is set. */
+  tasksSent(opts?: { limit?: number; offset?: number; includeIgnored?: boolean }) {
+    const q = new URLSearchParams();
+    if (opts?.limit !== undefined) q.set("limit", String(opts.limit));
+    if (opts?.offset !== undefined) q.set("offset", String(opts.offset));
+    if (opts?.includeIgnored) q.set("includeIgnored", "true");
+    const qs = q.toString();
+    return this.req(this.cfg.taskBase, `/api/v1/tasks/sent${qs ? `?${qs}` : ""}`, {}, z.array(SentTaskDTO));
+  }
+  taskSchedules() {
+    return this.req(
+      this.cfg.taskBase,
+      "/api/v1/tasks/schedules",
+      {},
+      z.array(ScheduledTaskDTO),
+    );
+  }
+  cancelTaskSchedule(scheduleId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/schedules/${encodeURIComponent(scheduleId)}`,
+      { method: "DELETE" },
+      z.object({ scheduleId: z.string(), status: z.literal("CANCELLED") }),
+    );
+  }
+  updateTaskSchedule(scheduleId: string, nextRunAt: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/schedules/${encodeURIComponent(scheduleId)}`,
+      { method: "PATCH", body: JSON.stringify({ nextRunAt }) },
+      z.object({ scheduleId: z.string(), status: z.literal("UPDATED") }),
+    );
   }
   taskAction(
     taskId: string,
@@ -1830,6 +2013,43 @@ export class ApiClient {
       `/api/v1/tasks/${taskId}/assignees/me/${action}`,
       { method: "POST", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
       z.object({ status: z.string(), statusVersion: z.number() }),
+    );
+  }
+  /** Add people and/or channels to an existing task. A channel's current members
+   *  join it and the channel stays attached, so a later joiner is added too —
+   *  the same two target kinds `createTask` takes. */
+  addTaskParticipants(
+    taskId: string,
+    targets: { userIds?: string[]; channelIds?: string[] },
+    idempotencyKey?: string,
+  ) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/assignees`,
+      {
+        method: "POST",
+        headers: { "idempotency-key": idempotencyKey ?? uuid() },
+        body: JSON.stringify({ userIds: targets.userIds ?? [], channelIds: targets.channelIds ?? [] }),
+      },
+      z.object({ addedUserIds: z.array(z.string()), addedChannelIds: z.array(z.string()).default([]) }),
+    );
+  }
+  withdrawTaskParticipant(taskId: string, userId: string, idempotencyKey?: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/assignees/${userId}`,
+      { method: "DELETE", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
+      z.object({ withdrawnUserId: z.string(), statusVersion: z.number() }),
+    );
+  }
+  /** Allocator reopens a COMPLETED task for the people who completed it. No body:
+   *  the server restores exactly those assignments (SENT again), never a new set. */
+  reassignTask(taskId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/reassign`,
+      { method: "POST" },
+      z.object({ taskId: z.string(), reassignedUserIds: z.array(z.string()) }),
     );
   }
   /** Allocator writes/updates a review on a COMPLETED assignee. Sender-only;
@@ -1986,11 +2206,16 @@ export class ApiClient {
     clientMsgId?: string,
     kind?: MessageKind,
     replyToId?: string,
+    /** Required alongside kind "attachment_opened"/"attachment_downloaded". */
+    attachmentId?: string,
   ) {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/channels/${channelId}/messages`,
-      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), kind, replyToId }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), kind, replyToId, attachmentId }),
+      },
       z.object({ messageId: z.string(), seq: z.number() }),
     );
   }
@@ -2099,6 +2324,19 @@ export class ApiClient {
   notifications() {
     return this.req(this.cfg.notificationBase, "/api/v1/notifications", {}, z.array(NotificationDTO));
   }
+  /** `read` filters on the server (true = only read, false = only unread), so a
+   *  page is a page of the rows asked for; omit it for both. */
+  notificationPage(cursor?: string, limit = 10, read?: boolean) {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (cursor) q.set("cursor", cursor);
+    if (read !== undefined) q.set("read", String(read));
+    return this.req(
+      this.cfg.notificationBase,
+      `/api/v1/notifications?${q.toString()}`,
+      {},
+      NotificationPageDTO,
+    );
+  }
   /** The notification bell's badge count — every unread notification, not
    *  just the (up to 200) most recent ones handleList/notifications() caps
    *  at, so this is actually MORE accurate than summing that list's !read
@@ -2117,8 +2355,9 @@ export class ApiClient {
       method: "POST",
     });
   }
-  /** Mark every unread notification read in one call — used to auto-clear the
-   *  bell when the notifications panel is opened. Idempotent + best-effort. */
+  /** Mark every unread notification read in one call. Only for an explicit
+   *  "mark all read" action — opening or closing the bell must never call it.
+   *  Idempotent. */
   readAllNotifications() {
     return this.req<void>(this.cfg.notificationBase, "/api/v1/notifications/read-all", {
       method: "POST",
@@ -2170,6 +2409,11 @@ export class ApiClient {
      *  The server ends the call when this elapses. */
     durationMinutes?: number;
     inviteeIds?: string[];
+    /** Channels whose members are invited. The caller must be in each. */
+    channelIds?: string[];
+    /** Makes this the first of a repeating series; needs `scheduledAt`. The
+     *  response is then the FIRST occurrence, carrying `series`. */
+    recurrence?: MeetingRecurrenceInput;
   }) {
     return this.req(
       this.cfg.messagingBase,
@@ -2177,6 +2421,47 @@ export class ApiClient {
       { method: "POST", body: JSON.stringify(body) },
       CallDTO,
     );
+  }
+
+  /** A repeating meeting's series — organiser only. What an edit form restores. */
+  meetingSeries(seriesId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/meeting-series/${seriesId}`,
+      {},
+      MeetingSeriesDTO,
+    );
+  }
+
+  /** Change a series. A field left out is left alone. Its UPCOMING occurrences are
+   *  reconciled with the new shape: one whose date and time is still in the
+   *  schedule keeps its id (so its join link and any guest who arrived by it), only
+   *  dates that left the schedule are removed and only new ones are written, and
+   *  people are added or removed as picked. Occurrences that have started or ended
+   *  are never touched. */
+  updateMeetingSeries(
+    seriesId: string,
+    body: {
+      title?: string;
+      inviteeIds?: string[];
+      channelIds?: string[];
+      recurrence?: MeetingRecurrenceInput;
+    },
+  ) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/meeting-series/${seriesId}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+      MeetingSeriesDTO,
+    );
+  }
+
+  /** Stop a series and remove its upcoming occurrences. Ones that have already
+   *  started or ended stay as history. Cancelling twice is not an error. */
+  cancelMeetingSeries(seriesId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/meeting-series/${seriesId}`, {
+      method: "DELETE",
+    });
   }
 
   /** Every call the caller is expected at, including meetings hosted by
@@ -2455,7 +2740,12 @@ export class ApiClient {
   /** Ask to enter a call. POST, not GET: it mints a short-lived credential and
    *  re-checks access every time, so it must never be cached.
    *
-   *  TWO outcomes, discriminated by `state`:
+  *  JOIN is the ordinary entry, SWITCH is an explicit takeover, and REFRESH
+  *  renews the current room's credentials without claiming another session.
+  *  The separate checkCallReady() is for access/readiness probes that must
+  *  not mint a token or reserve the participant slot.
+  *
+  *  TWO outcomes, discriminated by `state`:
    *
    *    JOINED   a room token. The call is under way.
    *    WAITING  the waiting room, and no token, because the call has not been
@@ -2469,24 +2759,41 @@ export class ApiClient {
    *  The absence of a token in the WAITING case is the actual enforcement, not
    *  the lobby screen: there is nothing to open the room with until someone
    *  starts the call. */
-  callToken(callId: string) {
+  callToken(callId: string, mode: "JOIN" | "SWITCH" | "REFRESH" = "JOIN") {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/calls/${callId}/token`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ mode }) },
       CallJoinDTO,
     );
   }
 
-  /** Reports a client-observed WebRTC reconnect after a transient disruption
-   *  (LiveKit's `Reconnected` room event) — see messaging-svc's
-   *  metrics/calls.go for why this cannot be derived server-side. Fire-and-
-   *  forget from the caller's point of view: a failed telemetry POST must
-   *  never affect the call itself. */
-  callTelemetryReconnected(callId: string) {
+  /** Check call authorization and server readiness without minting a token or
+   *  reserving the participant's active session. */
+  checkCallReady(callId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/token`,
+      { method: "POST", body: JSON.stringify({ mode: "CHECK" }) },
+    );
+  }
+
+  /** Reports a client-observed reconnect, by a bounded reason — see
+   *  messaging-svc's metrics/calls.go for why this cannot be derived
+   *  server-side and for the full ReconnectReason* taxonomy this is scoped
+   *  to. Fire-and-forget from the caller's point of view: a failed telemetry
+   *  POST must never affect the call itself.
+   *
+   *  "media": a transient ICE/signal disruption LiveKit recovered from on its
+   *  own (the Room `Reconnected` event). "token_refresh": the client's own
+   *  scheduled disconnect()+connect() to renew its room token before it
+   *  expires (useCallRoom.ts's scheduleRefresh) — deliberately NOT something
+   *  LiveKit surfaces as `Reconnected`, which is why this needs its own
+   *  reason rather than being folded into the same call. */
+  callTelemetryReconnected(callId: string, reason: "media" | "token_refresh") {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/telemetry`, {
       method: "POST",
-      body: JSON.stringify({ event: "reconnected" }),
+      body: JSON.stringify({ event: "reconnected", reason }),
     });
   }
 

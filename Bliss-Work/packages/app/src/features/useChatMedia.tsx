@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import type { AttachmentScope } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import {
@@ -15,6 +16,9 @@ import {
 import { isUrlOnly } from "../lib/chatFormat";
 import { makeThumbnail } from "../lib/thumbnail";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
+import { useAttachmentActivity } from "../lib/useAttachmentActivity";
+import { downloadAttachment } from "../lib/download";
+import { hasOutsideOpen, openOutsideApp } from "../lib/openAttachment";
 import { useFileTransfers } from "../lib/fileTransfer";
 import { MediaBubble, type UploadProgress } from "./MediaBubble";
 import { LocationBubble } from "./LocationBubble";
@@ -91,6 +95,7 @@ type UploadOutcome =
 
 export function useChatMedia(opts: ChatMediaOptions) {
   const { scope, scopeId, meId, send, p2pFallback } = opts;
+  const { t } = useTranslation("chatMedia");
   const { api, config } = useRuntime();
   const ft = useFileTransfers();
 
@@ -153,7 +158,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
       // counts against it — otherwise ten drops of one file each would build a
       // twelve-attachment message that the server then rejects on send.
       if (stagedCount.current + files.length > MEDIA_MAX_FILES) {
-        toast.error(`You can send up to ${MEDIA_MAX_FILES} files at a time.`);
+        toast.error(t("attachments.tooManyFiles", { max: MEDIA_MAX_FILES }));
         return;
       }
 
@@ -167,12 +172,14 @@ export function useChatMedia(opts: ChatMediaOptions) {
         }
         if (p2pFallback && ft.available) {
           toast.info(
-            `${file.name} is over ${prettySize(MEDIA_MAX_BYTES)} — sending peer-to-peer. ` +
-              `You both need to stay online until it finishes.`,
+            t("attachments.overSizePeerToPeer", {
+              name: file.name,
+              size: prettySize(MEDIA_MAX_BYTES),
+            }),
           );
           p2pFallback(file);
         } else {
-          toast.error(`${file.name} is larger than ${prettySize(MEDIA_MAX_BYTES)}.`);
+          toast.error(t("attachments.tooLarge", { name: file.name, size: prettySize(MEDIA_MAX_BYTES) }));
         }
       }
       if (uploadable.length === 0) return;
@@ -259,7 +266,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
             return {
               ok: false,
               name: file.name,
-              message: err instanceof Error ? err.message : "Upload failed",
+              message: err instanceof Error ? err.message : t("attachments.uploadFailed"),
             };
           }
         }),
@@ -289,12 +296,15 @@ export function useChatMedia(opts: ChatMediaOptions) {
         const names = failures.map((f) => f.name).join(", ");
         toast.error(
           failures.length === 1
-            ? `Couldn't attach ${names}: ${failures[0]?.message ?? "Upload failed"}`
-            : `Couldn't attach ${failures.length} files: ${names}`,
+            ? t("attachments.attachFailedSingle", {
+                name: names,
+                message: failures[0]?.message ?? t("attachments.uploadFailed"),
+              })
+            : t("attachments.attachFailedMultiple", { count: failures.length, names }),
         );
       }
     },
-    [api, scope, scopeId, p2pFallback, ft.available],
+    [api, scope, scopeId, p2pFallback, ft.available, t],
   );
 
   /**
@@ -311,10 +321,10 @@ export function useChatMedia(opts: ChatMediaOptions) {
     (files: FileList | File[]) => {
       void onFiles(files).catch((err: unknown) => {
         console.error("[chat-media] attach failed", err);
-        toast.error("Couldn't attach that file. Please try again.");
+        toast.error(t("attachments.attachFailedGeneric"));
       });
     },
-    [onFiles],
+    [onFiles, t],
   );
 
   const onAttach = useCallback(() => fileInput.current?.click(), []);
@@ -394,7 +404,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
   );
 
   const onShareLocation = useCallback(() => {
-    const pending = toast.loading("Getting your location…");
+    const pending = toast.loading(t("shareLocation.gettingLocation"));
 
     /**
      * Last resort: ask the server where this IP is.
@@ -429,14 +439,14 @@ export function useChatMedia(opts: ChatMediaOptions) {
       // the cause — the same "go fix something that isn't broken" the `precise`
       // check below already exists to avoid.
       const openSettings = deniedByPlatform ? config.openLocationSettings : undefined;
-      toast("Shared an approximate location", {
+      toast(t("shareLocation.approximateShared"), {
         description: openSettings
-          ? "Location access is off for desktop apps, so this is based on your network."
+          ? t("shareLocation.reasons.desktopAccessOff")
           : precise
-            ? "Your device couldn't get a precise fix, so this is based on your network."
-            : "This build has no precise location provider, so this is based on your network.",
+            ? t("shareLocation.reasons.noPreciseFix")
+            : t("shareLocation.reasons.noProvider"),
         ...(openSettings && {
-          action: { label: "Open settings", onClick: () => void openSettings() },
+          action: { label: t("shareLocation.openSettings"), onClick: () => void openSettings() },
         }),
       });
     };
@@ -447,7 +457,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
     const hostAsksTheUser = config.kind === "web";
 
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      void fallback("Location sharing isn't available on this device.");
+      void fallback(t("shareLocation.notAvailable"));
       return;
     }
 
@@ -483,19 +493,17 @@ export function useChatMedia(opts: ChatMediaOptions) {
         // answered sat unused two lines below.
         if (err.code === err.PERMISSION_DENIED && hostAsksTheUser) {
           toast.dismiss(pending);
-          toast.error(
-            "Location permission denied. Enable it in your site settings to share your location.",
-          );
+          toast.error(t("shareLocation.permissionDenied"));
           return;
         }
         void fallback(
-          "Couldn't determine your location. Try again, or check that location services are on.",
+          t("shareLocation.determineFailed"),
           err.code === err.PERMISSION_DENIED,
         );
       },
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
     );
-  }, [api, config, sendLocation]);
+  }, [api, config, sendLocation, t]);
 
   // ── rendering ─────────────────────────────────────────────────────────────
 
@@ -523,6 +531,49 @@ export function useChatMedia(opts: ChatMediaOptions) {
     [idsVersion],
   );
   const links = useAttachmentLinks(allIds);
+  const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId);
+
+  // A click on an attachment. A file with no in-app view leaves the app the way
+  // an email attachment's Open does — the desktop's own application on desktop,
+  // a browser tab on web. Everything else (images, video, PDF, plain text, and
+  // any host with neither) opens in the Lightbox.
+  //
+  // Every branch is the user invoking the app's OPEN action — never a render, a
+  // viewport entry or a hover — so every branch reports exactly one
+  // "attachment_opened", and never "attachment_downloaded": that kind belongs to
+  // the explicit 3-dot → Download (downloadItem below) alone. What the browser or
+  // OS then does with a type it cannot render (e.g. saving a .docx) is its own
+  // native handling, outside the app's control, and does not change what the user
+  // asked for here.
+  const openItem = useCallback(
+    (items: MediaItem[], index: number) => {
+      const item = items[index];
+      const url = item ? links.urlFor(item.id) : undefined;
+      if (item && url && openOutsideApp(config, item.mime, url, item.name)) {
+        reportAttachmentActivity("attachment_opened", item);
+        return;
+      }
+      if (item) reportAttachmentActivity("attachment_opened", item);
+      setLightbox({ items, index });
+    },
+    [config, links, reportAttachmentActivity],
+  );
+
+  // A file's 3-dot menu → Download: the ONLY deliberate download. Saves through
+  // the viewer's own signed URL with the server's explicit-download flag (see
+  // downloadAttachment) and records exactly one "attachment_downloaded" — never
+  // an "opened" too, since nothing here goes through openItem. No resolved URL
+  // (still loading, or the server would not mint one for this viewer) means
+  // nothing was downloaded, so nothing is reported.
+  const downloadItem = useCallback(
+    (item: Pick<MediaItem, "id" | "name">) => {
+      const url = links.urlFor(item.id);
+      if (!url) return;
+      downloadAttachment(url, item.name);
+      reportAttachmentActivity("attachment_downloaded", item);
+    },
+    [links, reportAttachmentActivity],
+  );
 
   const renderBody = useCallback(
     (m: { id: string; senderId: string; body: string }) => {
@@ -540,7 +591,8 @@ export function useChatMedia(opts: ChatMediaOptions) {
             mine={mine}
             urlFor={links.urlFor}
             isResolved={links.isResolved}
-            onOpen={(index) => setLightbox({ items: env.items, index })}
+            opensOutside={hasOutsideOpen(config)}
+            onOpen={(index) => openItem(env.items, index)}
           />
         );
       }
@@ -560,7 +612,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
         />
       );
     },
-    [meId, links, noteIds, ft],
+    [meId, links, noteIds, ft, config, openItem],
   );
 
   // ── drag & drop / paste ───────────────────────────────────────────────────
@@ -657,6 +709,8 @@ export function useChatMedia(opts: ChatMediaOptions) {
 
   return {
     renderBody,
+    /** Explicit 3-dot → Download of one file; see the callback's comment. */
+    downloadItem,
     onAttach,
     onShareLocation,
     onFiles,

@@ -1,5 +1,6 @@
 import { Outlet, useLocation, useSearchParams, Link } from "react-router-dom";
 import { ChevronLeft, MailOpen } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { EmptyState } from "@taskboard/ui";
 import { MailList } from "./MailList";
 import { mailSearch, isMailDetailPath, folderOf, peerOf } from "../lib/mailView";
@@ -21,6 +22,7 @@ import { mailSearch, isMailDetailPath, folderOf, peerOf } from "../lib/mailView"
  * is selected — the shape every mail client has.
  */
 export function MailLayout() {
+  const { t } = useTranslation("mail");
   const [params] = useSearchParams();
   const detailOpen = isMailDetailPath(useLocation().pathname);
   // The way back out of the reading pane returns to the list as it was left,
@@ -50,7 +52,7 @@ export function MailLayout() {
             to={backToList}
             className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-2 text-xs font-medium text-muted transition-colors hover:text-fg xl:hidden"
           >
-            <ChevronLeft size={15} /> Back to list
+            <ChevronLeft size={15} /> {t("layout.backToList")}
           </Link>
         )}
         <div className="min-h-0 flex-1">
@@ -66,12 +68,13 @@ export function MailLayout() {
  * where the list sits beside it rather than in its place.
  */
 export function MailWelcome() {
+  const { t } = useTranslation("mail");
   return (
     <div className="flex h-full items-center justify-center">
       <EmptyState
         icon={<MailOpen size={26} />}
-        title="Nothing open"
-        hint="Pick a message from the list to read it here, or choose New Mail to write one."
+        title={t("layout.welcome.title")}
+        hint={t("layout.welcome.hint")}
       />
     </div>
   );

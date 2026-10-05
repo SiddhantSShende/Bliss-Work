@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef } from "react";
 import { Hand, MicOff, Monitor, Pin, PinOff, ScreenShare } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
 import type { RoomParticipant } from "../lib/useCallRoom";
 
@@ -24,11 +25,14 @@ const NAME_TEXT: Record<TileSize, string> = {
   strip: "text-[10px]",
 };
 
-const AVATAR: Record<TileSize, string> = {
-  stage: "h-24 w-24 text-3xl",
-  grid: "h-14 w-14 text-base",
-  strip: "h-9 w-9 text-xs",
-};
+/**
+ * The avatar follows the TILE, not the size class: a third of the tile's shorter
+ * side, kept between a size a face-initial is legible at and one that stops
+ * looking like an avatar. `cqmin` is relative to the tile (it is a size
+ * container — see the root element below), so the same rule holds in a 1300px
+ * stage, a 320px grid tile and a 128px filmstrip thumbnail.
+ */
+const AVATAR = "h-[clamp(2.25rem,32cqmin,8rem)] w-[clamp(2.25rem,32cqmin,8rem)] text-[clamp(0.875rem,11cqmin,2.5rem)]";
 
 export function CallTile({
   p,
@@ -36,8 +40,8 @@ export function CallTile({
   pinned = false,
   active = false,
   handRaised = false,
-  withAudio = true,
   onTogglePin,
+  source = "auto",
 }: {
   p: RoomParticipant;
   size?: TileSize;
@@ -51,35 +55,44 @@ export function CallTile({
    */
   active?: boolean;
   handRaised?: boolean;
-  /**
-   * Render this participant's audio sink.
-   *
-   * On by default, and only ever turned off for a SECOND tile showing someone
-   * already on screen elsewhere — the floating mini window, which previews the
-   * speaker while the room itself stays mounted and hidden behind it. Attaching
-   * the same audio track to two elements plays it twice.
-   */
-  withAudio?: boolean;
   /** Omitted where pinning makes no sense (the stage's own tile has its own
    *  unpin control). */
   onTogglePin?: () => void;
+  /**
+   * Which of `p`'s tracks this copy of them shows. "auto" (the default)
+   * follows `p.sharing`, same as ever — the shape every OTHER caller wants.
+   * "camera" forces the camera feed even while they are sharing: the
+   * filmstrip's own copy of an on-stage sharer uses this, so their face stays
+   * reachable alongside the big tile's screen instead of rendering the same
+   * screen twice over.
+   */
+  source?: "auto" | "camera";
 }) {
+  const { t } = useTranslation("callRoom");
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const camera = source === "camera";
   // A shared screen wins the tile: it is what the room is looking at, and it is
   // the one picture that is useless cropped, so it is letterboxed rather than
-  // filled.
-  const shown = p.sharing ? p.screenTrack : p.videoTrack;
+  // filled. Unless THIS copy was asked to show the camera regardless — see
+  // the `source` prop above.
+  const shown = camera ? p.videoTrack : p.sharing ? p.screenTrack : p.videoTrack;
+  // Whether THIS tile is actually showing the screen — as opposed to `p.sharing`
+  // on its own, which a "camera" copy overrides. Everything below that used to
+  // read `p.sharing` directly reads this instead, so a "camera" copy of a
+  // sharer never inherits the screen-only styling (the black letterbox, the
+  // un-mirrored picture, the feedback-loop placeholder).
+  const showingScreen = !camera && p.sharing;
   // Mirrors the condition the <video> element is rendered under, below.
-  const showVideo = p.camOn || p.sharing;
+  const showVideo = camera ? p.camOn : p.camOn || p.sharing;
   // The sharer's OWN capture, played back to themselves, is a video-feedback
   // loop rather than a picture: "Entire screen" (or a window/tab that includes
   // this app) captures the very tile that is showing the capture, so every
   // frame contains the previous one — a mirror that gets worse, not better,
   // once native Picture-in-Picture puts a second copy on top (see CallRoom's
   // pipTrack, which excludes this same case). A static reminder replaces the
-  // live feed instead; everyone else still sees the real thing.
-  const selfSharePreview = p.isLocal && p.sharing;
+  // live feed instead; everyone else still sees the real thing. Moot for a
+  // "camera" copy — it was never going to show the screen at all.
+  const selfSharePreview = p.isLocal && showingScreen;
 
   // ── Why these deps, and not just the track ──────────────────────────────────
   // The <video> element is CONDITIONALLY RENDERED. Turning the camera off
@@ -108,36 +121,26 @@ export function CallTile({
     };
   }, [shown, showVideo, streamId, selfSharePreview]);
 
-  const audioStreamId = p.audioTrack?.mediaStreamTrack?.id;
-
-  useEffect(() => {
-    const el = audioRef.current;
-    const track = p.audioTrack;
-    // Never play your own microphone back at yourself.
-    if (!el || !track || p.isLocal || !withAudio) return;
-    track.attach(el);
-    return () => {
-      track.detach(el);
-    };
-    // audioStreamId for the same reason as above: un-muting a microphone can
-    // hand back a new MediaStreamTrack under the same publication.
-  }, [p.audioTrack, p.isLocal, audioStreamId, withAudio]);
-
   return (
     <div
       className={cn(
-        "group relative h-full min-h-0 w-full overflow-hidden rounded-xl bg-surface-2 ring-2 transition-colors",
+        // [container-type:size] makes the tile a size container: its box is
+        // decided ENTIRELY by whoever places it, and nothing inside it — a
+        // camera's intrinsic size, or having no content at all — can grow or
+        // collapse it. The pictures and the avatar are laid out against it
+        // (absolute inset-0 / cq units) rather than against their own content.
+        "group relative h-full min-h-0 w-full min-w-0 overflow-hidden rounded-xl bg-surface-2 ring-2 transition-colors [container-type:size]",
         p.speaking || active ? "ring-accent" : "ring-transparent",
         active && size === "stage" && "shadow-[0_0_28px_-6px_var(--color-accent)]",
         pinned && size !== "stage" && !active && "ring-accent/60",
       )}
     >
       {selfSharePreview ? (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-black px-2 text-center text-white">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black px-2 text-center text-white">
           <Monitor size={size === "strip" ? 18 : 28} className="text-red-400" />
-          <span className={cn("font-medium", NAME_TEXT[size])}>You're presenting your screen</span>
+          <span className={cn("font-medium", NAME_TEXT[size])}>{t("tile.presentingScreen")}</span>
         </div>
-      ) : p.camOn || p.sharing ? (
+      ) : showVideo ? (
         <video
           ref={videoRef}
           autoPlay
@@ -146,29 +149,43 @@ export function CallTile({
           // element is an echo loop.
           muted={p.isLocal}
           className={cn(
-            "h-full w-full",
-            p.sharing ? "bg-black object-contain" : "object-cover",
+            // Out of flow (absolute inset-0) so the camera's intrinsic size
+            // never takes part in layout: as an in-flow box a <video> whose
+            // parent has no definite height falls back to its own aspect ratio,
+            // and that height propagated up through the grid and made a
+            // portrait or 4:3 camera's tile taller than the slot it was given.
+            // The tile is the one sized thing; the picture fills it.
+            //
+            // object-contain, for camera and screen alike: the WHOLE frame is
+            // always visible. object-cover crops to fill, which on a 4:3 or
+            // portrait camera in a 16:9 tile discards a quarter to half of the
+            // picture and enlarges the face by the same factor. The tile shapes
+            // (lib/tileLayout) are chosen to match cameras, so a 16:9 camera has
+            // no bars at all; the odd-shaped ones get bars, never a crop.
+            "absolute inset-0 h-full w-full object-contain",
+            showingScreen && "bg-black",
             // Only the local camera is mirrored, so the tile reads naturally to
             // the person looking at themselves — never a remote participant's
             // camera (they see the raw, un-mirrored track LiveKit publishes,
             // same as everyone else in the room), and never a screen share
             // (mirroring text on someone's screen would make it unreadable).
-            p.isLocal && !p.sharing && "-scale-x-100",
+            p.isLocal && !showingScreen && "-scale-x-100",
           )}
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center">
+        // Camera off: the tile keeps its size (it never depended on the video)
+        // and the avatar sits at its centre — both axes — whatever the shape.
+        <div className="absolute inset-0 flex items-center justify-center">
           <div
             className={cn(
               "flex items-center justify-center rounded-full bg-accent-soft font-semibold text-accent",
-              AVATAR[size],
+              AVATAR,
             )}
           >
             {(p.name || "?").slice(0, 2).toUpperCase()}
           </div>
         </div>
       )}
-      {!p.isLocal && withAudio && <audio ref={audioRef} autoPlay />}
 
       {/* Pin lives on hover so twelve tiles are not twelve buttons, but it is
           also revealed by keyboard focus — an affordance only a mouse can find
@@ -177,8 +194,8 @@ export function CallTile({
         <button
           type="button"
           onClick={onTogglePin}
-          title={pinned ? `Unpin ${p.name}` : `Pin ${p.name}`}
-          aria-label={pinned ? `Unpin ${p.name}` : `Pin ${p.name}`}
+          title={pinned ? t("tile.unpin", { name: p.name }) : t("tile.pin", { name: p.name })}
+          aria-label={pinned ? t("tile.unpin", { name: p.name }) : t("tile.pin", { name: p.name })}
           aria-pressed={pinned}
           className={cn(
             "absolute right-1.5 top-1.5 rounded-lg bg-black/55 p-1.5 text-white opacity-0 transition",
@@ -193,7 +210,7 @@ export function CallTile({
 
       {handRaised && (
         <span
-          title={`${p.name} has their hand up`}
+          title={t("tile.handRaisedTitle", { name: p.name })}
           className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-lg bg-amber-400 px-1.5 py-1 text-[10px] font-semibold text-amber-950"
         >
           <Hand size={12} />
@@ -203,7 +220,7 @@ export function CallTile({
       <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5">
         <span className={cn("truncate font-medium text-white", NAME_TEXT[size])}>
           {p.name}
-          {p.isLocal && " (you)"}
+          {p.isLocal && t("tile.youSuffix")}
         </span>
         {p.sharing && <ScreenShare size={12} className="shrink-0 text-red-400" />}
         {!p.micOn && <MicOff size={12} className="shrink-0 text-red-400" />}
@@ -219,15 +236,16 @@ export function CallTile({
  *  tile's own pin toggle is already "Unpin {name}" — two controls with one
  *  accessible name is a screen reader reading the same button twice. */
 export function UnpinButton({ name, onClick }: { name: string; onClick: () => void }) {
+  const { t } = useTranslation("callRoom");
   return (
     <button
       type="button"
       onClick={onClick}
-      title={`Unpin ${name} from the main view`}
-      aria-label="Unpin the main view"
+      title={t("tile.unpinStageTitle", { name })}
+      aria-label={t("tile.unpinStageAriaLabel")}
       className="absolute right-2 top-2 z-10 flex items-center gap-1.5 rounded-lg bg-black/55 px-2 py-1.5 text-[11px] font-medium text-white transition hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
     >
-      <PinOff size={13} /> Unpin
+      <PinOff size={13} /> {t("tile.unpinStageButton")}
     </button>
   );
 }

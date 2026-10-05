@@ -107,6 +107,124 @@ func TestSniff_DeclaredCannotWidenBeyondAllowlist(t *testing.T) {
 	}
 }
 
+// The end-to-end header decision downloadMedia makes, per file type: what a
+// browser is told to do when the signed link is opened. A type the browser can
+// render must be `inline`; one it cannot must be forced to `attachment` under an
+// inert octet-stream type.
+func TestServedHeaders_ByFileType(t *testing.T) {
+	pad := func(b string) []byte { return append([]byte(b), make([]byte, 64)...) }
+	cases := []struct {
+		name         string
+		head         []byte
+		declared     string
+		filename     string
+		wantType     string
+		wantInline   bool
+		wantDispoStr string
+	}{
+		{"pdf", []byte("%PDF-1.7\n1 0 obj\n"), "application/pdf", "a.pdf", "application/pdf", true, "inline"},
+		{"png", pad("\x89PNG\r\n\x1a\n"), "image/png", "a.png", "image/png", true, "inline"},
+		{"jpeg", pad("\xff\xd8\xff\xe0"), "image/jpeg", "a.jpg", "image/jpeg", true, "inline"},
+		{"csv is shown as text", []byte("a,b\n1,2\n"), "text/csv", "a.csv", "text/plain", true, "inline"},
+		{"wav plays", []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"), "audio/wav", "a.wav", "audio/wav", true, "inline"},
+		{"ogg plays", pad("OggS\x00\x02"), "audio/ogg", "a.ogg", "audio/ogg", true, "inline"},
+		// Office documents and archives have no browser renderer: downloading is right.
+		{"docx downloads", pad("PK\x03\x04\x14\x00\x06\x00"),
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "a.docx",
+			"application/octet-stream", false, "attachment"},
+	}
+	for _, c := range cases {
+		stored := Sniff(c.head, c.declared, c.filename)
+		ct, inline := ServeAs(stored)
+		if ct != c.wantType || inline != c.wantInline {
+			t.Errorf("%s: ServeAs(Sniff) = (%q,%v); want (%q,%v) [stored as %q]", c.name, ct, inline, c.wantType, c.wantInline, stored)
+		}
+		if cd := ContentDisposition(inline, c.filename); !strings.HasPrefix(cd, c.wantDispoStr+";") {
+			t.Errorf("%s: Content-Disposition = %q; want it to start with %q", c.name, cd, c.wantDispoStr)
+		}
+	}
+}
+
+// The two request modes, per file type. NORMAL OPEN (no `?dl=1`): a type the
+// browser can render is inline, everything else keeps the fail-safe
+// octet-stream + attachment — nothing on the open path is newly forced.
+// EXPLICIT DOWNLOAD (`?dl=1`): always attachment, and the Content-Type is still
+// ServeAs's own, so the flag changes the disposition and nothing else.
+func TestServeHeaders_OpenVersusExplicitDownload(t *testing.T) {
+	const docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	cases := []struct {
+		stored, filename string
+		wantType         string
+		openInline       bool
+	}{
+		{"image/png", "photo.png", "image/png", true},
+		{"application/pdf", "Report.pdf", "application/pdf", true},
+		{"text/plain", "notes.txt", "text/plain", true},
+		{"audio/mpeg", "song.mp3", "audio/mpeg", true},
+		{"audio/wave", "legacy.wav", "audio/wav", true},
+		{"video/mp4", "clip.mp4", "video/mp4", true},
+		// No browser renderer, and none of these are (or may become) inline.
+		{docx, "Brief.docx", "application/octet-stream", false},
+		{"application/zip", "Assets.zip", "application/octet-stream", false},
+		// Script-capable: never inline, on either path.
+		{"image/svg+xml", "logo.svg", "application/octet-stream", false},
+		{"text/html", "page.html", "application/octet-stream", false},
+	}
+	for _, c := range cases {
+		openCT, openCD := ServeHeaders(c.stored, c.filename, false)
+		dlCT, dlCD := ServeHeaders(c.stored, c.filename, true)
+
+		if openCT != c.wantType || dlCT != c.wantType {
+			t.Errorf("%s: Content-Type open=%q download=%q; want %q on both", c.filename, openCT, dlCT, c.wantType)
+		}
+		wantOpen := "attachment;"
+		if c.openInline {
+			wantOpen = "inline;"
+		}
+		if !strings.HasPrefix(openCD, wantOpen) {
+			t.Errorf("%s: normal-open Content-Disposition = %q; want prefix %q", c.filename, openCD, wantOpen)
+		}
+		if !strings.HasPrefix(dlCD, "attachment;") {
+			t.Errorf("%s: ?dl=1 Content-Disposition = %q; want it to force attachment", c.filename, dlCD)
+		}
+		// The filename survives both, so a saved file keeps its own name.
+		if !strings.Contains(openCD, c.filename) || !strings.Contains(dlCD, c.filename) {
+			t.Errorf("%s: filename missing from open=%q download=%q", c.filename, openCD, dlCD)
+		}
+	}
+}
+
+// Rows stored before the aliases existed hold the sniffer's own spelling. They
+// must serve inline too, with no migration — ServeAs normalizes the stored value.
+func TestServeAs_LegacyStoredAudioSpellingsAreInline(t *testing.T) {
+	for stored, want := range map[string]string{
+		"audio/wave":      "audio/wav",
+		"audio/x-wav":     "audio/wav",
+		"application/ogg": "audio/ogg",
+	} {
+		if ct, inline := ServeAs(stored); !inline || ct != want {
+			t.Errorf("ServeAs(%q) = (%q,%v); want (%q,true)", stored, ct, inline, want)
+		}
+	}
+}
+
+// An alias may only rename INTO the allowlist. Nothing script-capable gains an
+// inline route through it, even when a client declares an aliased audio type
+// over markup bytes (the sniff wins; see TestSniff_ServerSniffBeatsDeclaredType).
+func TestAliases_DoNotWidenWhatIsServedInline(t *testing.T) {
+	for _, target := range typeAliases {
+		if !inlineTypes[target] {
+			t.Errorf("alias target %q is not in inlineTypes; aliases must not admit new types", target)
+		}
+	}
+	html := []byte("<!DOCTYPE html><html><body><script>alert(1)</script></body></html>")
+	for _, declared := range []string{"audio/wav", "audio/x-wav", "audio/wave", "application/ogg"} {
+		if _, inline := ServeAs(Sniff(html, declared, "x.wav")); inline {
+			t.Errorf("HTML bytes declared as %q were stored as something that serves inline", declared)
+		}
+	}
+}
+
 func TestSanitizeFilename(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"../../etc/passwd", "passwd"},

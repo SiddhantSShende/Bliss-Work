@@ -51,6 +51,11 @@ def _batch(*messages):
     return {"tp": [_Msg(m, offset=i) for i, m in enumerate(messages)]}
 
 
+def test_malformed_kafka_bytes_are_skippable():
+    assert consumer_module._deserialize_event(b"[") is None
+    assert consumer_module._deserialize_event(b'{"type":"ok"}') == {"type": "ok"}
+
+
 # ── _process_batch: the offset decision ─────────────────────────────────────
 
 

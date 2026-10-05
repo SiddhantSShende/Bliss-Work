@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,6 +74,38 @@ func (s *Store) CreateChannel(ctx context.Context, orgID, creatorID, name string
 				return err
 			}
 		}
+		creatorUsername, creatorDisplayName, err := s.cachedUserNames(ctx, tx, orgID, creatorID)
+		if err != nil {
+			return err
+		}
+		body := fmt.Sprintf("%s created the channel %s", userDisplayName(creatorDisplayName, creatorUsername), name)
+		clientMsgID := uuid.NewMD5(uuid.Nil, []byte("channel-created:"+chanID)).String()
+		if _, err := s.appendChannelMessageTx(ctx, tx, orgID, chanID, creatorID, body, clientMsgID,
+			channelAppendOpts{kind: MessageKindChannelCreated}); err != nil {
+			return err
+		}
+
+		// One message naming everyone seeded with the channel, appended AFTER the
+		// creation message in this same transaction — appendChannelMessageTx hands
+		// out seq in call order, so "created" always sorts before "added". The
+		// creator is members[0] (see dedupeMembers) and is not "added" to their own
+		// channel; a creator-only channel gets no second message.
+		//
+		// Its sender_id is the CREATOR, not the people it names: it is one row about
+		// several users, and sender_id is the principal who caused the write (see
+		// the note in AddChannelMembers for what that column drives).
+		if initial := members[1:]; len(initial) > 0 {
+			names, err := usernames(ctx, tx, initial)
+			if err != nil {
+				return err
+			}
+			addedBody := initialMembersBody(initial, names)
+			addedClientMsgID := uuid.NewMD5(uuid.Nil, []byte("channel-members-added:"+chanID)).String()
+			if _, err := s.appendChannelMessageTx(ctx, tx, orgID, chanID, creatorID, addedBody, addedClientMsgID,
+				channelAppendOpts{kind: MessageKindChannelMemberAdded}); err != nil {
+				return err
+			}
+		}
 
 		return tx.Commit(ctx)
 	})
@@ -97,8 +131,35 @@ func (s *Store) RenameChannel(ctx context.Context, orgID, channelID, callerID st
 		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, roles); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE channels SET name = $2 WHERE id = $1`, channelID, name); err != nil {
+		var oldName string
+		if err := tx.QueryRow(ctx, `SELECT name FROM channels WHERE id = $1 FOR UPDATE`, channelID).Scan(&oldName); err != nil {
 			return err
+		}
+		if oldName != name {
+			if _, err := tx.Exec(ctx, `UPDATE channels SET name = $2 WHERE id = $1`, channelID, name); err != nil {
+				return err
+			}
+			username, displayName, err := s.cachedUserNames(ctx, tx, orgID, callerID)
+			if err != nil {
+				return err
+			}
+			if displayName == "" {
+				displayName = username
+			}
+			clientMsgID := uuid.NewMD5(uuid.Nil, fmt.Appendf(nil, "channel-rename:%s:%s:%s", channelID, oldName, name))
+			body := fmt.Sprintf("%s renamed channel from %s to %s", displayName, oldName, name)
+			if _, err := s.appendChannelMessageTx(
+				ctx,
+				tx,
+				orgID,
+				channelID,
+				callerID,
+				body,
+				clientMsgID.String(),
+				channelAppendOpts{kind: MessageKindChannelRenamed},
+			); err != nil {
+				return err
+			}
 		}
 		return tx.QueryRow(ctx, `SELECT id, name, (SELECT count(*) FROM channel_members WHERE channel_id = $1), is_locked, created_by FROM channels WHERE id = $1`, channelID).
 			Scan(&out.ID, &out.Name, &out.MemberCount, &out.IsLocked, &out.CreatedBy)
@@ -282,36 +343,80 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 		if err != nil {
 			return err
 		}
+		actorUsername, actorDisplay, err := s.cachedUserNames(ctx, tx, orgID, callerID)
+		if err != nil {
+			return err
+		}
+		actorName := userDisplayName(actorDisplay, actorUsername)
+		bodies := make([]string, 0, len(added))
+		clientMsgIDs := make([]string, 0, len(added))
+		// The text names the user who joined; sender_id stays the CALLER who added
+		// them, deliberately. sender_id is the authenticated principal that caused
+		// the write, and everything keyed on it assumes that: telemetry records a
+		// "channel.message.sent" for the sender (a member who was merely added would
+		// be credited with an action they never took), delete-for-all lets a
+		// message's sender retract it without moderator rights (an added member
+		// could erase the notice of their own addition), and the unread/last-sender
+		// queries treat the sender as the one who just acted. The joined user is
+		// still named in the body, and the ChannelMemberJoined event below carries
+		// userId (who joined) and actorId (who added them) separately.
+		for _, uid := range added {
+			addedName := userDisplayName(names[uid].displayName, names[uid].username)
+			bodies = append(bodies, fmt.Sprintf("%s joined the channel", addedName))
+			clientMsgIDs = append(clientMsgIDs, uuid.Must(uuid.NewV7()).String())
+		}
+		if err := s.appendChannelMessagesTx(ctx, tx, orgID, channelID, callerID,
+			bodies, clientMsgIDs, MessageKindChannelMemberAdded); err != nil {
+			return err
+		}
 
 		// 4. One outbox row per genuinely-new member, inserted together. The events
 		//    stay individual — each names one person, and a consumer that had to
 		//    unpack a batch would be a contract change for no benefit — but they no
 		//    longer cost a round trip each.
 		if err := insertOutboxBatch(ctx, tx, channelID,
-			memberJoinedEvents(orgID, channelID, channelName, callerID, added, names)); err != nil {
+			memberJoinedEvents(orgID, channelID, channelName, callerID, actorName, added, names)); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
 	})
 }
 
+// initialMembersBody is the text of the single system message that names every
+// user a channel was created with: "A was added to the channel" for one,
+// "A, B, C were added to the channel" for several. The names follow the request
+// order and are never truncated. A user with no projection row yet reads as
+// "Someone", the same fallback every other system message uses.
+func initialMembersBody(userIDs []string, names map[string]projectedUserNames) string {
+	display := make([]string, len(userIDs))
+	for i, uid := range userIDs {
+		display[i] = userDisplayName(names[uid].displayName, names[uid].username)
+	}
+	verb := "were"
+	if len(display) == 1 {
+		verb = "was"
+	}
+	return fmt.Sprintf("%s %s added to the channel", strings.Join(display, ", "), verb)
+}
+
 // memberJoinedEvents builds one ChannelMemberJoined per newly-added member.
 //
 // `actorID` is the caller who added them, and is what makes this path
 // notifiable where the self-join path is not — see the event's doc comment.
-func memberJoinedEvents(orgID, channelID, channelName, actorID string, userIDs []string, names map[string]string) []any {
+func memberJoinedEvents(orgID, channelID, channelName, actorID, actorDisplayName string, userIDs []string, names map[string]projectedUserNames) []any {
 	out := make([]any, 0, len(userIDs))
 	for _, uid := range userIDs {
 		out = append(out, events.ChannelMemberJoined{
-			Type:        events.TypeChannelMemberJoined,
-			EventID:     uuid.Must(uuid.NewV7()).String(),
-			OrgID:       orgID,
-			OccurredAt:  nowISO(),
-			ChannelID:   channelID,
-			ChannelName: channelName,
-			UserID:      uid,
-			Username:    names[uid],
-			ActorID:     actorID,
+			Type:             events.TypeChannelMemberJoined,
+			EventID:          uuid.Must(uuid.NewV7()).String(),
+			OrgID:            orgID,
+			OccurredAt:       nowISO(),
+			ChannelID:        channelID,
+			ChannelName:      channelName,
+			UserID:           uid,
+			Username:         names[uid].username,
+			ActorID:          actorID,
+			ActorDisplayName: actorDisplayName,
 		})
 	}
 	return out
@@ -322,7 +427,11 @@ func memberJoinedEvents(orgID, channelID, channelName, actorID string, userIDs [
 //
 // kind is a MessageKind* constant ("" → text), whitelisted by the caller via
 // ValidMessageKind exactly as sendMessage does for DMs — see store.go.
-func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, senderID, body, clientMsgID, kind, replyToID string) (*ChannelSendResult, error) {
+//
+// attachmentID is required when kind is MessageKindAttachmentOpened or
+// MessageKindAttachmentDownloaded — see attachmentForActivity. Ignored
+// otherwise.
+func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, senderID, body, clientMsgID, kind, replyToID, attachmentID string) (*ChannelSendResult, error) {
 	var out *ChannelSendResult
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
@@ -393,6 +502,16 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 		if kind == MessageKindScreenshotAttempt {
 			body = screenshotAttemptBody(senderDisplay, senderName)
 		}
+		if kind == MessageKindAttachmentOpened || kind == MessageKindAttachmentDownloaded {
+			if attachmentID == "" {
+				return ErrForbidden
+			}
+			filename, ferr := s.attachmentForActivity(ctx, tx, orgID, attachmentID, senderID, ScopeChannel, channelID)
+			if ferr != nil {
+				return ferr
+			}
+			body = attachmentActionBody(kind, senderDisplay, senderName, filename)
+		}
 
 		// Encrypt the body under the org DEK (created lazily in THIS tx); the
 		// plaintext body column is left NULL.
@@ -450,6 +569,10 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 		if err != nil {
 			return err
 		}
+		var channelName string
+		if err := tx.QueryRow(ctx, `SELECT name FROM channels WHERE id = $1`, channelID).Scan(&channelName); err != nil {
+			return err
+		}
 
 		evt := events.ChannelMessageCreated{
 			Type:              events.TypeChannelMessageCreated,
@@ -462,6 +585,7 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 			SenderID:          senderID,
 			SenderUsername:    senderName,
 			SenderDisplayName: senderDisplay,
+			ChannelName:       channelName,
 			Body:              body,
 			Members:           members,
 			Kind:              kind,
@@ -494,11 +618,25 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 // 0012_channel_roles with nobody able to moderate it. A default is easy to
 // forget; an argument is not.
 func (s *Store) insertChannelMember(ctx context.Context, tx pgx.Tx, channelID, orgID, userID, role string) error {
-	_, err := tx.Exec(ctx,
+	_, err := s.insertChannelMemberIfNew(ctx, tx, channelID, orgID, userID, role)
+	return err
+}
+
+// insertChannelMemberIfNew is insertChannelMember that also reports whether the
+// row was actually created. The answer comes from the INSERT's own affected-row
+// count, not from a prior SELECT: under READ COMMITTED two concurrent inserts of
+// the same (channel, user) both pass any earlier existence check, but the
+// second blocks on the first's unique-key entry and, once it commits, takes the
+// DO NOTHING branch with zero rows affected. Exactly one caller sees true.
+func (s *Store) insertChannelMemberIfNew(ctx context.Context, tx pgx.Tx, channelID, orgID, userID, role string) (bool, error) {
+	tag, err := tx.Exec(ctx,
 		`INSERT INTO channel_members (channel_id, org_id, user_id, role) VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (channel_id, user_id) DO NOTHING`,
 		channelID, orgID, userID, role)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // classifyChannelOrgLookup turns the result of a `SELECT org_id ... FROM
@@ -773,31 +911,47 @@ func userNames(ctx context.Context, tx pgx.Tx, userID string) (uname, display st
 	return uname, display, err
 }
 
-// usernames resolves many projected usernames in one round trip.
+// usernames resolves the username and display-name snapshot for many users in one round trip.
 //
 // The batch form of `username`, and it exists for the same reason
 // AddChannelMembers is now set-based: resolving a name per member turned a bulk
 // membership change into one query per person. Users with no projection row are
 // simply absent from the map, and callers read a missing key as "" — the same
 // answer `username` gives for an unknown user.
-func usernames(ctx context.Context, tx pgx.Tx, userIDs []string) (map[string]string, error) {
-	out := make(map[string]string, len(userIDs))
+type projectedUserNames struct {
+	username    string
+	displayName string
+}
+
+func userDisplayName(displayName, username string) string {
+	if displayName != "" {
+		return displayName
+	}
+	if username != "" {
+		return username
+	}
+	return "Someone"
+}
+
+func usernames(ctx context.Context, tx pgx.Tx, userIDs []string) (map[string]projectedUserNames, error) {
+	out := make(map[string]projectedUserNames, len(userIDs))
 	if len(userIDs) == 0 {
 		return out, nil
 	}
 	rows, err := tx.Query(ctx,
-		`SELECT user_id::text, COALESCE(username, '')
+		`SELECT user_id::text, COALESCE(username, ''), COALESCE(display_name, '')
 		   FROM user_projection WHERE user_id = ANY($1)`, userIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, name string
-		if err := rows.Scan(&id, &name); err != nil {
+		var id string
+		var names projectedUserNames
+		if err := rows.Scan(&id, &names.username, &names.displayName); err != nil {
 			return nil, err
 		}
-		out[id] = name
+		out[id] = names
 	}
 	return out, rows.Err()
 }

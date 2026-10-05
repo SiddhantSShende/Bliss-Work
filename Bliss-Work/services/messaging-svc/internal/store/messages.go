@@ -29,6 +29,9 @@ type SendOptions struct {
 	Origin string
 	// ReplyToID is the message being quoted, in the same conversation.
 	ReplyToID string
+	// AttachmentID is required when Kind is MessageKindAttachmentOpened or
+	// MessageKindAttachmentDownloaded — see attachmentForActivity.
+	AttachmentID string
 }
 
 func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, body, clientMsgID string, opts SendOptions) (*SendResult, error) {
@@ -47,6 +50,14 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 
 		// RLS: scope this tx to the caller's org before any RLS table is touched.
 		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		// The recipient must belong to this org. Without it a send opens a
+		// conversation with a user id guessed from another org: the upsert below
+		// stamps the row with OUR org_id, RLS is satisfied, and the resulting
+		// message.created is routed to the foreign user by id alone.
+		if err := requireSameOrgUser(ctx, tx, orgID, recipientID); err != nil {
 			return err
 		}
 
@@ -87,7 +98,7 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 
 		// Top-level send → new thread, this message is the root.
 		res, err := s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "",
-			appendOpts{kind: opts.Kind, origin: opts.Origin, replyToID: opts.ReplyToID})
+			appendOpts{kind: opts.Kind, origin: opts.Origin, replyToID: opts.ReplyToID, attachmentID: opts.AttachmentID})
 		if err != nil {
 			return err
 		}
@@ -159,7 +170,25 @@ func (s *Store) IsBlockedPair(ctx context.Context, orgID, userA, userB string) (
 // thread context at all, so every chat message except a brand-new conversation's
 // first goes through here with no parent).
 func (s *Store) Reply(ctx context.Context, orgID, senderID, convID, body, clientMsgID, replyToID string) (*SendResult, error) {
-	return s.replyImpl(ctx, orgID, senderID, convID, "", "", body, clientMsgID, replyToID, true)
+	return s.replyImpl(ctx, orgID, senderID, convID, "", "", body, clientMsgID, replyToID, true, "", "")
+}
+
+// ReplyAttachmentActivity appends a MessageKindAttachmentOpened/Downloaded
+// system entry to convID's most-recently-active thread — the same thread an
+// ordinary chat message reaches via Reply — instead of going through
+// SendMessage, whose top-level-send branch mints a brand-new one-message
+// thread on every call (see appendMessageTx's threadIDHint comment). A file
+// can be opened or downloaded far more often than the rare event
+// MessageKindScreenshotAttempt was designed for, and minting a thread per
+// occurrence would also hijack Reply's most-recent-thread fallback, nesting
+// the user's next real chat message under a throwaway activity notice
+// instead of the actual conversation.
+//
+// body is deliberately not a parameter: appendMessageTx always overwrites it
+// for these two kinds from the attachment row itself (attachmentForActivity),
+// so there is nothing for a caller to supply.
+func (s *Store) ReplyAttachmentActivity(ctx context.Context, orgID, senderID, convID, kind, attachmentID, clientMsgID string) (*SendResult, error) {
+	return s.replyImpl(ctx, orgID, senderID, convID, "", "", "", clientMsgID, "", true, kind, attachmentID)
 }
 
 // ReplyToThread appends a message under a specific parent (Phase 3 /threads
@@ -186,7 +215,7 @@ func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, pa
 	if err != nil {
 		return nil, err
 	}
-	return s.replyImpl(ctx, orgID, senderID, convID, threadID, parentMessageID, body, clientMsgID, replyToID, false)
+	return s.replyImpl(ctx, orgID, senderID, convID, threadID, parentMessageID, body, clientMsgID, replyToID, false, "", "")
 }
 
 // replyImpl is Reply's and ReplyToThread's shared body. mostRecentThreadFallback
@@ -200,7 +229,10 @@ func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, pa
 // what keeps a PARENTLESS reply to a known thread appending to THAT thread
 // instead of falling into appendMessageTx's top-level-send branch and minting
 // an unrelated new one.
-func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, knownThreadID, parentMessageID, body, clientMsgID, replyToID string, mostRecentThreadFallback bool) (*SendResult, error) {
+//
+// kind/attachmentID are ReplyAttachmentActivity's only — "" for Reply and
+// ReplyToThread, which pass an ordinary text message through untouched.
+func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, knownThreadID, parentMessageID, body, clientMsgID, replyToID string, mostRecentThreadFallback bool, kind, attachmentID string) (*SendResult, error) {
 	var out *SendResult
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
@@ -279,7 +311,7 @@ func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, knownThr
 		}
 
 		res, err := s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, threadIDHint,
-			appendOpts{replyToID: replyToID})
+			appendOpts{replyToID: replyToID, kind: kind, attachmentID: attachmentID})
 		if err != nil {
 			return err
 		}
@@ -318,6 +350,9 @@ type appendOpts struct {
 	// never alongside isForward, which marks the DIFFERENT case of an internal
 	// forward's clone. See MessageDTO.ForwardPlatform.
 	forwardPlatform string
+	// attachmentID is required when kind is MessageKindAttachmentOpened or
+	// MessageKindAttachmentDownloaded — see attachmentForActivity.
+	attachmentID string
 }
 
 // kindArg is the messages.kind value to insert — 'text' unless a system kind
@@ -384,6 +419,20 @@ func (s *Store) appendMessageTx(
 			return nil, err
 		}
 		body = screenshotAttemptBody(senderDisplay, senderName)
+	}
+	if opts.kind == MessageKindAttachmentOpened || opts.kind == MessageKindAttachmentDownloaded {
+		if opts.attachmentID == "" {
+			return nil, ErrForbidden
+		}
+		filename, err := s.attachmentForActivity(ctx, tx, orgID, opts.attachmentID, senderID, ScopeConversation, convID)
+		if err != nil {
+			return nil, err
+		}
+		senderName, senderDisplay, err := s.cachedUserNames(ctx, tx, orgID, senderID)
+		if err != nil {
+			return nil, err
+		}
+		body = attachmentActionBody(opts.kind, senderDisplay, senderName, filename)
 	}
 
 	msgID := opts.messageID
@@ -562,6 +611,10 @@ func (s *Store) appendMessageTx(
 	parentForEvent := parentArg
 	rootForEvent := isThreadRoot
 	threadIDForEvent := threadID
+	senderUsername, senderDisplayName, err := s.cachedUserNames(ctx, tx, orgID, senderID)
+	if err != nil {
+		return nil, err
+	}
 	evt := events.MessageCreated{
 		Type:            events.TypeMessageCreated,
 		EventID:         uuid.Must(uuid.NewV7()).String(),
@@ -582,10 +635,12 @@ func (s *Store) appendMessageTx(
 		// client optimistically inserts an inbox row on MessageCreated, and
 		// without the origin it would put back exactly the rows we stopped
 		// writing above.
-		Origin:          origin,
-		ReplyToID:       opts.replyToID,
-		IsForward:       opts.isForward,
-		ForwardPlatform: opts.forwardPlatform,
+		Origin:            origin,
+		ReplyToID:         opts.replyToID,
+		IsForward:         opts.isForward,
+		ForwardPlatform:   opts.forwardPlatform,
+		SenderUsername:    senderUsername,
+		SenderDisplayName: senderDisplayName,
 	}
 	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return nil, err

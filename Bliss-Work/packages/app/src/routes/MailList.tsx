@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { FolderOpen, Inbox, PenSquare, RefreshCw, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { ApiError } from "@taskboard/shared";
 import { EmptyState, IconButton } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
@@ -67,6 +68,7 @@ const MIN_VISIBLE = 12;
  * listing, rendered by MailDraftList.
  */
 export function MailList() {
+  const { t } = useTranslation("mail");
   const [params] = useSearchParams();
   const peerId = peerOf(params);
   const folder = folderOf(params);
@@ -116,7 +118,7 @@ export function MailList() {
   // Heading label for a per-person feed — read from the People-list cache (cheap).
   const { data: peers = [] } = useInboxPeers({ enabled: !!peerId });
   const peer = peerId ? peers.find((p) => p.peerId === peerId) : undefined;
-  const peerName = peer ? peerLabel(peer).name : "this person";
+  const peerName = peer ? peerLabel(peer).name : t("list.unknownPeer");
 
   // Desktop-only pin set: a pinned (locked) task can only be completed, so its
   // row must not offer Ignore. Empty/disabled on web.
@@ -188,27 +190,27 @@ export function MailList() {
       await api.taskAction(refId, "ignore");
     },
     onSuccess: refresh,
-    onError: onMutError("Couldn't remove that item"),
+    onError: onMutError(t("list.errors.couldNotRemoveItem")),
   });
   const restoreMut = useMutation({
     mutationFn: (refId: string) => api.restoreMail(refId),
     onSuccess: refresh,
-    onError: onMutError("Couldn't restore that mail"),
+    onError: onMutError(t("list.errors.couldNotRestoreItem")),
   });
   const dismissMut = useMutation({
     mutationFn: (messageId: string) => api.dismissMessage(messageId),
     onSuccess: refresh,
-    onError: onMutError("Couldn't delete that message"),
+    onError: onMutError(t("list.errors.couldNotDeleteMessage")),
   });
   const ackMut = useMutation({
     mutationFn: (taskId: string) => api.taskAction(taskId, "acknowledge"),
     onSuccess: refresh,
-    onError: onMutError("Couldn't acknowledge that task"),
+    onError: onMutError(t("list.errors.couldNotAcknowledgeTask")),
   });
   const completeMut = useMutation({
     mutationFn: (taskId: string) => api.taskAction(taskId, "complete"),
     onSuccess: refresh,
-    onError: onMutError("Couldn't complete that task"),
+    onError: onMutError(t("list.errors.couldNotCompleteTask")),
   });
 
   return (
@@ -222,8 +224,8 @@ export function MailList() {
           {fromFeed ? (
             <Tabs
               tabs={[
-                { key: "all", label: "All" },
-                { key: "unread", label: "Unread" },
+                { key: "all", label: t("list.tabs.all") },
+                { key: "unread", label: t("list.tabs.unread") },
               ]}
               active={unreadOnly ? "unread" : "all"}
               onChange={(k) => setUnreadOnly(k === "unread")}
@@ -239,15 +241,15 @@ export function MailList() {
                 pane, exactly where the mail it answers would have been read. */}
             <Link
               to={{ pathname: "/app/mail/compose", search }}
-              title="New Mail — compose an email"
+              title={t("list.newMail.title")}
               className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-gradient-to-br from-brand-from to-brand-to px-2.5 text-xs font-semibold text-accent-fg shadow-[0_6px_20px_-6px_var(--color-accent)] transition-all hover:brightness-105 active:scale-[0.98]"
             >
-              <PenSquare size={14} /> New Mail
+              <PenSquare size={14} /> {t("list.newMail.label")}
             </Link>
             <IconButton
               onClick={refresh}
-              title="Check for new mail"
-              aria-label="Check for new mail"
+              title={t("list.checkForNewMail")}
+              aria-label={t("list.checkForNewMail")}
               className="h-8 w-8"
             >
               <RefreshCw size={15} className={q.isFetching ? "animate-spin" : undefined} />
@@ -269,7 +271,9 @@ export function MailList() {
             <span className="tabular-nums">
               {visible.length}
               {q.hasNextPage ? "+" : ""}{" "}
-              {visible.length === 1 && !q.hasNextPage ? "message" : "messages"}
+              {visible.length === 1 && !q.hasNextPage
+                ? t("list.messageCountSingular")
+                : t("list.messageCountPlural")}
             </span>
           )}
           {peerId && (
@@ -278,7 +282,7 @@ export function MailList() {
             // be sayable — and undoable — from here.
             <Link
               to={{ pathname: "/app/mail/all", search: mailSearch(folder) }}
-              title="Show mail from everyone"
+              title={t("list.showAllMailTitle")}
               className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent transition-colors hover:brightness-95"
             >
               {peerName} <X size={11} />
@@ -299,23 +303,23 @@ export function MailList() {
             icon={<Inbox size={22} />}
             title={
               unreadOnly
-                ? "Nothing unread"
+                ? t("list.emptyStates.unreadTitle")
                 : isDeleted
-                  ? "Nothing deleted"
+                  ? t("list.emptyStates.deletedTitle")
                   : isFavorites
-                    ? "No favorites yet"
-                    : "Nothing here yet"
+                    ? t("list.emptyStates.favoritesTitle")
+                    : t("list.emptyStates.defaultTitle")
             }
             hint={
               unreadOnly
-                ? "Everything in this folder has been read."
+                ? t("list.emptyStates.unreadHint")
                 : peerId
-                  ? `No mail with ${peerName} in ${spec.label}.`
+                  ? t("list.emptyStates.peerHint", { peer: peerName, folder: spec.label })
                   : isDeleted
-                    ? "Mail you delete is kept here for 90 days, so you can put it back."
+                    ? t("list.emptyStates.deletedHint")
                     : isFavorites
-                      ? "Star a mail from any folder and it is collected here. Stars are kept on this device."
-                      : "Choose New Mail to write one."
+                      ? t("list.emptyStates.favoritesHint")
+                      : t("list.emptyStates.defaultHint")
             }
           />
         )}
@@ -369,7 +373,7 @@ export function MailList() {
         {/* IntersectionObserver target for keyset paging. */}
         <div ref={sentinel} className="h-4" />
         {q.isFetchingNextPage && fromFeed && (
-          <div className="py-2 text-center text-[11px] text-muted">Loading more…</div>
+          <div className="py-2 text-center text-[11px] text-muted">{t("list.loadingMore")}</div>
         )}
       </div>
     </div>

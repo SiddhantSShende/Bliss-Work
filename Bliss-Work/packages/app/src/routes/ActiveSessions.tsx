@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MonitorSmartphone } from "lucide-react";
 import { toast } from "sonner";
+import { Trans, useTranslation } from "react-i18next";
 import { Button, EmptyState, PageHeader, Spinner } from "@taskboard/ui";
 import { ApiError, decodeJwtPayload, type ActiveSessionDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -26,6 +27,7 @@ import { ConfirmDialog } from "../features/ConfirmDialog";
  * so this is both simpler and correct everywhere at once.
  */
 export function ActiveSessions() {
+  const { t } = useTranslation("account");
   const { api, config, ws } = useRuntime();
   const accessToken = useSession((s) => s.accessToken);
   const qc = useQueryClient();
@@ -59,7 +61,7 @@ export function ActiveSessions() {
       qc.setQueryData<ActiveSessionDTO[]>(qk.activeSessions, (prev) =>
         (prev ?? []).filter((s) => s.id !== session.id),
       );
-      toast.success(`Signed out of ${session.device}`);
+      toast.success(t("account:activeSessions.toasts.signedOutOf", { device: session.device }));
     } catch (err) {
       // A 404 here means the session was already gone (revoked elsewhere, or
       // it expired) between the list rendering and this click — refresh the
@@ -68,7 +70,9 @@ export function ActiveSessions() {
       if (err instanceof ApiError && err.status === 404) {
         await qc.invalidateQueries({ queryKey: qk.activeSessions });
       } else {
-        toast.error("Couldn't sign out that session", { description: "Please try again." });
+        toast.error(t("account:activeSessions.toasts.revokeFailed.title"), {
+          description: t("account:activeSessions.toasts.revokeFailed.description"),
+        });
       }
     } finally {
       setRevokingId(null);
@@ -84,11 +88,13 @@ export function ActiveSessions() {
       );
       toast.success(
         revokedIds.length === 0
-          ? "No other sessions to sign out"
-          : `Signed out of ${revokedIds.length} other session${revokedIds.length === 1 ? "" : "s"}`,
+          ? t("account:activeSessions.toasts.noOtherSessions")
+          : t("account:activeSessions.toasts.signedOutOfOthers", { count: revokedIds.length }),
       );
     } catch {
-      toast.error("Couldn't sign out other sessions", { description: "Please try again." });
+      toast.error(t("account:activeSessions.toasts.revokeOthersFailed.title"), {
+        description: t("account:activeSessions.toasts.revokeOthersFailed.description"),
+      });
       await qc.invalidateQueries({ queryKey: qk.activeSessions });
     }
   };
@@ -98,8 +104,8 @@ export function ActiveSessions() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        title="Active sessions"
-        subtitle="Where you're signed in. Sign out any device you don't recognize."
+        title={t("account:activeSessions.header.title")}
+        subtitle={t("account:activeSessions.header.subtitle")}
         onBack={goBack}
       />
       <div className="min-h-0 flex-1 overflow-auto p-6">
@@ -111,8 +117,8 @@ export function ActiveSessions() {
           ) : !sessions || sessions.length === 0 ? (
             <EmptyState
               icon={<MonitorSmartphone size={22} />}
-              title="No active sessions"
-              hint="You'll see every signed-in device here."
+              title={t("account:activeSessions.empty.title")}
+              hint={t("account:activeSessions.empty.hint")}
             />
           ) : (
             <>
@@ -127,7 +133,7 @@ export function ActiveSessions() {
               {others.length > 0 && (
                 <div className="flex justify-end">
                   <Button variant="subtle" size="sm" onClick={() => setConfirmAllOthers(true)}>
-                    Sign out of all other sessions
+                    {t("account:activeSessions.signOutAllOthers")}
                   </Button>
                 </div>
               )}
@@ -139,14 +145,15 @@ export function ActiveSessions() {
       <ConfirmDialog
         open={confirmTarget !== null}
         onClose={() => !revokingId && setConfirmTarget(null)}
-        title="Sign out this session?"
+        title={t("account:activeSessions.confirmOne.title")}
         message={
-          <>
-            <strong className="text-fg">{confirmTarget?.device}</strong> will be signed out
-            immediately and will need to sign in again.
-          </>
+          <Trans
+            i18nKey="account:activeSessions.confirmOne.message"
+            values={{ device: confirmTarget?.device }}
+            components={{ bold: <strong className="text-fg" /> }}
+          />
         }
-        confirmLabel="Sign out"
+        confirmLabel={t("account:activeSessions.confirmOne.confirmLabel")}
         danger
         busy={revokingId === confirmTarget?.id}
         onConfirm={async () => {
@@ -160,9 +167,9 @@ export function ActiveSessions() {
       <ConfirmDialog
         open={confirmAllOthers}
         onClose={() => setConfirmAllOthers(false)}
-        title="Sign out of all other sessions?"
-        message={`This device stays signed in. ${others.length} other session${others.length === 1 ? "" : "s"} will be signed out immediately.`}
-        confirmLabel="Sign out others"
+        title={t("account:activeSessions.confirmAllOthers.title")}
+        message={t("account:activeSessions.confirmAllOthers.message", { count: others.length })}
+        confirmLabel={t("account:activeSessions.confirmAllOthers.confirmLabel")}
         danger
         onConfirm={revokeAllOthers}
       />

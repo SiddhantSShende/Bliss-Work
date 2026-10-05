@@ -8,6 +8,7 @@
  */
 import { toast } from "sonner";
 import { ApiError } from "@taskboard/shared";
+import i18n from "../i18n";
 
 let installed = false;
 
@@ -38,5 +39,5 @@ function report(error: unknown, source: string): void {
   if (error instanceof ApiError) return;
 
   const message = error instanceof Error ? error.message : String(error);
-  toast.error("Something went wrong", { description: message });
+  toast.error(i18n.t("common:globalError.title"), { description: message });
 }

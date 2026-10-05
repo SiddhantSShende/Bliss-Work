@@ -10,6 +10,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { NOTE_TEXT_MAX, type NoteEntry } from "../lib/callNotes";
 import { truncateToUtf8Bytes } from "../lib/textBytes";
@@ -21,6 +22,7 @@ export function CallNotes({
   notes: NoteEntry[];
   onAdd: (text: string) => void;
 }) {
+  const { t, i18n } = useTranslation("calls");
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -45,16 +47,14 @@ export function CallNotes({
           answer for the thing people came here to keep. */}
       <div ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
         {notes.length === 0 ? (
-          <p className="pt-6 text-center text-xs text-muted">
-            No points yet. Anything written here is shared with everyone in the meeting.
-          </p>
+          <p className="pt-6 text-center text-xs text-muted">{t("notes.empty")}</p>
         ) : (
           notes.map((n) => (
             <div key={n.id} className="rounded-xl bg-surface-2 px-3 py-2">
               <div className="flex items-baseline justify-between gap-2 text-[11px] text-muted">
                 <span className="truncate font-medium text-fg">{n.author}</span>
                 <span className="shrink-0 tabular-nums">
-                  {new Date(n.at).toLocaleTimeString(undefined, {
+                  {new Date(n.at).toLocaleTimeString(i18n.language, {
                     hour: "numeric",
                     minute: "2-digit",
                   })}
@@ -80,14 +80,14 @@ export function CallNotes({
           }}
           maxLength={NOTE_TEXT_MAX}
           rows={2}
-          placeholder="Write an important point…"
-          aria-label="Write an important point"
+          placeholder={t("notes.placeholder")}
+          aria-label={t("notes.ariaLabel")}
           className="w-full resize-none rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-muted/70 focus:border-accent"
         />
         <div className="mt-2 flex items-center justify-between gap-2">
-          <span className="text-[11px] text-muted">Enter to add</span>
+          <span className="text-[11px] text-muted">{t("notes.enterToAdd")}</span>
           <Button size="sm" onClick={submit} disabled={!draft.trim()}>
-            <Send size={13} /> Add point
+            <Send size={13} /> {t("notes.addPoint")}
           </Button>
         </div>
       </div>

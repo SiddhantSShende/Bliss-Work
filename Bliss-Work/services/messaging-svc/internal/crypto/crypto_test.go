@@ -3,6 +3,7 @@ package crypto
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,12 @@ type orgVer struct {
 }
 
 func newFakeDB() *fakeDB { return &fakeDB{rows: map[orgVer][]byte{}} }
+
+// committer runs the key insert straight against the fake, standing in for the
+// store's separately-committed transaction.
+func (f *fakeDB) committer() KeyCommitter {
+	return func(_ context.Context, _ string, fn func(Querier) error) error { return fn(f) }
+}
 
 func (f *fakeDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	// Only the INSERT path is exercised.
@@ -120,6 +127,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCryptor(t)
 	db := newFakeDB()
+	c.SetKeyCommitter(db.committer())
 	const org = "org-aaa"
 
 	cases := []string{"", "hello world", "unicode ☃ é 漢字", strings.Repeat("x", 4096)}
@@ -147,10 +155,55 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFirstKeyWithoutACommitterFailsInsteadOfUsingTheCallersTransaction(t *testing.T) {
+	c := newTestCryptor(t)
+	db := newFakeDB()
+
+	if _, err := c.Encrypt(context.Background(), db, "org-new", "hello"); !errors.Is(err, ErrCrypto) {
+		t.Fatalf("Encrypt for an org with no key and no committer = %v, want ErrCrypto", err)
+	}
+	if len(db.rows) != 0 {
+		t.Fatalf("a refused first-key creation left %d org_keys row(s)", len(db.rows))
+	}
+}
+
+func TestFirstKeyIsNotCachedWhenItsCommitFails(t *testing.T) {
+	ctx := context.Background()
+	c := newTestCryptor(t)
+	db := newFakeDB()
+	commitFailed := errors.New("commit failed")
+	fail := true
+	c.SetKeyCommitter(func(ctx context.Context, org string, fn func(Querier) error) error {
+		if err := fn(db); err != nil {
+			return err
+		}
+		if fail {
+			delete(db.rows, orgVer{org, firstVersion}) // what a rollback does to the insert
+			return commitFailed
+		}
+		return nil
+	})
+
+	if _, err := c.Encrypt(ctx, db, "org-new", "hello"); !errors.Is(err, commitFailed) {
+		t.Fatalf("Encrypt = %v, want the commit failure", err)
+	}
+	fail = false
+	blob, err := c.Encrypt(ctx, db, "org-new", "hello")
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	// The retry must have gone back to the database, not reused the failed key.
+	cold := newTestCryptor(t)
+	if got, err := cold.Decrypt(ctx, db, "org-new", blob); err != nil || got != "hello" {
+		t.Fatalf("a cold cryptor reading only the database got (%q, %v)", got, err)
+	}
+}
+
 func TestDecryptWrongOrgFailsClosed(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCryptor(t)
 	db := newFakeDB()
+	c.SetKeyCommitter(db.committer())
 
 	blob, err := c.Encrypt(ctx, db, "org-aaa", "secret")
 	if err != nil {
@@ -167,6 +220,7 @@ func TestDecryptTamperedCiphertextFailsClosed(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCryptor(t)
 	db := newFakeDB()
+	c.SetKeyCommitter(db.committer())
 
 	blob, err := c.Encrypt(ctx, db, "org-aaa", "secret")
 	if err != nil {
@@ -188,6 +242,7 @@ func TestPeekVersionReadsTheEmbeddedVersionWithoutDecrypting(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCryptor(t)
 	db := newFakeDB()
+	c.SetKeyCommitter(db.committer())
 
 	blob, err := c.Encrypt(ctx, db, "org-aaa", "hello")
 	if err != nil {
@@ -209,6 +264,7 @@ func TestDecryptCachedRoundTripsAWarmBatch(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCryptor(t)
 	db := newFakeDB()
+	c.SetKeyCommitter(db.committer())
 	const org = "org-aaa"
 
 	blobs := make([][]byte, 3)
@@ -252,6 +308,7 @@ func TestDecryptCachedResolvesEachBlobAgainstItsOwnVersion(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCryptor(t)
 	db := newFakeDB()
+	c.SetKeyCommitter(db.committer())
 	const org = "org-aaa"
 
 	oldBlob, err := c.Encrypt(ctx, db, org, "old")
@@ -302,6 +359,7 @@ func TestDecryptCachedFailsClosedOnAColdVersion(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCryptor(t)
 	db := newFakeDB()
+	c.SetKeyCommitter(db.committer())
 
 	blob, err := c.Encrypt(ctx, db, "org-aaa", "never warmed")
 	if err != nil {
@@ -318,6 +376,7 @@ func TestDecryptCachedFailsClosedOnTamperedCiphertext(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCryptor(t)
 	db := newFakeDB()
+	c.SetKeyCommitter(db.committer())
 	const org = "org-aaa"
 
 	blob, err := c.Encrypt(ctx, db, org, "hello")

@@ -60,6 +60,9 @@ var orgPurgeTables = []string{
 	"call_chat_messages",
 	"call_notes",
 	"calls",
+	// The templates behind repeating meetings. Carries the hosting org, like
+	// `calls` (0033_meeting_series.sql); nothing references it by foreign key.
+	"call_series",
 	// Attachment ROWS. The bytes on disk are removed separately by
 	// blob.Store.RemoveOrg — they are not in the database and, unlike every
 	// encrypted column here, they are not covered by the crypto-shred either.

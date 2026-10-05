@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Hash, Lock, Globe, UserPlus, X } from "lucide-react";
 import { Avatar, Button, Input } from "@taskboard/ui";
 import { toast } from "sonner";
@@ -23,6 +24,7 @@ import { Field } from "../routes/Onboarding";
  * button is pressed, so MemberPicker's onConfirm only updates local state.
  */
 export function CreateChannelPanel({ onCreated }: { onCreated: () => void }) {
+  const { t } = useTranslation("chatList");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -48,25 +50,25 @@ export function CreateChannelPanel({ onCreated }: { onCreated: () => void }) {
       onCreated();
       nav(`/app/channels/${ch.id}`);
     },
-    onError: (e) => toast.error("Could not create channel", { description: String(e) }),
+    onError: (e) => toast.error(t("createChannel.createErrorToast"), { description: String(e) }),
   });
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (!name.trim()) return toast.error("Name the channel");
+        if (!name.trim()) return toast.error(t("createChannel.nameRequiredToast"));
         create.mutate();
       }}
       className="flex flex-col gap-3.5"
     >
-      <Field label="Channel name">
+      <Field label={t("createChannel.channelNameLabel")}>
         <div className="relative">
           <Hash size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <Input className="pl-9" value={name} onChange={(e) => setName(e.target.value)} placeholder="design-team" required />
+          <Input className="pl-9" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("createChannel.channelNamePlaceholder")} required />
         </div>
       </Field>
-      <Field label="Visibility">
+      <Field label={t("createChannel.visibilityLabel")}>
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
@@ -76,9 +78,9 @@ export function CreateChannelPanel({ onCreated }: { onCreated: () => void }) {
             }`}
           >
             <div className="flex items-center gap-1.5 text-sm font-medium text-fg">
-              <Globe size={14} /> Open
+              <Globe size={14} /> {t("createChannel.openOption.label")}
             </div>
-            <div className="text-[11px] text-muted">Anyone in the org can join</div>
+            <div className="text-[11px] text-muted">{t("createChannel.openOption.hint")}</div>
           </button>
           <button
             type="button"
@@ -88,16 +90,16 @@ export function CreateChannelPanel({ onCreated }: { onCreated: () => void }) {
             }`}
           >
             <div className="flex items-center gap-1.5 text-sm font-medium text-fg">
-              <Lock size={14} /> Locked
+              <Lock size={14} /> {t("createChannel.lockedOption.label")}
             </div>
-            <div className="text-[11px] text-muted">Invite only</div>
+            <div className="text-[11px] text-muted">{t("createChannel.lockedOption.hint")}</div>
           </button>
         </div>
       </Field>
-      <Field label={`Members${selected.size ? ` (${selected.size})` : ""}`}>
+      <Field label={selected.size ? t("createChannel.membersLabelWithCount", { count: selected.size }) : t("createChannel.membersLabel")}>
         <div className="flex flex-col gap-2">
           {selected.size === 0 ? (
-            <p className="rounded-xl border border-border p-3 text-sm text-muted">No members added yet.</p>
+            <p className="rounded-xl border border-border p-3 text-sm text-muted">{t("createChannel.noMembers")}</p>
           ) : (
             <ul className="m-0 max-h-40 list-none space-y-0.5 overflow-auto rounded-xl border border-border p-1">
               {[...selected].map((id) => {
@@ -109,7 +111,7 @@ export function CreateChannelPanel({ onCreated }: { onCreated: () => void }) {
                     <button
                       type="button"
                       onClick={() => toggle(id)}
-                      aria-label={`Remove ${u?.displayName ?? "member"}`}
+                      aria-label={t("createChannel.removeMemberAriaLabel", { name: u?.displayName ?? t("createChannel.removeMemberFallback") })}
                       className="shrink-0 rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
                     >
                       <X size={14} />
@@ -130,14 +132,14 @@ export function CreateChannelPanel({ onCreated }: { onCreated: () => void }) {
             />
           ) : (
             <Button type="button" size="sm" variant="secondary" onClick={() => setPicking(true)}>
-              <UserPlus size={14} /> Add Member
+              <UserPlus size={14} /> {t("createChannel.addMember")}
             </Button>
           )}
         </div>
       </Field>
       <div className="mt-2 flex justify-end gap-2">
         <Button type="submit" loading={create.isPending}>
-          {create.isPending ? "Creating…" : "Create channel"}
+          {create.isPending ? t("createChannel.creating") : t("createChannel.createButton")}
         </Button>
       </div>
     </form>

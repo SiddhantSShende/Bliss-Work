@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObjec
 import { useQuery } from "@tanstack/react-query";
 import { Phone, PhoneOff } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Avatar } from "@taskboard/ui";
 import { useCall } from "../lib/useCall";
 import { useRuntime } from "../lib/runtime";
@@ -10,6 +11,7 @@ import { CallControls } from "./CallControls";
 import { ScreenSharePopup } from "./ScreenSharePopup";
 import { AddPeopleDialog } from "./AddPeopleDialog";
 import { useMeetingSession } from "../lib/MeetingSession";
+import { useVideoAspect } from "../lib/useVideoAspect";
 
 /** Attaches a MediaStream to a media element and STARTS it.
  *
@@ -55,15 +57,37 @@ function StreamVideo({
   muted,
   className,
   onBlocked,
+  onPlaying,
+  onAspect,
 }: {
   stream?: MediaStream;
   muted?: boolean;
   className?: string;
   onBlocked?: () => void;
+  /** The element actually decoded and painted a frame. The offerer's copy of a
+   *  remote video track is negotiated the same way the answerer's is, but its
+   *  `mute`/`unmute` events are the one thing that differs by role — they ride
+   *  RTCRtpReceiver bookkeeping that is, in practice, not something both roles
+   *  fire identically for a transceiver that was created (via addTransceiver)
+   *  before the description that finished negotiating it, which is the
+   *  offerer's own situation here (see CallSession's class doc). `onPlaying`
+   *  is the decoder itself, not that bookkeeping, so it is true regardless of
+   *  whether `unmute` ever arrives. */
+  onPlaying?: () => void;
+  /** The width ÷ height of the picture being shown, or null while there is none.
+   *  Measured here, where the element is mounted with this component, so the
+   *  card that holds it can take the picture's shape (see CallUI). */
+  onAspect?: (aspect: number | null) => void;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   useAttachedStream(ref, stream, onBlocked);
-  return <video ref={ref} autoPlay playsInline muted={muted} className={className} />;
+  const aspect = useVideoAspect(ref);
+  useEffect(() => {
+    onAspect?.(aspect);
+  }, [aspect, onAspect]);
+  return (
+    <video ref={ref} autoPlay playsInline muted={muted} className={className} onPlaying={onPlaying} />
+  );
 }
 
 /** The remote voice, on every call.
@@ -129,6 +153,7 @@ function Backdrop({ children, dark }: { children: ReactNode; dark?: boolean }) {
  * meetings use.
  */
 function RoomHandoff({ callId, onClose }: { callId: string; onClose: () => void }) {
+  const { t } = useTranslation("callRoom");
   const { api } = useRuntime();
   const { enter, call: active } = useMeetingSession();
   const { data: call, isError } = useQuery({
@@ -138,9 +163,9 @@ function RoomHandoff({ callId, onClose }: { callId: string; onClose: () => void 
 
   useEffect(() => {
     if (!isError) return;
-    toast.error("Couldn't open the call room");
+    toast.error(t("callUi.couldNotOpenRoom"));
     onClose();
-  }, [isError, onClose]);
+  }, [isError, onClose, t]);
 
   // Handed to the session above the router rather than rendered here, so the
   // widened call gets exactly what every other meeting gets: it survives
@@ -157,7 +182,7 @@ function RoomHandoff({ callId, onClose }: { callId: string; onClose: () => void 
   return (
     <Backdrop dark>
       <div className="flex h-full items-center justify-center text-sm text-muted">
-        Moving everyone to the room…
+        {t("callUi.movingToRoom")}
       </div>
     </Backdrop>
   );
@@ -166,6 +191,7 @@ function RoomHandoff({ callId, onClose }: { callId: string; onClose: () => void 
 /** Global call overlay — incoming ring, outgoing/connecting, and in-call. Mounted
  *  once under CallProvider in AppShell; renders nothing when idle. */
 export function CallUI() {
+  const { t } = useTranslation("callRoom");
   const call = useCall();
   const [addOpen, setAddOpen] = useState(false);
 
@@ -184,15 +210,36 @@ export function CallUI() {
   // which is every peer state change, mid-call.
   const onAudioBlocked = useCallback(
     () =>
-      toast("Tap to hear the call", {
-        description: "Your browser blocked audio playback until you interact.",
+      toast(t("callUi.audioBlocked.title"), {
+        description: t("callUi.audioBlocked.description"),
       }),
-    [],
+    [t],
   );
+
+  // Backstop for `remoteVideo`/`peerCamOn`: both are told to us (a track's
+  // mute/unmute events, a message on the metadata channel) rather than
+  // observed directly, and the offerer's copy of the incoming video track can
+  // go the whole call without ever firing `unmute` even while frames are
+  // actually arriving — see StreamVideo's onPlaying doc. The element itself
+  // painting a frame is the one signal that cannot lie either way, so it
+  // joins the OR below rather than replacing what's already there: the
+  // existing signals are faster (no frame has to decode first) and still
+  // right for the ordinary "peer's camera is off" case.
+  //
+  // Reset on every new remoteStream (a fresh CallSession per call, or none
+  // between calls) — this is a persistent singleton overlay, not remounted
+  // per call, so nothing else would clear a stale "seen" from a previous one.
+  const [remoteFrameSeen, setRemoteFrameSeen] = useState(false);
+  useEffect(() => {
+    setRemoteFrameSeen(false);
+  }, [call.remoteStream]);
+
+  // The shape of the remote picture, so the stage below can be that shape.
+  const [remoteAspect, setRemoteAspect] = useState<number | null>(null);
 
   if (call.status === "idle") return null;
 
-  const peer = call.peerName ?? "User";
+  const peer = call.peerName ?? t("callUi.peerFallbackName");
   const isVideo = call.media === "video";
 
   // Widened past two people: the room owns the media now.
@@ -205,13 +252,15 @@ export function CallUI() {
           <Avatar name={peer} size="lg" />
           <div className="text-center">
             <div className="text-lg font-semibold text-fg">{peer}</div>
-            <div className="text-sm text-muted">Incoming {isVideo ? "video" : "voice"} call…</div>
+            <div className="text-sm text-muted">
+              {isVideo ? t("callUi.incomingVideo") : t("callUi.incomingVoice")}
+            </div>
           </div>
           <div className="flex gap-8">
-            <RoundButton tone="red" title="Decline" onClick={call.decline}>
+            <RoundButton tone="red" title={t("callUi.decline")} onClick={call.decline}>
               <PhoneOff size={22} />
             </RoundButton>
-            <RoundButton tone="green" title="Accept" onClick={call.accept}>
+            <RoundButton tone="green" title={t("callUi.accept")} onClick={call.accept}>
               <Phone size={22} />
             </RoundButton>
           </div>
@@ -223,62 +272,97 @@ export function CallUI() {
   const subtitle =
     call.status === "in-call"
       ? call.peerSharing
-        ? `${peer} is sharing their screen`
-        : "Connected"
+        ? t("callUi.subtitle.sharing", { peer })
+        : t("callUi.subtitle.connected")
       : call.status === "ended"
-        ? (call.endedReason ?? "Call ended")
-        : "Calling…";
+        ? (call.endedReason ?? t("callUi.subtitle.callEnded"))
+        : t("callUi.subtitle.calling");
 
   // What we send back: the screen while we are sharing one, the camera
   // otherwise. Both are muted locally — an unmuted local preview is an echo.
   const selfView = call.sharing ? call.screenStream : call.camOn ? call.localStream : undefined;
-  // Two independent signals, deliberately OR'd. `remoteVideo` is delivery — the
+  // Three independent signals, deliberately OR'd. `remoteVideo` is delivery — the
   // track stopped being muted, so pictures are actually arriving. The peer's own
-  // flags are intent, told to us over the metadata channel. Either alone can be
-  // late (a browser that is slow to fire `unmute`, a channel message that has
-  // not landed yet), and the cost of believing one too early is a black frame
-  // for a moment, against a call that never shows a picture at all.
-  const remoteVisible = call.remoteVideo || call.peerCamOn || call.peerSharing;
+  // flags are intent, told to us over the metadata channel. `remoteFrameSeen` is
+  // the video element itself having painted a frame — see its own doc for why
+  // it, alone of the three, cannot be late in a way that never resolves. Any one
+  // alone can be late (a browser that is slow to fire `unmute`, a channel
+  // message that has not landed yet), and the cost of believing one too early is
+  // a black frame for a moment, against a call that never shows a picture at all.
+  const remoteVisible = call.remoteVideo || call.peerCamOn || call.peerSharing || remoteFrameSeen;
   const showingVideo = remoteVisible || !!selfView;
+
+  // The stage takes the remote picture's own shape, so it is filled edge to edge
+  // and nothing is cropped. Clamped so a very wide or very tall stream cannot
+  // make the card a strip or a tower; those get bars inside the stage instead.
+  // 16:9 (what cameras send) while there is no picture yet.
+  const stageAspect = Math.min(16 / 9, Math.max(3 / 4, remoteAspect ?? 16 / 9));
 
   return (
     <Backdrop dark={showingVideo}>
       {/* dvh, not vh: on a browser with a dynamic toolbar (mobile, some
           desktop PWA chrome) vh can overshoot the actually-visible area,
           clipping the bottom of the card — the same fix CallRoom's pre-join
-          preview already applies to its own height cap. */}
-      <div className="relative flex h-full max-h-[90dvh] w-full max-w-3xl flex-col items-center justify-center gap-6 rounded-3xl bg-black/80 p-6">
+          preview already applies to its own height cap.
+
+          The card hugs its content: the stage (the picture, at its own aspect
+          ratio) with the name and controls in a footer under it, rather than a
+          tall fixed card with the picture floating in the middle of it. The
+          stage is the only part that shrinks when the window is short, and it
+          shrinks in HEIGHT only — the picture is object-contain, so a stage
+          squeezed past its ratio gets side bars, never a crop. On a window
+          under 480px tall the padding and gap tighten so the stage keeps room. */}
+      <div className="relative flex max-h-[90dvh] w-full max-w-3xl flex-col gap-4 rounded-3xl bg-black/80 p-4 sm:p-6 [@media(max-height:480px)]:gap-2 [@media(max-height:480px)]:p-3">
         {/* The voice, always — never on the <video>, which is muted, so the
             sound does not cut out when a camera or a share starts. */}
         <RemoteAudio stream={call.remoteStream} onBlocked={onAudioBlocked} />
-        {remoteVisible ? (
+        <div
+          className="relative flex min-h-0 w-full shrink items-center justify-center overflow-hidden rounded-2xl"
+          style={{ aspectRatio: stageAspect }}
+        >
+          {/* Always attached, like RemoteAudio above — not mounted only once
+              `remoteVisible` says so. It used to be the other way round, which
+              meant nothing was even bound to the stream (so nothing could ever
+              decode a frame) until a signal that is itself sometimes late or
+              missing said to start. Absolutely positioned, so it never
+              participates in this flex layout; the Avatar below still centers
+              itself exactly as before, just now painted OVER a video that is
+              already live underneath it rather than in its place. */}
           <StreamVideo
             stream={call.remoteStream}
             muted
-            className="absolute inset-0 h-full w-full rounded-3xl object-cover"
+            // object-contain, not cover: cover crops to fill the box, and a 16:9
+            // picture in a differently shaped one lost more than half of its
+            // frame and enlarged the face by the same factor. Contained, the
+            // whole picture is always there.
+            className="absolute inset-0 h-full w-full object-contain"
+            onPlaying={() => setRemoteFrameSeen(true)}
+            onAspect={setRemoteAspect}
           />
-        ) : (
-          <Avatar name={peer} size="lg" />
-        )}
-        {selfView && (
-          <StreamVideo
-            stream={selfView}
-            muted
-            // Mirrored only while this is the camera: once `call.sharing` swaps
-            // `selfView` to the screen stream (see its definition above), the
-            // viewer's own display must come through un-flipped and readable.
-            className={`absolute bottom-24 right-4 z-10 h-36 w-28 rounded-xl object-cover ring-2 ring-white/30 ${call.sharing ? "" : "-scale-x-100"}`}
-          />
-        )}
+          {!remoteVisible && <Avatar name={peer} size="lg" />}
+          {selfView && (
+            <StreamVideo
+              stream={selfView}
+              muted
+              // Mirrored only while this is the camera: once `call.sharing` swaps
+              // `selfView` to the screen stream (see its definition above), the
+              // viewer's own display must come through un-flipped and readable.
+              // Takes the stream's OWN shape (h-auto/w-auto, capped in both
+              // directions as a share of the stage) rather than a fixed portrait
+              // box that crops a landscape camera down to the middle of the frame.
+              className={`absolute bottom-3 right-3 z-10 h-auto max-h-[35%] w-auto max-w-[30%] rounded-xl object-contain ring-2 ring-white/30 ${call.sharing ? "" : "-scale-x-100"}`}
+            />
+          )}
+        </div>
 
         {call.sharing && <ScreenSharePopup startedAt={call.connectedAt} onStop={call.toggleShare} />}
 
-        <div className="z-10 mt-auto text-center text-white drop-shadow">
+        <div className="z-10 shrink-0 text-center text-white drop-shadow">
           <div className="text-xl font-semibold">{peer}</div>
           <div className="text-sm opacity-80">{subtitle}</div>
         </div>
 
-        <div className="z-10 mb-2">
+        <div className="z-10 shrink-0">
           <CallControls
             micOn={call.micOn}
             camOn={call.camOn}

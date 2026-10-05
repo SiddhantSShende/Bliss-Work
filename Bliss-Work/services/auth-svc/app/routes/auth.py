@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
@@ -21,6 +21,7 @@ from ..schemas import (
     LoginRequest,
     MfaPendingDTO,
     OrgMembershipDTO,
+    OrgMembershipPageDTO,
     RefreshRequest,
     SessionDTO,
     UpdateProfileRequest,
@@ -213,8 +214,11 @@ async def login(body: LoginRequest, response: Response, request: Request) -> Ses
     # Checked before the identity lookup or any Argon2 verify — independent of
     # whether the credentials themselves are right or wrong, so a captcha
     # failure never becomes a signal about account existence. See
-    # captcha_service.verify_and_consume.
-    await captcha_service.verify_and_consume(body.captchaId, body.captchaValue)
+    # captcha_service.verify_and_consume. Login alone passes the declared
+    # platform (macOS/iOS are not challenged); create_org above never does.
+    await captcha_service.verify_and_consume(
+        body.captchaId, body.captchaValue, body.clientPlatform
+    )
     generic = HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
     now = datetime.now(timezone.utc)
     ip, user_agent, request_id = request_context(request)
@@ -279,8 +283,6 @@ async def login(body: LoginRequest, response: Response, request: Request) -> Ses
                 else:
                     failed = True
             else:
-                if ident.failed_login_count or ident.locked_until is not None:
-                    await service.reset_identity_lockout(conn, str(ident.id))
                 await service.touch_last_user(conn, str(ident.id), membership_id)
 
                 # MFA gate, evaluated against exactly this membership (never
@@ -293,15 +295,19 @@ async def login(body: LoginRequest, response: Response, request: Request) -> Ses
                 )
                 if mfa_required_now:
                     pending_raw = await mfa_service.mint_mfa_pending(conn, dto.orgId, membership_id)
-                    methods = (
-                        [] if must_enroll_first else await mfa_service.enrolled_methods(conn, membership_id)
-                    )
+                    methods = [] if must_enroll_first else ["totp"]
                     mfa_pending = MfaPendingDTO(
                         pendingToken=pending_raw,
                         methods=methods,  # type: ignore[arg-type]
                         enrollmentRequired=must_enroll_first,
                     )
                 else:
+                    # Cleared only when the sign-in COMPLETES. With a second factor
+                    # still owed the count must survive, or a password holder could
+                    # reset it by logging in again and guess codes without limit;
+                    # mfa_challenge clears it once the factor checks out.
+                    if ident.failed_login_count or ident.locked_until is not None:
+                        await service.reset_identity_lockout(conn, str(ident.id))
                     session, raw_refresh, family_id = await service.build_session(conn, membership_id)
                     # Only in the SUCCESS branch. The failed path above commits its
                     # counter and raises afterwards, so anything enqueued before this
@@ -380,26 +386,35 @@ async def refresh(
         # No credential at all — nothing to invalidate, and NOT terminal: a
         # request that simply arrived without the cookie must not log anyone out.
         return _refresh_rejected("missing", clear_cookie=False)
-    try:
-        async with engine.begin() as conn:
-            # Pre-org-context: the token is looked up by hash in refresh_tokens
-            # (no RLS) before the org is known; build_session then reads
-            # users/org_keys (RLS) cross-org, so this trusted flow uses bypass.
-            await service.set_bypass_rls(conn)
+    rejected: service.RefreshError | None = None
+    async with engine.begin() as conn:
+        # Pre-org-context: the token is looked up by hash in refresh_tokens
+        # (no RLS) before the org is known; build_session then reads
+        # users/org_keys (RLS) cross-org, so this trusted flow uses bypass.
+        await service.set_bypass_rls(conn)
+        try:
             session, new_raw = await service.rotate_refresh_token(conn, raw)
-    except service.RefreshError as exc:
+        except service.RefreshError as exc:
+            # Caught INSIDE the transaction, and answered after it. On 'reused' and
+            # 'deactivated', rotate_refresh_token revokes the whole family BEFORE it
+            # raises, and an exception leaving engine.begin() rolls that revocation
+            # back: a stolen token's family kept rotating for its full lifetime
+            # because theft detection never took effect. (login raises after its
+            # block for the same reason.) Nothing else is written on any rejection.
+            rejected = exc
+    if rejected is not None:
         # Log WHO and WHICH family, and whether the token came from the cookie
         # (browser) or the request body (desktop — see the `raw` line above).
         # When two clients collide, that field is what identifies the culprit.
         log.info(
             "refresh_rejected",
-            error=str(exc),
-            code=exc.code,
-            user_id=exc.user_id,
-            family_id=exc.family_id,
+            error=str(rejected),
+            code=rejected.code,
+            user_id=rejected.user_id,
+            family_id=rejected.family_id,
             source="body" if from_body else "cookie",
         )
-        return _refresh_rejected(exc.code)
+        return _refresh_rejected(rejected.code)
 
     set_refresh_cookie(response, new_raw)
     return session
@@ -459,12 +474,49 @@ async def logout(
     return response
 
 
-@router.get("/orgs/mine", response_model=list[OrgMembershipDTO])
-async def my_orgs(principal: Principal = Depends(get_principal)) -> list[OrgMembershipDTO]:
+@router.get("/orgs/mine", response_model=list[OrgMembershipDTO] | OrgMembershipPageDTO)
+async def my_orgs(
+    principal: Principal = Depends(get_principal),
+    limit: int | None = Query(default=None, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    search: str = Query(default="", max_length=100),
+) -> list[OrgMembershipDTO] | OrgMembershipPageDTO:
     """Every organization the caller's identity belongs to (for the switcher)."""
     async with engine.connect() as conn:
         await service.set_bypass_rls(conn)  # cross-org membership list
         iid = await service.identity_id_for_user(conn, principal.user_id)
+        if limit is not None:
+            memberships, has_more = (
+                await service.membership_page_for_identity(
+                    conn, iid, search=search, limit=limit, offset=offset
+                )
+                if iid
+                else ([], False)
+            )
+            if not memberships and offset == 0 and not search.strip():
+                return OrgMembershipPageDTO(
+                    items=[
+                        OrgMembershipDTO(
+                            orgId=principal.org_id,
+                            orgName="",
+                            roles=principal.roles,
+                            active=True,
+                        )
+                    ],
+                    hasMore=False,
+                )
+            return OrgMembershipPageDTO(
+                items=[
+                    OrgMembershipDTO(
+                        orgId=m["orgId"],
+                        orgName=m["orgName"],
+                        roles=m["roles"],
+                        active=(m["orgId"] == principal.org_id),
+                    )
+                    for m in memberships
+                ],
+                hasMore=has_more,
+            )
         memberships = await service.memberships_for_identity(conn, iid) if iid else []
     if not memberships:
         # Legacy fallback (a token minted before the identity link): expose just
@@ -528,9 +580,7 @@ async def switch_org(
         )
         if mfa_required_now:
             pending_raw = await mfa_service.mint_mfa_pending(conn, org_id, target_user)
-            methods = (
-                [] if must_enroll_first else await mfa_service.enrolled_methods(conn, target_user)
-            )
+            methods = [] if must_enroll_first else ["totp"]
             return MfaPendingDTO(
                 pendingToken=pending_raw,
                 methods=methods,  # type: ignore[arg-type]
@@ -605,7 +655,7 @@ async def me(principal: Principal = Depends(get_principal)) -> UserDTO:
         # the caller's verified org. engine.connect() runs in an implicit tx, so
         # the transaction-local GUC is cleaned up when the connection returns.
         await service.set_org_guc(conn, principal.org_id)
-        dto = await service.user_dto(conn, principal.user_id)
+        dto = await service.user_dto(conn, principal.user_id, with_theme_prefs=True)
     if dto is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
     return dto
@@ -629,6 +679,14 @@ async def update_me(
             )
         if body.avatarUrl is not None:
             await service.update_avatar(conn, principal.org_id, principal.user_id, body.avatarUrl)
+        if body.themePrefs is not None:
+            await service.update_theme_prefs(conn, principal.user_id, body.themePrefs)
+        if "customTheme" in body.model_fields_set:
+            await service.update_custom_theme(
+                conn,
+                principal.user_id,
+                body.customTheme.colors if body.customTheme is not None else None,
+            )
         if body.displayName is not None or body.avatarUrl is not None:
             await service.write_audit(
                 conn,
@@ -637,7 +695,7 @@ async def update_me(
                 action="user.profile_updated",
                 target=principal.user_id,
             )
-        dto = await service.user_dto(conn, principal.user_id)
+        dto = await service.user_dto(conn, principal.user_id, with_theme_prefs=True)
     if dto is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
     log.info("profile_updated", user_id=principal.user_id)

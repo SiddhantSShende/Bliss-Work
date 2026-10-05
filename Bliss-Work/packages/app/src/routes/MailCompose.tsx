@@ -5,6 +5,7 @@ import { Paperclip, PenSquare, Send, Trash2, X, Loader2, AlertCircle } from "luc
 import { Button, Input, Textarea } from "@taskboard/ui";
 import { isValidMailAddress } from "@taskboard/shared";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { errorText } from "../lib/errorText";
@@ -35,6 +36,17 @@ const MAX_SUBJECT = 200;
  * opened and never written in is discarded instead; see useMailDraft.
  */
 export function MailCompose() {
+  const { draftId } = useParams<{ draftId?: string }>();
+  const { key } = useLocation();
+  // The two compose routes render this at the same place in the tree, so without a
+  // key React reuses one mounted composer across them: every field is filled from
+  // the new draft, but the attachment tray only appends and a new mail would keep
+  // the previous draft's text. One composer per draft, and per New Mail navigation.
+  return <Composer key={draftId ?? key} />;
+}
+
+function Composer() {
+  const { t } = useTranslation("mail");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -73,12 +85,12 @@ export function MailCompose() {
   // A forward starts with no addressee — it is the one answer that still needs
   // one typed — so it is titled for what it is rather than lumped in with Reply.
   const heading = draftId
-    ? "Draft"
+    ? t("compose.headings.draft")
     : prefill.kind === "forward"
-      ? "Forward"
+      ? t("compose.headings.forward")
       : isReply
-        ? "Reply"
-        : "New Mail";
+        ? t("compose.headings.reply")
+        : t("compose.headings.newMail");
 
   // Fill the form from the resumed draft, ONCE — keyed on the mail id, not on
   // the query result, so a refetch cannot overwrite what is being typed.
@@ -151,21 +163,21 @@ export function MailCompose() {
   const discardDraft = async () => {
     try {
       await draft.discard();
-      toast.success("Draft discarded");
+      toast.success(t("compose.draftDiscardedToast"));
     } catch (e) {
-      toast.error("Could not discard the draft", { description: errorText(e) });
+      toast.error(t("compose.couldNotDiscardToast"), { description: errorText(e) });
     }
     nav({ pathname: "/app/mail/all", search: loc.search }, { replace: true });
   };
 
   const send = useMutation({
     mutationFn: async () => {
-      if (!mailId) throw new Error("draft not ready");
+      if (!mailId) throw new Error(t("compose.errors.draftNotReady"));
       return api.sendMail(mailId, { to, cc, bcc, subject: subject.trim(), bodyText: body });
     },
     onSuccess: (res) => {
       draft.markSent();
-      toast.success(sentSummary(res.deliveredInApp, res.queuedExternal));
+      toast.success(sentSummary(res.deliveredInApp, res.queuedExternal, t));
       void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
       void qc.invalidateQueries({ queryKey: qk.inboxPeers });
       void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
@@ -183,7 +195,7 @@ export function MailCompose() {
     // over-long subject), so its message is more useful than anything we could
     // synthesize here. It is also rendered inline below, not only as a toast —
     // a toast that has faded is no help to someone still fixing the form.
-    onError: (e) => toast.error("Could not send", { description: errorText(e) }),
+    onError: (e) => toast.error(t("compose.couldNotSendToast"), { description: errorText(e) }),
   });
 
   // A resumed draft fills the form from the server. Until it lands there is
@@ -192,7 +204,7 @@ export function MailCompose() {
   if (draftId && resumed.isLoading) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-muted">
-        <Loader2 size={18} className="animate-spin text-accent" /> Opening draft…
+        <Loader2 size={18} className="animate-spin text-accent" /> {t("compose.openingDraft")}
       </div>
     );
   }
@@ -200,9 +212,9 @@ export function MailCompose() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted">
         <AlertCircle size={18} className="text-danger" />
-        <span>This draft could not be opened. It may have been sent or discarded.</span>
+        <span>{t("compose.loadErrorText")}</span>
         <Button size="sm" variant="ghost" onClick={() => void resumed.refetch()}>
-          Try again
+          {t("shared.tryAgain")}
         </Button>
       </div>
     );
@@ -226,8 +238,8 @@ export function MailCompose() {
           // onSuccess (which navigates too) can still land after the user
           // has already left, contradicting whatever it does.
           disabled={send.isPending}
-          title="Close — keeps this in Drafts"
-          aria-label="Close — keeps this in Drafts"
+          title={t("compose.closeTitle")}
+          aria-label={t("compose.closeTitle")}
           className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-40"
         >
           <X size={16} />
@@ -237,10 +249,10 @@ export function MailCompose() {
       {draft.isError && (
         <Banner
           tone="danger"
-          text="Could not start a draft. Check your connection and try again."
+          text={t("compose.startErrorBanner")}
           action={
             <Button size="sm" variant="ghost" onClick={draft.retry}>
-              Retry
+              {t("compose.retry")}
             </Button>
           }
         />
@@ -251,6 +263,15 @@ export function MailCompose() {
           e.preventDefault();
           if (canSend && !send.isPending) send.mutate();
         }}
+        // A single-line input in a form submits it on Enter. Sending is a
+        // deliberate act — the Send button — not a side effect of moving on from
+        // a field: neither subject nor body is required to send, so a stray Enter
+        // used to mail an empty message, with no confirmation and no undo. The
+        // message body is a textarea (Enter is a newline) and Send is a button
+        // (Enter presses it), so neither is affected.
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && e.target instanceof HTMLInputElement) e.preventDefault();
+        }}
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
@@ -258,10 +279,10 @@ export function MailCompose() {
             <div className="flex items-end gap-2">
               <div className="min-w-0 flex-1">
                 <MailAddressField
-                  label="To"
+                  label={t("fields.to")}
                   value={to}
                   onChange={setTo}
-                  placeholder="name@company.com"
+                  placeholder={t("compose.toPlaceholder")}
                   autoFocus={to.length === 0}
                 />
               </div>
@@ -271,26 +292,31 @@ export function MailCompose() {
                   onClick={() => setShowCc(true)}
                   className="mb-2.5 shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-surface-2 hover:text-fg"
                 >
-                  Cc / Bcc
+                  {t("compose.ccBccButton")}
                 </button>
               )}
             </div>
 
             {showCc && (
               <>
-                <MailAddressField label="Cc" value={cc} onChange={setCc} placeholder="Copy someone" />
                 <MailAddressField
-                  label="Bcc"
+                  label={t("fields.cc")}
+                  value={cc}
+                  onChange={setCc}
+                  placeholder={t("compose.ccPlaceholder")}
+                />
+                <MailAddressField
+                  label={t("fields.bcc")}
                   value={bcc}
                   onChange={setBcc}
-                  placeholder="Blind copy — hidden from everyone else"
+                  placeholder={t("compose.bccPlaceholder")}
                 />
               </>
             )}
 
             <label className="flex flex-col gap-1.5">
               <span className="flex items-baseline justify-between text-[13px] font-medium text-fg/80">
-                Subject
+                {t("compose.subjectLabel")}
                 {subject.length > MAX_SUBJECT * 0.9 && (
                   <span className={subjectTooLong ? "text-danger" : "text-muted"}>
                     {subject.length}/{MAX_SUBJECT}
@@ -300,17 +326,17 @@ export function MailCompose() {
               <Input
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                placeholder="What is this about?"
+                placeholder={t("compose.subjectPlaceholder")}
                 aria-invalid={subjectTooLong}
               />
             </label>
 
             <label className="flex min-h-0 flex-col gap-1.5">
-              <span className="text-[13px] font-medium text-fg/80">Message</span>
+              <span className="text-[13px] font-medium text-fg/80">{t("compose.messageLabel")}</span>
               <Textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                placeholder="Write your email…"
+                placeholder={t("compose.messagePlaceholder")}
                 className="min-h-56"
               />
             </label>
@@ -326,9 +352,9 @@ export function MailCompose() {
             tone="danger"
             text={
               invalidAddress
-                ? `"${invalidAddress}" does not look like an email address.`
+                ? t("compose.errors.invalidAddress", { address: invalidAddress })
                 : subjectTooLong
-                  ? `Subject is ${subject.length} characters — the limit is ${MAX_SUBJECT}.`
+                  ? t("compose.errors.subjectTooLong", { length: subject.length, limit: MAX_SUBJECT })
                   : errorText(send.error)
             }
           />
@@ -340,10 +366,10 @@ export function MailCompose() {
               type="button"
               onClick={attachments.pick}
               disabled={!mailId}
-              title={mailId ? "Attach files" : "Preparing draft…"}
+              title={mailId ? t("compose.attachTitleReady") : t("compose.attachTitlePreparing")}
               className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-40"
             >
-              <Paperclip size={14} /> Attach
+              <Paperclip size={14} /> {t("compose.attachLabel")}
             </button>
             <input {...attachments.inputProps} />
             {attachments.files.length > 0 && (
@@ -352,14 +378,14 @@ export function MailCompose() {
                 onClick={attachments.clear}
                 className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-danger"
               >
-                <Trash2 size={14} /> Remove all
+                <Trash2 size={14} /> {t("compose.removeAll")}
               </button>
             )}
           </div>
           <div className="flex items-center gap-2">
             {draft.isLoading && (
               <span className="inline-flex items-center gap-1.5 text-[11px] text-muted">
-                <Loader2 size={12} className="animate-spin" /> Preparing…
+                <Loader2 size={12} className="animate-spin" /> {t("compose.preparing")}
               </span>
             )}
             <Button
@@ -370,15 +396,15 @@ export function MailCompose() {
               // button's comment for why discarding mid-send is unsafe, not
               // just redundant.
               disabled={send.isPending}
-              title="Discard — deletes this draft; it has not been sent to anyone"
+              title={t("compose.discardTitle")}
             >
-              Discard
+              {t("compose.discardButton")}
             </Button>
             <Button type="button" variant="ghost" onClick={() => nav(-1)} disabled={send.isPending}>
-              Close
+              {t("compose.closeButton")}
             </Button>
             <Button type="submit" loading={send.isPending} disabled={!canSend || send.isPending}>
-              <Send size={15} /> {send.isPending ? "Sending…" : "Send"}
+              <Send size={15} /> {send.isPending ? t("compose.sendingButton") : t("compose.sendButton")}
             </Button>
           </div>
         </div>
@@ -394,10 +420,14 @@ export function MailCompose() {
  * and only one of them has already finished: colleagues have it now; external
  * copies are queued for SMTP and land when the relay delivers them.
  */
-function sentSummary(inApp: number, external: number): string {
-  if (external === 0) return inApp === 1 ? "Sent" : `Sent to ${inApp} people`;
-  if (inApp === 0) return external === 1 ? "Sent — delivering" : `Sent — delivering to ${external}`;
-  return `Sent to ${inApp} here, delivering to ${external} more`;
+function sentSummary(inApp: number, external: number, t: (key: string, options?: Record<string, unknown>) => string): string {
+  if (external === 0)
+    return inApp === 1 ? t("compose.sentSummary.sent") : t("compose.sentSummary.sentToPeople", { count: inApp });
+  if (inApp === 0)
+    return external === 1
+      ? t("compose.sentSummary.delivering")
+      : t("compose.sentSummary.deliveringToCount", { count: external });
+  return t("compose.sentSummary.sentAndDelivering", { inApp, external });
 }
 
 function Banner({

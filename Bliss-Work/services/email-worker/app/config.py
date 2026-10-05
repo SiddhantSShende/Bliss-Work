@@ -114,7 +114,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("OFFLINE_THRESHOLD_SECONDS", "offline_threshold_seconds"),
     )
     # Deep-link prefix used in email CTAs. Same var every other service reads
-    # for its own web origin (CORS allowlist, WebAuthn expected_origin, OAuth
+    # for its own web origin (CORS allowlist, OAuth
     # redirects) — see auth-svc/app/config.py — so it is already set in prod.
     web_origin: str = Field(
         default="http://localhost:5173",

@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Building2, Check, Users, UserPlus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Button, PageHeader } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -19,6 +20,7 @@ import { LeaveOrgButton } from "../features/LeaveOrgButton";
 import { MfaPolicySection } from "../features/MfaPolicySection";
 
 export function Org() {
+  const { t } = useTranslation("org");
   const { api } = useRuntime();
   const nav = useNavigate();
   const goBack = useGoBack();
@@ -47,28 +49,30 @@ export function Org() {
       // mfaPending redirected to /mfa-challenge — the switch hasn't happened
       // yet. superseded means a newer switch (from here or the top bar) has
       // already taken over — its own outcome is what matters now.
-      if (outcome === "switched") toast.success("Switched organization");
+      if (outcome === "switched") toast.success(t("org:orgPage.toasts.switched"));
     } catch {
-      toast.error("Couldn't switch organization", { description: "Please try again." });
+      toast.error(t("org:orgPage.toasts.switchFailedTitle"), {
+        description: t("org:orgPage.toasts.switchFailedDescription"),
+      });
     }
   };
 
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        title="Organizations"
-        subtitle="Switch between the workspaces you belong to, or manage the current one."
+        title={t("org:orgPage.header.title")}
+        subtitle={t("org:orgPage.header.subtitle")}
         onBack={goBack}
       />
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-xl space-y-6">
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-fg">
-              <Building2 size={16} className="text-accent" /> Your organizations
+              <Building2 size={16} className="text-accent" /> {t("org:orgPage.yourOrganizations")}
             </h2>
             {isLoading ? (
               <div className="flex items-center gap-2 p-4 text-sm text-muted">
-                <Loader2 size={14} className="animate-spin" /> Loading…
+                <Loader2 size={14} className="animate-spin" /> {t("org:orgPage.loading")}
               </div>
             ) : (
               <div className="space-y-2">
@@ -86,17 +90,17 @@ export function Org() {
                           <span className="truncate">{o.orgName}</span>
                           {active && (
                             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
-                              <Check size={10} /> Current
+                              <Check size={10} /> {t("org:orgPage.currentBadge")}
                             </span>
                           )}
                         </div>
                         <div className="mt-0.5 text-xs text-muted">
-                          {o.roles.includes("org_admin") ? "Admin" : "Member"}
+                          {o.roles.includes("org_admin") ? t("org:orgPage.roleLabel.admin") : t("org:orgPage.roleLabel.member")}
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
                         {active ? (
-                          <span className="text-xs text-muted">Active</span>
+                          <span className="text-xs text-muted">{t("org:orgPage.activeLabel")}</span>
                         ) : (
                           <Button
                             variant="subtle"
@@ -104,7 +108,7 @@ export function Org() {
                             disabled={switchButtonsDisabled}
                             onClick={() => doSwitch(o.orgId)}
                           >
-                            {switchBusyId === o.orgId ? "Switching…" : "Switch"}
+                            {switchBusyId === o.orgId ? t("org:orgPage.switchingLabel") : t("org:orgPage.switchButton")}
                           </Button>
                         )}
                         {canLeave && (
@@ -124,14 +128,14 @@ export function Org() {
 
           <section>
             <h2 className="mb-3 text-sm font-semibold text-fg">
-              Manage {user?.orgName || "this organization"}
+              {t("org:orgPage.manageHeading", { name: user?.orgName || t("org:orgPage.manageFallbackName") })}
             </h2>
             <div className="flex flex-wrap gap-2">
               <Button variant="subtle" size="sm" onClick={() => nav("/app/members")}>
-                <Users size={15} /> Members
+                <Users size={15} /> {t("org:orgPage.membersButton")}
               </Button>
               <Button variant="subtle" size="sm" onClick={() => nav("/app/invite")}>
-                <UserPlus size={15} /> Invite people
+                <UserPlus size={15} /> {t("org:orgPage.invitePeopleButton")}
               </Button>
             </div>
           </section>

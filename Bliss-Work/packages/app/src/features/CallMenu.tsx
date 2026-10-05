@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CalendarClock, ChevronDown, Link, Phone, Video } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button, cn } from "@taskboard/ui";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 
@@ -40,6 +41,7 @@ export function CallMenu({
    *  Buttons. The menu panel itself is unaffected. */
   className?: string;
 }) {
+  const { t } = useTranslation("calls");
   const [open, setOpen] = useState(false);
   const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
 
@@ -57,8 +59,8 @@ export function CallMenu({
         size="sm"
         onClick={() => setOpen((v) => !v)}
         className={className}
-        title="Call"
-        aria-label="Call"
+        title={t("menu.call")}
+        aria-label={t("menu.call")}
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -76,19 +78,19 @@ export function CallMenu({
           role="menu"
           className="absolute right-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
         >
-          <Item icon={<Phone size={15} />} label="Voice Call" onClick={pick(onVoiceCall)} />
-          <Item icon={<Video size={15} />} label="Video Call" onClick={pick(onVideoCall)} />
+          <Item icon={<Phone size={15} />} label={t("menu.voiceCall")} onClick={pick(onVoiceCall)} />
+          <Item icon={<Video size={15} />} label={t("menu.videoCall")} onClick={pick(onVideoCall)} />
           {onSendLink && (
             <Item
               icon={<Link size={15} />}
-              label="Send Call Link"
+              label={t("menu.sendCallLink")}
               onClick={pick(onSendLink)}
               disabled={busy}
             />
           )}
           <Item
             icon={<CalendarClock size={15} />}
-            label="Schedule Call"
+            label={t("menu.scheduleCall")}
             onClick={pick(onSchedule)}
           />
         </div>

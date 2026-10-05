@@ -1,23 +1,27 @@
 import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Send, Inbox, CheckCircle2, Ban, LogOut, UserCheck } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Send, Inbox, CheckCircle2, Ban, LogOut, UserCheck, AlarmClockOff } from "lucide-react";
 import type { StickyTaskDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useAvailability } from "../lib/useAvailability";
+import { useDeadlineRefetch } from "../lib/useDeadlineRefetch";
 import { useMarkTaskNotificationsRead } from "../lib/useMarkTaskNotificationsRead";
 import { ListHeader, rowClass } from "../features/ListPane";
 
 const CATS = [
-  { view: "mine", label: "My tasks", icon: Send },
-  { view: "allocated", label: "Allocated to me", icon: Inbox },
-  { view: "available", label: "Available", icon: UserCheck },
-  { view: "completed", label: "Completed", icon: CheckCircle2 },
-  { view: "left", label: "Left", icon: LogOut },
-  { view: "ignored", label: "Ignored", icon: Ban },
+  { view: "mine", icon: Send },
+  { view: "allocated", icon: Inbox },
+  { view: "available", icon: UserCheck },
+  { view: "completed", icon: CheckCircle2 },
+  { view: "left", icon: LogOut },
+  { view: "ignored", icon: Ban },
+  { view: "missed", icon: AlarmClockOff },
 ] as const;
 
 export function TasksList() {
+  const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const { data: assigned = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
   const { data: sent = [] } = useQuery({ queryKey: qk.sent, queryFn: () => api.tasksSent() });
@@ -34,6 +38,8 @@ export function TasksList() {
   // assignee-directed kind.
   useMarkTaskNotificationsRead(api, sent);
   useMarkTaskNotificationsRead(api, assigned);
+  // A deadline passing moves a card to Missed even if the realtime push is lost.
+  useDeadlineRefetch(assigned);
 
   const active = (t: StickyTaskDTO) => t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED";
   const counts: Record<string, number> = {
@@ -43,11 +49,22 @@ export function TasksList() {
     completed: assigned.filter((t) => t.myStatus === "COMPLETED").length,
     left: assigned.filter((t) => t.myStatus === "LEFT").length,
     ignored: assigned.filter((t) => t.myStatus === "IGNORED").length,
+    missed: assigned.filter((t) => t.myStatus === "MISSED").length,
+  };
+
+  const categoryLabel: Record<(typeof CATS)[number]["view"], string> = {
+    mine: t("tasksList.categories.mine"),
+    allocated: t("tasksList.categories.allocated"),
+    available: t("tasksList.categories.available"),
+    completed: t("tasksList.categories.completed"),
+    left: t("tasksList.categories.left"),
+    ignored: t("tasksList.categories.ignored"),
+    missed: t("tasksList.categories.missed"),
   };
 
   return (
     <>
-      <ListHeader title="Tasks" />
+      <ListHeader title={t("tasksList.header")} />
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
         {CATS.map((c) => {
           const n = counts[c.view] ?? 0;
@@ -56,7 +73,7 @@ export function TasksList() {
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
                 <c.icon size={17} />
               </span>
-              <span className="flex-1 text-sm font-medium text-fg">{c.label}</span>
+              <span className="flex-1 text-sm font-medium text-fg">{categoryLabel[c.view]}</span>
               {n > 0 && (
                 <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold text-muted">{n}</span>
               )}

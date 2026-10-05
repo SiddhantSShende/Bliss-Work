@@ -122,8 +122,6 @@ _SENSITIVE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     # all.
     ("POST", "/auth/mfa/challenge/verify"): (10, 60),
     ("POST", "/auth/mfa/totp/enroll/confirm"): (10, 60),
-    ("POST", "/auth/mfa/webauthn/register/finish"): (10, 60),
-    ("POST", "/auth/mfa/webauthn/auth/start"): (20, 60),
     ("POST", "/auth/mfa/disable"): (5, 60),
     ("POST", "/auth/mfa/totp/backup-codes/regenerate"): (5, 60),
     # CAPTCHA generation is otherwise free (no auth, no cost to the caller),

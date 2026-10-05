@@ -15,14 +15,13 @@
 import type { TaskExportRow, UserDTO } from "@taskboard/shared";
 import { fmtDuration, fmtLocal, localTimeZone } from "./xlsx/format";
 import { buildAndDownload } from "./xlsx/workbook";
+import i18n from "../i18n";
 
-const STATUS_LABEL: Record<string, string> = {
-  SENT: "Sent (awaiting)",
-  ACKNOWLEDGED: "Acknowledged",
-  COMPLETED: "Completed",
-  IGNORED: "Ignored",
-  LEFT: "Left",
-};
+function statusLabel(status: string): string {
+  const key = `tasks:xlsxExport.status.${status}`;
+  const label = i18n.t(key);
+  return label === key ? status : label;
+}
 
 /**
  * Build the workbook from export rows + the org directory, then trigger a
@@ -38,27 +37,29 @@ export async function exportTaskRowsToXlsx(
   const nameOf = (id: string, fallback: string) => byId.get(id)?.displayName || fallback || id;
   const emailOf = (id: string) => byId.get(id)?.email ?? "";
 
+  const t = (key: string) => i18n.t(`tasks:xlsxExport.${key}`, { tz });
+
   return buildAndDownload(
     [
       {
-        name: "Task Timeline",
+        name: t("sheetName"),
         columns: [
-          { header: "Task", key: "title", width: 30 },
-          { header: "Description", key: "description", width: 40 },
-          { header: "Allocated by", key: "byName", width: 22 },
-          { header: "Allocated by (email)", key: "byEmail", width: 28 },
-          { header: "Allocated to", key: "toName", width: 22 },
-          { header: "Allocated to (email)", key: "toEmail", width: 28 },
-          { header: "Status", key: "status", width: 16 },
-          { header: `Allocated at (${tz})`, key: "allocatedAt", width: 24 },
-          { header: `Acknowledged at (${tz})`, key: "acknowledgedAt", width: 24 },
-          { header: `Ignored at (${tz})`, key: "ignoredAt", width: 24 },
-          { header: `Completed at (${tz})`, key: "completedAt", width: 24 },
-          { header: `Left at (${tz})`, key: "leftAt", width: 24 },
-          { header: "Time to complete", key: "timeTaken", width: 18 },
-          { header: `Reviewed at (${tz})`, key: "reviewedAt", width: 24 },
-          { header: "Review", key: "review", width: 40 },
-          { header: "Rating", key: "rating", width: 10 },
+          { header: t("columns.task"), key: "title", width: 30 },
+          { header: t("columns.description"), key: "description", width: 40 },
+          { header: t("columns.allocatedBy"), key: "byName", width: 22 },
+          { header: t("columns.allocatedByEmail"), key: "byEmail", width: 28 },
+          { header: t("columns.allocatedTo"), key: "toName", width: 22 },
+          { header: t("columns.allocatedToEmail"), key: "toEmail", width: 28 },
+          { header: t("columns.status"), key: "status", width: 16 },
+          { header: t("columns.allocatedAt"), key: "allocatedAt", width: 24 },
+          { header: t("columns.acknowledgedAt"), key: "acknowledgedAt", width: 24 },
+          { header: t("columns.ignoredAt"), key: "ignoredAt", width: 24 },
+          { header: t("columns.completedAt"), key: "completedAt", width: 24 },
+          { header: t("columns.leftAt"), key: "leftAt", width: 24 },
+          { header: t("columns.timeToComplete"), key: "timeTaken", width: 18 },
+          { header: t("columns.reviewedAt"), key: "reviewedAt", width: 24 },
+          { header: t("columns.review"), key: "review", width: 40 },
+          { header: t("columns.rating"), key: "rating", width: 10 },
         ],
         rows: rows.map((r) => ({
           title: r.title,
@@ -67,7 +68,7 @@ export async function exportTaskRowsToXlsx(
           byEmail: emailOf(r.allocatedById),
           toName: nameOf(r.allocatedToId, r.allocatedToUsername),
           toEmail: emailOf(r.allocatedToId),
-          status: STATUS_LABEL[r.status] ?? r.status,
+          status: statusLabel(r.status),
           allocatedAt: fmtLocal(r.allocatedAt),
           acknowledgedAt: fmtLocal(r.acknowledgedAt),
           ignoredAt: fmtLocal(r.ignoredAt),

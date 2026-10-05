@@ -43,6 +43,16 @@ export interface ThemeDef {
   id: ThemeId;
   name: string;
   classes: readonly string[];
+  preview: ThemePreview;
+}
+
+export interface ThemePreview {
+  background: string;
+  surface: string;
+  surface2: string;
+  border: string;
+  brandFrom: string;
+  brandTo: string;
 }
 
 /** The non-"dark" class each family layers on top of the light/dark axis.
@@ -65,13 +75,83 @@ const FAMILY_CLASSES: Partial<Record<ThemeId, string>> = {
  *  gradient — BlissWork's current signature look — kept under its own id so
  *  it stays stable even if the standalone Purple family's values are tweaked
  *  later. */
-const FAMILIES: readonly { id: Exclude<ThemeId, `${string}-dark`>; name: string }[] = [
-  { id: "purple", name: "Purple" },
-  { id: "rose", name: "Red / Rose" },
-  { id: "blue", name: "Blue" },
-  { id: "teal", name: "Cyan / Teal" },
-  { id: "lime", name: "Lime" },
-  { id: "bluePurple", name: "Blue + Purple" },
+const FAMILIES: readonly {
+  id: Exclude<ThemeId, `${string}-dark`>;
+  name: string;
+  preview: ThemePreview;
+}[] = [
+  {
+    id: "purple",
+    name: "Amethyst",
+    preview: {
+      background: "#fafafa",
+      surface: "#ffffff",
+      surface2: "#f4f4f5",
+      border: "#e4e4e7",
+      brandFrom: "#c084fc",
+      brandTo: "#7c3aed",
+    },
+  },
+  {
+    id: "rose",
+    name: "Crimson Dust",
+    preview: {
+      background: "#fafafa",
+      surface: "#ffffff",
+      surface2: "#f4f4f5",
+      border: "#e4e4e7",
+      brandFrom: "#fb7185",
+      brandTo: "#e11d48",
+    },
+  },
+  {
+    id: "blue",
+    name: "Deep Periwinkle",
+    preview: {
+      background: "#fafafa",
+      surface: "#ffffff",
+      surface2: "#f4f4f5",
+      border: "#e4e4e7",
+      brandFrom: "#60a5fa",
+      brandTo: "#2563eb",
+    },
+  },
+  {
+    id: "teal",
+    name: "Electric Turquoise",
+    preview: {
+      background: "#fafafa",
+      surface: "#ffffff",
+      surface2: "#f4f4f5",
+      border: "#e4e4e7",
+      brandFrom: "#22d3ee",
+      brandTo: "#06b6d4",
+    },
+  },
+  {
+    id: "lime",
+    name: "Acid Green",
+    preview: {
+      background: "#fafafa",
+      surface: "#ffffff",
+      surface2: "#f4f4f5",
+      border: "#e4e4e7",
+      brandFrom: "#a3e635",
+      brandTo: "#65a30d",
+    },
+  },
+  {
+    id: "bluePurple",
+    name: "Iris Wave",
+    preview: {
+      background: "#fafafa",
+      surface: "#ffffff",
+      surface2: "#f4f4f5",
+      border: "#e4e4e7",
+      brandFrom: "#3b82f6",
+      brandTo: "#a855f7",
+    },
+  },
 ];
 
 function classesFor(family: string, dark: boolean): readonly string[] {
@@ -81,18 +161,20 @@ function classesFor(family: string, dark: boolean): readonly string[] {
 
 /** Every theme offered in Settings → Theme, in menu order — LIGHT only. See
  *  the module doc comment for why dark ids aren't offered here directly. */
-export const THEMES: readonly ThemeDef[] = FAMILIES.map(({ id, name }) => ({
+export const THEMES: readonly ThemeDef[] = FAMILIES.map(({ id, name, preview }) => ({
   id,
   name,
   classes: classesFor(id, false),
+  preview,
 }));
 
 /** The dark counterpart of each family, in the same order as THEMES. Not
  *  offered in Settings — reached only via ThemeProvider's toggle. */
-const DARK_THEMES: readonly ThemeDef[] = FAMILIES.map(({ id, name }) => ({
+const DARK_THEMES: readonly ThemeDef[] = FAMILIES.map(({ id, name, preview }) => ({
   id: `${id}-dark` as ThemeId,
   name: `${name} (Dark)`,
   classes: classesFor(id, true),
+  preview,
 }));
 
 /** The theme anyone with no saved preference gets — a brand-new visitor, a

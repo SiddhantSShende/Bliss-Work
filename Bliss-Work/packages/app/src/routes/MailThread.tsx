@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import type { MessageDTO, UserDTO } from "@taskboard/shared";
@@ -40,6 +41,7 @@ export function MailThread() {
 }
 
 function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) {
+  const { t } = useTranslation("mail");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const ft = useFileTransfers();
@@ -127,14 +129,14 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
         const page0 = (prev.pages[0] ?? []).filter((m) => m.id !== ctx.tempId);
         return { ...prev, pages: [page0, ...prev.pages.slice(1)] };
       });
-      toast.error("Message failed to send");
+      toast.error(t("thread.messageFailedToast"));
     },
   });
 
   const ignoreMut = useMutation({
     mutationFn: () => api.ignoreThread(threadId),
     onSuccess: () => void qc.invalidateQueries({ queryKey: qk.unifiedInbox }),
-    onError: () => toast.error("Couldn't remove this thread"),
+    onError: () => toast.error(t("thread.couldNotRemoveThreadToast")),
   });
 
   // The peer's real name. `peerUsername` is the email local-part, so it must
@@ -176,10 +178,10 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
           <Avatar name={peerName || "?"} size="sm" />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-fg">
-              {peerName || "Loading…"}
+              {peerName || t("shared.loading")}
             </div>
             <div className="truncate text-[11px] text-muted">
-              {header?.subjectPreview || "Thread"}
+              {header?.subjectPreview || t("thread.defaultSubject")}
             </div>
           </div>
         </div>
@@ -197,7 +199,7 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
             onClick={() => ignoreMut.mutate()}
             disabled={ignoreMut.isPending}
             className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-            title="Ignore — hides for both sides"
+            title={t("thread.ignoreTitle")}
           >
             <X size={16} />
           </button>

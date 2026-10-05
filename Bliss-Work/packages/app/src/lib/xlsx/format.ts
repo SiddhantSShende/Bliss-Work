@@ -7,6 +7,7 @@
  * duration is written" is how two spreadsheets from the same product end up
  * disagreeing about what "2h 5m" means.
  */
+import i18n from "../../i18n";
 
 /** The viewer's IANA timezone (e.g. "Asia/Kolkata"), for the column headers. */
 export function localTimeZone(): string {
@@ -22,7 +23,7 @@ export function fmtLocal(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString(i18n.language, {
     year: "numeric",
     month: "short",
     day: "2-digit",

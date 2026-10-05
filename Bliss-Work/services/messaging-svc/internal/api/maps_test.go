@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"math"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -93,5 +95,37 @@ func TestStaticMapURL_UnknownProviderErrors(t *testing.T) {
 	s := &Server{mapsCfg: config.MapsConfig{Provider: "totally-made-up", APIKey: "k"}}
 	if _, err := s.staticMapURL("1.0", "2.0", 15); err == nil {
 		t.Fatal("unknown provider did not error")
+	}
+}
+
+// A transport-level failure (DNS, connect, TLS, timeout) surfaces from
+// http.Client.Do as a *url.Error whose Error() string embeds the full request
+// URL — which staticMapURL/getJSON build with this server's own apiKey= in
+// the query string. staticMap and the geocode handlers log that error, so
+// stripRequestURL must remove the URL before it gets anywhere near a log line.
+func TestStripRequestURL_RemovesTheEmbeddedAPIKey(t *testing.T) {
+	inner := errors.New("dial tcp: lookup maps.geoapify.com: no such host")
+	wrapped := &url.Error{
+		Op:  "Get",
+		URL: "https://maps.geoapify.com/v1/staticmap?...&apiKey=super-secret-key",
+		Err: inner,
+	}
+
+	got := stripRequestURL(wrapped)
+
+	if strings.Contains(got.Error(), "super-secret-key") {
+		t.Fatalf("stripRequestURL left the API key in the message: %q", got.Error())
+	}
+	if got.Error() != inner.Error() {
+		t.Errorf("stripRequestURL = %q, want the unwrapped error %q", got.Error(), inner.Error())
+	}
+}
+
+// An error that never carried a URL (a non-200 status, a bad content type) must
+// pass through unchanged rather than being replaced or hidden.
+func TestStripRequestURL_LeavesAnOrdinaryErrorAlone(t *testing.T) {
+	plain := errors.New("map provider returned 500")
+	if got := stripRequestURL(plain); got != plain {
+		t.Errorf("stripRequestURL changed a non-url.Error: got %v, want %v", got, plain)
 	}
 }

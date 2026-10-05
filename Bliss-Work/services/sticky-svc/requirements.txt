@@ -69,3 +69,12 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # shared with auth-svc, task-svc and integrations-svc (every Python service
 # that verifies bearer JWTs). See services/shared/jwks_auth/jwks_auth.py.
 ../shared/jwks_auth
+
+# Quarantine for outbox rows that can never be published, shared with every
+# Python service that has a poller. See services/shared/outbox_dlq/outbox_dlq.py.
+../shared/outbox_dlq
+
+# Connect-on-first-use AIOKafkaProducer for the outbox poller, shared with
+# auth-svc, task-svc and integrations-svc. See
+# services/shared/kafka_lazy_producer/kafka_lazy_producer.py.
+../shared/kafka_lazy_producer

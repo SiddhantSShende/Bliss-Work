@@ -14,6 +14,16 @@
  * minimise into, Copy Link always present but disabled+tooltipped when
  * unavailable). They used to be tucked behind a "More" overflow button
  * (CallMoreMenu); that's gone now, and this is the whole control surface.
+ *
+ * ── Two shapes, one component ────────────────────────────────────────────────
+ * From `sm` (640px) up it is the vertical rail beside the video, a fixed 80px
+ * wide. Below that a rail would take a quarter to half of the window's width, so
+ * the same buttons become a horizontal dock along the bottom (the room's shell
+ * flips to a column — see CallRoom) and scroll sideways when they do not all
+ * fit. That is a deliberate second layout rather than the rail being allowed to
+ * compress: no button ever shrinks (each is a fixed w-16 that does not flex),
+ * and End Call sits outside the scrolling part in both shapes, so leaving is
+ * never a scroll away.
  */
 import {
   Disc,
@@ -32,6 +42,7 @@ import {
   Video,
   VideoOff,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { SidebarButton } from "./SidebarButton";
 
 export function CallSidebar({
@@ -102,119 +113,84 @@ export function CallSidebar({
   onMinimize?: () => void;
   onEnd: () => void;
 }) {
+  const { t } = useTranslation("calls");
   return (
     <nav
-      aria-label="Meeting controls"
-      className="glass relative z-20 flex min-h-0 w-20 shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain rounded-r-3xl py-4 [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]"
+      aria-label={t("sidebar.controlsAriaLabel")}
+      className="glass relative z-20 flex w-full shrink-0 flex-row overflow-hidden rounded-t-2xl sm:h-full sm:min-h-0 sm:w-20 sm:flex-col sm:rounded-r-3xl sm:rounded-t-none"
     >
-      <SidebarButton
-        icon={micOn ? <Mic size={20} /> : <MicOff size={20} />}
-        label={micOn ? "Mute" : "Muted"}
-        onClick={onToggleMic}
-        active={!micOn}
-        activeClassName="text-danger ring-1 ring-danger/50"
-      />
-      <SidebarButton
-        icon={camOn ? <Video size={20} /> : <VideoOff size={20} />}
-        label="Camera"
-        onClick={onToggleCam}
-        active={!camOn}
-        activeClassName="text-danger ring-1 ring-danger/50"
-      />
-      <SidebarButton
-        icon={<ScreenShare size={20} />}
-        label="Share"
-        onClick={onToggleShare}
-        active={sharing}
-      />
-      <SidebarButton
-        icon={<Hand size={20} />}
-        label="Raise"
-        onClick={onToggleHand}
-        active={handRaised}
-        disabled={!canRaiseHand}
-        activeClassName="bg-warning/15 text-warning ring-1 ring-warning [filter:drop-shadow(0_0_6px_var(--color-warning))]"
-      />
-      <SidebarButton
-        icon={<Users size={20} />}
-        label="People"
-        onClick={onToggleParticipants}
-        active={participantsActive}
-      />
-      <SidebarButton
-        icon={<UserPlus size={20} />}
-        label="Add"
-        onClick={onAddPeople}
-        disabled={!canAddPeople}
-        title={canAddPeople ? "Add people" : addPeopleTitle}
-      />
-      {/* Chats — the reference design's example of the active treatment every
-          toggle above and below also uses: a cyan glow, not a one-off. */}
-      <SidebarButton
-        icon={<MessageSquare size={20} />}
-        label="Chats"
-        onClick={onToggleChat}
-        active={chatActive}
-        badge={unreadChat}
-      />
-      <SidebarButton
-        icon={<NotebookPen size={20} />}
-        label="Notes"
-        onClick={onToggleNotes}
-        active={notesActive}
-      />
-      {/* Host-only, and hidden rather than disabled for everyone else — the
-       ` server would answer everyone else's click with 403 anyway. */}
-      {isHost && (
+      <div className="flex min-h-0 min-w-0 flex-1 items-center overflow-x-auto overscroll-contain px-2 py-1 [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin] sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:px-0 sm:py-4">
         <SidebarButton
-          icon={<Disc size={20} className={recording ? "fill-current" : undefined} />}
-          label="Record"
-          onClick={onToggleRecording}
-          active={recording}
-          disabled={!recordingSupported}
-          title={recordingSupported ? undefined : "This browser can't record meetings"}
-          activeClassName="bg-danger/15 text-danger ring-1 ring-danger [filter:drop-shadow(0_0_6px_var(--color-danger))]"
+          icon={micOn ? <Mic size={20} /> : <MicOff size={20} />}
+          label={micOn ? t("sidebar.mute") : t("sidebar.muted")}
+          onClick={onToggleMic}
+          active={!micOn}
+          activeClassName="text-danger ring-1 ring-danger/50"
         />
-      )}
-
-      <div className="my-1 h-px w-8 shrink-0 bg-border/70" />
-
-      {/* Formerly collapsed behind a "More" overflow button (CallMoreMenu,
-          removed). Same handlers, same gating (PiP only where supported,
-          Minimize only where there's a session to minimise into, Copy Link
-          always present but disabled with a tooltip when unavailable) — just
-          first-class icons now instead of a popover. */}
-      <SidebarButton
-        icon={<Link2 size={20} />}
-        label="Copy Link"
-        onClick={onCopyInviteLink}
-        disabled={!canInviteLink || mintingInviteLink}
-        title={canInviteLink ? "Copy invite link" : inviteLinkTitle}
-      />
-      {pipSupported && (
         <SidebarButton
-          icon={<PictureInPicture2 size={20} />}
-          label={pipActive ? "Exit PiP" : "PiP"}
-          onClick={onTogglePip}
-          active={pipActive}
-          title={pipActive ? "Exit picture-in-picture" : "Picture-in-picture"}
+          icon={camOn ? <Video size={20} /> : <VideoOff size={20} />}
+          label={t("sidebar.camera")}
+          onClick={onToggleCam}
+          active={!camOn}
+          activeClassName="text-danger ring-1 ring-danger/50"
         />
-      )}
-      {onMinimize && (
+        <SidebarButton icon={<ScreenShare size={20} />} label={t("sidebar.share")} onClick={onToggleShare} active={sharing} />
         <SidebarButton
-          icon={<Minimize2 size={20} />}
-          label="Minimize"
-          onClick={onMinimize}
-          title="Minimise"
+          icon={<Hand size={20} />}
+          label={t("sidebar.raise")}
+          onClick={onToggleHand}
+          active={handRaised}
+          disabled={!canRaiseHand}
+          activeClassName="bg-warning/15 text-warning ring-1 ring-warning [filter:drop-shadow(0_0_6px_var(--color-warning))]"
         />
-      )}
-
-      <div className="mt-auto pt-2">
+        <SidebarButton icon={<Users size={20} />} label={t("sidebar.people")} onClick={onToggleParticipants} active={participantsActive} />
+        <SidebarButton
+          icon={<UserPlus size={20} />}
+          label={t("sidebar.add")}
+          onClick={onAddPeople}
+          disabled={!canAddPeople}
+          title={canAddPeople ? t("sidebar.addPeople") : addPeopleTitle}
+        />
+        <SidebarButton icon={<MessageSquare size={20} />} label={t("sidebar.chats")} onClick={onToggleChat} active={chatActive} badge={unreadChat} />
+        <SidebarButton icon={<NotebookPen size={20} />} label={t("sidebar.notes")} onClick={onToggleNotes} active={notesActive} />
+        {isHost && (
+          <SidebarButton
+            icon={<Disc size={20} className={recording ? "fill-current" : undefined} />}
+            label={t("sidebar.record")}
+            onClick={onToggleRecording}
+            active={recording}
+            disabled={!recordingSupported}
+            title={recordingSupported ? undefined : t("sidebar.recordUnsupported")}
+            activeClassName="bg-danger/15 text-danger ring-1 ring-danger [filter:drop-shadow(0_0_6px_var(--color-danger))]"
+          />
+        )}
+        <div className="mx-1 h-8 w-px shrink-0 bg-border/70 sm:mx-0 sm:my-1 sm:h-px sm:w-8" />
+        <SidebarButton
+          icon={<Link2 size={20} />}
+          label={t("sidebar.copyLink")}
+          onClick={onCopyInviteLink}
+          disabled={!canInviteLink || mintingInviteLink}
+          title={canInviteLink ? t("sidebar.copyInviteLink") : inviteLinkTitle}
+        />
+        {pipSupported && (
+          <SidebarButton
+            icon={<PictureInPicture2 size={20} />}
+            label={pipActive ? t("sidebar.exitPip") : t("sidebar.pip")}
+            onClick={onTogglePip}
+            active={pipActive}
+            title={pipActive ? t("sidebar.exitPictureInPicture") : t("sidebar.pictureInPicture")}
+          />
+        )}
+        {onMinimize && (
+          <SidebarButton icon={<Minimize2 size={20} />} label={t("sidebar.minimize")} onClick={onMinimize} title={t("sidebar.minimise")} />
+        )}
+      </div>
+      <div className="flex shrink-0 items-center justify-center border-l border-border/70 px-2 sm:border-l-0 sm:border-t sm:px-0 sm:py-3">
         <SidebarButton
           icon={<PhoneOff size={20} />}
-          label="End"
+          label={t("sidebar.end")}
           onClick={onEnd}
-          title="End call"
+          title={t("sidebar.endCall")}
           className="bg-danger text-white hover:bg-danger hover:brightness-90 hover:text-white"
         />
       </div>

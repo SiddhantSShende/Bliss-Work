@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Video, AlertCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button, EmptyState } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { useConnectEventBridge, useRuntime } from "../lib/runtime";
@@ -70,6 +71,7 @@ export function JoinCallView() {
  * more specific would turn this page into an oracle for guessing tokens.
  */
 function JoinCallRedeem({ token }: { token: string }) {
+  const { t } = useTranslation("calls");
   const { api } = useRuntime();
   const nav = useNavigate();
   const me = useSession((s) => s.user);
@@ -113,11 +115,11 @@ function JoinCallRedeem({ token }: { token: string }) {
 
   if (!me) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
+      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex items-center justify-center p-6">
         <EmptyState
           icon={<Video size={24} />}
-          title="Sign in to join"
-          hint="This meeting link works with any BlissWork account, including one in another organisation."
+          title={t("join.signIn.title")}
+          hint={t("join.signIn.hint", { brand: "BlissWork" })}
         />
       </div>
     );
@@ -125,22 +127,22 @@ function JoinCallRedeem({ token }: { token: string }) {
 
   if (pending) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted">
-        Joining…
+      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex items-center justify-center text-sm text-muted">
+        {t("join.joining")}
       </div>
     );
   }
 
   if (failed || !call) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 p-6">
+      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
-          title="This invite link is no longer valid"
-          hint="It may have expired, been revoked, or the meeting has already ended. Ask the organiser for a new one."
+          title={t("join.invalid.title")}
+          hint={t("join.invalid.hint")}
         />
         <Button variant="ghost" size="sm" onClick={() => nav("/app")}>
-          Back to BlissWork
+          {t("join.invalid.backToApp", { brand: "BlissWork" })}
         </Button>
       </div>
     );
@@ -158,6 +160,7 @@ function JoinCallRedeem({ token }: { token: string }) {
  * has to happen AFTER the call row resolves, and only once.
  */
 function HandOff({ call }: { call: CallDTO }) {
+  const { t } = useTranslation("calls");
   const { enter, call: active } = useMeetingSession();
   const nav = useNavigate();
   useEffect(() => {
@@ -180,22 +183,22 @@ function HandOff({ call }: { call: CallDTO }) {
 
   if (timedOut) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
+      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
-          title="This is taking longer than expected"
-          hint="Reloading the page usually fixes this."
+          title={t("join.timeout.title")}
+          hint={t("join.timeout.hint")}
         />
         <Button variant="ghost" size="sm" onClick={() => window.location.reload()}>
-          Reload
+          {t("join.timeout.reload")}
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-surface text-sm text-muted">
-      Joining the meeting…
+    <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex items-center justify-center text-sm text-muted">
+      {t("join.handoff.joining")}
     </div>
   );
 }

@@ -30,7 +30,7 @@ from kafka_security import kafka_security_kwargs
 
 from .config import settings
 from .db import session, set_bypass_rls
-from .event_map import MAPPINGS, preview_of
+from .event_map import MAPPINGS, detail_value_of, preview_of
 from .ingest import ActivityRow, clamp_occurred_at, insert_events
 from .logging_setup import log
 from .org_purge import purge_org
@@ -87,6 +87,15 @@ _RETRY_BACKOFF = 1.0
 _CONTROL_TYPES = ("org.deleted",)
 
 
+def _deserialize_event(value: bytes) -> dict | list | None:
+    """Keep malformed Kafka records skippable instead of failing fetch."""
+    try:
+        return json.loads(value.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        log.warning("malformed_kafka_event_skipped")
+        return None
+
+
 class TelemetryConsumer:
     def __init__(self) -> None:
         self._consumer: AIOKafkaConsumer | None = None
@@ -121,7 +130,7 @@ class TelemetryConsumer:
             group_id=_GROUP_ID,
             enable_auto_commit=False,
             auto_offset_reset="latest",  # see the module docstring
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            value_deserializer=_deserialize_event,
         )
 
     @staticmethod
@@ -320,6 +329,10 @@ def to_activity_row(event: object) -> ActivityRow | None:
         preview = preview_of(event.get(mapping.preview_field))
         if preview:
             detail["preview"] = preview
+    for detail_key, event_key in mapping.detail_fields:
+        value = detail_value_of(event.get(event_key))
+        if value is not None:
+            detail[detail_key] = value
 
     return ActivityRow(
         org_id=org_id,

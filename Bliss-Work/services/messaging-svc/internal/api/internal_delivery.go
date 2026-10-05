@@ -78,7 +78,13 @@ func (s *Server) markDelivered(w http.ResponseWriter, r *http.Request) {
 // so task-svc can fan out a new "task to channel" allocation server-side
 // without needing the caller's JWT (the call is service-to-service).
 //
-// Auth: shared X-Internal-Token, same as markDelivered.
+// Auth: shared X-Internal-Token, same as markDelivered, PLUS an explicit
+// orgId + callerId (the end user who is creating the task) so this endpoint
+// can verify that user is actually a member of the channel — task-svc has no
+// channel_members table of its own to check that against. Without this,
+// any org member could pass ANY channel id, including a private/locked one
+// they never joined, and get a task fanned out to its whole membership; see
+// docs/AUTH_AUTHZ_REMEDIATION_PLAN.md.
 type internalChannelMembersResp struct {
 	OrgID     string   `json:"orgId"`
 	ChannelID string   `json:"channelId"`
@@ -92,13 +98,18 @@ func (s *Server) internalChannelMembers(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	channelID := chi.URLParam(r, "id")
-	if !validUUID(channelID) {
-		writeErr(w, http.StatusBadRequest, "invalid channel id")
+	orgID := r.URL.Query().Get("orgId")
+	callerID := r.URL.Query().Get("callerId")
+	if !validUUID(channelID) || !validUUID(orgID) || !validUUID(callerID) {
+		writeErr(w, http.StatusBadRequest, "channel id, orgId and callerId are required")
 		return
 	}
-	resp, err := s.store.InternalChannelMembership(r.Context(), channelID)
+	resp, err := s.store.InternalChannelMembership(r.Context(), orgID, channelID, callerID)
 	if err != nil {
 		if err == store.ErrForbidden {
+			// Same response whether the channel doesn't exist, belongs to a
+			// different org, or callerId isn't a member of it — a caller
+			// with a valid internal token still shouldn't learn which case.
 			writeErr(w, http.StatusNotFound, "channel not found")
 			return
 		}

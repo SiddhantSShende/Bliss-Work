@@ -11,6 +11,7 @@
  */
 import type { ReactNode } from "react";
 import { Download, MessageSquare, NotebookPen, Users, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
 
 type Tab = "chat" | "notes" | "participants";
@@ -35,27 +36,41 @@ export function CallSidePanel({
   className?: string;
   children: ReactNode;
 }) {
-  const label = active === "chat" ? "chat" : active === "notes" ? "notes" : "participants";
+  const { t } = useTranslation("calls");
+  const tabWord =
+    active === "chat"
+      ? t("sidePanel.tabNames.chat")
+      : active === "notes"
+        ? t("sidePanel.tabNames.notes")
+        : t("sidePanel.tabNames.participants");
 
   return (
     <aside
-      aria-label={`Meeting ${label}`}
-      className={cn("glass flex flex-col overflow-hidden rounded-2xl", className)}
+      aria-label={t("sidePanel.regionAriaLabel", { tab: tabWord })}
+      // @container: the tab bar asks how wide THIS PANEL is, not the window —
+      // at lg the panel is a 288px column, and three labelled tabs plus the
+      // save and close buttons need ~306px, which used to push the ✕ out of
+      // the panel (clipped by its own overflow-hidden) at exactly 1024–1279px.
+      className={cn("@container glass flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl", className)}
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/70 px-2 py-2">
-        <div className="flex items-center gap-1" role="tablist" aria-label="Chat, notes, or participants">
+        <div className="flex min-w-0 items-center gap-1" role="tablist" aria-label={t("sidePanel.tablistAriaLabel")}>
           <TabButton
             active={active === "chat"}
             onClick={() => onSelectTab("chat")}
-            label="Chat"
+            label={t("sidePanel.chatTab")}
             badge={unreadChat}
           >
             <MessageSquare size={14} />
           </TabButton>
-          <TabButton active={active === "notes"} onClick={() => onSelectTab("notes")} label="Notes">
+          <TabButton active={active === "notes"} onClick={() => onSelectTab("notes")} label={t("sidePanel.notesTab")}>
             <NotebookPen size={14} />
           </TabButton>
-          <TabButton active={active === "participants"} onClick={() => onSelectTab("participants")} label="People">
+          <TabButton
+            active={active === "participants"}
+            onClick={() => onSelectTab("participants")}
+            label={t("sidePanel.peopleTab")}
+          >
             <Users size={14} />
           </TabButton>
         </div>
@@ -64,8 +79,8 @@ export function CallSidePanel({
             <button
               type="button"
               onClick={onExport}
-              title={`Save ${label} as a file`}
-              aria-label={`Save ${label} as a file`}
+              title={t("sidePanel.saveAsFile", { tab: tabWord })}
+              aria-label={t("sidePanel.saveAsFile", { tab: tabWord })}
               className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
             >
               <Download size={15} />
@@ -74,8 +89,8 @@ export function CallSidePanel({
           <button
             type="button"
             onClick={onClose}
-            title={`Close ${label}`}
-            aria-label={`Close ${label}`}
+            title={t("sidePanel.closeTab", { tab: tabWord })}
+            aria-label={t("sidePanel.closeTab", { tab: tabWord })}
             className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
           >
             <X size={15} />
@@ -105,6 +120,10 @@ function TabButton({
       type="button"
       role="tab"
       aria-selected={active}
+      // The visible label disappears below @xs (see the panel's root), so the
+      // name is stated explicitly rather than left to be computed from content.
+      title={label}
+      aria-label={label}
       onClick={onClick}
       className={cn(
         "relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
@@ -114,7 +133,7 @@ function TabButton({
       )}
     >
       {children}
-      {label}
+      <span className="hidden @xs:inline">{label}</span>
       {badge > 0 && (
         <span
           aria-hidden

@@ -14,6 +14,7 @@ import {
 import { Avatar, Badge, Button } from "@taskboard/ui";
 import type { MailDTO, MailRecipientDTO } from "@taskboard/shared";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
@@ -67,6 +68,7 @@ export function MailDetail() {
 }
 
 function MailDetailContent({ mailId }: { mailId: string }) {
+  const { t } = useTranslation("mail");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -108,7 +110,7 @@ function MailDetailContent({ mailId }: { mailId: string }) {
   const remove = useMutation({
     mutationFn: () => (isDeleted ? api.restoreMail(mailId) : api.ignoreInboxItem("MAIL", mailId)),
     onSuccess: () => {
-      toast.success(isDeleted ? "Restored to your mailbox" : "Moved to Deleted Items");
+      toast.success(isDeleted ? t("detail.restoredToast") : t("detail.movedToDeletedToast"));
       void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
       void qc.invalidateQueries({ queryKey: qk.inboxPeers });
       void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
@@ -118,7 +120,7 @@ function MailDetailContent({ mailId }: { mailId: string }) {
       nav({ pathname: "/app/mail/all", search: listSearch }, { replace: true });
     },
     onError: (e) =>
-      toast.error(isDeleted ? "Could not restore" : "Could not remove", {
+      toast.error(isDeleted ? t("detail.couldNotRestoreToast") : t("detail.couldNotRemoveToast"), {
         description: errorText(e),
       }),
   });
@@ -127,7 +129,7 @@ function MailDetailContent({ mailId }: { mailId: string }) {
     return (
       <Centered>
         <Loader2 size={18} className="animate-spin text-accent" />
-        <span>Loading mail…</span>
+        <span>{t("detail.loadingMail")}</span>
       </Centered>
     );
   }
@@ -135,15 +137,15 @@ function MailDetailContent({ mailId }: { mailId: string }) {
     return (
       <Centered>
         <AlertCircle size={18} className="text-danger" />
-        <span>This mail could not be opened. It may have been removed.</span>
+        <span>{t("detail.loadError")}</span>
         <Button size="sm" variant="ghost" onClick={() => void q.refetch()}>
-          Try again
+          {t("shared.tryAgain")}
         </Button>
       </Centered>
     );
   }
 
-  const senderLabel = mail.fromName || mail.fromAddress || "Unknown sender";
+  const senderLabel = mail.fromName || mail.fromAddress || t("detail.unknownSender");
   const to = mail.recipients.filter((r) => r.kind === "TO");
   const cc = mail.recipients.filter((r) => r.kind === "CC");
   const bcc = mail.recipients.filter((r) => r.kind === "BCC");
@@ -203,12 +205,12 @@ function MailDetailContent({ mailId }: { mailId: string }) {
         <div className="mx-auto w-full max-w-3xl px-4 py-4 sm:px-6 sm:py-6">
           <div className="flex items-start justify-between gap-3">
             <h1 className="min-w-0 text-lg font-semibold leading-snug tracking-tight text-fg sm:text-xl">
-              {mail.subject || "(no subject)"}
+              {mail.subject || t("shared.noSubject")}
             </h1>
             {/* Which side of this mail the reader is on. The same row is
                 somebody's Sent and somebody else's Inbox. */}
             <Badge tone={mail.folder === "SENT" ? "neutral" : "accent"} className="mt-1 shrink-0">
-              {mail.folder === "SENT" ? "sent" : "inbox"}
+              {mail.folder === "SENT" ? t("detail.statusSent") : t("detail.statusInbox")}
             </Badge>
           </div>
 
@@ -243,23 +245,23 @@ function MailDetailContent({ mailId }: { mailId: string }) {
               </div>
 
               <div className="mt-1.5 space-y-0.5 text-xs">
-                <AddressLine label="To" people={to} />
-                <AddressLine label="Cc" people={cc} />
+                <AddressLine label={t("fields.to")} people={to} />
+                <AddressLine label={t("fields.cc")} people={cc} />
                 {/* Server-filtered per viewer: the author sees the list they
                     typed, everyone else sees only their own entry. So a Bcc
                     shown here is never somebody else's. */}
-                <AddressLine label="Bcc" people={bcc} />
+                <AddressLine label={t("fields.bcc")} people={bcc} />
               </div>
             </div>
           </div>
 
           <div className="mt-6 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-fg">
-            {mail.bodyText || <span className="text-muted">(no message body)</span>}
+            {mail.bodyText || <span className="text-muted">{t("detail.noMessageBody")}</span>}
           </div>
 
           {/* The same cards the composer's tray renders, so a file looks the
               same on both ends of the send. Renders nothing when there are none. */}
-          <MailAttachmentCards attachments={mail.attachments} />
+          <MailAttachmentCards mailId={mail.mailId} attachments={mail.attachments} />
         </div>
       </div>
     </div>
@@ -297,36 +299,38 @@ function Toolbar({
   /** Opened from Deleted Items — the last control is the undo, not the delete. */
   deleted: boolean;
 }) {
+  const { t } = useTranslation("mail");
   const canReplyAll = hasWiderReply(mail, myAddress);
 
   return (
     // Scrollable as a backstop: whatever the labels do, the pane can always be
     // narrower than four controls, and a clipped Delete is an unreachable one.
     <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <Action icon={<Reply size={16} />} label="Reply" title="Reply to the sender" onClick={onReply} />
+      <Action
+        icon={<Reply size={16} />}
+        label={t("detail.toolbar.reply")}
+        title={t("detail.toolbar.replyTitle")}
+        onClick={onReply}
+      />
       {canReplyAll && (
         <Action
           icon={<ReplyAll size={16} />}
-          label="Reply all"
-          title="Reply to everyone on this mail"
+          label={t("detail.toolbar.replyAll")}
+          title={t("detail.toolbar.replyAllTitle")}
           onClick={onReplyAll}
         />
       )}
       <Action
         icon={<Forward size={16} />}
-        label="Forward"
-        title="Forward this mail to someone else"
+        label={t("detail.toolbar.forward")}
+        title={t("detail.toolbar.forwardTitle")}
         onClick={onForward}
       />
       <div className="ml-auto" />
       <Action
         icon={deleted ? <Undo2 size={16} /> : <Trash2 size={16} />}
-        label={deleted ? "Restore" : "Delete"}
-        title={
-          deleted
-            ? "Restore — puts this mail back in the folder it came from"
-            : "Delete — removes your copy only; nobody else's is affected"
-        }
+        label={deleted ? t("shared.restoreLabel") : t("shared.deleteLabel")}
+        title={deleted ? t("shared.restoreMailTitle") : t("shared.deleteMailTitle")}
         tone={deleted ? "default" : "danger"}
         disabled={deleting}
         onClick={onDelete}

@@ -34,10 +34,15 @@
   --color-fg: #111827;
   --color-accent: #2563eb;
   --color-accent-strong: #1d4ed8;
+  /* Every family's --color-accent-fg below is readableForeground(its --color-accent) —
+     black or white by luminance, the SAME rule Custom themes use (customTheme.ts). Do not
+     hand-tune it: themeContrast.test.ts fails on any value that differs. */
   --color-accent-fg: #ffffff;
   --color-accent-soft: #eff6ff;
   --color-brand-from: #60a5fa;
+  --color-brand-mid: #60a5fa;
   --color-brand-to: #2563eb;
+  --color-brand-gradient: linear-gradient(135deg, #60a5fa, #2563eb);
   --color-success: oklch(0.7 0.15 158);
   --color-danger: oklch(0.62 0.21 25);
   --color-warning: oklch(0.8 0.15 80);
@@ -91,10 +96,12 @@
   --color-fg: #f8fafc;
   --color-accent: #3b82f6;
   --color-accent-strong: #60a5fa;
-  --color-accent-fg: #020817;
+  --color-accent-fg: #000000;
   --color-accent-soft: #172554;
   --color-brand-from: #60a5fa;
+  --color-brand-mid: #60a5fa;
   --color-brand-to: #3b82f6;
+  --color-brand-gradient: linear-gradient(135deg, #60a5fa, #3b82f6);
   --color-success: oklch(0.75 0.15 158);
   --color-danger: oklch(0.68 0.2 25);
   --color-warning: oklch(0.82 0.15 80);
@@ -121,6 +128,12 @@
   --glass-bg: rgba(15, 23, 42, 0.55);
   --glass-border: rgba(59, 130, 246, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Custom themes keep the existing gradient utilities and replace their stops
+   with the builder's fixed top-left to bottom-right gradient. */
+.custom-theme .bg-gradient-to-br {
+  background: var(--color-brand-gradient) !important;
 }
 
 /* ── Named colour themes ──────────────────────────────────────────────────
@@ -156,7 +169,7 @@
   --color-fg: #18181b;
   --color-accent: #6366f1;
   --color-accent-strong: #4f46e5;
-  --color-accent-fg: #ffffff;
+  --color-accent-fg: #000000;
   --color-accent-soft: #eef2ff;
   --color-brand-from: #3b82f6;
   --color-brand-to: #a855f7;
@@ -181,7 +194,7 @@
   --color-fg: #f8fafc;
   --color-accent: #818cf8;
   --color-accent-strong: #a5b4fc;
-  --color-accent-fg: #0a0a1f;
+  --color-accent-fg: #000000;
   --color-accent-soft: #312e81;
   --color-brand-from: #60a5fa;
   --color-brand-to: #c084fc;
@@ -235,7 +248,7 @@
   --color-fg: #fafafa;
   --color-accent: #f43f5e;
   --color-accent-strong: #fb7185;
-  --color-accent-fg: #09090b;
+  --color-accent-fg: #000000;
   --color-accent-soft: #4c0519;
   --color-brand-from: #fb7185;
   --color-brand-to: #f43f5e;
@@ -289,7 +302,7 @@
   --color-fg: #fafafa;
   --color-accent: #a855f7;
   --color-accent-strong: #c084fc;
-  --color-accent-fg: #0d0717;
+  --color-accent-fg: #000000;
   --color-accent-soft: #3b0764;
   --color-brand-from: #c084fc;
   --color-brand-to: #a855f7;
@@ -323,7 +336,7 @@
   --color-fg: #18181b;
   --color-accent: #06b6d4;
   --color-accent-strong: #0891b2;
-  --color-accent-fg: #ffffff;
+  --color-accent-fg: #000000;
   --color-accent-soft: #ecfeff;
   --color-brand-from: #22d3ee;
   --color-brand-to: #06b6d4;
@@ -357,7 +370,7 @@
   --color-fg: #ecfeff;
   --color-accent: #06b6d4;
   --color-accent-strong: #22d3ee;
-  --color-accent-fg: #031316;
+  --color-accent-fg: #000000;
   --color-accent-soft: #083344;
   --color-brand-from: #22d3ee;
   --color-brand-to: #06b6d4;
@@ -386,7 +399,7 @@
   --color-fg: #18181b;
   --color-accent: #65a30d;
   --color-accent-strong: #4d7c0f;
-  --color-accent-fg: #ffffff;
+  --color-accent-fg: #000000;
   --color-accent-soft: #f7fee7;
   --color-brand-from: #a3e635;
   --color-brand-to: #65a30d;
@@ -411,7 +424,7 @@
   --color-fg: #f7fee7;
   --color-accent: #84cc16;
   --color-accent-strong: #a3e635;
-  --color-accent-fg: #080f04;
+  --color-accent-fg: #000000;
   --color-accent-soft: #1a2e05;
   --color-brand-from: #bef264;
   --color-brand-to: #65a30d;
@@ -477,15 +490,35 @@
   color-scheme: dark;
 }
 
+.meeting-surface {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 /* The redesign's deep-space backdrop: a near-black gradient with faint,
    slow-drifting cyan and magenta nebulae. Reuses `.brand-mesh`'s own
    `bw-float-a`/`bw-float-b` keyframes rather than defining new ones — same
    drifting-orb technique, just this surface's two accent colours instead of
-   the brand gradient's white highlights. */
+   the brand gradient's white highlights.
+
+   No `position` here, deliberately. This rule is unlayered, so it beats every
+   Tailwind utility (they live in `@layer utilities`) whatever the specificity —
+   and it used to say `position: relative`, which silently overrode the
+   `fixed inset-0` every meeting surface puts on it. The call room was then an
+   in-flow box as tall as its content (its `min-height` is only 100dvh), not a
+   box pinned to the window, so nothing inside it was ever bounded by the window
+   and the video area could not shrink with it. The `::before`/`::after` orbs
+   below are anchored by the element's own `fixed` (or `relative`) class. */
 .meeting-mesh {
-  position: relative;
   isolation: isolate;
+  /* clip, not just hidden: the orbs below hang off the box, which leaves
+     `hidden` with scrollable overflow — the room could be shifted up by a
+     focus change or a scrollIntoView anywhere inside it, uncovering the orbs and
+     pushing the bottom controls off the window. `clip` cannot be scrolled at
+     all, programmatically or otherwise. `hidden` stays as the fallback for a
+     browser without `clip`. */
   overflow: hidden;
+  overflow: clip;
   background:
     radial-gradient(ellipse 60% 50% at 15% 20%, rgba(34, 211, 238, 0.1), transparent 65%),
     radial-gradient(ellipse 55% 45% at 85% 80%, rgba(232, 121, 249, 0.1), transparent 65%),

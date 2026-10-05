@@ -4,17 +4,21 @@ import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation, usePar
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@taskboard/ui";
 import type { PlatformConfig } from "./platform";
-import { RuntimeProvider } from "./lib/runtime";
+import { RuntimeProvider, useRuntime } from "./lib/runtime";
+import { ThemeSync, publishCustomTheme } from "./lib/themeSync";
+import { LanguageProvider } from "./i18n/LanguageProvider";
 import { queryRetryDelay, shouldRetryQuery } from "./lib/retryPolicy";
 import { FileTransferProvider } from "./lib/fileTransfer";
 import { useSession } from "./store/session";
 import { refreshSession } from "./lib/refresh";
 import { installGlobalErrorHandlers } from "./lib/globalErrorHandlers";
 import { installAuthChannel, requestSession } from "./lib/authChannel";
+import { clearCacheOnIdentityChange } from "./lib/clearCacheOnIdentityChange";
 import { withLoadTimeout } from "./lib/withLoadTimeout";
 import { reloadForStaleChunk } from "./lib/chunkReloadRecovery";
 import { legacyInboxTarget } from "./lib/mailView";
 import { SelectedChatProvider, useSelectedChat } from "./lib/selectedChat";
+import { useTranslation } from "react-i18next";
 import { MessageSquare, Hash, Users } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import { ErrorBoundary, RouteErrorBoundary } from "./features/ErrorBoundary";
@@ -174,6 +178,9 @@ const queryClient = new QueryClient({
   },
 });
 
+// The cache is keyed by nothing that says whose it is — see the module.
+clearCacheOnIdentityChange(queryClient);
+
 export type { PlatformConfig } from "./platform";
 export type { StickyBridge } from "./platform";
 
@@ -183,6 +190,11 @@ export function App({ config }: { config: PlatformConfig }) {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <RuntimeProvider config={config}>
+          {/* Unlike ThemeProvider below, this has no per-route forced value
+              (nothing forces Login/Onboarding to a fixed language the way
+              they force the default theme), so it wraps here rather than
+              waiting for <Router>. */}
+          <LanguageProvider>
           <FileTransferProvider>
             <Router>
               {/* ThemeProvider lives HERE, inside <Router>, rather than
@@ -351,6 +363,7 @@ export function App({ config }: { config: PlatformConfig }) {
               </ThemedTree>
             </Router>
             </FileTransferProvider>
+            </LanguageProvider>
             <Toaster position="bottom-right" richColors closeButton />
             {/* Renders nothing; turns a main-process screenshot detection into
                 a toast. Inert on web. Must sit inside RuntimeProvider (it reads
@@ -368,27 +381,32 @@ export function App({ config }: { config: PlatformConfig }) {
   );
 }
 
-/** Routes that must always render in the default BlissWork theme —
- *  Login and Signup — regardless of what the signed-in user (or a previous
- *  session on this device) has selected in Settings. Kept in lock-step with
- *  the identical list in public/theme-init.js (both the web and desktop
- *  copies), which enforces the same rule for the very first paint, before
- *  React has even mounted; this is what keeps enforcing it afterward, and
- *  what makes leaving one of these routes hand the real theme straight
- *  back with no separate restoration step. */
+/** Routes that retain a default-theme override even if an authenticated user
+ *  visits them. Before auth is confirmed, every route uses the default theme:
+ *  the startup scripts paint it and ThemeProvider gates persisted preferences
+ *  on session status. */
 const FORCED_DEFAULT_THEME_PATHS = new Set(["/login", "/onboarding"]);
 
 /**
  * Where ThemeProvider actually lives — inside <Router>, not wrapping it —
- * specifically so it can use useLocation() to decide whether the current
- * screen is one of the routes above. See ThemeProvider's own `forceDefault`
- * prop doc comment (packages/ui) for why the provider itself stays entirely
- * route-agnostic and this is the one place that isn't.
+ * so it can combine the confirmed session state with a route-specific default
+ * override. The provider stays route-agnostic; this is the one place that
+ * knows both the current route and app auth state.
  */
 function ThemedTree({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
+  const { api } = useRuntime();
+  const authenticated = useSession((s) => s.status === "authed");
   return (
-    <ThemeProvider forceDefault={FORCED_DEFAULT_THEME_PATHS.has(pathname)}>{children}</ThemeProvider>
+    // ThemeSync mirrors only the shared custom definition to the account.
+    <ThemeProvider
+      authenticated={authenticated}
+      forceDefault={!authenticated || FORCED_DEFAULT_THEME_PATHS.has(pathname)}
+      onCustomThemeChange={(theme) => publishCustomTheme(api, theme, { notify: true })}
+    >
+      <ThemeSync />
+      {children}
+    </ThemeProvider>
   );
 }
 
@@ -400,6 +418,7 @@ function SessionBootstrap({
   config: PlatformConfig;
   children: React.ReactNode;
 }) {
+  const { t } = useTranslation("common");
   const status = useSession((s) => s.status);
   const [ready, setReady] = useState(false);
 
@@ -430,7 +449,7 @@ function SessionBootstrap({
   if (!ready || status === "loading")
     return (
       <div className="flex h-full items-center justify-center text-[var(--color-muted)]">
-        Loading…
+        {t("loading")}
       </div>
     );
   return <>{children}</>;
@@ -489,30 +508,37 @@ function ChatDeepLink() {
 }
 
 function ChatsEmpty() {
+  const { t } = useTranslation("chatList");
   const user = useSession((s) => s.user);
   return (
     <div className="flex h-full items-center justify-center">
       <EmptyState
         icon={<MessageSquare size={26} />}
-        title={`Welcome${user ? `, ${user.displayName.split(" ")[0]}` : ""} 👋`}
-        hint="Select a chat on the left, or tap + to start a new conversation."
+        title={
+          user
+            ? t("chatsEmpty.welcomeWithName", { name: user.displayName.split(" ")[0] })
+            : t("chatsEmpty.welcome")
+        }
+        hint={t("chatsEmpty.hint")}
       />
     </div>
   );
 }
 
 function ChannelsEmpty() {
+  const { t } = useTranslation("chatList");
   return (
     <div className="flex h-full items-center justify-center">
-      <EmptyState icon={<Hash size={26} />} title="Channels" hint="Pick a channel on the left, or tap + to create one." />
+      <EmptyState icon={<Hash size={26} />} title={t("channelsEmpty.title")} hint={t("channelsEmpty.hint")} />
     </div>
   );
 }
 
 function MembersEmpty() {
+  const { t } = useTranslation("members");
   return (
     <div className="flex h-full items-center justify-center">
-      <EmptyState icon={<Users size={26} />} title="Members" hint="Pick a teammate on the left to see their profile, or tap the chat icon to message them." />
+      <EmptyState icon={<Users size={26} />} title={t("membersEmpty.title")} hint={t("membersEmpty.hint")} />
     </div>
   );
 }

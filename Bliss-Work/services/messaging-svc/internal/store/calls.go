@@ -7,12 +7,14 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/task-board/messaging-svc/internal/events"
+	"github.com/task-board/messaging-svc/internal/recurrence"
 )
 
 // Call kinds. See 0015_calls.sql for why these three and not one flag.
@@ -50,6 +52,9 @@ var ErrInviteInvalid = errors.New("invite link is not valid")
 
 // ErrCallEnded is returned when a join arrives after the call is over.
 var ErrCallEnded = errors.New("call has ended")
+
+// ErrCallSessionActive means this user already has an active session in the call.
+var ErrCallSessionActive = errors.New("call session is already active")
 
 // ErrNoInviteForKind is returned when someone tries to mint a link for a call
 // that is not a MEETING. Channel calls have no link BY DESIGN — you are in the
@@ -103,6 +108,14 @@ type CallDTO struct {
 	// nothing still running, and the operator's copy of the failure is in the
 	// row, not in a participant's screen.
 	RecordingStatus *string `json:"recordingStatus,omitempty"`
+	// ChannelIDs are the channels a MEETING was addressed to — a record of who
+	// was asked, not a roster (Participants is that). Always present, empty for
+	// every other kind and for every meeting that predates this field.
+	ChannelIDs []string `json:"channelIds"`
+	// Series is set on an occurrence of a repeating meeting, so a row can say
+	// "repeats weekly". Absent for a one-off, and for a guest from another org,
+	// who cannot read the hosting org's series.
+	Series *SeriesSummaryDTO `json:"series,omitempty"`
 }
 
 // CallParticipantDTO is one row of a call's roster.
@@ -202,78 +215,65 @@ func (s *Store) ScheduleChannelCall(
 	return out, nil
 }
 
-// ScheduleMeeting creates a MEETING with an explicit roster. inviteeIDs are
-// same-org users added up front; everyone else arrives by link.
+// ScheduleMeeting creates a one-off MEETING with an explicit roster. inviteeIDs
+// are same-org users added up front; everyone else arrives by link.
 func (s *Store) ScheduleMeeting(
 	ctx context.Context, orgID, callerID, title, media string,
 	scheduledAt, endsAt *time.Time, inviteeIDs []string,
 ) (*CallDTO, error) {
+	return s.ScheduleMeetingWithOptions(ctx, orgID, callerID, title, media,
+		scheduledAt, endsAt, inviteeIDs, MeetingOptions{})
+}
+
+// ScheduleMeetingWithOptions is ScheduleMeeting plus the channels a meeting is
+// addressed to and, optionally, a recurrence that makes it the first of a series.
+//
+// One code path for every meeting, so a one-off, a channel-addressed meeting and
+// the first occurrence of a series cannot disagree about who may be invited — see
+// resolveRosterTx for the rules, all of which a plain one-off has always had:
+// every invitee must really be in the caller's org, and none may have a block
+// with anyone else in the room.
+//
+// Returns the meeting written — for a series, its FIRST occurrence.
+func (s *Store) ScheduleMeetingWithOptions(
+	ctx context.Context, orgID, callerID, title, media string,
+	scheduledAt, endsAt *time.Time, inviteeIDs []string, opts MeetingOptions,
+) (*CallDTO, error) {
+	if opts.Recurrence != nil && scheduledAt == nil {
+		return nil, fmt.Errorf("%w: a repeating meeting needs a start time", recurrence.ErrInvalid)
+	}
 	var out *CallDTO
 	err := s.withCaller(ctx, orgID, callerID, func(tx pgx.Tx) error {
-		id := uuid.Must(uuid.NewV7()).String()
-		status := CallScheduled
-		var startedAt *time.Time
-		if scheduledAt == nil {
-			status = CallLive
-			now := time.Now().UTC()
-			startedAt = &now
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO calls (id, org_id, kind, title, media,
-			                   created_by, scheduled_at, ends_at, started_at, status)
-			VALUES ($1, $2, 'MEETING', $3, $4, $5, $6, $7, $8, $9)`,
-			id, orgID, title, media, callerID,
-			scheduledAt, endsAt, startedAt, status); err != nil {
+		if err := requireCallerInChannelsTx(ctx, tx, orgID, callerID, opts.ChannelIDs); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by)
-			VALUES ($1, $2, $3, 'HOST', $2)`,
-			id, callerID, orgID); err != nil {
+		roster, err := resolveRosterTx(ctx, tx, orgID, callerID, inviteeIDs, opts.ChannelIDs, true)
+		if err != nil {
 			return err
 		}
-		for _, uid := range inviteeIDs {
-			if uid == callerID {
-				continue
-			}
-			// Every invitee must really be in the caller's org — see
-			// requireSameOrgUser.
-			//
-			// The WITH CHECK does NOT cover this, which an earlier version of
-			// this comment claimed it did. The INSERT stamps org_id with the
-			// CALLER's org, so a cross-org id smuggled into inviteeIds writes a
-			// row that passes the policy — it matches the caller's org — while
-			// asserting that someone from another org is in this one. That row
-			// is itself the grant: the calls RLS policy admits anyone holding a
-			// participant row, so writing it would hand an outsider the meeting
-			// without a link, which is the one thing the link path exists to
-			// keep auditable.
-			if err := requireSameOrgUser(ctx, tx, orgID, uid); err != nil {
-				return err
-			}
-			// Same roster-wide block check AddParticipant runs (see
-			// participantBlockConflict): an up-front invitee list is just
-			// AddParticipant called in a loop, so it is exactly as able to
-			// seat two blocked users in the same room. Checked against
-			// whoever this loop has already inserted (the host included,
-			// from the INSERT above), which is why this must run inside the
-			// loop rather than once against the original inviteeIDs list.
-			if conflict, berr := participantBlockConflict(ctx, tx, orgID, id, uid); berr != nil {
-				return berr
-			} else if conflict {
-				return ErrForbidden
-			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by)
-				VALUES ($1, $2, $3, 'PARTICIPANT', $4)
-				ON CONFLICT (call_id, user_id) DO NOTHING`,
-				id, uid, orgID, callerID); err != nil {
+		var id string
+		if opts.Recurrence != nil {
+			if err := requireRoomForAnotherSeriesTx(ctx, tx, callerID); err != nil {
 				return err
 			}
 		}
-		var derr error
-		out, derr = getCallTx(ctx, tx, id)
-		return derr
+		if opts.Recurrence == nil {
+			id, err = insertOccurrenceTx(ctx, tx, occurrenceSpec{
+				orgID: orgID, hostID: callerID, title: title, media: media,
+				at: scheduledAt, endsAt: endsAt, channelIDs: opts.ChannelIDs, roster: roster,
+			})
+		} else {
+			id, err = createSeriesTx(ctx, tx, seriesCreate{
+				orgID: orgID, hostID: callerID, title: title, media: media,
+				start: *scheduledAt, endsAt: endsAt, rec: *opts.Recurrence,
+				invitees: inviteeIDs, channels: opts.ChannelIDs,
+			}, roster)
+		}
+		if err != nil {
+			return err
+		}
+		out, err = getCallTx(ctx, tx, id)
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -368,10 +368,11 @@ func (s *Store) CreateDirectCall(
 // user_projection — this service's local mirror of who exists, so the check
 // needs no cross-service call on the hot path.
 //
-// Shared by every path that widens a call's roster with a same-org user —
-// ScheduleMeeting's invitee loop, CreateDirectCall, AddParticipant — which
-// used to repeat this exact lookup, one copy per call site, differing only
-// in the local variable name.
+// Shared by every path that reaches a named user: the call paths that widen a
+// roster (ScheduleMeeting's invitee loop, CreateDirectCall, AddParticipant —
+// which used to repeat this exact lookup, one copy per call site) and the chat
+// paths that open a conversation (SendMessage, OpenConversation, Block). An id
+// that does not exist answers the same ErrForbidden as one from another org.
 func requireSameOrgUser(ctx context.Context, tx pgx.Tx, orgID, userID string) error {
 	var userOrg string
 	err := tx.QueryRow(ctx,
@@ -583,6 +584,45 @@ func (s *Store) MarkJoined(ctx context.Context, orgID, userID, callID string) er
 			return ErrForbidden
 		}
 		return nil
+	})
+}
+
+// ClaimCallSession atomically reserves this user's one active session in a
+// call. A confirmed takeover may replace the existing claim; ordinary joins
+// cannot. The conditional UPDATE locks and rechecks the roster row, so two
+// near-simultaneous initial joins cannot both pass before either connects to
+// the SFU.
+func (s *Store) ClaimCallSession(ctx context.Context, orgID, userID, callID string, takeover bool) error {
+	return s.withCaller(ctx, orgID, userID, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx, `
+			UPDATE call_participants cp
+			SET joined_at = COALESCE(cp.joined_at, now()), left_at = NULL, waiting_since = NULL
+			FROM calls c
+			WHERE cp.call_id = $1 AND cp.user_id = $2
+			  AND c.id = cp.call_id AND c.status = 'LIVE'
+			  AND ($3 OR cp.joined_at IS NULL OR cp.left_at IS NOT NULL)`,
+			callID, userID, takeover)
+		if err != nil {
+			return err
+		}
+		if ct.RowsAffected() > 0 {
+			return nil
+		}
+		var active bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM call_participants cp
+				JOIN calls c ON c.id = cp.call_id
+				WHERE cp.call_id = $1 AND cp.user_id = $2
+				  AND cp.joined_at IS NOT NULL AND cp.left_at IS NULL
+				  AND c.status = 'LIVE'
+			)`, callID, userID).Scan(&active); err != nil {
+			return err
+		}
+		if active && !takeover {
+			return ErrCallSessionActive
+		}
+		return ErrForbidden
 	})
 }
 
@@ -1215,13 +1255,16 @@ func getCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) 
 		d                                       CallDTO
 		scheduledAt, endsAt, startedAt, endedAt *time.Time
 		createdAt                               time.Time
+		seriesID                                *string
 	)
 	err := tx.QueryRow(ctx, `
 		SELECT id, org_id, kind, channel_id, title, media, created_by,
-		       scheduled_at, ends_at, started_at, started_by, ended_at, status, created_at
+		       scheduled_at, ends_at, started_at, started_by, ended_at, status, created_at,
+		       series_id::text, `+channelIDsVisible+`
 		FROM calls WHERE id = $1`, callID).
 		Scan(&d.ID, &d.OrgID, &d.Kind, &d.ChannelID, &d.Title, &d.Media, &d.CreatedBy,
-			&scheduledAt, &endsAt, &startedAt, &d.StartedBy, &endedAt, &d.Status, &createdAt)
+			&scheduledAt, &endsAt, &startedAt, &d.StartedBy, &endedAt, &d.Status, &createdAt,
+			&seriesID, &d.ChannelIDs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrForbidden
 	}
@@ -1231,6 +1274,14 @@ func getCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) 
 	d.ScheduledAt, d.StartedAt, d.EndedAt = tsPtr(scheduledAt), tsPtr(startedAt), tsPtr(endedAt)
 	d.EndsAt = tsPtr(endsAt)
 	d.CreatedAt = createdAt.UTC().Format("2006-01-02T15:04:05.000Z")
+	d.ChannelIDs = nonNil(d.ChannelIDs)
+	if seriesID != nil {
+		sums, err := seriesSummariesTx(ctx, tx, []string{*seriesID})
+		if err != nil {
+			return nil, err
+		}
+		d.Series = sums[*seriesID]
+	}
 
 	byCall, err := rostersTx(ctx, tx, []string{callID})
 	if err != nil {
@@ -1368,15 +1419,28 @@ func (s *Store) ListMyCalls(ctx context.Context, orgID, callerID string, limit i
 	limit = clampMessagePage(limit)
 	out := []CallDTO{}
 	err := s.withCaller(ctx, orgID, callerID, func(tx pgx.Tx) error {
+		// A repeating meeting is written six weeks ahead (SeriesHorizon), and this
+		// list keeps the FURTHEST meetings when it runs past its page — so only the
+		// next SeriesUpcomingInList upcoming occurrences of each series are
+		// listed. Everything else, one-offs included, is untouched: the filter
+		// passes any row that is not an upcoming occurrence of a series.
 		ids, err := callIDsTx(ctx, tx, `
-			SELECT c.id FROM calls c
-			JOIN call_participants p ON p.call_id = c.id AND p.user_id = $1
-			WHERE c.status IN ('SCHEDULED', 'LIVE')
-			   OR (c.status IN ('ENDED', 'CANCELLED')
-			       AND COALESCE(c.ended_at, c.scheduled_at, c.created_at)
-			           > now() - make_interval(days => $3))
-			ORDER BY COALESCE(c.scheduled_at, c.created_at) DESC
-			LIMIT $2`, callerID, limit, MyCallsHistoryDays)
+			SELECT id FROM (
+			    SELECT c.id,
+			           COALESCE(c.scheduled_at, c.created_at) AS at,
+			           (c.series_id IS NOT NULL AND c.status = 'SCHEDULED') AS upcoming_of_series,
+			           row_number() OVER (PARTITION BY c.series_id, c.status
+			                              ORDER BY c.scheduled_at) AS nth
+			    FROM calls c
+			    JOIN call_participants p ON p.call_id = c.id AND p.user_id = $1
+			    WHERE c.status IN ('SCHEDULED', 'LIVE')
+			       OR (c.status IN ('ENDED', 'CANCELLED')
+			           AND COALESCE(c.ended_at, c.scheduled_at, c.created_at)
+			               > now() - make_interval(days => $3))
+			) t
+			WHERE NOT upcoming_of_series OR nth <= $4
+			ORDER BY at DESC
+			LIMIT $2`, callerID, limit, MyCallsHistoryDays, SeriesUpcomingInList)
 		if err != nil {
 			return err
 		}
@@ -1425,9 +1489,11 @@ func appendCallsTx(ctx context.Context, tx pgx.Tx, ids []string, out *[]CallDTO)
 
 	// 1. The calls themselves.
 	byID := make(map[string]*CallDTO, len(ids))
+	seriesOf := map[string]string{} // call id -> series id, for the summaries below
 	rows, err := tx.Query(ctx, `
 		SELECT id, org_id, kind, channel_id, title, media, created_by,
-		       scheduled_at, ends_at, started_at, started_by, ended_at, status, created_at
+		       scheduled_at, ends_at, started_at, started_by, ended_at, status, created_at,
+		       series_id::text, `+channelIDsVisible+`
 		FROM calls WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return err
@@ -1437,23 +1503,48 @@ func appendCallsTx(ctx context.Context, tx pgx.Tx, ids []string, out *[]CallDTO)
 			d                                       CallDTO
 			scheduledAt, endsAt, startedAt, endedAt *time.Time
 			createdAt                               time.Time
+			seriesID                                *string
 		)
 		if err := rows.Scan(&d.ID, &d.OrgID, &d.Kind, &d.ChannelID, &d.Title, &d.Media,
 			&d.CreatedBy, &scheduledAt, &endsAt, &startedAt, &d.StartedBy, &endedAt,
-			&d.Status, &createdAt); err != nil {
+			&d.Status, &createdAt, &seriesID, &d.ChannelIDs); err != nil {
 			rows.Close()
 			return err
 		}
 		d.ScheduledAt, d.StartedAt, d.EndedAt = tsPtr(scheduledAt), tsPtr(startedAt), tsPtr(endedAt)
 		d.EndsAt = tsPtr(endsAt)
 		d.CreatedAt = createdAt.UTC().Format("2006-01-02T15:04:05.000Z")
+		d.ChannelIDs = nonNil(d.ChannelIDs)
 		d.Participants = []CallParticipantDTO{}
 		d.ActiveShares = []CallShareDTO{}
+		if seriesID != nil {
+			seriesOf[d.ID] = *seriesID
+		}
 		byID[d.ID] = &d
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
+	}
+
+	// 1b. The series behind any repeating ones. One read for the page, and only
+	// when the page has any.
+	if len(seriesOf) > 0 {
+		seen := map[string]bool{}
+		var sids []string
+		for _, sid := range seriesOf {
+			if !seen[sid] {
+				seen[sid] = true
+				sids = append(sids, sid)
+			}
+		}
+		sums, err := seriesSummariesTx(ctx, tx, sids)
+		if err != nil {
+			return err
+		}
+		for callID, sid := range seriesOf {
+			byID[callID].Series = sums[sid]
+		}
 	}
 
 	// 2. Every roster for the page, in one read. Same widening as getCallTx and

@@ -19,6 +19,7 @@ import (
 	"github.com/task-board/messaging-svc/internal/livekit"
 	"github.com/task-board/messaging-svc/internal/metrics"
 	mw "github.com/task-board/messaging-svc/internal/middleware"
+	"github.com/task-board/messaging-svc/internal/recurrence"
 	"github.com/task-board/messaging-svc/internal/store"
 )
 
@@ -31,6 +32,7 @@ const (
 	CodeForbidden          ErrorCode = "forbidden"
 	CodeNotFound           ErrorCode = "not_found"
 	CodeConflict           ErrorCode = "conflict"
+	CodeCallSessionActive  ErrorCode = "call_session_active"
 	CodeValidationError    ErrorCode = "validation_error"
 	CodeRateLimited        ErrorCode = "rate_limited"
 	CodePayloadTooLarge    ErrorCode = "payload_too_large"
@@ -110,6 +112,22 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		// from an SFU outage would tell the caller to retry a request that is
 		// not going to succeed differently.
 		return http.StatusConflict, CodeConflict, "recording already in progress"
+	case errors.Is(err, store.ErrCallSessionActive):
+		return http.StatusConflict, CodeCallSessionActive, "this call is active on another device"
+	case errors.Is(err, recurrence.ErrInvalid):
+		// 400: the rule is the caller's own input and the message says which part
+		// of it is wrong ("weekly recurrence needs at least one weekday").
+		return http.StatusBadRequest, CodeValidationError, err.Error()
+	case errors.Is(err, store.ErrMeetingTooLarge):
+		return http.StatusBadRequest, CodeValidationError, err.Error()
+	case errors.Is(err, store.ErrTooManySeries):
+		// 409: well-formed and allowed, but the organiser is at the limit — a state
+		// the client can resolve by cancelling one.
+		return http.StatusConflict, CodeConflict, err.Error()
+	case errors.Is(err, store.ErrSeriesCancelled):
+		// 409: well-formed, and the caller organised it — it just no longer exists
+		// to be changed.
+		return http.StatusConflict, CodeConflict, err.Error()
 	case errors.Is(err, store.ErrForbidden):
 		return http.StatusForbidden, CodeForbidden, "forbidden"
 	case errors.Is(err, store.ErrMixedForwardScope):
@@ -219,7 +237,7 @@ func callFailReason(err error) string {
 	switch {
 	case errors.Is(err, store.ErrForbidden):
 		return metrics.FailReasonPermissionDenied
-	case errors.Is(err, store.ErrCallEnded), errors.Is(err, store.ErrCallNotStarted):
+	case errors.Is(err, store.ErrCallEnded), errors.Is(err, store.ErrCallNotStarted), errors.Is(err, store.ErrCallSessionActive):
 		return metrics.FailReasonCallUnavailable
 	case errors.Is(err, livekit.ErrNotConfigured):
 		return metrics.FailReasonLiveKitConnection

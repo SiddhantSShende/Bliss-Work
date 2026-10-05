@@ -54,6 +54,12 @@ _KAFKA_RECONNECT_MAX = 30.0
 _STOP_TIMEOUT = 30.0
 
 
+# Pause before a failed batch is re-read, so a dead SMTP relay or database is
+# not hammered. Failures are counted per event and routed to the DLQ past
+# poison_max_failures, so this only ever bounds a transient outage.
+_RETRY_BACKOFF = 2.0
+
+
 class EmailWorker:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -166,6 +172,16 @@ class EmailWorker:
             # Commit only AFTER the batch's sends + dedup-row writes succeeded.
             if handled and ok:
                 await consumer.commit()
+            elif handled:
+                # Not committing is not enough: the fetch position has already
+                # moved past this batch, so the next getmany() returns what comes
+                # AFTER it, and when that succeeds its commit carries the offset
+                # past the message that failed — an invite or password-reset email
+                # lost for good, not retried. Seek back to make the retry real.
+                # Messages that did succeed are 'sent' and skipped as duplicates.
+                for tp, messages in batch.items():
+                    consumer.seek(tp, messages[0].offset)
+                await self._sleep_or_stop(_RETRY_BACKOFF)
             if self._stop.is_set():
                 break
 

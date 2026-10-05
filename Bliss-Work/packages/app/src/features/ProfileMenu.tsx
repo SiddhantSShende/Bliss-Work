@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
 import { User, LogOut, Sun, Moon, Settings, ChevronDown } from "lucide-react";
 import { Avatar, useTheme } from "@taskboard/ui";
@@ -9,6 +10,7 @@ import { signOut } from "../lib/signOut";
 
 /** Avatar-anchored account popover in the top navbar. */
 export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail" }) {
+  const { t } = useTranslation("shell");
   const { api, config, ws } = useRuntime();
   const user = useSession((s) => s.user)!;
   const { isDark, toggle } = useTheme();
@@ -48,8 +50,8 @@ export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail
     <div ref={ref} className="relative">
       <button
         onClick={openProfile}
-        title={`${user.displayName} — account menu`}
-        aria-label="Account menu"
+        title={t("profileMenu.accountMenuTitle", { name: user.displayName })}
+        aria-label={t("profileMenu.accountMenuAriaLabel")}
         aria-haspopup="menu"
         aria-expanded={open}
         className={
@@ -64,7 +66,7 @@ export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail
             <span className="min-w-0 flex-1 pr-3">
               <span className="block truncate text-xs font-semibold text-fg">{user.displayName}</span>
               <span className="flex items-center gap-1 text-[10px] text-muted">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" /> Online
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" /> {t("profileMenu.online")}
               </span>
             </span>
           </>
@@ -90,15 +92,15 @@ export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail
               </div>
             </div>
             <div className="my-1 h-px bg-border/60" />
-            <MenuItem icon={<User size={16} />} label="Edit profile" onClick={() => go("/app/profile")} />
-            <MenuItem icon={<Settings size={16} />} label="Settings" onClick={() => go("/app/settings")} />
+            <MenuItem icon={<User size={16} />} label={t("profileMenu.editProfile")} onClick={() => go("/app/profile")} />
+            <MenuItem icon={<Settings size={16} />} label={t("profileMenu.settings")} onClick={() => go("/app/settings")} />
             <MenuItem
               icon={isDark ? <Sun size={16} /> : <Moon size={16} />}
-              label={isDark ? "Light mode" : "Dark mode"}
+              label={isDark ? t("profileMenu.lightMode") : t("profileMenu.darkMode")}
               onClick={toggle}
             />
             <div className="my-1 h-px bg-border/60" />
-            <MenuItem icon={<LogOut size={16} />} label="Sign out" onClick={logout} danger />
+            <MenuItem icon={<LogOut size={16} />} label={t("profileMenu.signOut")} onClick={logout} danger />
           </motion.div>
         )}
       </AnimatePresence>

@@ -6,6 +6,7 @@ var FanoutTopics = []string{
 	"messaging.events.v1",
 	"task.events.v1",
 	"notification.events.v1",
+	"integration.events.v1",
 }
 
 // Event is the partially-parsed envelope used for routing. Only the fields the
@@ -107,15 +108,37 @@ func (e *Event) RecipientsOf() []string {
 		// outbox) even though messaging-svc actively produces it.
 		return dedupe([]string{e.ForwardedBy, e.RootAuthorID})
 	case "task.assigned":
-		return dedupe([]string{e.AssigneeID})
+		if len(e.Members) > 0 {
+			return dedupe(e.Members)
+		}
+		return dedupe([]string{e.SenderID, e.AssigneeID})
 	case "sticky.refresh":
 		// The desktop-note delivery watchdog (services/sticky-relay) telling one
 		// person's clients to re-fetch their pins. Carries no task content, so
 		// there is nobody else to deliver it to.
 		return dedupe([]string{e.AssigneeID})
-	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.reviewed":
+	case "sticky.pin.changed":
+		// sticky-svc: this user pinned or unpinned one of their own tasks.
+		// AssigneeID is that user. It goes to them alone — every device they
+		// own (Web and Desktop), and never to the task's sender or other
+		// assignees: a pin is private to the person who made it.
+		return dedupe([]string{e.AssigneeID})
+	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.missed", "task.withdrawn", "task.reviewed":
+		if e.Type == "task.withdrawn" && len(e.Members) > 0 {
+			return dedupe(e.Members)
+		}
 		return dedupe([]string{e.SenderID, e.AssigneeID})
 	case "notification.created", "notification.read":
+		return dedupe([]string{e.RecipientID})
+	case "integration.activity.created":
+		// integrations-svc's emit_activity_created addresses this to exactly
+		// one user (the connection's owner, or its created_by for an outbound
+		// send) — see services/integrations-svc/app/events.py. This topic was
+		// added to FanoutTopics in the same change as this case: before, the
+		// event published successfully (the topic itself was missing from the
+		// broker, now fixed in infra/kafka/create-topics.sh) but ws-gateway
+		// never subscribed to it at all, so it reached no client regardless of
+		// routing.
 		return dedupe([]string{e.RecipientID})
 	case "call.scheduled", "call.ring", "call.participant_added", "call.ended",
 		"call.started", "call.waiting", "call.participant_left",

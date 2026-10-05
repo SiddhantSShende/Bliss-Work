@@ -28,6 +28,13 @@ import {
   ICE_FAILURE_GRACE_MS,
   RTC_CONFIG,
 } from "./rtcConfig";
+import i18n from "../i18n";
+
+/** All `TransferState.reason` values are rendered verbatim by
+ *  FileAttachmentBubble, so every one of them is looked up here rather than
+ *  a literal — this is the sole place the wire-level transfer failure
+ *  reasons are worded. */
+const tr = (key: string, vars?: Record<string, unknown>) => i18n.t(`chatMedia:fileAttachment.${key}`, vars);
 
 export type TransferProgress = {
   bytesDone: number;
@@ -183,7 +190,7 @@ export function startSenderTransfer(opts: {
   };
 
   clearIceWatchdog = installIceFailureWatchdog(pc, () => cancelled, () => {
-    update({ kind: "FAILED", reason: "Direct transfer unavailable" });
+    update({ kind: "FAILED", reason: tr("transferUnavailable") });
     teardown();
   });
 
@@ -200,7 +207,7 @@ export function startSenderTransfer(opts: {
     try {
       await pc.setRemoteDescription({ type: "answer", sdp });
     } catch {
-      update({ kind: "FAILED", reason: "Bad answer" });
+      update({ kind: "FAILED", reason: tr("badAnswer") });
       teardown();
       return;
     }
@@ -218,7 +225,7 @@ export function startSenderTransfer(opts: {
 
   offUnreachable = opts.wire.onUnreachable((offerId) => {
     if (offerId !== opts.meta.offerId) return;
-    update({ kind: "FAILED", reason: "Peer unreachable" });
+    update({ kind: "FAILED", reason: tr("peerUnreachable") });
     teardown();
   });
 
@@ -228,7 +235,7 @@ export function startSenderTransfer(opts: {
     await pc.setLocalDescription(offer);
     opts.wire.sendOffer(opts.peerUserId, opts.meta.offerId, offer.sdp ?? "");
   })().catch(() => {
-    update({ kind: "FAILED", reason: "Offer creation failed" });
+    update({ kind: "FAILED", reason: tr("offerCreationFailed") });
     teardown();
   });
 
@@ -273,7 +280,7 @@ export function startSenderTransfer(opts: {
           // same way the rest of this module does, instead of surfacing as
           // an unhandled rejection.
           if (!cancelled) {
-            update({ kind: "FAILED", reason: "Direct transfer unavailable" });
+            update({ kind: "FAILED", reason: tr("transferUnavailable") });
             teardown();
           }
           return;
@@ -325,7 +332,7 @@ export function startSenderTransfer(opts: {
             update({ kind: "DONE" });
             teardown();
           } else if (msg.type === "MISMATCH") {
-            update({ kind: "FAILED", reason: "sha256 mismatch" });
+            update({ kind: "FAILED", reason: tr("checksumMismatch") });
             teardown();
           }
         } catch {
@@ -340,7 +347,7 @@ export function startSenderTransfer(opts: {
       cancelled = true;
       opts.wire.sendCancel(opts.peerUserId, opts.meta.offerId, "sender_left");
       teardown();
-      update({ kind: "FAILED", reason: "Cancelled" });
+      update({ kind: "FAILED", reason: tr("cancelled") });
     },
     state: () => state,
   };
@@ -429,7 +436,7 @@ export function startReceiverTransfer(opts: {
   };
 
   clearIceWatchdog = installIceFailureWatchdog(pc, () => cancelled, () => {
-    update({ kind: "FAILED", reason: "Direct transfer unavailable" });
+    update({ kind: "FAILED", reason: tr("transferUnavailable") });
     teardown();
   });
 
@@ -453,7 +460,7 @@ export function startReceiverTransfer(opts: {
       // rejected onChunk promise bubbles to a top-level handler we control,
       // not the DataChannel's silent swallow.
       void handle(m).catch((err) => {
-        update({ kind: "FAILED", reason: `Sink write failed: ${err?.message ?? err}` });
+        update({ kind: "FAILED", reason: tr("sinkWriteFailed", { message: err?.message ?? err }) });
         teardown();
       });
     };
@@ -480,7 +487,7 @@ export function startReceiverTransfer(opts: {
               update({ kind: "DONE" });
             } else {
               dc.send(JSON.stringify({ type: "MISMATCH", offerId: opts.meta.offerId }));
-              update({ kind: "FAILED", reason: "Checksum mismatch" });
+              update({ kind: "FAILED", reason: tr("checksumMismatch") });
             }
             teardown();
           }
@@ -541,11 +548,11 @@ export function startReceiverTransfer(opts: {
         opts.resumeFromChunkIndex,
       );
     } catch {
-      update({ kind: "FAILED", reason: "Answer creation failed" });
+      update({ kind: "FAILED", reason: tr("answerCreationFailed") });
       teardown();
     }
   })().catch(() => {
-    update({ kind: "FAILED", reason: "Receiver setup failed" });
+    update({ kind: "FAILED", reason: tr("receiverSetupFailed") });
     teardown();
   });
 
@@ -554,7 +561,7 @@ export function startReceiverTransfer(opts: {
       cancelled = true;
       opts.wire.sendCancel(opts.peerUserId, opts.meta.offerId, "receiver_declined");
       teardown();
-      update({ kind: "FAILED", reason: "Cancelled" });
+      update({ kind: "FAILED", reason: tr("cancelled") });
     },
     state: () => state,
   };

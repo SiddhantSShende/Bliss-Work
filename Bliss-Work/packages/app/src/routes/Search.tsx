@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Search as SearchIcon } from "lucide-react";
 import { EmptyState, PageHeader } from "@taskboard/ui";
 import type {
@@ -20,9 +21,10 @@ import { useGoBack } from "../lib/useGoBack";
 import { CHATS_PATH, useSelectedChat } from "../lib/selectedChat";
 
 const bucket = (s: string) =>
-  s === "IGNORED" ? "ignored" : s === "COMPLETED" || s === "LEFT" ? "completed" : "allocated";
+  s === "IGNORED" ? "ignored" : s === "MISSED" ? "missed" : s === "COMPLETED" || s === "LEFT" ? "completed" : "allocated";
 
 export function Search() {
+  const { t } = useTranslation("shell");
   const { api } = useRuntime();
   const goBack = useGoBack();
   const me = useSession((s) => s.user)!;
@@ -55,7 +57,7 @@ export function Search() {
     const all: SearchGroup[] = [
       {
         key: "people",
-        label: "People",
+        label: t("search.groups.people"),
         rows: rankUsers(people.filter((u: UserDTO) => u.id !== me.id && matchUser(u, q)), q).map((u) => ({
           id: u.id,
           title: u.displayName,
@@ -66,14 +68,19 @@ export function Search() {
       },
       {
         key: "channels",
-        label: "Channels",
+        label: t("search.groups.channels"),
         rows: channels
           .filter((c: ChannelDTO) => c.name.toLowerCase().includes(ql))
-          .map((c) => ({ id: c.id, title: c.name, subtitle: `${c.memberCount} members`, to: `/app/channels/${c.id}` })),
+          .map((c) => ({
+            id: c.id,
+            title: c.name,
+            subtitle: t("search.channelMembers", { count: c.memberCount }),
+            to: `/app/channels/${c.id}`,
+          })),
       },
       {
         key: "chats",
-        label: "Chats",
+        label: t("search.groups.chats"),
         // Labelled by the peer's NAME. `peerUsername` is the email local-part
         // (see lib/userLabel), so titling a chat result with it put an address
         // fragment where every other chat surface shows a person.
@@ -97,24 +104,36 @@ export function Search() {
             onSelect: () => openChat(c.id),
           })),
       },
-      { key: "tasks", label: "Tasks", rows: [...tasks.values()] },
+      { key: "tasks", label: t("search.groups.tasks"), rows: [...tasks.values()] },
     ];
     return all.filter((g) => g.rows.length > 0);
     // openChat is stable (a useCallback over `navigate`), so listing it costs
     // nothing — but leaving it out would be a stale closure the day it stops
     // being stable.
-  }, [q, ql, people, channels, chats, assigned, sent, me.id, openChat]);
+  }, [q, ql, people, channels, chats, assigned, sent, me.id, openChat, t]);
 
   const total = groups.reduce((n, g) => n + g.rows.length, 0);
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Search" subtitle={q ? `Results for “${q}”` : undefined} onBack={goBack} />
+      <PageHeader
+        title={t("search.title")}
+        subtitle={q ? t("search.resultsFor", { query: q }) : undefined}
+        onBack={goBack}
+      />
       <div className="min-h-0 flex-1 overflow-auto p-5">
         {!q ? (
-          <EmptyState icon={<SearchIcon size={24} />} title="Search BlissWork" hint="Find people, channels, chats, and tasks." />
+          <EmptyState
+            icon={<SearchIcon size={24} />}
+            title={t("search.empty.title", { brand: "BlissWork" })}
+            hint={t("search.empty.hint")}
+          />
         ) : total === 0 ? (
-          <EmptyState icon={<SearchIcon size={24} />} title="No matches" hint={`Nothing matched “${q}”.`} />
+          <EmptyState
+            icon={<SearchIcon size={24} />}
+            title={t("search.noResults.title")}
+            hint={t("search.noResults.hint", { query: q })}
+          />
         ) : (
           <SearchResults groups={groups} />
         )}

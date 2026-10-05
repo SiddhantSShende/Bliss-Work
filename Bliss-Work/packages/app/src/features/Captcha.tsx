@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Input } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { Field } from "../routes/Onboarding";
@@ -16,8 +17,12 @@ import { Field } from "../routes/Onboarding";
  * only a captcha-specific error — otherwise a retry with a corrected
  * password but the same (now-consumed) captcha_id fails again for a reason
  * the user never sees. See Login.tsx / Onboarding.tsx's catch blocks.
+ *
+ * `enabled` false fetches nothing: Login passes it for platforms that are not
+ * challenged (macOS, iOS), so they never wait on — or request — an image they
+ * will not be asked to solve. Flipping it to true starts the fetch.
  */
-export function useCaptcha() {
+export function useCaptcha(enabled = true) {
   const { api } = useRuntime();
   const [captchaId, setCaptchaId] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -40,8 +45,8 @@ export function useCaptcha() {
   }, [api]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (enabled) void refresh();
+  }, [enabled, refresh]);
 
   return { captchaId, imageUrl, value, setValue, loading, refresh };
 }
@@ -49,14 +54,15 @@ export function useCaptcha() {
 export type CaptchaState = ReturnType<typeof useCaptcha>;
 
 export function CaptchaField({ captcha }: { captcha: CaptchaState }) {
+  const { t } = useTranslation("auth");
   return (
-    <Field label="Security check">
+    <Field label={t("captcha.securityCheckLabel")}>
       <div className="flex items-center gap-2">
         <div className="flex h-[52px] w-[160px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-2">
           {captcha.imageUrl ? (
             <img
               src={captcha.imageUrl}
-              alt="CAPTCHA challenge — enter the characters shown"
+              alt={t("captcha.imageAlt")}
               className="h-full w-full object-cover"
             />
           ) : (
@@ -68,8 +74,8 @@ export function CaptchaField({ captcha }: { captcha: CaptchaState }) {
           onClick={() => void captcha.refresh()}
           disabled={captcha.loading}
           className="shrink-0 rounded-lg p-2.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-50"
-          title="Get a new CAPTCHA"
-          aria-label="Get a new CAPTCHA"
+          title={t("captcha.getNewCaptcha")}
+          aria-label={t("captcha.getNewCaptcha")}
         >
           <RefreshCw size={16} className={captcha.loading ? "animate-spin" : undefined} />
         </button>
@@ -77,13 +83,13 @@ export function CaptchaField({ captcha }: { captcha: CaptchaState }) {
       <Input
         value={captcha.value}
         onChange={(e) => captcha.setValue(e.target.value)}
-        placeholder="Enter the characters shown above"
+        placeholder={t("captcha.answerPlaceholder")}
         maxLength={32}
         autoComplete="off"
         autoCapitalize="off"
         autoCorrect="off"
         spellCheck={false}
-        aria-label="CAPTCHA answer"
+        aria-label={t("captcha.answerAriaLabel")}
         required
       />
     </Field>

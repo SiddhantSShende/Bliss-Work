@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Mail,
   Calendar,
@@ -14,15 +15,18 @@ import {
 import { ProfileMenu } from "../features/ProfileMenu";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 
+// Labels are resolved at render time via t(`nav.${key}`) — see buttons()
+// below — so this stays a plain module-level constant that doesn't need a
+// hook to build.
 const ITEMS = [
-  { key: "mail", label: "Mail", icon: Mail, to: "/app/mail" },
-  { key: "meetings", label: "Meetings", icon: Calendar, to: "/app/meetings" },
-  { key: "chats", label: "Chats", icon: MessageSquare, to: "/app/chats" },
-  { key: "tasks", label: "Tasks", icon: ListTodo, to: "/app/tasks/allocated" },
-  { key: "channels", label: "Channels", icon: Hash, to: "/app/channels" },
-  { key: "members", label: "Members", icon: Users, to: "/app/members" },
-  { key: "org", label: "Org", icon: Building2, to: "/app/org" },
-  { key: "settings", label: "Settings", icon: Settings, to: "/app/settings" },
+  { key: "mail", icon: Mail, to: "/app/mail" },
+  { key: "meetings", icon: Calendar, to: "/app/meetings" },
+  { key: "chats", icon: MessageSquare, to: "/app/chats" },
+  { key: "tasks", icon: ListTodo, to: "/app/tasks/allocated" },
+  { key: "channels", icon: Hash, to: "/app/channels" },
+  { key: "members", icon: Users, to: "/app/members" },
+  { key: "org", icon: Building2, to: "/app/org" },
+  { key: "settings", icon: Settings, to: "/app/settings" },
 ] as const;
 
 /** The bottom tab bar only has room for a handful of icons+labels before it
@@ -60,6 +64,7 @@ export function Rail({
    *  close. */
   onSelect?: () => void;
 }) {
+  const { t } = useTranslation("shell");
   const nav = useNavigate();
   const bottom = variant === "bottom";
   const drawer = variant === "drawer";
@@ -72,7 +77,7 @@ export function Rail({
       <RailBtn
         key={it.key}
         icon={<it.icon size={20} />}
-        label={it.label}
+        label={t(`nav.${it.key}`)}
         active={section === it.key}
         bottom={bottom}
         badge={badges[it.key] ?? 0}
@@ -122,6 +127,7 @@ function MoreTab({
   badge: number;
   onSelect: (to: string) => void;
 }) {
+  const { t } = useTranslation("shell");
   const [open, setOpen] = useState(false);
   const popupRef = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
 
@@ -129,7 +135,7 @@ function MoreTab({
     <div ref={popupRef} className="relative flex-1">
       <RailBtn
         icon={<MoreHorizontal size={20} />}
-        label="More"
+        label={t("nav.more")}
         active={active}
         bottom
         badge={badge}
@@ -151,7 +157,7 @@ function MoreTab({
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-fg transition-colors hover:bg-surface-2"
             >
               <it.icon size={17} className="text-muted" />
-              {it.label}
+              {t(`nav.${it.key}`)}
             </button>
           ))}
         </div>
@@ -175,10 +181,11 @@ function RailBtn({
   badge?: number;
   onClick: () => void;
 }) {
+  const { t } = useTranslation("shell");
   return (
     <button
       onClick={onClick}
-      title={badge > 0 ? `${label} (${badge} new)` : label}
+      title={badge > 0 ? t("railBtn.titleWithBadge", { label, count: badge }) : label}
       className={`relative flex flex-col items-center gap-1 rounded-xl transition-all active:scale-95 ${
         bottom ? "text-[11px] font-bold" : "text-sm font-semibold"
       } ${
@@ -193,7 +200,7 @@ function RailBtn({
         {icon}
         {badge > 0 && (
           <span
-            aria-label={`${badge} unread`}
+            aria-label={t("railBtn.unreadAriaLabel", { count: badge })}
             className="pointer-events-none absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-semibold leading-none text-white shadow-[0_0_0_2px_var(--color-surface)]"
           >
             {badge > 99 ? "99+" : badge}

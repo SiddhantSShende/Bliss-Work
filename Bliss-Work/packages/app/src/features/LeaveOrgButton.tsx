@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { ApiError, type OrgMembershipDTO } from "@taskboard/shared";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -36,6 +37,7 @@ export function LeaveOrgButton({
    *  mid-leave and clear the query cache out from under it. */
   onBusyChange?: (busy: boolean) => void;
 }) {
+  const { t } = useTranslation("org");
   const { api, config, ws } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -59,14 +61,14 @@ export function LeaveOrgButton({
     try {
       await api.leaveOrg(org.orgId);
     } catch (err) {
-      toast.error("Couldn't leave organization", {
+      toast.error(t("org:leaveOrgButton.toasts.failedTitle"), {
         description:
-          err instanceof ApiError && err.message ? err.message : "Please try again.",
+          err instanceof ApiError && err.message ? err.message : t("org:leaveOrgButton.toasts.failedDescriptionFallback"),
       });
       setBusy(false);
       return;
     }
-    toast.success(`You left ${org.orgName}`);
+    toast.success(t("org:leaveOrgButton.toasts.left", { orgName: org.orgName }));
     setOpen(false);
 
     if (!isActive) {
@@ -95,7 +97,9 @@ export function LeaveOrgButton({
       // describes, reintroduced at this second call site.
       await signOut(api, config, ws);
       nav("/login");
-      toast.error("Signed out", { description: "Please sign in again to continue." });
+      toast.error(t("org:leaveOrgButton.toasts.signedOutTitle"), {
+        description: t("org:leaveOrgButton.toasts.signedOutDescription"),
+      });
     } finally {
       setBusy(false);
     }
@@ -110,26 +114,29 @@ export function LeaveOrgButton({
         disabled={disabled || busy}
         onClick={() => setOpen(true)}
       >
-        Leave
+        {t("org:leaveOrgButton.leaveButton")}
       </Button>
       <ConfirmDialog
         open={open}
         onClose={() => !busy && setOpen(false)}
-        title={`Leave ${org.orgName}?`}
+        title={t("org:leaveOrgButton.confirmDialog.title", { orgName: org.orgName })}
         message={
           <>
-            You'll lose access to every channel, message and task in{" "}
-            <strong className="text-fg">{org.orgName}</strong>. Nothing you posted is
-            deleted, and an admin there can invite you back.
+            <Trans
+              i18nKey="org:leaveOrgButton.confirmDialog.message"
+              values={{ orgName: org.orgName }}
+              components={{ bold: <strong className="text-fg" /> }}
+            />
             {isActive && next && (
-              <>
-                {" "}
-                You'll be moved to <strong className="text-fg">{next.orgName}</strong>.
-              </>
+              <Trans
+                i18nKey="org:leaveOrgButton.confirmDialog.movedMessage"
+                values={{ orgName: next.orgName }}
+                components={{ bold: <strong className="text-fg" /> }}
+              />
             )}
           </>
         }
-        confirmLabel="Leave organization"
+        confirmLabel={t("org:leaveOrgButton.confirmDialog.confirmLabel")}
         danger
         busy={busy}
         onConfirm={leave}

@@ -105,7 +105,7 @@ export function TasksListScreen({ navigation }: Props) {
 
       {tab === 'assigned' ? (
         <View style={styles.chipsRow}>
-          {(['all', 'SENT', 'ACKNOWLEDGED', 'COMPLETED'] as StatusFilter[]).map((s) => (
+          {(['all', 'SENT', 'ACKNOWLEDGED', 'COMPLETED', 'MISSED'] as StatusFilter[]).map((s) => (
             <Chip
               key={s}
               label={s === 'all' ? 'All' : STATUS_LABEL[s]}

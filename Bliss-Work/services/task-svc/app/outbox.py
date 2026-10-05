@@ -178,7 +178,7 @@ class OutboxPoller:
             published_ids: list[str] = []
             send_failed: BaseException | None = None
             failed_ids: list[str] = []
-            for idx, row in enumerate(rows):
+            for row in rows:
                 payload = row.payload
                 if isinstance(payload, str):
                     payload = json.loads(payload)
@@ -201,7 +201,10 @@ class OutboxPoller:
                     # the batch in order to preserve per-key ordering.
                     log.exception("outbox_publish_failed", outbox_id=str(row.id))
                     send_failed = exc
-                    failed_ids = [str(r.id) for r in rows[idx:]]
+                    # Only the row the broker refused is charged an attempt. The rows behind
+                    # it were never offered, and charging them made one poison row
+                    # dead-letter its whole batch together.
+                    failed_ids = [str(row.id)]
                     break
                 # Only record as published AFTER a successful send_and_wait.
                 published_ids.append(str(row.id))

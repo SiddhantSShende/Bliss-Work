@@ -125,3 +125,80 @@ def test_ids_are_bounded():
     row = to_row(_evt(type="message.created", senderId=ALICE, conversationId="c" * 5000,
                       body="hi"))
     assert len(row.target_id) <= 128
+
+
+# ── mail.attachment.downloaded ────────────────────────────────────────────────
+# Emitted by messaging-svc when a reader explicitly starts a download of a mail's
+# file. The field names below are the ones store.RecordMailAttachmentDownload
+# writes (events.MailAttachmentDownloaded); mail_attachment_download_db_test.go
+# pins them on the Go side.
+ATT = str(uuid.uuid4())
+MAIL = str(uuid.uuid4())
+
+
+def _download(**kw):
+    base = dict(type="mail.attachment.downloaded", actorId=BOB, mailId=MAIL, attachmentId=ATT,
+                filename="Q3 deck.pdf", mime="application/pdf", sizeBytes=4096)
+    base.update(kw)
+    return _evt(**base)
+
+
+def test_mail_attachment_download_is_an_engagement_row_on_the_mail_surface():
+    row = to_row(_download())
+    assert row.user_id == BOB
+    assert row.org_id == ORG
+    assert row.category == "engagement"
+    assert row.action == "mail.attachment.downloaded"
+    assert row.surface == "mail"
+    assert row.target_kind == "attachment"
+    assert row.target_id == ATT
+    assert row.source == "server"
+
+
+def test_mail_attachment_download_keeps_filename_and_metadata_in_detail():
+    row = to_row(_download())
+    assert row.detail == {
+        "filename": "Q3 deck.pdf",
+        "mime": "application/pdf",
+        "sizeBytes": "4096",
+        "mailId": MAIL,
+    }
+    # The timeline contract is dict[str, str]; an int would break the read model.
+    assert all(isinstance(v, str) for v in row.detail.values())
+    assert "preview" not in row.detail
+
+
+def test_mail_attachment_download_is_attributed_to_the_actor_not_the_sender():
+    # senderId (the mail's author) is not a field of this event; even if some
+    # producer added one, the actor is the person who pressed Download.
+    row = to_row(_download(senderId=ALICE))
+    assert row.user_id == BOB
+
+
+def test_mail_attachment_download_without_an_actor_is_skipped():
+    assert to_row(_download(actorId=None)) is None
+    assert to_row(_download(actorId="")) is None
+    evt = _download()
+    del evt["actorId"]
+    assert to_row(evt) is None
+
+
+def test_mail_attachment_download_detail_is_bounded_and_scalar_only():
+    row = to_row(_download(filename="x" * 5000, mime=["application/pdf"], sizeBytes=True))
+    assert len(row.detail["filename"]) == event_map.DETAIL_VALUE_MAX_CHARS
+    assert "mime" not in row.detail, "a list is not a fact this mapping can store"
+    assert "sizeBytes" not in row.detail, "a bool is not a size"
+
+
+def test_mail_attachment_download_with_no_filename_still_records_the_download():
+    row = to_row(_download(filename=""))
+    assert row is not None
+    assert "filename" not in row.detail
+    assert row.target_id == ATT
+
+
+def test_other_events_gain_no_detail_from_the_new_field_list():
+    # detail_fields is per-mapping: a chat message must not pick up filename/mime.
+    row = to_row(_evt(type="message.created", senderId=ALICE, conversationId="c1", body="hi",
+                      filename="leak.pdf", mime="application/pdf"))
+    assert row.detail == {"preview": "hi"}

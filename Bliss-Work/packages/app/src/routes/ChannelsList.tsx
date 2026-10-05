@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { AlertCircle, Bell, BellOff, Compass, Globe, Hash, LogIn, LogOut, Lock, MoreVertical, Pin, Plus, Search } from "lucide-react";
 import { Button, EmptyState } from "@taskboard/ui";
 import type { ChannelDTO } from "@taskboard/shared";
@@ -37,6 +38,7 @@ type Tab = "mine" | "browse";
 const OPEN_PAGE = 50;
 
 export function ChannelsList() {
+  const { t } = useTranslation("chatList");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
@@ -107,29 +109,29 @@ export function ChannelsList() {
   const leaveMut = useMutation({
     mutationFn: (channelId: string) => api.leaveChannel(channelId),
     onSuccess: () => {
-      toast.success("Left the channel.");
+      toast.success(t("channelsList.leaveSuccessToast"));
       void qc.invalidateQueries({ queryKey: qk.channels });
       void qc.invalidateQueries({ queryKey: qk.openChannels });
     },
-    onError: (e) => toast.error("Couldn't leave", { description: String(e) }),
+    onError: (e) => toast.error(t("channelsList.leaveErrorToast"), { description: String(e) }),
   });
   const confirmLeave = (c: ChannelDTO) => {
     setLeaveTarget(c);
   };
 
   const tabs: TabSpec<Tab>[] = [
-    { key: "mine", label: "My channels", icon: <Hash size={13} /> },
-    { key: "browse", label: "Browse", icon: <Compass size={13} /> },
+    { key: "mine", label: t("channelsList.tabs.mine"), icon: <Hash size={13} /> },
+    { key: "browse", label: t("channelsList.tabs.browse"), icon: <Compass size={13} /> },
   ];
 
   return (
     <>
       <ListHeader
-        title="Channels"
+        title={t("channelsList.title")}
         action={
           <button
             onClick={() => setNewOpen(true)}
-            title="Add channel"
+            title={t("channelsList.addChannel")}
             className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-soft transition hover:brightness-105"
           >
             <Plus size={16} />
@@ -145,14 +147,14 @@ export function ChannelsList() {
             <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
               type="search"
-              aria-label="Search channels"
-              placeholder="Search channels..."
+              aria-label={t("channelsList.searchAriaLabel")}
+              placeholder={t("channelsList.searchPlaceholder")}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="h-9 w-full rounded-lg border border-border bg-surface-2 pl-9 pr-3 text-sm text-fg outline-none placeholder:text-muted focus:border-accent"
             />
           </label>
-          <div className="flex items-center" role="tablist" aria-label="Channel filters">
+          <div className="flex items-center" role="tablist" aria-label={t("channelsList.filtersAriaLabel")}>
             {(["all", "unread"] as const).map((value) => (
               <button
                 key={value}
@@ -166,7 +168,7 @@ export function ChannelsList() {
                     : "text-muted hover:text-fg"
                 }`}
               >
-                {value}
+                {t(`channelsList.filters.${value}`)}
                 {value === "unread" && unreadCount > 0 && (
                   <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-accent-fg">
                     {unreadCount}
@@ -182,11 +184,11 @@ export function ChannelsList() {
           mine.length === 0 ? (
             <EmptyState
               icon={<Hash size={22} />}
-              title="No channels yet"
-              hint="Tap + to create one, or Browse to find open channels."
+              title={t("channelsList.empty.title")}
+              hint={t("channelsList.empty.hint")}
             />
           ) : visibleMine.length === 0 ? (
-            <EmptyState icon={<Search size={22} />} title="No matching channels" hint="Try another search or filter." />
+            <EmptyState icon={<Search size={22} />} title={t("channelsList.emptySearch.title")} hint={t("channelsList.emptySearch.hint")} />
           ) : (
             visibleMine.map((c) => (
               <ChannelRow
@@ -206,18 +208,18 @@ export function ChannelsList() {
           <div className="flex flex-col items-center gap-3">
             <EmptyState
               icon={<AlertCircle size={22} />}
-              title="Couldn't load open channels"
-              hint="Something went wrong fetching the directory."
+              title={t("channelsList.loadError.title")}
+              hint={t("channelsList.loadError.hint")}
             />
             <Button variant="ghost" size="sm" onClick={() => void retryOpen()}>
-              Try again
+              {t("channelsList.loadError.retry")}
             </Button>
           </div>
         ) : open.length === 0 ? (
           <EmptyState
             icon={<Compass size={22} />}
-            title="No open channels to join"
-            hint="Open channels created by your teammates will show up here."
+            title={t("channelsList.emptyOpen.title")}
+            hint={t("channelsList.emptyOpen.hint")}
           />
         ) : (
           <>
@@ -237,7 +239,7 @@ export function ChannelsList() {
                   loading={fetchingMoreOpen}
                   onClick={() => void fetchMoreOpen()}
                 >
-                  Load more
+                  {t("channelsList.loadMore")}
                 </Button>
               </div>
             )}
@@ -281,6 +283,7 @@ function ChannelRow({
   onLeave: () => void;
   leaving: boolean;
 }) {
+  const { t } = useTranslation("chatList");
   const unread = c.unread > 0;
   const Icon = c.isLocked ? Lock : Hash;
   // Not a NavLink around the whole row any more — see the same note on
@@ -303,8 +306,8 @@ function ChannelRow({
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted">
-              {shortcut && <Pin size={11} aria-label="Pinned" className="text-accent" />}
-              {muted && <BellOff size={11} aria-label="Muted" />}
+              {shortcut && <Pin size={11} aria-label={t("common.pinnedLabel")} className="text-accent" />}
+              {muted && <BellOff size={11} aria-label={t("common.mutedLabel")} />}
               {relTime(c.lastMessageAt)}
             </span>
           </div>
@@ -314,7 +317,7 @@ function ChannelRow({
                 ? ""
                 : c.lastMessage
                   ? withSenderLabel(listPreview(c.lastMessage, isOwnLastMessage), c.lastMessageSender || undefined)
-                  : `${c.memberCount} member${c.memberCount === 1 ? "" : "s"}`}
+                  : t("common.memberCount", { count: c.memberCount })}
             </span>
             {c.unread > 0 && (
               <span
@@ -358,6 +361,7 @@ function ChannelListMenu({
   onLeave: () => void;
   leaving: boolean;
 }) {
+  const { t } = useTranslation("chatList");
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   const wrap = usePopupDismiss<HTMLDivElement>(open, close);
@@ -372,8 +376,8 @@ function ChannelListMenu({
     <div ref={wrap} className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
       <button
         type="button"
-        title="Channel options"
-        aria-label="Channel options"
+        title={t("channelsList.menu.optionsLabel")}
+        aria-label={t("channelsList.menu.optionsLabel")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={(event) => {
@@ -387,23 +391,23 @@ function ChannelListMenu({
       {open && (
         <div
           role="menu"
-          aria-label="Channel options"
+          aria-label={t("channelsList.menu.optionsLabel")}
           className="absolute right-0 z-[1000] mt-1.5 w-52 rounded-xl border border-border bg-surface p-1 shadow-card"
         >
           <ChannelListMenuItem
             icon={<Pin size={15} />}
-            label={pinned ? "Unpin Channel" : "Pin Channel"}
+            label={pinned ? t("channelsList.menu.unpin") : t("channelsList.menu.pin")}
             onClick={pick(onTogglePin)}
           />
           <ChannelListMenuItem
             icon={<LogOut size={15} />}
-            label={leaving ? "Leaving…" : "Leave Channel"}
+            label={leaving ? t("channelsList.menu.leaving") : t("channelsList.menu.leave")}
             onClick={leaving ? undefined : pick(onLeave)}
             danger
           />
           <ChannelListMenuItem
             icon={muted ? <Bell size={15} /> : <BellOff size={15} />}
-            label={muted ? "Unmute Notifications" : "Mute Notifications"}
+            label={muted ? t("common.unmuteNotifications") : t("common.muteNotifications")}
             onClick={pick(onToggleMute)}
           />
         </div>
@@ -448,6 +452,7 @@ function OpenChannelRow({
   onJoin: () => void;
   joining: boolean;
 }) {
+  const { t } = useTranslation("chatList");
   return (
     <div className="flex items-center gap-2 rounded-xl p-2 hover:bg-surface-2">
       <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
@@ -458,11 +463,11 @@ function OpenChannelRow({
           <span className="truncate">{c.name}</span>
         </div>
         <div className="truncate text-xs text-muted">
-          {c.memberCount} member{c.memberCount === 1 ? "" : "s"}
+          {t("common.memberCount", { count: c.memberCount })}
         </div>
       </div>
       <Button size="sm" variant="subtle" onClick={onJoin} loading={joining}>
-        <LogIn size={13} /> Join
+        <LogIn size={13} /> {t("common.join")}
       </Button>
     </div>
   );

@@ -5,8 +5,9 @@ import type { AssigneeStatus, StickyTaskDTO } from "../types/domain";
  *
  * Kept free of Electron/React/IO so it is trivially unit-testable and shared by
  * both the Electron main process (which floats the windows) and the renderer
- * (which offers the "Pin to desktop" button). "pinned" is a desktop-local set
- * the caller owns; these functions never read or write it.
+ * (which offers the "Pin to desktop" button). "pinned" is the caller's set —
+ * on the desktop a local mirror of the durable per-user pin state in sticky-svc,
+ * which is the authority; these functions never read or write it.
  */
 
 /** Result of a pin request, returned from the Electron main process to the
@@ -14,8 +15,12 @@ import type { AssigneeStatus, StickyTaskDTO } from "../types/domain";
  *  guess) and can surface why a pin was refused. */
 export interface PinResult {
   ok: boolean;
-  /** Why the pin was refused (only set when ok === false). */
-  reason?: "limit" | "invalid";
+  /** Why the pin was refused (only set when ok === false). "unpinned" means the
+   *  user's shared pin state for this task (sticky-svc) is UNPINNED, so an
+   *  AUTOMATIC pin request — acknowledging a task is not a request to re-pin —
+   *  must not float it. It is not permanent: the user's own explicit Pin
+   *  (ApiClient.stickyPin) clears it, on any device, and the note comes back. */
+  reason?: "limit" | "invalid" | "unpinned";
   /** The pinned set after the request (the renderer seeds its cache from this). */
   pinned: string[];
 }
@@ -40,7 +45,7 @@ export function canPinTask(status: AssigneeStatus): boolean {
 /**
  * Whether a task should float as a desktop note at all. Unlike `canPinTask`,
  * this includes SENT: a newly assigned task auto-pops on the desktop showing
- * Acknowledge / Ignore, then stays floating once acknowledged (→ Complete).
+ * Acknowledge / Ignore, then stays floating once acknowledged (→ Complete / Leave).
  * Terminal statuses never float — the server drops them from /tasks/sticky.
  */
 export function canFloatTask(status: AssigneeStatus): boolean {
@@ -86,24 +91,4 @@ export function idsToPrune(pinned: Iterable<string>, liveIds: Iterable<string>):
   const out: string[] = [];
   for (const id of pinned) if (!live.has(id)) out.push(id);
   return out;
-}
-
-/**
- * Whether the "Pin to desktop" button should be offered for a task in an in-app
- * surface (the inbox / tasks card). Only when pinning is supported on this
- * platform (Electron), the task is acknowledged, and it isn't already pinned or
- * locked. On web `canPinOnPlatform` is false, so the button never shows.
- */
-export function shouldOfferPin(opts: {
-  status: AssigneeStatus;
-  canPinOnPlatform: boolean;
-  alreadyPinned: boolean;
-  locked: boolean;
-}): boolean {
-  return (
-    opts.canPinOnPlatform &&
-    !opts.alreadyPinned &&
-    !opts.locked &&
-    canPinTask(opts.status)
-  );
 }

@@ -5,6 +5,21 @@ import { z } from "zod";
 export const Role = z.enum(["org_admin", "member"]);
 export type Role = z.infer<typeof Role>;
 
+/** The account's UI theme (packages/ui `ThemePrefs`, same shape). `theme` is a
+ *  bare string, not an enum: a newer client may write an id this build has not
+ *  heard of, and the reader validates it against its own list. */
+export const ThemePrefsDTO = z.object({
+  theme: z.string(),
+  customColors: z.array(z.string()).nullable().default(null),
+  customActive: z.boolean().default(false),
+});
+export type ThemePrefsDTO = z.infer<typeof ThemePrefsDTO>;
+
+export const CustomThemeDTO = z.object({
+  colors: z.array(z.string().regex(/^#[\da-fA-F]{6}$/)).min(1).max(3),
+});
+export type CustomThemeDTO = z.infer<typeof CustomThemeDTO>;
+
 export const UserDTO = z.object({
   id: z.string().uuid(),
   orgId: z.string().uuid(),
@@ -29,6 +44,12 @@ export const UserDTO = z.object({
   mfaEnrolled: z.boolean().default(false),
   orgRequireMfaForAdmins: z.boolean().default(false),
   orgMfaGracePeriodEndsAt: z.string().nullable().default(null),
+  /** The account's UI theme, shared by web and desktop — null until a client
+   *  first publishes one. Only the caller's OWN user carries it (`/auth/me`,
+   *  the profile PATCH); member/directory listings leave it null. */
+  themePrefs: ThemePrefsDTO.nullable().default(null),
+  customTheme: CustomThemeDTO.nullable().optional(),
+  customThemeRevision: z.number().int().nullable().optional(),
 });
 export type UserDTO = z.infer<typeof UserDTO>;
 
@@ -253,6 +274,12 @@ export const OrgMembershipDTO = z.object({
 });
 export type OrgMembershipDTO = z.infer<typeof OrgMembershipDTO>;
 
+export const OrgMembershipPageDTO = z.object({
+  items: z.array(OrgMembershipDTO),
+  hasMore: z.boolean(),
+});
+export type OrgMembershipPageDTO = z.infer<typeof OrgMembershipPageDTO>;
+
 /**
  * The current organization plus any pending deletion.
  *
@@ -280,6 +307,33 @@ export const CaptchaChallengeDTO = z.object({
 });
 export type CaptchaChallengeDTO = z.infer<typeof CaptchaChallengeDTO>;
 
+/** GET /i18n/languages' response — the live set of locales the dynamic
+ *  translation backend can currently produce a catalog for. Never a
+ *  hardcoded client-side list; always whatever auth-svc's Google
+ *  Cloud Translation check just returned (or its Redis-cached copy of it). */
+export const I18nLanguageDTO = z.object({
+  code: z.string(),
+  name: z.string(),
+});
+export type I18nLanguageDTO = z.infer<typeof I18nLanguageDTO>;
+
+export const I18nLanguagesDTO = z.object({
+  languages: z.array(I18nLanguageDTO),
+});
+export type I18nLanguagesDTO = z.infer<typeof I18nLanguagesDTO>;
+
+/** GET /i18n/catalog's response — one i18next-ready resource bundle: `{ [namespace]: { ...nested keys } }`,
+ *  the exact shape `i18next.addResourceBundle(locale, namespace, ...)` wants for each entry.
+ *  `partial` is true when Google failed to translate some strings for this
+ *  request — those keys carry their English source text and rely on the
+ *  client's own `fallbackLng: "en"` to read correctly either way. */
+export const I18nCatalogDTO = z.object({
+  locale: z.string(),
+  namespaces: z.record(z.string(), z.record(z.string(), z.unknown())),
+  partial: z.boolean(),
+});
+export type I18nCatalogDTO = z.infer<typeof I18nCatalogDTO>;
+
 export const SessionDTO = z.object({
   accessToken: z.string(),
   user: UserDTO,
@@ -292,7 +346,7 @@ export type SessionDTO = z.infer<typeof SessionDTO>;
  * when a second factor is still owed. `pendingToken` is a short-lived,
  * single-use, server-only secret the client presents to the MFA
  * challenge-verify endpoint next — or, while `enrollmentRequired` is true, to
- * the TOTP/WebAuthn enroll-start/enroll-confirm endpoints instead (the
+ * the TOTP enroll-start/enroll-confirm endpoints instead (the
  * "restricted enrollment credential": the only way a blocked admin who has
  * never enrolled can reach enrollment, since there is no session yet to
  * authenticate with).
@@ -300,7 +354,7 @@ export type SessionDTO = z.infer<typeof SessionDTO>;
 export const MfaPendingDTO = z.object({
   mfaRequired: z.literal(true).default(true),
   pendingToken: z.string(),
-  methods: z.array(z.enum(["totp", "webauthn"])),
+  methods: z.array(z.literal("totp")),
   enrollmentRequired: z.boolean().default(false),
 });
 export type MfaPendingDTO = z.infer<typeof MfaPendingDTO>;
@@ -314,16 +368,6 @@ export type LoginResult = z.infer<typeof LoginResult>;
 export function isMfaPending(result: LoginResult): result is MfaPendingDTO {
   return "mfaRequired" in result && result.mfaRequired === true;
 }
-
-/** GET /auth/mfa/methods — which second factors the CALLER has registered.
- *  Lets Settings decide whether to offer a passkey as a step-up shortcut
- *  (MFA-disable / backup-codes regenerate) without guessing from
- *  `user.mfaEnrolled` alone — a passkey-only enrollee has no TOTP code or
- *  backup code to fall back on for either action. */
-export const MfaMethodsResult = z.object({
-  methods: z.array(z.enum(["totp", "webauthn"])),
-});
-export type MfaMethodsResult = z.infer<typeof MfaMethodsResult>;
 
 export const OrgMfaSettingsDTO = z.object({
   requireMfaForAdmins: z.boolean(),
@@ -399,6 +443,14 @@ export const MessageKind = z.enum([
   "call_missed",
   "forward_external",
   "screenshot_attempt",
+  "attachment_opened",
+  "attachment_downloaded",
+  "channel_renamed",
+  "channel_created",
+  "channel_member_added",
+  // Server-only, posted into a LOCKED channel when something that originated in
+  // it is forwarded. The body names the forwarder and never the destination.
+  "channel_forward_notice",
 ]);
 export type MessageKind = z.infer<typeof MessageKind>;
 
@@ -593,7 +645,7 @@ export const InboxItemDTO = z.object({
   lastEventAt: z.string(),
   unreadCount: z.number().int().nonnegative(),
   /** Tiny chip surface: 'SENT'|'DELIVERED'|'SEEN' for threads (sender side);
-   *  'SENT'|'ACKNOWLEDGED'|'COMPLETED'|'IGNORED'|'LEFT' for tasks. */
+   *  'SENT'|'ACKNOWLEDGED'|'COMPLETED'|'IGNORED'|'LEFT'|'MISSED' for tasks. */
   statusBadge: z.string().nullable(),
   hiddenForOwner: z.boolean(),
   deletedForOwner: z.boolean(),
@@ -732,11 +784,21 @@ export const AssigneeStatus = z.enum([
   "ACKNOWLEDGED",
   "COMPLETED",
   "LEFT",
+  /** The deadline passed before the assignment was completed. Terminal, and set
+   *  only by task-svc's deadline sweeper — never by a user action. */
+  "MISSED",
 ]);
 export type AssigneeStatus = z.infer<typeof AssigneeStatus>;
 
 export const TaskAction = z.enum(["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]);
 export type TaskAction = z.infer<typeof TaskAction>;
+
+export const TaskParticipantDTO = z.object({
+  userId: z.string().uuid(),
+  username: z.string(),
+  status: AssigneeStatus,
+});
+export type TaskParticipantDTO = z.infer<typeof TaskParticipantDTO>;
 
 /** Star rating on a review — 1..5, or null when the allocator left only text. */
 const ReviewRating = z.number().int().min(1).max(5).nullable().optional();
@@ -748,6 +810,7 @@ export const StickyTaskDTO = z.object({
   orgId: z.string().uuid(),
   title: z.string(),
   description: z.string(),
+  channelId: z.string().nullable().optional(),
   senderId: z.string().uuid(),
   senderUsername: z.string(),
   /** Real name. Prefer this over `senderUsername`, which is the email local-part. */
@@ -763,6 +826,12 @@ export const StickyTaskDTO = z.object({
   reviewedAt: z.string().nullable().optional(),
   review: z.string().nullable().optional(),
   reviewRating: ReviewRating,
+  /** When the task is due; absent/null = no deadline. For a recurring task this
+   *  is the deadline resolved for THIS occurrence. */
+  deadlineAt: z.string().nullable().optional(),
+  /** When the deadline passed unmet (status MISSED). */
+  missedAt: z.string().nullable().optional(),
+  participants: z.array(TaskParticipantDTO).default([]),
 });
 export type StickyTaskDTO = z.infer<typeof StickyTaskDTO>;
 
@@ -773,6 +842,7 @@ export const SentTaskDTO = z.object({
   title: z.string(),
   description: z.string(),
   createdAt: z.string(),
+  deadlineAt: z.string().nullable().optional(),
   assignees: z.array(
     z.object({
       assigneeId: z.string().uuid(),
@@ -783,13 +853,62 @@ export const SentTaskDTO = z.object({
       completedAt: z.string().nullable().optional(),
       ignoredAt: z.string().nullable().optional(),
       leftAt: z.string().nullable().optional(),
+      missedAt: z.string().nullable().optional(),
       reviewedAt: z.string().nullable().optional(),
       review: z.string().nullable().optional(),
       reviewRating: ReviewRating,
     }),
   ),
+  participants: z.array(TaskParticipantDTO).default([]),
 });
 export type SentTaskDTO = z.infer<typeof SentTaskDTO>;
+
+/**
+ * How a recurring series derives each occurrence's deadline.
+ *  - RELATIVE: `amount` `unit` after the occurrence (MINUTES/HOURS elapsed; DAYS are
+ *    calendar days on the wall clock of `timeZone`).
+ *  - FIXED_TIME: `time` ("HH:MM") on the occurrence's own date, in `timeZone`.
+ * `timeZone` is the IANA zone the rule is read in — an offset cannot say what a
+ * wall-clock time means after a DST change.
+ */
+export const DeadlineRule = z.object({
+  kind: z.enum(["RELATIVE", "FIXED_TIME"]),
+  amount: z.number().int().nullable().optional(),
+  unit: z.enum(["MINUTES", "HOURS", "DAYS"]).nullable().optional(),
+  time: z.string().nullable().optional(),
+  timeZone: z.string(),
+});
+export type DeadlineRule = z.infer<typeof DeadlineRule>;
+
+export const ScheduledTaskDTO = z.object({
+  scheduleId: z.string().uuid(),
+  title: z.string(),
+  description: z.string(),
+  /** The first channel only; `channelIds` is the full list. */
+  channelId: z.string().nullable().optional(),
+  channelIds: z.array(z.string()).default([]),
+  kind: z.enum(["SCHEDULED", "RECURRING"]),
+  scheduledFor: z.string().nullable().optional(),
+  startAt: z.string(),
+  nextRunAt: z.string(),
+  frequency: z.string().nullable().optional(),
+  interval: z.number().int().nullable().optional(),
+  weekdays: z.array(z.number().int()),
+  monthlyRule: z.string().nullable().optional(),
+  monthlyDay: z.number().int().nullable().optional(),
+  monthlyOrdinal: z.number().int().nullable().optional(),
+  monthlyWeekday: z.number().int().nullable().optional(),
+  endCondition: z.string(),
+  endAt: z.string().nullable().optional(),
+  occurrenceLimit: z.number().int().nullable().optional(),
+  occurrenceCount: z.number().int(),
+  assignees: z.array(z.object({ userId: z.string(), username: z.string() })),
+  /** SCHEDULED: the one absolute deadline. */
+  deadlineAt: z.string().nullable().optional(),
+  /** RECURRING: the rule each occurrence's deadline is resolved from. */
+  deadlineRule: DeadlineRule.nullable().optional(),
+});
+export type ScheduledTaskDTO = z.infer<typeof ScheduledTaskDTO>;
 
 /** Response from POST …/review — the persisted review. */
 export const ReviewResponse = z.object({
@@ -815,6 +934,8 @@ export const TaskExportRow = z.object({
   ignoredAt: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
   leftAt: z.string().nullable().optional(),
+  deadlineAt: z.string().nullable().optional(),
+  missedAt: z.string().nullable().optional(),
   /** Whole-turnaround seconds (completed − allocated); null unless completed. */
   timeTakenSeconds: z.number().int().nullable().optional(),
   reviewedAt: z.string().nullable().optional(),
@@ -851,23 +972,38 @@ export type AvailabilityDTO = z.infer<typeof AvailabilityDTO>;
 // ── Notifications ────────────────────────────────────────────────────────────
 export const NotificationDTO = z.object({
   id: z.string().uuid(),
-  /** CHANNEL_ADDED is the one non-task kind: notification-svc writes it when
-   *  someone adds you to a channel. Kept an enum rather than a bare string so a
-   *  server that starts emitting a kind this client cannot render fails loudly
-   *  in one place instead of rendering a blank row. */
+  /** Kept an enum rather than a bare string so a server that starts emitting
+   *  a kind this client cannot render fails loudly in one place. */
   kind: z.enum([
+    "TASK_ASSIGNED",
     "TASK_ACKNOWLEDGED",
     "TASK_COMPLETED",
     "TASK_IGNORED",
     "TASK_LEFT",
+    "TASK_WITHDRAWN",
     "CHANNEL_ADDED",
+    "CHANNEL_CREATED",
+    "DM_MESSAGE",
+    "CHANNEL_MESSAGE",
+    "MEETING_SCHEDULED",
+    "MEETING_INVITATION",
   ]),
   text: z.string(),
   taskId: z.string().uuid().nullable(),
+  channelId: z.string().uuid().nullable().optional(),
+  conversationId: z.string().uuid().nullable().optional(),
+  messageId: z.string().uuid().nullable().optional(),
+  callId: z.string().uuid().nullable().optional(),
   read: z.boolean(),
   createdAt: z.string(),
 });
 export type NotificationDTO = z.infer<typeof NotificationDTO>;
+
+export const NotificationPageDTO = z.object({
+  items: z.array(NotificationDTO),
+  nextCursor: z.string().nullable(),
+});
+export type NotificationPageDTO = z.infer<typeof NotificationPageDTO>;
 
 // ── Channels (group chat / teams) ───────────────────────────────────────────────
 export const ChannelDTO = z.object({
@@ -1095,6 +1231,77 @@ export type CallShareDTO = z.infer<typeof CallShareDTO>;
 export const CallRecordingStatus = z.enum(["RECORDING", "READY", "FAILED"]);
 export type CallRecordingStatus = z.infer<typeof CallRecordingStatus>;
 
+/** How a repeating meeting repeats. The vocabulary is task-svc's recurring
+ *  tasks' (see ScheduledTaskDTO): the same frequencies and end conditions, and
+ *  weekdays numbered 0 = Monday … 6 = Sunday — NOT `Date#getDay()`, where
+ *  Sunday is 0. One deliberate difference: `endDate` is a calendar date read in
+ *  `timeZone` ("until 31 December"), not an instant. */
+export const RecurrenceFrequency = z.enum(["DAILY", "WEEKLY", "MONTHLY"]);
+export type RecurrenceFrequency = z.infer<typeof RecurrenceFrequency>;
+
+export const RecurrenceEndCondition = z.enum(["NO_END", "ON_DATE", "AFTER_OCCURRENCES"]);
+export type RecurrenceEndCondition = z.infer<typeof RecurrenceEndCondition>;
+
+export const RecurrenceDTO = z.object({
+  frequency: RecurrenceFrequency,
+  /** "Every N" days, weeks or months by `frequency`. */
+  interval: z.number().int(),
+  /** 0 = Monday … 6 = Sunday. WEEKLY only; empty otherwise. */
+  weekdays: z.array(z.number().int()).default([]),
+  endCondition: RecurrenceEndCondition,
+  /** "YYYY-MM-DD", the last local day an occurrence may start on. ON_DATE only. */
+  endDate: z.string().nullish(),
+  /** Total occurrences, the first included. AFTER_OCCURRENCES only. */
+  occurrenceCount: z.number().int().nullish(),
+  /** The IANA zone the schedule is read in. "10:00 every Monday" is 10:00 there. */
+  timeZone: z.string(),
+});
+export type RecurrenceDTO = z.infer<typeof RecurrenceDTO>;
+
+/** A recurrence as SENT when scheduling or editing. The same fields RecurrenceDTO
+ *  answers with. `weekdays` is required for WEEKLY and refused otherwise;
+ *  `endDate` only with ON_DATE; `occurrenceCount` only with AFTER_OCCURRENCES —
+ *  the server refuses stray fields rather than ignoring them. */
+export interface MeetingRecurrenceInput {
+  frequency: RecurrenceFrequency;
+  interval: number;
+  weekdays?: number[];
+  endCondition: RecurrenceEndCondition;
+  endDate?: string;
+  occurrenceCount?: number;
+  timeZone: string;
+}
+
+export const MeetingSeriesStatus = z.enum(["ACTIVE", "CANCELLED", "COMPLETED"]);
+export type MeetingSeriesStatus = z.infer<typeof MeetingSeriesStatus>;
+
+/** What every occurrence of a repeating meeting carries, so a row can say
+ *  "repeats weekly". Nothing about who was invited. */
+export const SeriesSummaryDTO = z.object({
+  id: z.string().uuid(),
+  status: MeetingSeriesStatus,
+  recurrence: RecurrenceDTO,
+});
+export type SeriesSummaryDTO = z.infer<typeof SeriesSummaryDTO>;
+
+/** A whole series, for its organiser: what an edit form needs. `inviteeIds` and
+ *  `channelIds` are what was PICKED — not who ended up on any one occurrence,
+ *  which also includes the channels' members and the organiser. */
+export const MeetingSeriesDTO = SeriesSummaryDTO.extend({
+  createdBy: z.string().uuid(),
+  title: z.string().default(""),
+  media: z.enum(["audio", "video"]).default("video"),
+  /** The first start; its local date and time of day anchor the whole schedule. */
+  startAt: z.string(),
+  durationMinutes: z.number().int(),
+  /** The first occurrence not yet written, or absent once the series is over. */
+  nextStartAt: z.string().nullish(),
+  inviteeIds: z.array(z.string().uuid()).default([]),
+  channelIds: z.array(z.string().uuid()).default([]),
+  occurrenceCount: z.number().int(),
+});
+export type MeetingSeriesDTO = z.infer<typeof MeetingSeriesDTO>;
+
 export const CallDTO = z.object({
   id: z.string().uuid(),
   orgId: z.string().uuid(),
@@ -1136,6 +1343,13 @@ export const CallDTO = z.object({
    *  A failed recording is reported as neither: there is nothing to play, and
    *  the failure is the operator's to see, not the participants'. */
   recordingStatus: CallRecordingStatus.exclude(["FAILED"]).nullish(),
+  /** The channels a MEETING was addressed to: a record of who was asked, not a
+   *  roster — `participants` is that. Empty for every other kind, and for every
+   *  meeting from before this field existed. */
+  channelIds: z.array(z.string().uuid()).default([]),
+  /** Set on an occurrence of a repeating meeting. Absent for a one-off, and for a
+   *  guest from another organisation, who cannot read the hosting org's series. */
+  series: SeriesSummaryDTO.nullish(),
 });
 export type CallDTO = z.infer<typeof CallDTO>;
 

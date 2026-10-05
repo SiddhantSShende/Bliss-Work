@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { Modal } from "./Modal";
 
@@ -6,7 +7,7 @@ export function ConfirmDialog({
   onClose,
   title,
   message,
-  confirmLabel = "Confirm",
+  confirmLabel,
   danger = false,
   busy = false,
   onConfirm,
@@ -20,15 +21,16 @@ export function ConfirmDialog({
   busy?: boolean;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation("common");
   return (
     <Modal open={open} onClose={onClose} title={title}>
       <p className="text-sm leading-relaxed text-muted">{message}</p>
       <div className="mt-6 flex justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
-          Cancel
+          {t("confirmDialog.cancel")}
         </Button>
         <Button type="button" variant={danger ? "danger" : "primary"} onClick={onConfirm} loading={busy}>
-          {confirmLabel}
+          {confirmLabel ?? t("common:confirmDialog.confirmDefault")}
         </Button>
       </div>
     </Modal>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Paperclip, Upload } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { prettySize } from "../lib/chatEnvelope";
@@ -32,6 +33,7 @@ export function DropConfirm({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation("tasks");
   const previews = useObjectURLs(files);
   const count = files?.length ?? 0;
 
@@ -39,10 +41,10 @@ export function DropConfirm({
     <Modal
       open={count > 0}
       onClose={onCancel}
-      title={count === 1 ? "Attach this file?" : `Attach these ${count} files?`}
+      title={t("dropConfirm.title", { count })}
     >
       <p className="mb-3 text-xs text-muted">
-        Nothing is sent yet — they go to the message box, and you still press Send.
+        {t("dropConfirm.description")}
       </p>
 
       <div className="max-h-64 space-y-1.5 overflow-auto">
@@ -72,10 +74,10 @@ export function DropConfirm({
 
       <div className="mt-3 flex items-center justify-end gap-2">
         <Button variant="secondary" size="sm" onClick={onCancel}>
-          Cancel
+          {t("dropConfirm.cancel")}
         </Button>
         <Button size="sm" onClick={onConfirm}>
-          <Upload size={14} /> Attach
+          <Upload size={14} /> {t("dropConfirm.attach")}
         </Button>
       </div>
     </Modal>

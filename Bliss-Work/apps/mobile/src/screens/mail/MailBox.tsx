@@ -3,7 +3,7 @@ import { Inbox, Mail as MailIcon, PenSquare, RotateCcw, Star, Trash2 } from 'luc
 import { Alert, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { InboxItemDTO, MailDraftDTO } from '@taskboard/shared';
 import { errorText } from '@taskboard/app/lib/errorText';
-import { inFolder, isFeedFolder, isOutgoing, listTime, MAIL_FOLDERS, splitMailPreview, type MailFolder } from '@taskboard/app/lib/mailView';
+import { folderLabel, inFolder, isFeedFolder, isOutgoing, listTime, MAIL_FOLDERS, splitMailPreview, type MailFolder } from '@taskboard/app/lib/mailView';
 import { useMailInbox } from '../../hooks/useMailInbox';
 import { useDeletedMail, useDeleteMail, useDiscardDraft, useMailDrafts, useRestoreMail } from '../../hooks/useMailBoxes';
 import { toggleMailFavorite, useMailPrefs } from '../../lib/mailPrefs';
@@ -179,7 +179,7 @@ export function MailBox({ navigation, query = '' }: Props) {
             const on = f.key === folder;
             return (
               <Pressable key={f.key} onPress={() => setFolder(f.key)} style={[styles.folder, on && styles.folderOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
-                <Text style={[styles.folderText, on && styles.folderTextOn]}>{f.label}</Text>
+                <Text style={[styles.folderText, on && styles.folderTextOn]}>{folderLabel(f.key)}</Text>
                 {f.key === 'inbox' && unread > 0 ? <Badge count={unread} /> : null}
               </Pressable>
             );

@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Menu, Search, UserPlus, Bell, X } from "lucide-react";
 import { Button, IconButton, Wordmark } from "@taskboard/ui";
 import { ProfileMenu } from "./ProfileMenu";
 import { GetAppButton } from "./GetAppButton";
 import { OrgSwitcher } from "./OrgSwitcher";
+import { LanguageSwitcher } from "../i18n/LanguageSwitcher";
+import { unreadBadgeLabel } from "../lib/unreadNotificationCount";
 
 /**
  * Global top navbar: brand · search · invite · notifications · account.
@@ -24,8 +27,10 @@ export function TopNavbar({
   onOpenNotifs: () => void;
   onOpenDrawer: () => void;
 }) {
+  const { t } = useTranslation("appShell");
   const nav = useNavigate();
   const [q, setQ] = useState("");
+  const badge = unreadBadgeLabel(unread);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +40,7 @@ export function TopNavbar({
 
   return (
     <header className="glass relative z-50 mx-2 mb-0 mt-[max(0.5rem,env(safe-area-inset-top))] flex h-14 shrink-0 items-center gap-3 rounded-2xl px-3">
-      <IconButton onClick={onOpenDrawer} title="Menu" aria-label="Open navigation menu" className="md:hidden">
+      <IconButton onClick={onOpenDrawer} title={t("topNavbar.openMenu")} aria-label={t("topNavbar.openNavigationMenu")} className="md:hidden">
         <Menu size={20} />
       </IconButton>
 
@@ -62,7 +67,7 @@ export function TopNavbar({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search people, channels, chats, tasks…"
+            placeholder={t("topNavbar.searchPlaceholder")}
             className={`h-9 w-full rounded-xl border border-border bg-surface/70 pl-9 text-sm text-fg placeholder:text-muted/70 transition-colors focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25 ${q ? "pr-9" : "pr-3"}`}
           />
           {q && (
@@ -72,8 +77,8 @@ export function TopNavbar({
                 setQ("");
                 nav("/app/mail");
               }}
-              title="Clear search"
-              aria-label="Clear search"
+              title={t("topNavbar.clearSearch")}
+              aria-label={t("topNavbar.clearSearch")}
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
             >
               <X size={14} />
@@ -91,23 +96,24 @@ export function TopNavbar({
           onClick={() => nav("/app/invite")}
           className="hidden md:inline-flex"
         >
-          <UserPlus size={15} /> Invite
+          <UserPlus size={15} /> {t("topNavbar.invite")}
         </Button>
         {/* Search moves here below md, in place of the hidden inline form
             above — the mobile header has no room for a full search bar. */}
-        <IconButton onClick={() => nav("/app/search")} title="Search" className="md:hidden">
+        <IconButton onClick={() => nav("/app/search")} title={t("topNavbar.search")} className="md:hidden">
           <Search size={18} />
         </IconButton>
         <div className="relative">
-          <IconButton onClick={onOpenNotifs} title="Notifications">
+          <IconButton onClick={onOpenNotifs} title={t("topNavbar.notifications")}>
             <Bell size={18} />
           </IconButton>
-          {unread > 0 && (
+          {badge && (
             <span className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-semibold text-white">
-              {unread}
+              {badge}
             </span>
           )}
         </div>
+        <LanguageSwitcher />
         <ProfileMenu />
       </div>
     </header>

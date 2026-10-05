@@ -206,6 +206,32 @@ if (existsSync(releaseDir)) {
   }
 }
 
+// ── 5. koffi's Windows binary is bundled (task-pin desktop layer) ─────────────
+// main/desktop-layer.ts loads koffi to keep the pinned task note on the desktop
+// layer, and on ANY load failure it silently falls back to a plain window that
+// the next application buries. So a Windows build without
+// koffi/build/koffi/win32_x64/koffi.node must fail here, not ship quietly.
+function checkKoffiWindowsBinding(resourcesDir, label) {
+  checked++;
+  const node = join(resourcesDir, "app.asar.unpacked/node_modules/koffi/build/koffi/win32_x64/koffi.node");
+  if (!existsSync(node)) {
+    problems.push(
+      `${label}: koffi/build/koffi/win32_x64/koffi.node is missing — pinned task notes ` +
+        `will not stay on the desktop layer and will be buried by other windows.`,
+    );
+  } else if (!head(node, NATIVE_MAGIC.win.bytes.length).equals(NATIVE_MAGIC.win.bytes)) {
+    problems.push(`${label}: koffi win32_x64/koffi.node does not start with the ${NATIVE_MAGIC.win.desc} magic bytes`);
+  }
+}
+
+if (existsSync(releaseDir)) {
+  for (const entry of readdirSync(releaseDir)) {
+    if (entry.includes("win") && entry.endsWith("unpacked")) {
+      checkKoffiWindowsBinding(join(releaseDir, entry, "resources"), entry);
+    }
+  }
+}
+
 if (checked === 0) {
   console.error(
     `check-release-artifacts: found nothing to check under ${releaseDir}.\n` +

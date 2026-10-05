@@ -1,55 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, NavLink } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-import { Plus, ListTodo, Download, Star, MessageSquarePlus, PinOff } from "lucide-react";
-import { Badge, Button, GlassCard, EmptyState, IconButton } from "@taskboard/ui";
-import type { SentTaskDTO, StickyTaskDTO, TaskAction, UserDTO } from "@taskboard/shared";
+import { useTranslation } from "react-i18next";
+import { Plus, ListTodo, Download } from "lucide-react";
+import { Button, GlassCard, EmptyState } from "@taskboard/ui";
+import { actionsFor, canPinTask, type StickyTaskDTO, type TaskAction, type UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
+import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
-import { autoPinAssignedTask, unpinAssignedTask, useAssignedTaskPin } from "../lib/taskPinPrefs";
 import { TERMINAL_VIEW_LIMIT, isTerminalView, terminalAt } from "./tasksBuckets";
+import type { ParticipantTargets } from "../features/AddParticipantsPicker";
 import { AvailablePeople } from "../features/AvailablePeople";
 import { CreateTaskDialog } from "../features/CreateTaskDialog";
 import { ExportTasksDialog } from "../features/ExportTasksDialog";
-import { CreateReviewDialog } from "../features/CreateReviewDialog";
+import { MyTasksBoard } from "../features/MyTasksBoard";
 import { StickyWidget } from "../features/StickyWidget";
-
-type SentAssignee = SentTaskDTO["assignees"][number];
-
-/** Format an ISO instant to the viewer's local date + time (or "" when absent). */
-function fmtTs(iso?: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { TaskPinToggle } from "../features/TaskPinToggle";
 
 const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> = {
   ACKNOWLEDGE: "acknowledge", COMPLETE: "complete", IGNORE: "ignore", LEAVE: "leave",
 };
-const TITLES: Record<string, string> = {
-  mine: "My tasks", allocated: "Allocated to me", available: "Available",
-  completed: "Completed", left: "Left", ignored: "Ignored",
-};
 // Bucket switcher shown only on phones (the TasksList side pane is hidden < md).
 // Keep this order in lockstep with CATS in TasksList.
-const BUCKETS = [
-  { view: "allocated", label: "Allocated" },
-  { view: "available", label: "Available" },
-  { view: "mine", label: "My tasks" },
-  { view: "completed", label: "Completed" },
-  { view: "left", label: "Left" },
-  { view: "ignored", label: "Ignored" },
-] as const;
+const BUCKET_VIEWS = ["allocated", "available", "mine", "completed", "left", "ignored", "missed"] as const;
 
 export function Tasks() {
+  const { t } = useTranslation("tasks");
   const { view = "allocated" } = useParams();
   const [createOpen, setCreateOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -64,38 +42,57 @@ export function Tasks() {
     setCreateOpen(true);
   };
 
+  const titleByView: Record<string, string> = {
+    mine: t("tasksPage.titles.mine"),
+    allocated: t("tasksPage.titles.allocated"),
+    available: t("tasksPage.titles.available"),
+    completed: t("tasksPage.titles.completed"),
+    left: t("tasksPage.titles.left"),
+    ignored: t("tasksPage.titles.ignored"),
+    missed: t("tasksPage.titles.missed"),
+  };
+  const bucketLabel: Record<(typeof BUCKET_VIEWS)[number], string> = {
+    allocated: t("tasksPage.buckets.allocated"),
+    available: t("tasksPage.buckets.available"),
+    mine: t("tasksPage.buckets.mine"),
+    completed: t("tasksPage.buckets.completed"),
+    left: t("tasksPage.buckets.left"),
+    ignored: t("tasksPage.buckets.ignored"),
+    missed: t("tasksPage.buckets.missed"),
+  };
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/60 px-4 py-3 sm:px-5">
-        <h1 className="text-base font-semibold tracking-tight text-fg">{TITLES[view] ?? "Tasks"}</h1>
+        <h1 className="text-base font-semibold tracking-tight text-fg">{titleByView[view] ?? t("tasksPage.titles.default")}</h1>
         <div className="flex items-center gap-2">
           {/* Export emits task rows — nothing to export from a people roster. */}
           {view !== "available" && (
-            <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)} title="Export tasks to Excel">
-              <Download size={15} /> Export
+            <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)} title={t("tasksPage.export.title")}>
+              <Download size={15} /> {t("tasksPage.export.button")}
             </Button>
           )}
-          <Button size="sm" onClick={() => openCreate()}><Plus size={15} /> New task</Button>
+          <Button size="sm" onClick={() => openCreate()}><Plus size={15} /> {t("tasksPage.newTask")}</Button>
         </div>
       </header>
       <ExportTasksDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2 md:hidden">
-        {BUCKETS.map((b) => (
+        {BUCKET_VIEWS.map((bucketView) => (
           <NavLink
-            key={b.view}
-            to={`/app/tasks/${b.view}`}
+            key={bucketView}
+            to={`/app/tasks/${bucketView}`}
             className={({ isActive }) =>
               `shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
                 isActive ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
               }`
             }
           >
-            {b.label}
+            {bucketLabel[bucketView]}
           </NavLink>
         ))}
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-5">
-        {view === "mine" ? <MyTasks />
+        {view === "mine" ? <MyTasksBoard />
           : view === "available" ? <AvailablePeople onAssign={(u) => openCreate([u])} />
             : <AssignedBucket view={view} />}
       </div>
@@ -105,28 +102,16 @@ export function Tasks() {
 }
 
 function AssignedBucket({ view }: { view: string }) {
+  const { t } = useTranslation("tasks");
   const { api, config } = useRuntime();
+  const currentUserId = useSession((s) => s.user?.id);
   const qc = useQueryClient();
   const { data: all = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
   const [page, setPage] = useState(1);
-  const isDesktop = config.kind === "electron";
-  const { isPinned } = useAssignedTaskPin();
 
   useEffect(() => {
     setPage(1);
   }, [view]);
-
-  // Desktop-only, device-local "pinned" marker: the first time an assigned
-  // task shows up here, mark it pinned so it carries an Unpin control. Purely
-  // client-side (see lib/taskPinPrefs) — unrelated to the Electron
-  // "Pin to desktop" sticky-note feature below, which is server/main-process
-  // backed.
-  useEffect(() => {
-    if (!isDesktop) return;
-    for (const t of all as StickyTaskDTO[]) {
-      if (t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED") autoPinAssignedTask(t.taskId);
-    }
-  }, [all, isDesktop]);
 
   // Desktop-only: which tasks the user has pinned to the desktop. Source of
   // truth is the Electron main process; absent on web so the button hides.
@@ -137,6 +122,8 @@ function AssignedBucket({ view }: { view: string }) {
     refetchOnWindowFocus: true,
   });
 
+  // MISSED likewise: a task whose deadline passed unmet is neither completed nor
+  // something the user chose to drop, and it leaves Allocated to me for good.
   // LEFT is its OWN terminal bucket — never folded into "Completed". Leaving a
   // task is a distinct outcome from completing it, and the user must see it
   // labelled "left" (to both parties), not "completed".
@@ -144,8 +131,9 @@ function AssignedBucket({ view }: { view: string }) {
     const matched = all.filter((t: StickyTaskDTO) =>
       view === "ignored" ? t.myStatus === "IGNORED"
         : view === "left" ? t.myStatus === "LEFT"
-          : view === "completed" ? t.myStatus === "COMPLETED"
-            : t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED",
+          : view === "missed" ? t.myStatus === "MISSED"
+            : view === "completed" ? t.myStatus === "COMPLETED"
+              : t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED",
     );
     if (!isTerminalView(view)) return matched;
     // Terminal buckets are history, and history only grows. Show the most
@@ -210,7 +198,7 @@ function AssignedBucket({ view }: { view: string }) {
         const patchStatus = (list: StickyTaskDTO[] | undefined) =>
           (list ?? []).map((t) =>
             t.taskId === taskId
-              ? { ...t, myStatus: "ACKNOWLEDGED" as const }
+              ? { ...t, myStatus: "ACKNOWLEDGED" as const, actions: actionsFor("ACKNOWLEDGED") }
               : t,
           );
         qc.setQueryData<StickyTaskDTO[]>(qk.sticky, patchStatus);
@@ -224,15 +212,21 @@ function AssignedBucket({ view }: { view: string }) {
       if (snapshots?.sticky !== undefined) qc.setQueryData(qk.sticky, snapshots.sticky);
       if (snapshots?.assigned !== undefined) qc.setQueryData(qk.assigned, snapshots.assigned);
       if (snapshots?.inbox !== undefined) qc.setQueryData(qk.inbox, snapshots.inbox);
-      toast.error(`Couldn't ${vars.action.toLowerCase()} the task`, {
+      const actionVerbLabel: Record<TaskAction, string> = {
+        ACKNOWLEDGE: t("tasksPage.actionVerbs.acknowledge"),
+        COMPLETE: t("tasksPage.actionVerbs.complete"),
+        IGNORE: t("tasksPage.actionVerbs.ignore"),
+        LEAVE: t("tasksPage.actionVerbs.leave"),
+      };
+      toast.error(t("tasksPage.toasts.actionFailed", { verb: actionVerbLabel[vars.action] }), {
         description: String(err),
       });
     },
     onSuccess: (_data, vars) => {
       if (vars.action === "COMPLETE") {
-        toast.success("Task completed — the sender has been notified.");
+        toast.success(t("tasksPage.toasts.completed"));
       } else if (vars.action === "LEAVE") {
-        toast.success("You left the task — the sender has been notified.");
+        toast.success(t("tasksPage.toasts.left"));
       }
     },
     // Server reconciliation: refresh every mirror surface so the WS echo
@@ -252,61 +246,77 @@ function AssignedBucket({ view }: { view: string }) {
       void qc.invalidateQueries({ queryKey: qk.availability });
     },
   });
-
-  // Seed the pin cache from main's AUTHORITATIVE result (never an optimistic
-  // guess): this reflects a refused pin (cap reached) and self-corrects if the
-  // task didn't actually float.
-  const pin = async (taskId: string) => {
-    try {
-      const res = await config.pinTask!(taskId);
-      qc.setQueryData<string[]>(qk.taskPins, () => res.pinned);
-      if (!res.ok && res.reason === "limit")
-        toast("Desktop is full — complete or unpin a note first (max 5 pinned).");
-    } catch {
-      // IPC hiccup — reconcile against the real set on the next refetch.
-      void qc.invalidateQueries({ queryKey: qk.taskPins });
-    }
+  // Withdraw from your own assignment is the Ignore / Leave mutation above, not a
+  // new one — same request, same optimistic update, same reconciliation. What it
+  // adds is a latch: `act.isPending` reaches a click a render late, so two quick
+  // clicks would each send a request. Held per task until that request settles.
+  const withdrawing = useRef(new Set<string>());
+  const withdrawSelf = (taskId: string, action: Extract<TaskAction, "IGNORE" | "LEAVE">) => {
+    if (withdrawing.current.has(taskId)) return;
+    withdrawing.current.add(taskId);
+    act.mutate({ taskId, action }, { onSettled: () => withdrawing.current.delete(taskId) });
   };
+  const membership = useMutation({
+    mutationFn: ({ taskId, targets }: { taskId: string; targets: ParticipantTargets }) => api.addTaskParticipants(taskId, targets),
+    onSuccess: () => {
+      toast.success(t("participants.added"));
+      for (const key of [qk.assigned, qk.sticky, qk.inbox, qk.sent]) void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
+  });
+  const withdrawal = useMutation({
+    mutationFn: ({ taskId, userId }: { taskId: string; userId: string }) => api.withdrawTaskParticipant(taskId, userId),
+    onSuccess: () => {
+      toast.success(t("participants.withdrawn"));
+      for (const key of [qk.assigned, qk.sticky, qk.inbox, qk.sent]) void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
+  });
 
   if (tasks.length === 0)
-    return <EmptyState icon={<ListTodo size={24} />} title="Nothing here" hint="Tasks appear here as they arrive." />;
+    return (
+      <EmptyState
+        icon={<ListTodo size={24} />}
+        title={t("tasksPage.empty.title")}
+        hint={view === "missed" ? t("tasksPage.empty.missedHint") : t("tasksPage.empty.hint")}
+      />
+    );
 
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,13rem),1fr))] gap-4">
         <AnimatePresence initial={false}>
-          {tasks.map((t) => {
-          // Lock + "Pinned" chip track exactly what floats: pinned AND still
-          // acknowledged. Keeps the in-app card in lockstep with the desktop
-          // note and avoids a dead/locked card for a non-acknowledged status.
-          const floatable = pinnedIds.includes(t.taskId) && t.myStatus === "ACKNOWLEDGED";
-          const desktopPinned = isDesktop && isPinned(t.taskId);
+          {tasks.map((task) => {
+          // The lock tracks exactly what floats: pinned AND still acknowledged.
+          // Keeps the in-app card in lockstep with the desktop note and avoids a
+          // dead/locked card for a non-acknowledged status.
+          const floatable = pinnedIds.includes(task.taskId) && task.myStatus === "ACKNOWLEDGED";
           return (
             <motion.div
-              key={t.taskId}
+              key={task.taskId}
               layout
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.97 }}
-              className="relative"
+              // min-w-0: a grid item's automatic minimum width is its content's
+              // min-content, so without it a card whose content cannot shrink is not
+              // narrowed to its column — it sticks out of it.
+              className="relative min-w-0"
             >
-              {desktopPinned && (
-                <IconButton
-                  className="absolute right-2 top-2 z-10 bg-surface/90 shadow-soft"
-                  title="Unpin"
-                  aria-label="Unpin"
-                  onClick={() => unpinAssignedTask(t.taskId)}
-                >
-                  <PinOff size={15} />
-                </IconButton>
-              )}
               <StickyWidget
-                task={t}
-                onAction={(a) => act.mutate({ taskId: t.taskId, action: a })}
-                busy={act.isPending && act.variables?.taskId === t.taskId}
-                onPin={config.pinTask ? () => void pin(t.taskId) : undefined}
-                pinned={floatable}
+                task={task}
+                onAction={(a) => act.mutate({ taskId: task.taskId, action: a })}
+                busy={(act.isPending && act.variables?.taskId === task.taskId) || membership.isPending || withdrawal.isPending}
                 locked={floatable}
+                currentUserId={currentUserId}
+                participantLayout="list"
+                onWithdrawSelf={(action) => withdrawSelf(task.taskId, action)}
+                // The top-right corner is the user's shared Pin / Unpin — only for
+                // a task that can still float. Ignore and Leave stay in the
+                // button row.
+                headerPin={canPinTask(task.myStatus) ? <TaskPinToggle taskId={task.taskId} /> : undefined}
+                onAddParticipants={(targets) => membership.mutateAsync({ taskId: task.taskId, targets }).then(() => undefined)}
+                onWithdrawParticipant={(userId) => withdrawal.mutateAsync({ taskId: task.taskId, userId }).then(() => undefined)}
               />
             </motion.div>
           );
@@ -316,113 +326,14 @@ function AssignedBucket({ view }: { view: string }) {
       {isTerminalView(view) && pageCount > 1 && (
         <div className="mt-5 flex items-center justify-center gap-3 text-xs text-muted">
           <Button variant="ghost" size="sm" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
-            Previous
+            {t("tasksPage.pagination.previous")}
           </Button>
-          <span>Page {currentPage} of {pageCount}</span>
+          <span>{t("tasksPage.pagination.pageOf", { current: currentPage, total: pageCount })}</span>
           <Button variant="ghost" size="sm" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>
-            Next
+            {t("tasksPage.pagination.next")}
           </Button>
         </div>
       )}
     </>
-  );
-}
-
-type BadgeTone = "success" | "accent" | "danger" | "neutral";
-const statusTone = (s: string): BadgeTone =>
-  s === "COMPLETED" ? "success" : s === "ACKNOWLEDGED" ? "accent" : s === "IGNORED" || s === "LEFT" ? "danger" : "neutral";
-
-function MyTasks() {
-  const { api } = useRuntime();
-  const { data: tasks = [] } = useQuery({ queryKey: qk.sent, queryFn: () => api.tasksSent() });
-  const [reviewTarget, setReviewTarget] = useState<{ taskId: string; assignee: SentAssignee } | null>(null);
-
-  if (tasks.length === 0)
-    return <EmptyState icon={<ListTodo size={24} />} title="You haven't sent any tasks" hint="Create one with “New task”." />;
-
-  return (
-    <>
-      <div className="grid gap-3">
-        {tasks.map((t: SentTaskDTO) => (
-          <GlassCard key={t.taskId} className="p-4">
-            <div className="font-semibold text-fg">{t.title}</div>
-            {t.description && <p className="mt-1 text-sm text-muted">{t.description}</p>}
-            <div className="mt-3 flex flex-col divide-y divide-border/50">
-              {t.assignees.map((a) => (
-                <AssigneeTimeline
-                  key={a.assigneeId}
-                  assignee={a}
-                  onReview={() => setReviewTarget({ taskId: t.taskId, assignee: a })}
-                />
-              ))}
-            </div>
-          </GlassCard>
-        ))}
-      </div>
-      {reviewTarget && (
-        <CreateReviewDialog
-          open={!!reviewTarget}
-          onClose={() => setReviewTarget(null)}
-          taskId={reviewTarget.taskId}
-          assigneeId={reviewTarget.assignee.assigneeId}
-          assigneeName={reviewTarget.assignee.assigneeUsername}
-          existingText={reviewTarget.assignee.review}
-          existingRating={reviewTarget.assignee.reviewRating}
-        />
-      )}
-    </>
-  );
-}
-
-/** One assignee's status + full timeline + the review the allocator left. */
-function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; onReview: () => void }) {
-  const milestones = [
-    { label: "Allocated", at: a.assignedAt },
-    { label: "Acknowledged", at: a.acknowledgedAt },
-    { label: "Ignored", at: a.ignoredAt },
-    { label: "Completed", at: a.completedAt },
-    { label: "Left", at: a.leftAt },
-    { label: "Reviewed", at: a.reviewedAt },
-  ].filter((m) => m.at);
-
-  return (
-    <div className="py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-2 text-sm font-medium text-fg">
-          {a.assigneeUsername}
-          <Badge tone={statusTone(a.status)}>{a.status.toLowerCase()}</Badge>
-        </span>
-        {a.status === "COMPLETED" && (
-          <Button variant="ghost" size="sm" onClick={onReview}>
-            <MessageSquarePlus size={14} /> {a.review ? "Edit review" : "Write review"}
-          </Button>
-        )}
-      </div>
-      {milestones.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
-          {milestones.map((m) => (
-            <span key={m.label}>
-              <span className="text-fg/70">{m.label}</span> {fmtTs(m.at)}
-            </span>
-          ))}
-        </div>
-      )}
-      {a.review && (
-        <div className="mt-2 rounded-lg bg-surface-2/60 p-2.5 text-sm">
-          {a.reviewRating != null && (
-            <div className="mb-1 flex items-center gap-0.5">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <Star
-                  key={n}
-                  size={14}
-                  className={n <= a.reviewRating! ? "fill-amber-400 text-amber-400" : "text-muted/40"}
-                />
-              ))}
-            </div>
-          )}
-          <p className="whitespace-pre-wrap text-muted">{a.review}</p>
-        </div>
-      )}
-    </div>
   );
 }

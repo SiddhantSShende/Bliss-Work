@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { MessageStatus } from "@taskboard/shared";
 
 /**
@@ -30,13 +31,14 @@ export function MessageStatusBadge({
   status: MessageStatus | undefined;
   className?: string;
 }) {
+  const { t } = useTranslation("chatList");
   if (!status) return null;
 
   const label =
-    status === "PENDING" ? "Sending…" :
-    status === "SENT" ? "Sent" :
-    status === "DELIVERED" ? "Delivered" :
-    "Seen";
+    status === "PENDING" ? t("messageStatus.pending") :
+    status === "SENT" ? t("messageStatus.sent") :
+    status === "DELIVERED" ? t("messageStatus.delivered") :
+    t("messageStatus.seen");
 
   return (
     <span

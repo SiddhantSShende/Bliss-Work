@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Check, Forward, Hash, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Button, Input } from "@taskboard/ui";
@@ -66,6 +67,7 @@ export function ForwardToDialog({
    *  Lets a bulk-selection caller exit selection mode. */
   onDone?: () => void;
 }) {
+  const { t } = useTranslation("chatList");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -146,7 +148,7 @@ export function ForwardToDialog({
 
       const describe = (d: ForwardDestinationResultDTO) =>
         labelOf(targetKey(d.targetKind, d.targetId))?.label ??
-        (d.targetKind === "channel" ? "a channel" : "a person");
+        (d.targetKind === "channel" ? t("forwardTo.fallbackChannel") : t("forwardTo.fallbackPerson"));
       const ok = res.results.filter((d) => d.ok);
       const bad = res.results.filter((d) => !d.ok);
 
@@ -158,18 +160,18 @@ export function ForwardToDialog({
           : only.conversationId
             ? () => openChat(only.conversationId!)
             : null;
-        toast.success(`Forwarded to ${describe(only)}`, {
-          ...(openTarget && { action: { label: "Open", onClick: openTarget } }),
+        toast.success(t("forwardTo.toasts.oneSuccess", { destination: describe(only) }), {
+          ...(openTarget && { action: { label: t("forwardTo.toasts.openAction"), onClick: openTarget } }),
         });
       } else if (bad.length === 0) {
-        toast.success(`Forwarded successfully to ${ok.length} destinations.`);
+        toast.success(t("forwardTo.toasts.allSuccess", { count: ok.length }));
       } else if (ok.length === 0) {
-        toast.error(`Failed to forward to ${bad.length} destination${bad.length === 1 ? "" : "s"}.`, {
+        toast.error(t("forwardTo.toasts.allFailed", { count: bad.length }), {
           description: bad.map(describe).join(", "),
         });
       } else {
-        toast.warning(`Forwarded successfully to ${ok.length} destination${ok.length === 1 ? "" : "s"}.`, {
-          description: `Failed to forward to ${bad.length}: ${bad.map(describe).join(", ")}`,
+        toast.warning(t("forwardTo.toasts.partialSuccess", { count: ok.length }), {
+          description: t("forwardTo.toasts.partialFailedDescription", { count: bad.length, list: bad.map(describe).join(", ") }),
         });
       }
       onDone?.();
@@ -180,8 +182,8 @@ export function ForwardToDialog({
       // bulk selection) one spanning more than one chat/channel. Individual
       // destination refusals arrive in the success body above, not here.
       const message = err instanceof Error ? err.message : "";
-      toast.error("Couldn't forward that", {
-        description: message || "Please try again.",
+      toast.error(t("forwardTo.toasts.genericError.title"), {
+        description: message || t("forwardTo.toasts.genericError.description"),
       });
     },
   });
@@ -199,13 +201,13 @@ export function ForwardToDialog({
     <Modal
       open={open && sourceMessageIds.length > 0}
       onClose={onClose}
-      title={sourceMessageIds.length > 1 ? `Forward ${sourceMessageIds.length} messages` : "Forward to…"}
+      title={sourceMessageIds.length > 1 ? t("forwardTo.titleMultiple", { count: sourceMessageIds.length }) : t("forwardTo.titleSingle")}
     >
       {preview && (
         <div className="mb-3 flex items-start gap-2 rounded-xl bg-surface-2 p-2.5 text-xs text-muted">
           <Forward size={14} className="mt-0.5 shrink-0 text-accent" />
           <span className="line-clamp-2 break-words">
-            {sourceMessageIds.length > 1 && `${sourceMessageIds.length} messages · `}
+            {sourceMessageIds.length > 1 && t("forwardTo.messagesPrefix", { count: sourceMessageIds.length })}
             {readablePrefix(preview) || preview}
           </span>
         </div>
@@ -218,7 +220,7 @@ export function ForwardToDialog({
         />
         <Input
           className="h-9 pl-9"
-          placeholder="Search people and channels…"
+          placeholder={t("forwardTo.searchPlaceholder")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoFocus
@@ -227,26 +229,26 @@ export function ForwardToDialog({
 
       {selected.size > 0 && (
         <div className="mb-2 flex items-center justify-between px-1 text-xs text-muted">
-          <span>{selected.size} selected</span>
+          <span>{t("forwardTo.selectedCount", { count: selected.size })}</span>
           <button
             type="button"
             className="font-medium text-accent hover:text-accent-strong"
             onClick={() => setSelected(new Set())}
           >
-            Clear
+            {t("forwardTo.clearSelection")}
           </button>
         </div>
       )}
 
       <div className="max-h-64 space-y-2 overflow-auto">
         {matches.people.length === 0 && matches.channels.length === 0 && (
-          <p className="px-1 py-6 text-center text-xs text-muted">No people or channels match.</p>
+          <p className="px-1 py-6 text-center text-xs text-muted">{t("forwardTo.noMatches")}</p>
         )}
 
         {matches.people.length > 0 && (
           <section>
             <h3 className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-              People
+              {t("forwardTo.peopleHeading")}
             </h3>
             {matches.people.map((u) => {
               const key = targetKey("user", u.id);
@@ -271,7 +273,7 @@ export function ForwardToDialog({
         {matches.channels.length > 0 && (
           <section>
             <h3 className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-              Channels
+              {t("forwardTo.channelsHeading")}
             </h3>
             {matches.channels.map((c) => {
               const key = targetKey("channel", c.id);
@@ -296,7 +298,7 @@ export function ForwardToDialog({
 
       <div className="mt-3 flex items-center justify-end gap-2">
         <Button variant="secondary" size="sm" onClick={onClose} disabled={forward.isPending}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button
           size="sm"
@@ -305,10 +307,10 @@ export function ForwardToDialog({
         >
           {forward.isPending ? <Loader2 size={14} className="animate-spin" /> : <Forward size={14} />}
           {selected.size === 1 && selectedTargets[0]
-            ? `Forward to ${selectedTargets[0].label}`
+            ? t("forwardTo.forwardToOne", { name: selectedTargets[0].label })
             : selected.size > 1
-              ? `Forward to ${selected.size} destinations`
-              : "Forward"}
+              ? t("forwardTo.forwardToMany", { count: selected.size })
+              : t("forwardTo.forwardDefault")}
         </Button>
       </div>
     </Modal>

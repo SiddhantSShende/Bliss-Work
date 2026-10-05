@@ -1,9 +1,11 @@
 import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Smile } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useTheme } from "@taskboard/ui";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { usePopoverPosition } from "../lib/usePopoverPosition";
 
 /**
  * Emoji selection shared by composers and message reactions.
@@ -19,10 +21,6 @@ import { usePopupDismiss } from "../lib/usePopupDismiss";
 /** The one-tap row offered on a message bubble. Ordered by how often each is
  *  actually used as a reaction, so the common ones need no aiming. */
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "🎉", "😮", "🙏"] as const;
-
-/** Breathing room between the anchor and the panel, and the panel and the
- *  window edge. One constant, so the two never disagree. */
-const POPUP_GAP = 8;
 
 /**
  * The emoji panel, positioned against its trigger and kept inside the window.
@@ -62,53 +60,10 @@ export function EmojiPopup({
   popupRef: React.RefObject<HTMLDivElement | null>;
   children: React.ReactNode;
 }) {
-  const [style, setStyle] = useState<CSSProperties>({
-    // Hidden rather than unmounted for the first pass: the panel has to be in
-    // the document to have a height to measure, and `visibility` reserves
-    // layout without painting it.
-    visibility: "hidden",
-    top: 0,
-    left: 0,
-  });
-
-  useLayoutEffect(() => {
-    const place = () => {
-      const a = anchor.current?.getBoundingClientRect();
-      const el = popupRef.current;
-      if (!a || !el) return;
-
-      const height = el.offsetHeight;
-      const width = el.offsetWidth;
-      const spaceAbove = a.top - POPUP_GAP;
-      const spaceBelow = window.innerHeight - a.bottom - POPUP_GAP;
-      // Below when it actually fits below, otherwise whichever side has more
-      // room. A composer sits at the bottom of the window, so this resolves to
-      // "above" there; a message near the top of the thread resolves to "below".
-      const below = spaceBelow >= height || spaceBelow >= spaceAbove;
-
-      setStyle({
-        visibility: "visible",
-        top: below ? a.bottom + POPUP_GAP : Math.max(POPUP_GAP, a.top - height - POPUP_GAP),
-        // Clamped to the window on both sides, so a trigger near the right edge
-        // does not push the panel off it.
-        left: Math.max(
-          POPUP_GAP,
-          Math.min(a.left, window.innerWidth - width - POPUP_GAP),
-        ),
-        maxHeight: Math.max(0, below ? spaceBelow : spaceAbove),
-      });
-    };
-
-    place();
-    window.addEventListener("resize", place);
-    // Capture, so the thread's own scroll box moving the anchor repositions the
-    // panel too — a scroll event from a nested container does not bubble.
-    window.addEventListener("scroll", place, true);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-    };
-  }, [anchor, popupRef]);
+  // Below when it actually fits below, otherwise whichever side has more
+  // room. A composer sits at the bottom of the window, so this resolves to
+  // "above" there; a message near the top of the thread resolves to "below".
+  const style = usePopoverPosition({ anchor, panelRef: popupRef, preferred: "below" });
 
   if (typeof document === "undefined") return null;
   return createPortal(
@@ -132,6 +87,7 @@ export function EmojiPopup({
  * selection would couple the two components for a gain nobody has asked for.
  */
 export function EmojiPickerButton({ onPick }: { onPick: (emoji: string) => void }) {
+  const { t } = useTranslation("chatMedia");
   const [open, setOpen] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
   // The wrapper holds the trigger, so pressing it again closes rather than
@@ -145,8 +101,8 @@ export function EmojiPickerButton({ onPick }: { onPick: (emoji: string) => void 
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-fg"
-        title="Insert an emoji"
-        aria-label="Insert an emoji"
+        title={t("emojiPicker.insertEmoji")}
+        aria-label={t("emojiPicker.insertEmoji")}
         aria-expanded={open}
       >
         <Smile size={18} />

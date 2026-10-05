@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AlertCircle, ChevronLeft, ChevronRight, FileIcon, Loader2, X } from "lucide-react";
 import type { MediaItem } from "../lib/chatEnvelope";
 import { canPreviewDocInApp, prettySize } from "../lib/chatEnvelope";
@@ -29,6 +30,7 @@ export function Lightbox({
   onClose: () => void;
   onIndexChange: (next: number) => void;
 }) {
+  const { t } = useTranslation("common");
   const [zoomed, setZoomed] = useState(false);
   const current = items[index];
 
@@ -81,18 +83,19 @@ export function Lightbox({
           <div className="truncate text-sm font-medium">{current.name}</div>
           <div className="text-xs text-white/60">
             {prettySize(current.size)}
-            {items.length > 1 ? ` · ${index + 1} of ${items.length}` : ""}
+            {items.length > 1 ? t("lightbox.itemCount", { current: index + 1, total: items.length }) : ""}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {/* No download control, by product decision — attachments are for
-              viewing in the app, not for saving. The server ignores ?dl=1 too
-              (internal/api/attachments.go), so a hand-crafted link cannot
-              re-enable it. */}
+          {/* No download control here on purpose: the viewer is for viewing.
+              The one deliberate download is a file's 3-dot menu → Download on
+              its message (ChatThread → MessageActions → useChatMedia.downloadItem),
+              which is also what records "downloaded" — a second button here
+              would be a second, separately-audited path to the same thing. */}
           <button
             onClick={onClose}
-            title="Close"
-            aria-label="Close"
+            title={t("lightbox.close")}
+            aria-label={t("lightbox.close")}
             className="rounded-full p-2 text-white/80 hover:bg-white/10 hover:text-white"
           >
             <X size={18} />
@@ -107,7 +110,7 @@ export function Lightbox({
               e.stopPropagation();
               go(-1);
             }}
-            aria-label="Previous"
+            aria-label={t("lightbox.previous")}
             className="absolute left-2 z-10 rounded-full bg-black/40 p-2 text-white/80 hover:bg-black/70 hover:text-white"
           >
             <ChevronLeft size={22} />
@@ -115,7 +118,7 @@ export function Lightbox({
         )}
 
         {!url ? (
-          <div className="text-sm text-white/60">Loading…</div>
+          <div className="text-sm text-white/60">{t("lightbox.loading")}</div>
         ) : isVideo ? (
           <video
             src={url}
@@ -151,7 +154,7 @@ export function Lightbox({
               e.stopPropagation();
               go(1);
             }}
-            aria-label="Next"
+            aria-label={t("lightbox.next")}
             className="absolute right-2 z-10 rounded-full bg-black/40 p-2 text-white/80 hover:bg-black/70 hover:text-white"
           >
             <ChevronRight size={22} />
@@ -164,14 +167,15 @@ export function Lightbox({
 
 /**
  * Shown for a type this app has no in-app renderer for — Office documents,
- * archives, and anything else outside `canPreviewDocInApp` plus images/video.
- * There is no fallback to open or download it: the server forces
- * `Content-Disposition: attachment` for everything outside its own inline
- * allowlist (media/mime.go), so a link out would just be a download wearing
- * an Open label. This replaces that dead end with an explicit reason instead
- * of a click that silently does nothing.
+ * archives, and anything else outside `canPreviewDocInApp` plus images/video —
+ * on a host that also has no way to hand it out of the app (see
+ * lib/openAttachment.ts: web opens a browser tab, desktop the OS's own
+ * application, so only mobile and desktop's secondary windows land here).
+ * It is an explicit reason instead of a click that silently does nothing; the
+ * file itself is still reachable through the message's 3-dot menu → Download.
  */
 function UnsupportedPreview({ name }: { name: string }) {
+  const { t } = useTranslation("common");
   return (
     <div
       className="flex max-w-xs flex-col items-center gap-2 text-center text-sm text-white/70"
@@ -179,7 +183,7 @@ function UnsupportedPreview({ name }: { name: string }) {
     >
       <FileIcon size={28} className="text-white/50" />
       <span className="max-w-full truncate font-medium text-white/90">{name}</span>
-      <span>Preview not available for this file type</span>
+      <span>{t("lightbox.previewNotAvailable")}</span>
     </div>
   );
 }
@@ -195,6 +199,7 @@ function UnsupportedPreview({ name }: { name: string }) {
  * the rest of the app uses for documents it cannot preview at all.
  */
 function DocFrame({ url, name }: { url: string; name: string }) {
+  const { t } = useTranslation("common");
   const preview = useBlobUrl(url);
 
   if (preview.error) {
@@ -211,7 +216,7 @@ function DocFrame({ url, name }: { url: string; name: string }) {
           rel="noopener noreferrer"
           className="text-white underline underline-offset-2 hover:text-white/80"
         >
-          Open in browser instead
+          {t("lightbox.openInBrowser")}
         </a>
       </div>
     );
@@ -220,7 +225,7 @@ function DocFrame({ url, name }: { url: string; name: string }) {
   if (!preview.url) {
     return (
       <div className="flex items-center gap-2 text-sm text-white/60">
-        <Loader2 size={16} className="animate-spin" /> Loading preview…
+        <Loader2 size={16} className="animate-spin" /> {t("lightbox.loadingPreview")}
       </div>
     );
   }

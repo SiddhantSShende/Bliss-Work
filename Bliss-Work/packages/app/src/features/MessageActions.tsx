@@ -1,6 +1,8 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import {
   CornerUpLeft,
+  Download,
   Forward,
   MoreHorizontal,
   MailOpen,
@@ -10,8 +12,11 @@ import {
   Trash2,
   EyeOff,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { ReactionDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { usePopoverPosition } from "../lib/usePopoverPosition";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { EmojiGrid, EmojiPopup, QUICK_REACTIONS } from "./EmojiPicker";
 import { WhatsAppIcon } from "./WhatsAppIcon";
@@ -30,6 +35,9 @@ import { WhatsAppIcon } from "./WhatsAppIcon";
  */
 export function MessageActions({
   mine,
+  containerRef,
+  files,
+  onDownload,
   forwardHref,
   onReply,
   onForwardTo,
@@ -43,6 +51,23 @@ export function MessageActions({
   onTogglePin,
 }: {
   mine: boolean;
+  /**
+   * The thread's scroll container. The overflow menu is portalled (see
+   * `menuRef` below — the same reason `EmojiPopup` is), so its placement has
+   * to be measured against something; anchoring that measurement to the
+   * viewport instead of this container is what let the menu flip "above" a
+   * message near the top of the thread and land behind the fixed chat
+   * header, which sits above the container but is still inside the viewport.
+   */
+  containerRef: RefObject<HTMLDivElement | null>;
+  /**
+   * The files this message carries, if any. Each one gets its own "Download"
+   * entry (a lone file just "Download", several name theirs) — the explicit,
+   * deliberate download, and the only one: clicking the file itself opens it.
+   */
+  files?: ReadonlyArray<{ id: string; name: string }>;
+  /** Download one of `files`. Absent (with `files`) where downloading is not offered. */
+  onDownload?: (file: { id: string; name: string }) => void;
   /**
    * The wa.me URL this message forwards to, or undefined to hide the action
    * (offered per-surface; channels and threads differ).
@@ -97,6 +122,7 @@ export function MessageActions({
    *  the caller may not moderate — the server enforces it either way. */
   onTogglePin?: () => void;
 }) {
+  const { t } = useTranslation("chatThread");
   const [menu, setMenu] = useState(false);
   const [emoji, setEmoji] = useState(false);
   // Which destructive confirm to show, if any. Neither delete fires on click
@@ -104,6 +130,7 @@ export function MessageActions({
   // the mistake a confirm step exists to catch.
   const [confirm, setConfirm] = useState<"hide" | "deleteAll" | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   // ONE registration for both panels, because they share a wrapper and only one
   // of them is ever open: each trigger closes the other, so "is anything open
   // here" is the state that dismissal cares about.
@@ -113,8 +140,24 @@ export function MessageActions({
       setMenu(false);
       setEmoji(false);
     },
-    [popupRef],
+    // Both panels are portalled (see menuRef/popupRef's own components), so
+    // neither is inside `wrap` in the DOM — both have to be listed, or
+    // clicking inside either one reads as an outside click and closes it.
+    [popupRef, menuRef],
   );
+  // Prefers above (today's default), flipping to below only when the message
+  // is close enough to the top of the scroll container that the menu would
+  // not fit above it. Aligned to the trigger's right edge for `mine`
+  // messages (whose row is right-aligned) and its left edge otherwise —
+  // matching the menu's previous `right-0`/`left-0` placement.
+  const menuStyle = usePopoverPosition({
+    anchor: wrap,
+    panelRef: menuRef,
+    boundary: containerRef,
+    preferred: "above",
+    align: mine ? "end" : "start",
+    active: menu,
+  });
 
   const item =
     "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-fg transition-colors hover:bg-surface-2";
@@ -127,8 +170,8 @@ export function MessageActions({
         {onReact && (
           <button
             onClick={() => { setEmoji((v) => !v); setMenu(false); }}
-            title="React"
-            aria-label="React to this message"
+            title={t("messageActions.react.title")}
+            aria-label={t("messageActions.react.ariaLabel")}
             className="rounded-full p-1 text-muted hover:bg-surface-2 hover:text-fg"
           >
             <SmilePlus size={13} />
@@ -136,8 +179,8 @@ export function MessageActions({
         )}
         <button
           onClick={() => { setMenu((v) => !v); setEmoji(false); }}
-          title="More"
-          aria-label="Message actions"
+          title={t("messageActions.more.title")}
+          aria-label={t("messageActions.more.ariaLabel")}
           aria-expanded={menu}
           className="rounded-full p-1 text-muted hover:bg-surface-2 hover:text-fg"
         >
@@ -163,23 +206,46 @@ export function MessageActions({
         </EmojiPopup>
       )}
 
-      {menu && (
+      {menu && typeof document !== "undefined" && createPortal(
         <div
+          ref={menuRef}
           role="menu"
-          className={`absolute z-20 ${mine ? "right-0" : "left-0"} bottom-7 w-52 rounded-xl border border-border bg-surface p-1 shadow-soft`}
+          // Portalled to document.body and positioned in fixed coordinates
+          // via menuStyle (see usePopoverPosition) — same reason as
+          // EmojiPopup: a panel positioned inside the thread's scroll box is
+          // clipped by it, which is what let this menu render half-hidden
+          // behind the chat header for a message near the top of the thread.
+          className="fixed z-[1100] w-52 overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-1 shadow-soft"
+          style={menuStyle}
         >
           {onReply && (
             <button role="menuitem" className={item} onClick={() => { onReply(); setMenu(false); }}>
-              <CornerUpLeft size={13} className="text-muted" /> Reply
+              <CornerUpLeft size={13} className="text-muted" /> {t("messageActions.menu.reply")}
             </button>
           )}
+          {onDownload &&
+            files?.map((file) => (
+              <button
+                key={file.id}
+                role="menuitem"
+                className={item}
+                onClick={() => { onDownload(file); setMenu(false); }}
+              >
+                <Download size={13} className="text-muted shrink-0" />
+                <span className="min-w-0 truncate">
+                  {files.length === 1
+                    ? t("messageActions.menu.download")
+                    : t("messageActions.menu.downloadNamed", { name: file.name })}
+                </span>
+              </button>
+            ))}
           {onForwardTo && (
             <button
               role="menuitem"
               className={item}
               onClick={() => { onForwardTo(); setMenu(false); }}
             >
-              <Forward size={13} className="text-muted" /> Forward to chat or channel…
+              <Forward size={13} className="text-muted" /> {t("messageActions.menu.forwardTo")}
             </button>
           )}
           {forwardHref && (
@@ -194,17 +260,17 @@ export function MessageActions({
               rel="noopener noreferrer"
               onClick={() => { onForward?.(); setMenu(false); }}
             >
-              <WhatsAppIcon size={13} className="text-[#25D366]" /> Forward to WhatsApp
+              <WhatsAppIcon size={13} className="text-[#25D366]" /> {t("messageActions.menu.forwardWhatsApp")}
             </a>
           )}
           {onMarkUnread && (
             <button role="menuitem" className={item} onClick={() => { onMarkUnread(); setMenu(false); }}>
-              <MailOpen size={13} className="text-muted" /> Mark as unread
+              <MailOpen size={13} className="text-muted" /> {t("messageActions.menu.markUnread")}
             </button>
           )}
           {onHide && (
             <button role="menuitem" className={item} onClick={() => { setMenu(false); setConfirm("hide"); }}>
-              <EyeOff size={13} className="text-muted" /> Delete for me
+              <EyeOff size={13} className="text-muted" /> {t("messageActions.menu.deleteForMe")}
             </button>
           )}
           {/* "Pin for everyone" — moderators only, so the caller simply does not
@@ -217,9 +283,9 @@ export function MessageActions({
               onClick={() => { onTogglePin(); setMenu(false); }}
             >
               {pinned ? (
-                <><PinOff size={13} className="text-muted" /> Unpin for everyone</>
+                <><PinOff size={13} className="text-muted" /> {t("messageActions.menu.unpinForEveryone")}</>
               ) : (
-                <><Pin size={13} className="text-muted" /> Pin for everyone</>
+                <><Pin size={13} className="text-muted" /> {t("messageActions.menu.pinForEveryone")}</>
               )}
             </button>
           )}
@@ -235,22 +301,23 @@ export function MessageActions({
               className={`${item} text-danger hover:bg-danger/10`}
               onClick={() => { setMenu(false); setConfirm("deleteAll"); }}
             >
-              <Trash2 size={13} /> Delete for everyone
+              <Trash2 size={13} /> {t("messageActions.menu.deleteForEveryone")}
             </button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
 
       <ConfirmDialog
         open={confirm !== null}
         onClose={() => setConfirm(null)}
-        title="Delete message?"
+        title={t("messageActions.confirmDialog.title")}
         message={
           confirm === "deleteAll"
-            ? "Are you sure you want to delete this message? It will be removed for everyone in this conversation."
-            : "Are you sure you want to delete this message? This only removes it from your own view."
+            ? t("messageActions.confirmDialog.deleteAllMessage")
+            : t("messageActions.confirmDialog.deleteMeMessage")
         }
-        confirmLabel="Delete"
+        confirmLabel={t("messageActions.confirmDialog.confirmLabel")}
         danger
         onConfirm={() => {
           if (confirm === "hide") onHide?.();
@@ -274,14 +341,14 @@ export function MessageActions({
  * Falls back to the old wording when there are no names at all, which is what a
  * client holding a cached tally from before reactors existed will have.
  */
-function reactorLabel(r: ReactionDTO): string {
-  const action = r.mine ? "Click to remove your reaction" : "Click to react";
+function reactorLabel(r: ReactionDTO, t: TFunction): string {
+  const action = r.mine ? t("messageActions.reactions.clickToRemove") : t("messageActions.reactions.clickToReact");
   if (!r.reactors || r.reactors.length === 0) return action;
   const named = r.reactors.filter(Boolean);
   if (named.length === 0) return action;
   const hidden = Math.max(0, r.count - named.length);
-  const who = hidden > 0 ? `${named.join(", ")} and ${hidden} more` : named.join(", ");
-  return `${who} reacted with ${r.emoji} — ${action.toLowerCase()}`;
+  const who = hidden > 0 ? t("messageActions.reactions.andMore", { names: named.join(", "), hidden }) : named.join(", ");
+  return t("messageActions.reactions.tooltip", { who, emoji: r.emoji, action: action.toLowerCase() });
 }
 
 /**
@@ -303,11 +370,12 @@ export function ReactionChips({
   reactions: ReactionDTO[];
   onToggle: (emoji: string, on: boolean) => void;
 }) {
+  const { t } = useTranslation("chatThread");
   if (reactions.length === 0) return null;
   return (
     <div className="mt-1 flex flex-wrap gap-1">
       {reactions.map((r) => {
-        const label = reactorLabel(r);
+        const label = reactorLabel(r, t);
         return (
           <button
             key={r.emoji}

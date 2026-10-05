@@ -237,6 +237,20 @@ Three things are load-bearing and fail *silently* if broken, so each has a guard
 Installers keep the 1-hour cache — they are immutable per version, and the 110 MB
 transfer is the expensive part.
 
+`apps/desktop/package.json`'s `nsis.differentialPackage` is explicitly `false`.
+electron-builder's default is `true`: `electron-updater` downloads a binary
+*patch* and applies it directly against whatever is already on disk —
+`electron.exe`, Chromium's own resource/engine files, `app.asar` — instead of
+writing every file fresh. An interrupted or partial patch application (AV
+scanning mid-write, the app killed mid-update, a disk hiccup) leaves those
+files corrupted while the OS's own window chrome — plain `CreateWindow`,
+untouched by any of this — still draws fine: a native title bar with a
+permanently black content area, and even DevTools fails to open, since it is
+a separate Chromium surface needing the same corrupted engine files. That
+shipped for real in 0.3.3. A full download on every update costs more
+bandwidth; it can never leave a half-patched install behind, because there is
+nothing to patch against.
+
 ### The second-source integrity check
 
 The feed above is a single-source trust model: `latest*.yml`'s sha512 comes

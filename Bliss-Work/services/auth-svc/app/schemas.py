@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -14,6 +14,19 @@ Role = Literal["org_admin", "member"]
 # multi-MB payload sent straight to the API, bypassing the client resize.
 MAX_AVATAR_DATA_URL_LENGTH = 500_000
 _AVATAR_DATA_URL_RE = re.compile(r"^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$")
+
+# A theme id is a short token such as "rose" or "rose-dark". The server does NOT
+# keep its own list of valid ids: that would be a third copy to update whenever
+# a colour family is added (themes.ts and both theme-init.js already are), and
+# the clients validate against their own list on read anyway — an id a client
+# does not know is ignored there.
+#
+# Both are enforced with pydantic's own `pattern` constraint rather than a
+# `field_validator` that raises ValueError: a ValueError lands in the error's
+# `ctx`, which errors.py's validation handler cannot JSON-encode, so bad input
+# would surface as a 500 instead of a 422. `pattern` errors carry a plain string.
+_THEME_ID_PATTERN = r"^[A-Za-z]{1,24}(-dark)?$"
+_HEX_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 
 # ── Requests ──────────────────────────────────────────────────────────────────
@@ -39,6 +52,10 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
     captchaId: str | None = Field(default=None, max_length=64)
     captchaValue: str | None = Field(default=None, max_length=64)
+    # Which client is signing in: windows | macos | linux | ios | android |
+    # unknown. Self-declared. Free-form on purpose — an unrecognised value must
+    # mean "CAPTCHA required", not a 422 — see captcha_service.is_exempt_platform.
+    clientPlatform: str | None = Field(default=None, max_length=32)
 
 
 class RefreshRequest(BaseModel):
@@ -57,6 +74,30 @@ class AcceptInviteRequest(BaseModel):
     username: str = Field(min_length=1, max_length=50)
 
 
+class ThemePrefs(BaseModel):
+    """Legacy account theme payload returned for backward compatibility.
+
+    Current clients synchronize only the custom palette definition; selected
+    theme and custom activation remain local to each device.
+    """
+
+    theme: str = Field(pattern=_THEME_ID_PATTERN)
+    # The single custom palette (1-3 #rrggbb colours), kept even while a preset
+    # is the active choice so switching back to "Custom" restores it.
+    customColors: list[Annotated[str, Field(pattern=_HEX_COLOR_PATTERN)]] | None = Field(
+        default=None, min_length=1, max_length=3
+    )
+    customActive: bool = False
+
+
+class CustomThemeDefinition(BaseModel):
+    """The single custom palette shared across a user's authenticated clients."""
+
+    colors: list[Annotated[str, Field(pattern=_HEX_COLOR_PATTERN)]] = Field(
+        min_length=1, max_length=3
+    )
+
+
 class UpdateProfileRequest(BaseModel):
     # Both optional and independently settable: a display-name save and an
     # avatar upload are two different actions in the UI that happen to share
@@ -64,6 +105,8 @@ class UpdateProfileRequest(BaseModel):
     # that always submits both.
     displayName: str | None = Field(default=None, min_length=1, max_length=80)
     avatarUrl: str | None = Field(default=None, max_length=MAX_AVATAR_DATA_URL_LENGTH)
+    themePrefs: ThemePrefs | None = None
+    customTheme: CustomThemeDefinition | None = None
 
     @field_validator("avatarUrl")
     @classmethod
@@ -116,6 +159,16 @@ class UserDTO(BaseModel):
     mfaEnrolled: bool = False
     orgRequireMfaForAdmins: bool = False
     orgMfaGracePeriodEndsAt: str | None = None
+    # The account's UI theme, or None until a client first publishes one — see
+    # ThemePrefs. Populated ONLY by GET/PATCH /auth/me (service.user_dto's
+    # `with_theme_prefs`): every other place a UserDTO is built — a colleague's
+    # profile, the directory, the session returned at login/refresh — leaves it
+    # None, so one member's preference is never served to another.
+    themePrefs: ThemePrefs | None = None
+    # Shared definition and monotonic revision. A null definition with a
+    # revision is an explicit deletion; a missing revision is legacy state.
+    customTheme: CustomThemeDefinition | None = None
+    customThemeRevision: int | None = None
 
 
 class OrgMembershipDTO(BaseModel):
@@ -125,6 +178,11 @@ class OrgMembershipDTO(BaseModel):
     orgName: str
     roles: list[Role]
     active: bool = False
+
+
+class OrgMembershipPageDTO(BaseModel):
+    items: list[OrgMembershipDTO]
+    hasMore: bool
 
 
 class MessageResponse(BaseModel):
@@ -271,51 +329,37 @@ class MfaPendingDTO(BaseModel):
     still owed. `pendingToken` is a short-lived, single-use, server-only
     secret (never emailed) that the client presents to mfa_challenge.py's
     verify endpoint, and — while mfa_enrolled is still false — to the
-    enroll-start/enroll-confirm endpoints in mfa_totp.py/mfa_webauthn.py (the
+    enroll-start/enroll-confirm endpoints in mfa_totp.py (the
     restricted enrollment credential; see
     docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7)."""
 
     mfaRequired: bool = True
     pendingToken: str
-    methods: list[Literal["totp", "webauthn"]]
+    methods: list[Literal["totp"]]
     # True once past the org's mfa_grace_period_ends_at with no enrollment —
     # the client must route straight into enrollment, not a challenge screen.
     enrollmentRequired: bool = False
 
 
-class MfaMethodsDTO(BaseModel):
-    """Which second factors the CALLER (an already-signed-in, enrolled user)
-    has registered — same shape/values as MfaPendingDTO.methods, but for an
-    ordinary Bearer-authed caller rather than a pending login. Lets Settings
-    decide whether to offer a passkey as a step-up shortcut without guessing
-    from mfaEnrolled alone: a passkey-only enrollee has no TOTP secret or
-    backup code to fall back on for MFA-disable / backup-codes regenerate."""
-
-    methods: list[Literal["totp", "webauthn"]]
-
-
 class MfaChallengeRequest(BaseModel):
     pendingToken: str = Field(min_length=1, max_length=512)
-    # Exactly one of these three is set, matching whichever method the client
+    # Exactly one of these two is set, matching whichever method the client
     # is presenting.
     totpCode: str | None = Field(default=None, min_length=6, max_length=10)
     backupCode: str | None = Field(default=None, min_length=1, max_length=32)
-    webauthnCredential: dict | None = None
 
 
 class MfaStepUpRequest(BaseModel):
     """Step-up re-auth shared by two consequential MFA actions — disabling MFA
     and regenerating backup codes: password + a still-valid second factor, so
-    a stolen access token alone can never perform either. Exactly one of
-    totpCode/backupCode/webauthnCredential should be set — mirrors
-    MfaChallengeRequest's three-way choice, except a password is ALSO always
+    a stolen access     token alone can never perform either. Exactly one of totpCode/backupCode
+    should be set — mirrors MfaChallengeRequest's two-way choice, except a password is ALSO always
     required here (an already-signed-in caller has no earlier password check
     in this flow the way a fresh login does)."""
 
     password: str = Field(min_length=1, max_length=256)
     totpCode: str | None = Field(default=None, min_length=6, max_length=10)
     backupCode: str | None = Field(default=None, min_length=1, max_length=32)
-    webauthnCredential: dict | None = None
 
 
 class TotpEnrollStartRequest(BaseModel):
@@ -358,31 +402,6 @@ class TotpEnrollConfirmResponse(BaseModel):
 class BackupCodesRegenerateResponse(BaseModel):
     backupCodes: list[str]
 
-
-class WebauthnRegisterStartRequest(BaseModel):
-    pendingToken: str | None = Field(default=None, max_length=512)
-
-
-class WebauthnRegisterFinishRequest(BaseModel):
-    credential: dict
-    nickname: str | None = Field(default=None, max_length=80)
-    pendingToken: str | None = Field(default=None, max_length=512)
-    # Required only when this membership already has MFA enrolled — i.e. this
-    # call would add another credential to an already-protected account
-    # rather than set up its first factor. Same shape/purpose as
-    # TotpEnrollConfirmRequest.stepUp above; see mfa_webauthn.py's
-    # register_finish.
-    stepUp: MfaStepUpRequest | None = None
-
-
-class WebauthnRegisterFinishResponse(BaseModel):
-    id: str
-    nickname: str | None = None
-    session: SessionDTO | None = None
-
-
-class WebauthnAuthStartRequest(BaseModel):
-    pendingToken: str = Field(min_length=1, max_length=512)
 
 
 class OrgMfaSettingsRequest(BaseModel):

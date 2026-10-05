@@ -70,6 +70,15 @@ _RETRY_BACKOFF = 1.0
 _MAX_ID_LEN = 128
 
 
+def _deserialize_event(value: bytes) -> dict | list | None:
+    """Keep malformed Kafka records skippable instead of failing fetch."""
+    try:
+        return json.loads(value.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        log.warning("malformed_kafka_event_skipped")
+        return None
+
+
 class StickyConsumer:
     """Projects task.events.v1 into the durable pin table."""
 
@@ -111,7 +120,7 @@ class StickyConsumer:
             # earliest, so a freshly deployed replica back-fills pins for tasks
             # assigned before it existed rather than starting blind.
             auto_offset_reset="earliest",
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            value_deserializer=_deserialize_event,
         )
 
     @staticmethod
@@ -345,6 +354,15 @@ class StickyConsumer:
                         # up to an hour in its new one.
                         "  next_eligible_at = CASE WHEN :is_assign THEN now() "
                         "                          ELSE next_eligible_at END, "
+                        # The one lifecycle event allowed to touch the user's
+                        # choice: a fresh assignment (the only UPDATE an
+                        # ASSIGNED event ever reaches is a CLOSED -> OPEN reopen)
+                        # is a new commitment and starts PINNED. Every other
+                        # event leaves pin_state exactly as the user set it.
+                        "  pin_state = CASE WHEN :is_assign THEN 'PINNED' "
+                        "                   ELSE pin_state END, "
+                        "  pin_state_updated_at = CASE WHEN :is_assign AND pin_state <> 'PINNED' "
+                        "                              THEN now() ELSE pin_state_updated_at END, "
                         "  last_event_at = now() "
                         " WHERE org_id = :org AND assignee_id = :me AND task_id = :task"
                     ),

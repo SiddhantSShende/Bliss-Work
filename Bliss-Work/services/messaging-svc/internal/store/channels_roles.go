@@ -164,7 +164,7 @@ func (s *Store) ChannelRoster(
 		rows, err := tx.Query(ctx,
 			`SELECT user_id, role, joined_at FROM channel_members
 			  WHERE channel_id = $1 ORDER BY
-			    CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, joined_at
+			    CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, joined_at, user_id
 			  LIMIT $2 OFFSET $3`,
 			channelID, limit, offset)
 		if err != nil {

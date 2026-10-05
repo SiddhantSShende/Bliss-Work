@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { MessageSquare, NotebookPen } from "lucide-react";
 import { Avatar, Button, EmptyState, Spinner } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
@@ -26,6 +27,7 @@ import { useUserLabels } from "../lib/userLabel";
 type Entry = { id: string; who: string; at: string; text: string };
 
 export function MeetingChatPanel({ callId }: { callId: string }) {
+  const { t } = useTranslation("meetings");
   const { api } = useRuntime();
   const q = useInfiniteQuery({
     queryKey: qk.callChat(callId),
@@ -41,13 +43,14 @@ export function MeetingChatPanel({ callId }: { callId: string }) {
       entries={entries}
       state={q}
       icon={<MessageSquare size={24} />}
-      emptyTitle="No chat in this meeting"
-      emptyHint="Messages sent to everyone in the room are kept here. Private messages are delivered to one person only and are never stored."
+      emptyTitle={t("transcript.chat.emptyTitle")}
+      emptyHint={t("transcript.chat.emptyHint")}
     />
   );
 }
 
 export function MeetingNotesPanel({ callId }: { callId: string }) {
+  const { t } = useTranslation("meetings");
   const { api } = useRuntime();
   const q = useInfiniteQuery({
     queryKey: qk.callNotes(callId),
@@ -63,8 +66,8 @@ export function MeetingNotesPanel({ callId }: { callId: string }) {
       entries={entries}
       state={q}
       icon={<NotebookPen size={24} />}
-      emptyTitle="No notes were taken"
-      emptyHint="Points written in the meeting's Notes panel are kept here."
+      emptyTitle={t("transcript.notes.emptyTitle")}
+      emptyHint={t("transcript.notes.emptyHint")}
     />
   );
 }
@@ -93,6 +96,7 @@ function TranscriptList({
   emptyTitle: string;
   emptyHint: string;
 }) {
+  const { t, i18n } = useTranslation("meetings");
   // The authors, asked for as one set — see useUserLabels on why a per-row
   // lookup would be a request per row.
   const { nameOf, avatarUrlOf } = useUserLabels(entries.map((e) => e.who));
@@ -100,16 +104,16 @@ function TranscriptList({
   if (state.isLoading) {
     return (
       <div className="flex items-center gap-2 p-4 text-sm text-muted">
-        <Spinner /> Loading…
+        <Spinner /> {t("transcript.loading")}
       </div>
     );
   }
   if (state.isError) {
     return (
       <div className="m-2 flex flex-col items-center gap-3 rounded-xl border border-border/60 p-6 text-center">
-        <div className="text-sm font-medium text-fg">Couldn't load this.</div>
+        <div className="text-sm font-medium text-fg">{t("transcript.error")}</div>
         <Button size="sm" variant="secondary" onClick={() => void state.refetch()}>
-          Retry
+          {t("transcript.retry")}
         </Button>
       </div>
     );
@@ -127,7 +131,7 @@ function TranscriptList({
             <div className="flex items-baseline gap-2">
               <span className="truncate text-sm font-semibold text-fg">{nameOf(e.who)}</span>
               <time className="shrink-0 text-[11px] text-muted" dateTime={e.at}>
-                {new Date(e.at).toLocaleTimeString(undefined, {
+                {new Date(e.at).toLocaleTimeString(i18n.language, {
                   hour: "numeric",
                   minute: "2-digit",
                 })}
@@ -149,7 +153,7 @@ function TranscriptList({
             disabled={state.isFetchingNextPage}
             onClick={() => void state.fetchNextPage()}
           >
-            {state.isFetchingNextPage ? "Loading…" : "Load more"}
+            {state.isFetchingNextPage ? t("transcript.loading") : t("transcript.loadMore")}
           </Button>
         </div>
       )}

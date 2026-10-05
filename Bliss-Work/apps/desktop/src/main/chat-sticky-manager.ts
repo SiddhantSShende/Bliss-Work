@@ -13,7 +13,7 @@ const rendererDir = join(here, "../renderer");
 
 /**
  * MAX_CHAT_WIDGETS: per the Phase 8 spec we allow up to 4 chat widgets in
- * addition to MAX_WIDGETS=5 task widgets (the docs called for 8/4=12; we set
+ * addition to the task carousel (the docs called for 8/4=12; we set
  * the lower per-kind quota here so tasks always have their slot). A 12-slot
  * cap settings-gated raise lives in the settings page (not yet wired).
  */
@@ -173,7 +173,7 @@ export class ChatStickyManager {
       // Linux only. On macOS a type:"desktop" window "will not receive focus,
       // keyboard or mouse events" — which for a window whose entire purpose is
       // TYPING a reply means it cannot be used at all. Windows ignores the
-      // option outright. See ./foreground for what each platform can do.
+      // option outright.
       ...(process.platform === "linux" ? { type: "desktop" } : {}),
       hasShadow: true,
       maximizable: false,

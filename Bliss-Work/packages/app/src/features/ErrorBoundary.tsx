@@ -16,6 +16,7 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ApiError } from "@taskboard/shared";
 
 interface Props {
@@ -75,15 +76,16 @@ function DefaultFallback({
   reset: () => void;
   requestId: string;
 }) {
+  const { t } = useTranslation("common");
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-      <div className="text-base font-semibold">Something went wrong.</div>
+      <div className="text-base font-semibold">{t("errorBoundary.title")}</div>
       <div className="max-w-md text-xs text-muted">
-        {error instanceof ApiError ? error.message : "An unexpected error occurred."}
+        {error instanceof ApiError ? error.message : t("errorBoundary.unexpectedError")}
       </div>
       {requestId && (
         <div className="rounded bg-surface-2 px-2 py-1 font-mono text-[11px] text-muted">
-          Reference: {requestId}
+          {t("errorBoundary.reference", { requestId })}
         </div>
       )}
       <div className="mt-2 flex gap-2">
@@ -92,13 +94,13 @@ function DefaultFallback({
           onClick={reset}
           className="rounded-md bg-surface-2 px-3 py-1.5 text-xs font-medium hover:bg-surface-3"
         >
-          Retry
+          {t("errorBoundary.retry")}
         </button>
         <a
           href="/app"
           className="rounded-md bg-surface-2 px-3 py-1.5 text-xs font-medium hover:bg-surface-3"
         >
-          Go home
+          {t("errorBoundary.goHome")}
         </a>
       </div>
     </div>

@@ -1,0 +1,304 @@
+{
+  "preview": {
+    "linkReceived": "Link received",
+    "linkSent": "Link sent",
+    "locationShared": "Location shared",
+    "fileSent": "File sent",
+    "imageSent": "Image sent",
+    "videoSent": "Video sent",
+    "imagesSent_one": "{{count}} image sent",
+    "imagesSent_other": "{{count}} images sent",
+    "filesSent_one": "{{count}} file sent",
+    "filesSent_other": "{{count}} files sent"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "join": "Join",
+    "pinnedLabel": "Pinned",
+    "mutedLabel": "Muted",
+    "muteNotifications": "Mute Notifications",
+    "unmuteNotifications": "Unmute Notifications",
+    "memberCount_one": "{{count}} member",
+    "memberCount_other": "{{count}} members"
+  },
+  "chatsList": {
+    "title": "Chats",
+    "newChat": "New chat",
+    "searchAriaLabel": "Search chats",
+    "searchPlaceholder": "Search chats...",
+    "filtersAriaLabel": "Chat filters",
+    "filters": {
+      "all": "all",
+      "unread": "unread",
+      "mentions": "mentions"
+    },
+    "you": "You",
+    "startChatting": "Start chatting",
+    "empty": {
+      "title": "No chats yet",
+      "hint": "Tap + to start a conversation."
+    },
+    "emptySearch": {
+      "title": "No matching chats",
+      "hint": "Try another search or filter."
+    },
+    "menu": {
+      "optionsLabel": "Chat options",
+      "pin": "Pin Chat",
+      "unpin": "Unpin Chat",
+      "delete": "Delete Chat"
+    },
+    "deleteDialog": {
+      "title": "Delete chat history?",
+      "message": "This will delete this chat history for you. The other person will keep their copy.",
+      "confirmLabel": "Delete chat"
+    },
+    "deleteErrorToast": "Couldn't delete this chat"
+  },
+  "channelsList": {
+    "title": "Channels",
+    "addChannel": "Add channel",
+    "searchAriaLabel": "Search channels",
+    "searchPlaceholder": "Search channels...",
+    "filtersAriaLabel": "Channel filters",
+    "filters": {
+      "all": "all",
+      "unread": "unread"
+    },
+    "tabs": {
+      "mine": "My channels",
+      "browse": "Browse"
+    },
+    "empty": {
+      "title": "No channels yet",
+      "hint": "Tap + to create one, or Browse to find open channels."
+    },
+    "emptySearch": {
+      "title": "No matching channels",
+      "hint": "Try another search or filter."
+    },
+    "loadError": {
+      "title": "Couldn't load open channels",
+      "hint": "Something went wrong fetching the directory.",
+      "retry": "Try again"
+    },
+    "emptyOpen": {
+      "title": "No open channels to join",
+      "hint": "Open channels created by your teammates will show up here."
+    },
+    "loadMore": "Load more",
+    "leaveSuccessToast": "Left the channel.",
+    "leaveErrorToast": "Couldn't leave",
+    "menu": {
+      "optionsLabel": "Channel options",
+      "pin": "Pin Channel",
+      "unpin": "Unpin Channel",
+      "leave": "Leave Channel",
+      "leaving": "Leaving…"
+    }
+  },
+  "leaveChannel": {
+    "titleNamed": "Leave #{{channel}}?",
+    "titleGeneric": "Leave channel?",
+    "messageLocked": "This is a locked channel. A member will need to re-invite you to come back.",
+    "messageOpen": "You can re-join from the Browse tab whenever you want.",
+    "confirmLabel": "Leave channel"
+  },
+  "newChat": {
+    "title": "New chat",
+    "searchPlaceholder": "Search people…",
+    "emptyTitle": "No people found",
+    "errorToast": {
+      "title": "Couldn't start the conversation",
+      "description": "Please try again."
+    }
+  },
+  "addChannel": {
+    "title": "Add Channel",
+    "tabs": {
+      "create": "Create New Channel",
+      "browse": "Add Channel"
+    },
+    "searchPlaceholder": "Search channels…",
+    "loading": "Loading channels…",
+    "empty": {
+      "title": "No channels yet",
+      "hint": "Create one from the other tab."
+    },
+    "emptySearch": {
+      "title": "No matching channels",
+      "hint": "Try another search."
+    },
+    "loadError": "Couldn't load the full channel directory.",
+    "retry": "Retry",
+    "row": {
+      "private": "Private",
+      "public": "Public",
+      "joined": "Joined"
+    }
+  },
+  "createChannel": {
+    "channelNameLabel": "Channel name",
+    "channelNamePlaceholder": "design-team",
+    "visibilityLabel": "Visibility",
+    "openOption": {
+      "label": "Open",
+      "hint": "Anyone in the org can join"
+    },
+    "lockedOption": {
+      "label": "Locked",
+      "hint": "Invite only"
+    },
+    "membersLabel": "Members",
+    "membersLabelWithCount": "Members ({{count}})",
+    "noMembers": "No members added yet.",
+    "removeMemberAriaLabel": "Remove {{name}}",
+    "removeMemberFallback": "member",
+    "addMember": "Add Member",
+    "createButton": "Create channel",
+    "creating": "Creating…",
+    "nameRequiredToast": "Name the channel",
+    "createErrorToast": "Could not create channel"
+  },
+  "renameChannel": {
+    "title": "Rename channel",
+    "placeholder": "Channel name",
+    "save": "Save",
+    "saving": "Saving…",
+    "successToast": "Channel renamed",
+    "errorToast": "Couldn't rename the channel"
+  },
+  "channelMembers": {
+    "addPeople": "Add people",
+    "addedToast": "Added to the channel",
+    "actionFailed": "Action failed",
+    "youSuffix": " (you)",
+    "roles": {
+      "owner": "owner",
+      "admin": "admin",
+      "member": "member"
+    },
+    "workspaceAdmin": "Workspace admin",
+    "unknownUsername": "unknown",
+    "actions": {
+      "makeAdmin": "Make channel admin",
+      "removeAdmin": "Remove as channel admin",
+      "transferOwnership": "Transfer ownership",
+      "removeFromChannel": "Remove from channel",
+      "blockFromChannel": "Block from channel"
+    },
+    "blockedHeading": "Blocked",
+    "unblock": "Unblock",
+    "fallbackThem": "them",
+    "transferConfirm": {
+      "title": "Transfer ownership?",
+      "message": "Make {{name}} the owner of #{{channel}}? You'll become an admin.",
+      "confirmLabel": "Transfer"
+    },
+    "blockConfirm": {
+      "title": "Block from channel?",
+      "message": "Block {{name}} from #{{channel}}? They'll be removed and can't rejoin.",
+      "confirmLabel": "Block"
+    }
+  },
+  "chatSearchBar": {
+    "placeholder": "Search this conversation…",
+    "ariaLabel": "Search this conversation",
+    "noMatches": "No matches",
+    "matchesOfLoaded": "{{matches}} of {{loaded}} loaded",
+    "clearSearch": "Clear search",
+    "closeSearch": "Close search"
+  },
+  "chatAssets": {
+    "tabs": {
+      "media": "Media",
+      "docs": "Docs",
+      "links": "Links"
+    },
+    "scopeNote_one": "From the {{count}} message loaded here — load older messages in the conversation to include more.",
+    "scopeNote_other": "From the {{count}} messages loaded here — load older messages in the conversation to include more.",
+    "emptyMedia": {
+      "title": "No photos or video yet",
+      "hint": "Images and clips shared in this conversation collect here."
+    },
+    "unavailable": "Unavailable",
+    "openItem": "Open {{name}}",
+    "emptyDocs": {
+      "title": "No documents yet",
+      "hint": "Files that aren't photos or video — PDFs, spreadsheets, archives — collect here."
+    },
+    "previewUnavailable": "Preview isn't available for this file type",
+    "emptyLinks": {
+      "title": "No links yet",
+      "hint": "Web addresses posted in this conversation collect here."
+    }
+  },
+  "pinButton": {
+    "pin": "Pin to desktop",
+    "unpin": "Unpin from desktop"
+  },
+  "selectionToolbar": {
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected",
+    "cannotDelete_one": "· {{count}} can't be deleted",
+    "cannotDelete_other": "· {{count}} can't be deleted",
+    "forward": "Forward",
+    "delete": "Delete"
+  },
+  "messageStatus": {
+    "pending": "Sending…",
+    "sent": "Sent",
+    "delivered": "Delivered",
+    "seen": "Seen"
+  },
+  "forwardBadge": {
+    "titleWithPlatform": "{{brand}} opened {{platform}} with the message prefilled. Whether it was sent isn't something we can observe.",
+    "titleWhatsapp": "{{brand}} opened WhatsApp with the message prefilled. Whether it was sent isn't something we can observe.",
+    "notConfirmed": "· not confirmed",
+    "messageForwardedTo": "Message forwarded to {{platform}}"
+  },
+  "forwardTo": {
+    "titleSingle": "Forward to…",
+    "titleMultiple": "Forward {{count}} messages",
+    "messagesPrefix": "{{count}} messages · ",
+    "searchPlaceholder": "Search people and channels…",
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected",
+    "clearSelection": "Clear",
+    "noMatches": "No people or channels match.",
+    "peopleHeading": "People",
+    "channelsHeading": "Channels",
+    "forwardToOne": "Forward to {{name}}",
+    "forwardToMany": "Forward to {{count}} destinations",
+    "forwardDefault": "Forward",
+    "fallbackChannel": "a channel",
+    "fallbackPerson": "a person",
+    "toasts": {
+      "openAction": "Open",
+      "oneSuccess": "Forwarded to {{destination}}",
+      "allSuccess": "Forwarded successfully to {{count}} destinations.",
+      "allFailed_one": "Failed to forward to {{count}} destination.",
+      "allFailed_other": "Failed to forward to {{count}} destinations.",
+      "partialSuccess_one": "Forwarded successfully to {{count}} destination.",
+      "partialSuccess_other": "Forwarded successfully to {{count}} destinations.",
+      "partialFailedDescription": "Failed to forward to {{count}}: {{list}}",
+      "genericError": {
+        "title": "Couldn't forward that",
+        "description": "Please try again."
+      }
+    }
+  },
+  "chatsEmpty": {
+    "welcomeWithName": "Welcome, {{name}} 👋",
+    "welcome": "Welcome 👋",
+    "hint": "Select a chat on the left, or tap + to start a new conversation."
+  },
+  "channelsEmpty": {
+    "title": "Channels",
+    "hint": "Pick a channel on the left, or tap + to create one."
+  },
+  "joinChannel": {
+    "joined": "Joined the channel.",
+    "couldNotJoin": "Couldn't join"
+  }
+}

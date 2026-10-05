@@ -5,6 +5,12 @@ the moment a task is assigned, CLOSED only when it reaches a terminal status.
 Clients ask it what should be stuck to the user's desktop and join the ids
 against task-svc for the note's content.
 
+The same row carries the USER's choice, kept apart from that lifecycle:
+PUT/DELETE /sticky/pins/{task} pin or unpin a task, reversibly, and each change
+is published as `sticky.pin.changed` (via a transactional outbox) so every device
+of that user follows. See app/transitions.py for the two axes and why they must
+never be merged.
+
 Why a service and not a column on task_assignees: this also records DELIVERY —
 whether a note has ever actually reached a screen — which is what lets
 sticky-relay tell "they have seen it and are working on it" apart from "the
@@ -37,6 +43,7 @@ from .consumer import consumer
 from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
+from .outbox import poller as outbox_poller
 from .middleware import BodySizeLimitMiddleware, PrincipalMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .rate_limit import limiter, rate_limit_handler
 from .routes import internal, router
@@ -55,10 +62,12 @@ async def lifespan(app: FastAPI):
     setup_tracing(app)
     await run_migrations()
     await consumer.start()
+    await outbox_poller.start()
     log.info("sticky_svc_started", port=settings.port)
     try:
         yield
     finally:
+        await outbox_poller.stop()
         await consumer.stop()
         await dispose_engine()
         shutdown_tracing(log=log)  # flush any buffered spans (no-op when disabled)

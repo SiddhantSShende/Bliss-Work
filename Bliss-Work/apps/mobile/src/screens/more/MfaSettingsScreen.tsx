@@ -22,10 +22,7 @@ type StepUpAction = 'disable' | 'regenerate' | null;
 /**
  * Mirrors packages/app/src/routes/MfaSettings.tsx (web): enrolled/
  * not-enrolled branches, TOTP enrollment, backup-code regeneration, turning
- * 2FA off — same `api.mfa*` endpoints. Passkey (WebAuthn) is NOT reproduced
- * here: it needs `navigator.credentials`, a browser API React Native has no
- * equivalent for without a dedicated native passkey module this app doesn't
- * have — every other setting on this page is fully functional.
+ * 2FA off — same `api.mfa*` endpoints.
  */
 export function MfaSettingsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();

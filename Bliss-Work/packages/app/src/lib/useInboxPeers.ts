@@ -4,6 +4,7 @@ import { InboxPeerDTO } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { qk } from "./queryBridge";
 import { INBOX_KINDS } from "./inboxKinds";
+import i18n from "../i18n";
 
 /**
  * The People sidebar's data, from either transport.
@@ -53,7 +54,7 @@ const InboxOverviewData = z.object({ inboxPeers: z.array(InboxPeerView) });
 export function peerLabel(peer: InboxPeerView): { name: string; email: string | null } {
   return {
     name:
-      peer.user?.displayName || peer.displayName || peer.username || "Unknown user",
+      peer.user?.displayName || peer.displayName || peer.username || i18n.t("common:unknownUser"),
     email: peer.user?.email || null,
   };
 }

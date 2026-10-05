@@ -37,7 +37,7 @@ def _settings() -> types.SimpleNamespace:
         smtp_username="",
         smtp_password="",
         smtp_starttls=False,
-        redis_url="redis://localhost:6379/0",
+        redis_url="redis://localhost:6379/0", relay_max_concurrency=4,
         poison_max_failures=3,
         # Present so this harness matches a real Settings object. The events
         # here carry no attachments, so nothing reads them — but a stub missing

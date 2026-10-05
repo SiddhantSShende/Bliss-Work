@@ -99,11 +99,12 @@ def _payload_dict(raw) -> dict:
     return json.loads(raw) if isinstance(raw, str) else raw
 
 
-async def test_multi_assignee_create_batches_all_rows(db_app):
+async def test_multi_assignee_create_batches_all_rows(db_app, seed_members):
     """Same three assignees the old per-row loop would have produced: one
     task_assignees row each (status SENT, status_version 0) and one outbox
     row each carrying that assignee's task.assigned event."""
     assignees = [str(uuid.uuid4()) for _ in range(3)]
+    await seed_members(ORG, *assignees)
     async with await _client() as c:
         r = await c.post(
             "/api/v1/tasks",
@@ -131,11 +132,12 @@ async def test_multi_assignee_create_batches_all_rows(db_app):
     assert got_assignee_ids == set(assignees)
 
 
-async def test_idempotency_key_replay_returns_same_task_without_duplicating_rows(db_app):
+async def test_idempotency_key_replay_returns_same_task_without_duplicating_rows(db_app, seed_members):
     """A replayed create (same Idempotency-Key) must resolve to the SAME task
     and must not insert a second copy of its assignee/outbox rows — the
     claim-then-insert race handling this batching change must not disturb."""
     assignees = [str(uuid.uuid4()) for _ in range(2)]
+    await seed_members(ORG, *assignees)
     body = {"title": "Ship it twice?", "assigneeIds": assignees}
     headers = {"Idempotency-Key": "replay-key-1"}
 
@@ -168,7 +170,7 @@ async def test_channel_assignee_list_over_cap_is_rejected(db_app, monkeypatch):
 
     over_cap = [str(uuid.uuid4()) for _ in range(tasks_write.MAX_ASSIGNEES + 1)]
 
-    async def _fake_resolve(channel_id: str, org_id: str) -> list[str]:
+    async def _fake_resolve(channel_id: str, org_id: str, caller_id: str) -> list[str]:
         return over_cap
 
     monkeypatch.setattr(tasks_write, "_resolve_channel_members", _fake_resolve)
@@ -189,7 +191,7 @@ async def test_channel_assignee_list_at_cap_is_accepted(db_app, monkeypatch):
 
     at_cap = [str(uuid.uuid4()) for _ in range(tasks_write.MAX_ASSIGNEES)]
 
-    async def _fake_resolve(channel_id: str, org_id: str) -> list[str]:
+    async def _fake_resolve(channel_id: str, org_id: str, caller_id: str) -> list[str]:
         return at_cap
 
     monkeypatch.setattr(tasks_write, "_resolve_channel_members", _fake_resolve)

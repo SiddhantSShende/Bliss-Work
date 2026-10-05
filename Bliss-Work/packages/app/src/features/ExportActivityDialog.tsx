@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Download } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
@@ -8,11 +9,6 @@ import { qk } from "../lib/queryBridge";
 import { ACTIVITY_RANGES, computeRange, localDay, type RangeKey } from "../lib/dateRange";
 import { exportAllMembersActivityToXlsx, exportMemberActivityToXlsx } from "../lib/xlsxTelemetry";
 import { Modal } from "./Modal";
-
-const RANGES: ReadonlyArray<{ key: RangeKey; label: string }> = [
-  ...ACTIVITY_RANGES,
-  { key: "custom", label: "Custom range" },
-];
 
 /**
  * Download the activity record as .xlsx — the whole workspace, or one member.
@@ -31,11 +27,19 @@ export function ExportActivityDialog({
   /** Present = export this one person. Absent = the whole workspace. */
   member?: { id: string; displayName: string };
 }) {
+  const { t } = useTranslation("shell");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [range, setRange] = useState<RangeKey>("30d");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  // ACTIVITY_RANGES' own labels are defined in lib/dateRange.ts, outside this
+  // migration's file list — left as-is; only this dialog's own "custom" label
+  // is translated here.
+  const ranges: ReadonlyArray<{ key: RangeKey; label: string }> = [
+    ...ACTIVITY_RANGES,
+    { key: "custom", label: t("exportActivity.customRange") },
+  ];
 
   const run = useMutation({
     mutationFn: async () => {
@@ -69,24 +73,28 @@ export function ExportActivityDialog({
     },
     onSuccess: (n) => {
       if (n === 0) {
-        toast.info("No activity in that period — nothing to export.");
+        toast.info(t("exportActivity.toasts.nothingToExport"));
         return;
       }
-      toast.success(`Exported ${n} row${n === 1 ? "" : "s"}`);
+      toast.success(t("exportActivity.toasts.exported", { count: n }));
       onClose();
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Export failed"),
+    onError: (e) => toast.error(e instanceof Error ? e.message : t("exportActivity.toasts.exportFailedFallback")),
   });
 
   return (
     <Modal
       open={open}
       onClose={() => !run.isPending && onClose()}
-      title={member ? `Export ${member.displayName}'s activity` : "Export activity"}
+      title={
+        member
+          ? t("exportActivity.title.forMember", { name: member.displayName })
+          : t("exportActivity.title.workspace")
+      }
     >
       <div className="space-y-4">
         <div className="flex flex-wrap gap-1.5">
-          {RANGES.map((r) => (
+          {ranges.map((r) => (
             <button
               key={r.key}
               onClick={() => setRange(r.key)}
@@ -102,7 +110,7 @@ export function ExportActivityDialog({
         {range === "custom" && (
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <label className="flex items-center gap-2">
-              <span className="text-muted">From</span>
+              <span className="text-muted">{t("exportActivity.from")}</span>
               <input
                 type="date"
                 value={fromDate}
@@ -112,7 +120,7 @@ export function ExportActivityDialog({
               />
             </label>
             <label className="flex items-center gap-2">
-              <span className="text-muted">To</span>
+              <span className="text-muted">{t("exportActivity.to")}</span>
               <input
                 type="date"
                 value={toDate}
@@ -125,17 +133,15 @@ export function ExportActivityDialog({
         )}
 
         <p className="text-xs leading-relaxed text-muted">
-          One row per member per day: active and idle time, sessions, recorded actions,
-          and the section they spent most time in. Dates are counted in
-          your own timezone.
+          {t("exportActivity.description")}
         </p>
 
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" disabled={run.isPending} onClick={onClose}>
-            Cancel
+            {t("exportActivity.cancel")}
           </Button>
           <Button size="sm" loading={run.isPending} onClick={() => run.mutate()}>
-            <Download size={15} /> Export .xlsx
+            <Download size={15} /> {t("exportActivity.exportButton")}
           </Button>
         </div>
       </div>

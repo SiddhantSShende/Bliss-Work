@@ -13,7 +13,8 @@
 import { useEffect, useState } from "react";
 import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon } from "lucide-react";
 import { toast } from "sonner";
-import { Button, PageHeader, useTheme, THEMES, themeClasses, themeName, darkCounterpart, type ThemeId } from "@taskboard/ui";
+import { useTranslation } from "react-i18next";
+import { Button, PageHeader, useTheme, THEMES, customThemeGradient, themeName, darkCounterpart, type CustomTheme, type ThemeDef, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
@@ -22,7 +23,8 @@ import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { loadDesktopNotifs, saveDesktopNotifs } from "../lib/notificationPrefs";
 
 export function Settings() {
-  const { theme } = useTheme();
+  const { t } = useTranslation(["settings", "common"]);
+  const { theme, customThemeActive } = useTheme();
   const { config } = useRuntime();
   const goBack = useGoBack();
   const [desktopNotifs, setDesktopNotifs] = useState(loadDesktopNotifs);
@@ -48,37 +50,37 @@ export function Settings() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        title="Settings"
-        subtitle="Preferences for how the app behaves on this device."
+        title={t("settings:header.title")}
+        subtitle={t("settings:header.subtitle")}
         onBack={goBack}
       />
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-xl space-y-4">
           <SettingRow
             icon={<Palette size={18} />}
-            title="Theme"
-            description={`Currently using ${themeName(theme)}.`}
+            title={t("settings:theme.title")}
+            description={t("settings:theme.description", { theme: customThemeActive ? t("settings:theme.custom.label") : themeName(theme) })}
             action={<ThemeMenu />}
           />
 
           <SettingRow
             icon={<ShieldCheck size={18} />}
-            title="Two-factor authentication"
-            description="Add an authenticator app or a passkey as a second sign-in step."
+            title={t("settings:twoFactor.title")}
+            description={t("settings:twoFactor.description")}
             action={
               <Link to="/app/settings/security">
-                <Button variant="subtle" size="sm">Manage</Button>
+                <Button variant="subtle" size="sm">{t("common:buttons.manage")}</Button>
               </Link>
             }
           />
 
           <SettingRow
             icon={<MonitorSmartphone size={18} />}
-            title="Active sessions"
-            description="See every device signed in to your account, and sign any of them out remotely."
+            title={t("settings:activeSessions.title")}
+            description={t("settings:activeSessions.description")}
             action={
               <Link to="/app/settings/sessions">
-                <Button variant="subtle" size="sm">View</Button>
+                <Button variant="subtle" size="sm">{t("common:buttons.view")}</Button>
               </Link>
             }
           />
@@ -87,26 +89,26 @@ export function Settings() {
               must always be able to find what is recorded about them. */}
           <SettingRow
             icon={<Eye size={18} />}
-            title="Your activity"
-            description="See everything BlissWork records about how you work — the same record your workspace admins see."
+            title={t("settings:activity.title")}
+            description={t("settings:activity.description", { brand: "BlissWork" })}
             action={
               <Link to="/app/settings/activity">
-                <Button variant="subtle" size="sm">View</Button>
+                <Button variant="subtle" size="sm">{t("common:buttons.view")}</Button>
               </Link>
             }
           />
 
           <SettingRow
             icon={desktopNotifs ? <Bell size={18} /> : <BellOff size={18} />}
-            title="Desktop notifications"
+            title={t("settings:desktopNotifications.title")}
             description={
               desktopNotifs
-                ? "Show toasts when new messages and tasks arrive."
-                : "Toasts are paused. You can still see notifications in the bell menu."
+                ? t("settings:desktopNotifications.onDescription")
+                : t("settings:desktopNotifications.offDescription")
             }
             action={
               <Button variant="subtle" size="sm" onClick={toggleNotifs}>
-                {desktopNotifs ? "Turn off" : "Turn on"}
+                {desktopNotifs ? t("settings:desktopNotifications.turnOff") : t("settings:desktopNotifications.turnOn")}
               </Button>
             }
           />
@@ -123,23 +125,55 @@ export function Settings() {
  *  rendered with that theme's own CSS classes, so it reads straight off
  *  theme.css instead of a colour list duplicated here. */
 function ThemeMenu() {
-  const { theme, isDark, toggle, setTheme } = useTheme();
+  const { t } = useTranslation("settings");
+  const { theme, isDark, toggle, setTheme, customTheme, customThemeActive, saveCustomTheme } = useTheme();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const close = () => setOpen(false);
   const wrap = usePopupDismiss<HTMLDivElement>(open, close);
   // THEMES only lists each family's light id (see themes.ts), so comparing
   // `theme` straight against `opt.id` would leave every row unchecked while
   // in Dark mode. Reduce `theme` to its light-mode id first — the family the
   // active theme belongs to, independent of which mode it's currently in.
-  const activeFamily = isDark ? darkCounterpart(theme) : theme;
+  // While the custom theme is active NO preset is selected — `theme` still
+  // holds the preset it was layered over, and checking that row too is what
+  // put a ✓ on both it and Custom.
+  const activeFamily = customThemeActive ? null : isDark ? darkCounterpart(theme) : theme;
+
+  const beginEditing = () => setEditing(true);
+  const cancelEditing = () => setEditing(false);
+
+  if (editing) {
+    return (
+      <div ref={wrap} className="relative">
+        <button
+          type="button"
+          onClick={cancelEditing}
+          title={t("settings:theme.custom.cancel")}
+          aria-label={t("settings:theme.custom.cancel")}
+          className="flex items-center rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+        >
+          <MoreVertical size={18} />
+        </button>
+        <CustomThemeBuilder
+          initial={customTheme}
+          onCancel={cancelEditing}
+          onSave={(next) => {
+            saveCustomTheme(next);
+            setEditing(false);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div ref={wrap} className="relative">
       <button
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
-        title="Change theme"
-        aria-label="Change theme"
+        title={t("settings:theme.changeTheme")}
+        aria-label={t("settings:theme.changeTheme")}
         aria-haspopup="menu"
         aria-expanded={open}
         className="flex items-center rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
@@ -149,12 +183,12 @@ function ThemeMenu() {
       {open && (
         <div
           role="menu"
-          aria-label="Theme"
+          aria-label={t("settings:theme.menuLabel")}
           className="absolute right-0 z-[1000] mt-1.5 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-card"
         >
           <div className="flex gap-1 p-1">
-            <AppearanceOption icon={<Sun size={14} />} label="Light" active={!isDark} onClick={() => isDark && toggle()} />
-            <AppearanceOption icon={<Moon size={14} />} label="Dark" active={isDark} onClick={() => !isDark && toggle()} />
+            <AppearanceOption icon={<Sun size={14} />} label={t("settings:theme.light")} active={!isDark} onClick={() => isDark && toggle()} />
+            <AppearanceOption icon={<Moon size={14} />} label={t("settings:theme.dark")} active={isDark} onClick={() => !isDark && toggle()} />
           </div>
           <div className="my-1 h-px bg-border/60" />
           {THEMES.map((opt) => (
@@ -171,14 +205,97 @@ function ThemeMenu() {
               }}
               className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-2"
             >
-              <ThemeSwatch themeId={opt.id} />
+              <ThemeSwatch theme={opt} />
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{opt.name}</span>
               {opt.id === activeFamily && <Check size={16} className="shrink-0 text-accent" />}
             </button>
           ))}
+          <div className="my-1 h-px bg-border/60" />
+          {customTheme && (
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={customThemeActive}
+              onClick={() => saveCustomTheme(customTheme)}
+              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-2"
+            >
+              <span className="h-9 w-14 shrink-0 rounded-md border border-border" style={{ background: customThemeGradient(customTheme.colors) }} />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{t("settings:theme.custom.label")}</span>
+              {customThemeActive && <Check size={16} className="shrink-0 text-accent" />}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={beginEditing}
+            className="mt-1 flex w-full items-center justify-center rounded-lg border border-dashed border-border px-2 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent-soft"
+          >
+            {customTheme ? t("settings:theme.custom.edit") : t("settings:theme.custom.create")}
+          </button>
         </div>
       )}
     </div>
+  );
+}
+
+function CustomThemeBuilder({
+  initial,
+  onCancel,
+  onSave,
+}: {
+  initial: CustomTheme | null;
+  onCancel: () => void;
+  onSave: (theme: CustomTheme) => void;
+}) {
+  const { t } = useTranslation("settings");
+  const [colors, setColors] = useState<string[]>(initial?.colors ?? ["#6366f1"]);
+
+  const setColorCount = (count: number) => {
+    setColors((current) => Array.from({ length: count }, (_, index) => current[index] ?? current[current.length - 1] ?? "#6366f1"));
+  };
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave({ colors });
+      }}
+      className="absolute right-0 z-[1000] mt-1.5 w-72 rounded-xl border border-border bg-surface p-3 shadow-card"
+    >
+      <div className="mb-3 text-sm font-semibold text-fg">{t("settings:theme.custom.title")}</div>
+      <div className="flex items-center justify-between text-xs font-medium text-muted">
+        <span>{t("settings:theme.custom.colors")}</span>
+        <div className="flex gap-1">
+          {[1, 2, 3].map((count) => (
+            <button
+              key={count}
+              type="button"
+              onClick={() => setColorCount(count)}
+              className={`h-7 w-7 rounded-md border text-xs ${colors.length === count ? "border-accent bg-accent-soft text-accent" : "border-border text-muted"}`}
+            >
+              {count}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-2 flex gap-2">
+        {colors.map((color, index) => (
+          <label key={index} className="flex min-w-0 flex-1 flex-col gap-1 text-[11px] text-muted">
+            {t("settings:theme.custom.color", { number: index + 1 })}
+            <input
+              type="color"
+              value={color}
+              onChange={(event) => setColors((current) => current.map((value, colorIndex) => colorIndex === index ? event.target.value : value))}
+              className="h-10 w-full cursor-pointer rounded-lg border border-border bg-surface p-1"
+            />
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 h-16 rounded-lg border border-border" style={{ background: customThemeGradient(colors) }} aria-label={t("settings:theme.custom.preview")} />
+      <div className="mt-3 flex justify-end gap-2">
+        <Button type="button" variant="subtle" size="sm" onClick={onCancel}>{t("settings:theme.custom.cancel")}</Button>
+        <Button type="submit" size="sm">{t("settings:theme.custom.save")}</Button>
+      </div>
+    </form>
   );
 }
 
@@ -212,23 +329,19 @@ function AppearanceOption({
   );
 }
 
-/** Miniature bg/sidebar/surface/accent preview for one theme, independent of
- *  whichever theme is currently active on <html> — it carries its own theme
- *  classes so the CSS variables it reads resolve to that theme's palette.
- *  The accent swatch is the family's brand-from→brand-to gradient rather
- *  than a flat dot, so a blended family like Blue + Purple reads correctly
- *  as a mix rather than a single flat colour. */
-function ThemeSwatch({ themeId }: { themeId: ThemeId }) {
+/** Miniature preview uses the preset's static palette, not inherited CSS vars. */
+function ThemeSwatch({ theme }: { theme: ThemeDef }) {
+  const { background, surface, surface2, border, brandFrom, brandTo } = theme.preview;
   return (
     <span
-      className={`flex h-9 w-14 shrink-0 overflow-hidden rounded-md border border-border ${themeClasses(themeId).join(" ")}`}
-      style={{ background: "var(--color-bg)" }}
+      className="flex h-9 w-14 shrink-0 overflow-hidden rounded-md border"
+      style={{ backgroundColor: background, borderColor: border }}
     >
-      <span className="h-full w-3 shrink-0" style={{ background: "var(--color-surface-2)" }} />
-      <span className="flex flex-1 items-end justify-end p-1" style={{ background: "var(--color-surface)" }}>
+      <span className="h-full w-3 shrink-0" style={{ backgroundColor: surface2 }} />
+      <span className="flex flex-1 items-end justify-end p-1" style={{ backgroundColor: surface }}>
         <span
           className="h-2 w-2 rounded-full"
-          style={{ background: "linear-gradient(135deg, var(--color-brand-from), var(--color-brand-to))" }}
+          style={{ background: `linear-gradient(135deg, ${brandFrom}, ${brandTo})` }}
         />
       </span>
     </span>
@@ -246,6 +359,7 @@ function ThemeSwatch({ themeId }: { themeId: ThemeId }) {
  * bundle" — which look identical otherwise.
  */
 function AboutRow() {
+  const { t } = useTranslation("settings");
   const { config } = useRuntime();
   const [version, setVersion] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -270,9 +384,9 @@ function AboutRow() {
   useEffect(() => {
     if (!config.onUpdateCheckFailed) return;
     return config.onUpdateCheckFailed((message) => {
-      toast.error("Update download failed", { description: message });
+      toast.error(t("settings:about.toasts.updateDownloadFailed"), { description: message });
     });
-  }, [config]);
+  }, [config, t]);
 
   const check = async () => {
     if (!config.checkForUpdates) return;
@@ -280,15 +394,17 @@ function AboutRow() {
     try {
       const r = await config.checkForUpdates();
       if (r.status === "downloading" || r.status === "available") {
-        toast.success(`Update to ${r.version} is downloading`, {
-          description: "You'll be asked to restart when it's ready.",
+        toast.success(t("settings:about.toasts.updateDownloading", { version: r.version }), {
+          description: t("settings:about.toasts.updateDownloadingDescription"),
         });
       } else if (r.status === "up-to-date") {
-        toast.success("You're up to date", { description: `Version ${r.version}` });
+        toast.success(t("settings:about.toasts.upToDate"), {
+          description: t("settings:about.toasts.upToDateDescription", { version: r.version }),
+        });
       } else {
         // 'unsupported' (dev run / Store build) and 'error' both carry a
         // specific message — show it rather than a generic failure.
-        toast(r.message ?? "Couldn't check for updates");
+        toast(r.message ?? t("settings:about.toasts.checkFailedFallback"));
       }
     } finally {
       setChecking(false);
@@ -296,19 +412,19 @@ function AboutRow() {
   };
 
   const description = version
-    ? `BlissWork ${version} · desktop`
-    : `BlissWork · build ${BUILD_SHA}`;
+    ? t("settings:about.versionDesktop", { brand: "BlissWork", version })
+    : t("settings:about.versionBuild", { brand: "BlissWork", sha: BUILD_SHA });
 
   return (
     <SettingRow
       icon={<Info size={18} />}
-      title="About"
+      title={t("settings:about.title")}
       description={description}
       action={
         config.checkForUpdates ? (
           <Button variant="subtle" size="sm" onClick={check} disabled={checking}>
             <RefreshCw size={14} className={checking ? "animate-spin" : undefined} />
-            {checking ? "Checking…" : "Check for updates"}
+            {checking ? t("settings:about.checking") : t("settings:about.checkForUpdates")}
           </Button>
         ) : null
       }

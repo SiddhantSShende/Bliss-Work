@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useRuntime } from "./runtime";
 import { meetingJoinUrl } from "./meetingDeepLink";
+import { copyText } from "./clipboard";
 
 /**
  * Mint (once) and copy a link anyone can use to join a call.
@@ -15,6 +17,7 @@ import { meetingJoinUrl } from "./meetingDeepLink";
  * each of them — `copyLink` reports success/failure and nothing more.
  */
 export function useCallInviteLink(callId: string) {
+  const { t } = useTranslation("meetings");
   const { api, config } = useRuntime();
   const [link, setLink] = useState<string | null>(null);
 
@@ -23,23 +26,29 @@ export function useCallInviteLink(callId: string) {
       const invite = await api.createCallInvite(callId);
       return meetingJoinUrl(config.webBaseUrl, invite.token);
     },
-    onError: () => toast.error("Couldn't create an invite link"),
+    onError: () => toast.error(t("inviteLink.couldNotCreate")),
   });
 
-  const copyLink = async (): Promise<boolean> => {
-    const url = link ?? (await mint.mutateAsync().catch(() => null));
-    if (!url) return false;
-    setLink(url);
-    try {
-      await navigator.clipboard.writeText(url);
-      return true;
-    } catch {
-      // Insecure origins and older WebViews have no clipboard API. The link is
-      // on screen by now, so there is something to select rather than nothing.
-      toast("Copy failed", { description: "Select the link and copy it manually." });
-      return false;
-    }
+  /** Mint the link if there isn't one yet, without copying it anywhere —
+   *  what a caller that wants the real link ON SCREEN before any copy click
+   *  (MeetingScheduledDialog) calls directly. copyLink below is just this
+   *  plus the clipboard write. */
+  const ensureLink = async (): Promise<string | null> => {
+    if (link) return link;
+    const url = await mint.mutateAsync().catch(() => null);
+    if (url) setLink(url);
+    return url;
   };
 
-  return { link, isPending: mint.isPending, copyLink };
+  const copyLink = async (): Promise<boolean> => {
+    const url = await ensureLink();
+    if (!url) return false;
+    if (await copyText(url)) return true;
+    // The link is on screen by now, so there is something to select rather
+    // than nothing.
+    toast(t("inviteLink.copyFailed"), { description: t("inviteLink.copyManually") });
+    return false;
+  };
+
+  return { link, isPending: mint.isPending, copyLink, ensureLink };
 }

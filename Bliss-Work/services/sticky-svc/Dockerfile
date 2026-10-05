@@ -15,8 +15,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # org.deleted purge loop), services/shared/prune_events (batched-delete
 # retention runner, also used by task-svc, auth-svc and integrations-svc) and
 # services/shared/jwks_auth (hardened JWKS fetch-and-cache, also used by
-# auth-svc, task-svc and integrations-svc). The build needs every one of
-# these directories:
+# auth-svc, task-svc and integrations-svc), services/shared/outbox_dlq (outbox
+# dead-letter quarantine) and services/shared/kafka_lazy_producer (the outbox
+# poller's connect-on-first-use producer), both also used by task-svc. The
+# build needs every one of these directories:
 #
 #     docker build -f services/sticky-svc/Dockerfile .
 #
@@ -40,6 +42,8 @@ COPY services/shared/client_ip services/shared/client_ip
 COPY services/shared/resilience services/shared/resilience
 COPY services/shared/prune_events services/shared/prune_events
 COPY services/shared/jwks_auth services/shared/jwks_auth
+COPY services/shared/outbox_dlq services/shared/outbox_dlq
+COPY services/shared/kafka_lazy_producer services/shared/kafka_lazy_producer
 WORKDIR /src/services/sticky-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 

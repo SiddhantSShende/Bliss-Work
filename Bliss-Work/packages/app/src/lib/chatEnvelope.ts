@@ -26,6 +26,7 @@
  */
 import { parseFileOffer, prettySize, type FileOfferEnvelope } from "./fileOffer";
 import { linkifyMessage } from "./chatFormat";
+import i18n from "../i18n";
 
 /** Unit Separator — a non-printing control char that never appears in typed text. */
 const SENTINEL = String.fromCharCode(0x1f);
@@ -237,21 +238,23 @@ export function listPreview(body: string, isOwn?: boolean): string {
     // still renders normally inside the conversation itself.
     const segments = linkifyMessage(text);
     if (segments.some((segment) => segment.type === "link")) {
-      return isOwn === false ? "Link received" : "Link sent";
+      return isOwn === false
+        ? i18n.t("chatList:preview.linkReceived")
+        : i18n.t("chatList:preview.linkSent");
     }
     return text;
   }
-  if (envelope.kind === "location") return "Location shared";
-  if (envelope.kind === "fileOffer") return "File sent";
+  if (envelope.kind === "location") return i18n.t("chatList:preview.locationShared");
+  if (envelope.kind === "fileOffer") return i18n.t("chatList:preview.fileSent");
   if (envelope.items.length === 1) {
     const mime = envelope.items[0]?.mime ?? "";
-    if (mime.startsWith("image/")) return "Image sent";
-    if (mime.startsWith("video/")) return "Video sent";
-    return "File sent";
+    if (mime.startsWith("image/")) return i18n.t("chatList:preview.imageSent");
+    if (mime.startsWith("video/")) return i18n.t("chatList:preview.videoSent");
+    return i18n.t("chatList:preview.fileSent");
   }
   return envelope.items.every((item) => item.mime.startsWith("image/"))
-    ? `${envelope.items.length} images sent`
-    : `${envelope.items.length} files sent`;
+    ? i18n.t("chatList:preview.imagesSent", { count: envelope.items.length })
+    : i18n.t("chatList:preview.filesSent", { count: envelope.items.length });
 }
 
 /**

@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import type { ApiClient } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { qk } from "./queryKeys";
+import i18n from "../i18n";
 
 /** Only the fields a label (or avatar) needs. The gateway is asked for exactly
  *  these, which is the whole point of asking it rather than the directory.
@@ -68,6 +70,7 @@ export function usersByIdsQuery(api: ApiClient, ids: readonly string[]) {
  * rows arrive over a socket) keep calling this with no argument.
  */
 export function useUserLabels(ids?: readonly string[]) {
+  const { t } = useTranslation("common");
   const { api, config } = useRuntime();
 
   // Sorted + de-duplicated so a re-render that reorders the same people reuses
@@ -101,7 +104,7 @@ export function useUserLabels(ids?: readonly string[]) {
       /** Human name for a user id. `fallback` is typically the DTO's own
        *  `peerDisplayName ?? peerUsername`. */
       nameOf: (userId: string | null | undefined, fallback?: string | null) =>
-        (userId ? byId.get(userId)?.displayName : undefined) || fallback || "Unknown user",
+        (userId ? byId.get(userId)?.displayName : undefined) || fallback || t("unknownUser"),
       /** Email address for a user id — the Inbox's primary identifier. */
       emailOf: (userId: string | null | undefined, fallback?: string | null) =>
         (userId ? byId.get(userId)?.email : undefined) || fallback || "—",
@@ -112,7 +115,7 @@ export function useUserLabels(ids?: readonly string[]) {
       avatarUrlOf: (userId: string | null | undefined): string | null | undefined =>
         userId ? byId.get(userId)?.avatarUrl : undefined,
     }),
-    [byId],
+    [byId, t],
   );
 }
 
@@ -124,5 +127,5 @@ export function useUserLabels(ids?: readonly string[]) {
 export function displayNameOf(
   dto: { peerDisplayName?: string; peerUsername?: string } | null | undefined,
 ): string {
-  return dto?.peerDisplayName || dto?.peerUsername || "Unknown user";
+  return dto?.peerDisplayName || dto?.peerUsername || i18n.t("common:unknownUser");
 }

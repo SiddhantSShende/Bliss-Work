@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     lockout_minutes: int = 15
     require_email_verification: bool = False
 
-    # ── MFA (TOTP + WebAuthn) ────────────────────────────────────────────────
+    # ── MFA (TOTP) ────────────────────────────────────────────────────────────
     # Lifetime of the server-only "MFA pending" token minted after a correct
     # password when a second factor is still owed. Short: it exists only to
     # ferry the caller from POST /auth/login to the challenge-verify endpoint
@@ -68,13 +68,6 @@ class Settings(BaseSettings):
     # this many days' warning (banner, not a lockout) before login starts
     # blocking at the password step until they enroll.
     mfa_grace_period_days: int = 14
-    # WebAuthn relying-party identity. rp_id must be a registrable domain (no
-    # scheme/port) that matches the page origin the ceremony runs on — derived
-    # from web_origin below rather than configured separately, so there is one
-    # source of truth for "what origin is this app" instead of two that could
-    # drift. rp_name is only ever shown to the user, in their OS/browser's
-    # passkey prompt.
-    webauthn_rp_name: str = "BlissWork"
 
     # How long a requested org deletion stays cancellable before the purge job
     # will act on it. Long enough that a mistake is caught by a human coming
@@ -100,12 +93,27 @@ class Settings(BaseSettings):
     # since fetching a challenge is otherwise free and would itself become a
     # DoS/enumeration vector without a budget.
     captcha_rate_limit_per_minute: int = 20
+    # Client platforms whose /auth/login skips the CAPTCHA (comma-separated,
+    # lower-case; empty = nobody is exempt). A product decision: macOS and iOS
+    # sign-ins are not challenged. The platform is DECLARED by the client
+    # (LoginRequest.clientPlatform) and cannot be verified, so this is a policy
+    # switch rather than a control a hostile client has to honour — setting it
+    # empty puts the CAPTCHA back on every platform without a code change.
+    # Never applies to /auth/orgs.
+    captcha_exempt_platforms: str = "macos,ios"
 
     # Redis for distributed rate limiting (honest across pods). Empty = in-process
     # fallback (per-pod, fails open). slowapi_storage_uri overrides redis_url for
     # the slowapi limiter specifically; usually set both to the same redis:// URL.
     redis_url: str = ""
     slowapi_storage_uri: str = ""
+
+    # Server-side-only credential for the dynamic UI-translation endpoints
+    # (routes/i18n.py) — Cloud Translation Basic (v2), API-key auth. Never sent
+    # to, or readable by, any client. Empty disables translation: /i18n/languages
+    # returns no languages and the app stays on its bundled English catalog,
+    # which is the only locale it ever ships client-side.
+    google_translate_api_key: str = ""
 
     # Refresh-cookie security. `secure` MUST be True in production so the cookie
     # is only sent over TLS; driven by env (COOKIE_SECURE) so a prod deploy flips
@@ -169,6 +177,11 @@ class Settings(BaseSettings):
             problems.append("DATA_BLIND_INDEX_KEY is still the dev default")
         if "taskboard_dev_pw" in self.auth_database_url:
             problems.append("AUTH_DATABASE_URL still uses the dev password")
+        if urlsplit(self.auth_database_url).username == "taskboard":
+            problems.append(
+                "AUTH_DATABASE_URL must not use the taskboard superuser role "
+                "— use the least-privileged auth_user role (superuser bypasses Row-Level Security)"
+            )
         if "sslmode=verify-full" not in self.auth_database_url:
             problems.append("AUTH_DATABASE_URL must use sslmode=verify-full in production")
         if not self.cookie_secure:
@@ -186,13 +199,6 @@ class Settings(BaseSettings):
                 + "\n  - ".join(problems)
             )
         return self
-
-    @property
-    def webauthn_rp_id(self) -> str:
-        """The registrable domain of `web_origin`, no scheme/port — WebAuthn's
-        rp.id. Derived rather than a separate setting so there is exactly one
-        place that says what this deployment's web origin is."""
-        return urlsplit(self.web_origin).hostname or "localhost"
 
     @property
     def sqlalchemy_url(self) -> str:
@@ -269,6 +275,12 @@ class Settings(BaseSettings):
             if sep and name.strip() and url.strip():
                 out[name.strip()] = url.strip()
         return out
+
+    @property
+    def captcha_exempt_platform_set(self) -> frozenset[str]:
+        return frozenset(
+            s.strip().lower() for s in self.captcha_exempt_platforms.split(",") if s.strip()
+        )
 
     @property
     def placement_candidate_list(self) -> list[str]:

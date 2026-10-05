@@ -339,11 +339,15 @@ pipeline {
                     # cache upload fails with a TLS error.
                     CONFIG_ARG=""
                     if [ "${REGISTRY_SCHEME}" = "http" ]; then
-                        cat > buildkitd.toml <<EOF
-                        [registry."${REGISTRY}"]
-                        http = true
-                        insecure = true
-                        EOF
+                        # Not a heredoc: this script is indented inside the Groovy string, and
+                        # a heredoc terminator has to start in column 0, so the old one never
+                        # ended and the whole stage died with "unexpected end of file". No
+                        # backslashes either - Groovy would eat them before the shell saw them.
+                        {
+                            echo '[registry."'"${REGISTRY}"'"]'
+                            echo 'http = true'
+                            echo 'insecure = true'
+                        } > buildkitd.toml
                         CONFIG_ARG="--config buildkitd.toml"
                         echo "Registry is plain HTTP - telling BuildKit that."
                     fi

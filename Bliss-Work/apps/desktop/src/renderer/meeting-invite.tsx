@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Logo, isThemeId, themeClasses, defaultThemeFor, ALL_THEME_CLASSES } from "@taskboard/ui";
+import { CUSTOM_THEME_CLASS, customThemeStyle, isCustomThemeActive, isThemeId, readStoredCustomTheme, Logo, themeClasses, defaultThemeFor, ALL_THEME_CLASSES } from "@taskboard/ui";
 import { Phone, Video, X } from "lucide-react";
 import "@taskboard/ui/styles.css";
 import "./index.css";
@@ -37,6 +37,15 @@ function useSyncedTheme(): void {
       const root = document.documentElement;
       root.classList.remove(...ALL_THEME_CLASSES);
       root.classList.add(...classes);
+      root.classList.remove(CUSTOM_THEME_CLASS);
+      for (const property of ["--color-accent", "--color-accent-strong", "--color-accent-fg", "--color-accent-soft", "--color-brand-from", "--color-brand-mid", "--color-brand-to", "--color-brand-gradient"]) {
+        root.style.removeProperty(property);
+      }
+      const custom = readStoredCustomTheme();
+      if (custom && isCustomThemeActive()) {
+        root.classList.add(CUSTOM_THEME_CLASS);
+        for (const [property, value] of Object.entries(customThemeStyle(custom))) root.style.setProperty(property, value);
+      }
     };
     apply();
     window.addEventListener("storage", apply);

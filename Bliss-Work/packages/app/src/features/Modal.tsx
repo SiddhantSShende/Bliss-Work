@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 
 /**
@@ -14,6 +15,15 @@ import { X } from "lucide-react";
  *
  * `dvh` rather than `vh`: on mobile browsers the URL bar makes `vh` overshoot
  * the visible area, which is exactly the case we're trying to fix.
+ *
+ * FOOTER: a dialog whose actions must stay reachable passes `footer`. It is a
+ * `shrink-0` sibling BELOW the scrolling body — never a `position:sticky`
+ * child inside it. A sticky footer is pinned to the scroller's content box
+ * (24px above the dialog edge, because of the body padding), so scrolled
+ * content showed through the gap beneath it, and the browser's
+ * focus-into-view scrolled controls behind it because it doesn't know an
+ * overlay is there. A sibling shrinks the scrollport instead, so neither can
+ * happen.
  */
 
 /** Escape-to-close + focus trap + focus restore, shared by Modal and Sheet —
@@ -96,11 +106,15 @@ export function Modal({
   onClose,
   children,
   title,
+  footer,
 }: {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
   title?: string;
+  /** Pinned under the scrolling body (see FOOTER above). Optional: every
+   *  existing caller renders its own buttons inside `children`, unchanged. */
+  footer?: React.ReactNode;
 }) {
   const panelRef = useDialogBehavior(open, onClose);
 
@@ -137,6 +151,11 @@ export function Modal({
             <div className={`min-h-0 flex-1 overflow-y-auto px-6 pb-6 ${title ? "pt-4" : "pt-6"}`}>
               {children}
             </div>
+            {footer && (
+              // rounded-b-2xl: the panel isn't overflow-hidden, so a square
+              // opaque footer would paint over the panel's rounded corners.
+              <div className="shrink-0 rounded-b-2xl border-t border-border bg-surface px-6 py-3">{footer}</div>
+            )}
           </motion.div>
         </motion.div>
       )}
@@ -171,6 +190,7 @@ export function Sheet({
    *  hamburger-opens-a-left-drawer convention every other sheet doesn't. */
   side?: "left" | "right";
 }) {
+  const { t } = useTranslation("common");
   const panelRef = useDialogBehavior(open, onClose);
   const fromLeft = side === "left";
 
@@ -206,8 +226,8 @@ export function Sheet({
                   <button
                     type="button"
                     onClick={onClose}
-                    title="Close"
-                    aria-label="Close"
+                    title={t("modal.close")}
+                    aria-label={t("modal.close")}
                     className="-mr-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
                   >
                     <X size={15} />

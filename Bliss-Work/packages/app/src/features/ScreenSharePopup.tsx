@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronsRight, ScreenShare, Square } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
 import { useCallDuration } from "../lib/callTimer";
 
@@ -28,6 +29,7 @@ export function ScreenSharePopup({
   onStop: () => void;
   className?: string;
 }) {
+  const { t } = useTranslation("calls");
   const [collapsed, setCollapsed] = useState(false);
   const duration = useCallDuration(startedAt);
 
@@ -39,8 +41,8 @@ export function ScreenSharePopup({
             key="tab"
             type="button"
             onClick={() => setCollapsed(false)}
-            title="Show screen sharing controls"
-            aria-label="Show screen sharing controls"
+            title={t("screenShare.showControls")}
+            aria-label={t("screenShare.showControls")}
             aria-expanded={false}
             initial={{ x: 40, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
@@ -68,25 +70,25 @@ export function ScreenSharePopup({
             <ScreenShare size={18} className="shrink-0 text-danger" />
             <div className="min-w-0 leading-tight">
               <div className="truncate text-sm font-semibold text-fg">
-                You're sharing your screen
+                {t("screenShare.sharingYourScreen")}
               </div>
               <div className="text-xs tabular-nums text-muted">{duration}</div>
             </div>
             <button
               type="button"
               onClick={onStop}
-              title="Stop sharing"
-              aria-label="Stop sharing"
+              title={t("screenShare.stopSharingTitle")}
+              aria-label={t("screenShare.stopSharingTitle")}
               className="flex shrink-0 items-center gap-1.5 rounded-lg bg-danger px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:brightness-90"
             >
               <Square size={12} fill="currentColor" />
-              Stop
+              {t("screenShare.stop")}
             </button>
             <button
               type="button"
               onClick={() => setCollapsed(true)}
-              title="Slide out of the way"
-              aria-label="Slide out of the way"
+              title={t("screenShare.slideOutOfTheWay")}
+              aria-label={t("screenShare.slideOutOfTheWay")}
               aria-expanded
               className="shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
             >

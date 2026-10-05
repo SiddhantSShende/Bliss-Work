@@ -1,4 +1,5 @@
 import { ListTodo, Mail, MessageCircle, X, Trash2, Flag, Check, Undo2, Star } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { InboxItemDTO } from "@taskboard/shared";
 import { listTime, splitMailPreview } from "../lib/mailView";
@@ -68,6 +69,7 @@ export function MailRow({
   acknowledgePending?: boolean;
   completePending?: boolean;
 }) {
+  const { t } = useTranslation("mail");
   const { nameOf, emailOf } = useUserLabels();
   const isTask = item.itemKind === "TASK";
   const isMail = item.itemKind === "MAIL";
@@ -93,7 +95,7 @@ export function MailRow({
   // and nameOf would fall back to a handle that does not exist. "External
   // sender" is the honest label — the address itself is on the detail view.
   const peerName =
-    isMail && !item.peerUserId ? "External sender" : nameOf(item.peerUserId, item.peerUsername);
+    isMail && !item.peerUserId ? t("row.externalSender") : nameOf(item.peerUserId, item.peerUsername);
   // The address stays reachable on hover. It is what a mail row is really
   // addressed to, and dropping it entirely would lose the one thing the email
   // framing did buy — but it is a detail, not the row's identity.
@@ -101,10 +103,10 @@ export function MailRow({
   const isUnread = item.unreadCount > 0;
   const mail = isMail ? splitMailPreview(item.preview) : null;
   const headline = isTask
-    ? item.preview || "(untitled task)"
+    ? item.preview || t("row.untitledTask")
     : mail
-      ? mail.subject || "(no subject)"
-      : item.preview || "(no preview)";
+      ? mail.subject || t("shared.noSubject")
+      : item.preview || t("row.noPreview");
 
   return (
     <MailListRow to={{ pathname, search }}>
@@ -134,7 +136,7 @@ export function MailRow({
             className={`truncate text-sm ${isUnread ? "font-semibold text-fg" : "font-medium text-fg/90"}`}
             title={isTask ? undefined : peerEmail}
           >
-            {isTask ? "Task" : peerName}
+            {isTask ? t("row.taskLabel") : peerName}
           </span>
           <span className="shrink-0 text-[11px] tabular-nums text-muted">
             {listTime(item.lastEventAt)}
@@ -158,12 +160,12 @@ export function MailRow({
             )}
             {!isMail && !isTask && (
               <span className="inline-flex items-center gap-1 text-[10px] text-muted/80">
-                <MessageCircle size={10} /> thread
+                <MessageCircle size={10} /> {t("row.threadLabel")}
               </span>
             )}
             {item.unreadCount > 1 && (
               <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-accent-fg">
-                {item.unreadCount > 9 ? "9+" : item.unreadCount} new
+                {item.unreadCount > 9 ? "9+" : item.unreadCount} {t("row.newBadge")}
               </span>
             )}
           </div>
@@ -177,8 +179,8 @@ export function MailRow({
         {onToggleFavorite && isMail && (
           <Quick
             icon={<Star size={14} fill={favorite ? "currentColor" : "none"} />}
-            title={favorite ? "Remove from Favorites" : "Add to Favorites"}
-            label={favorite ? "Remove from Favorites" : "Add to Favorites"}
+            title={favorite ? t("row.favorite.remove") : t("row.favorite.add")}
+            label={favorite ? t("row.favorite.remove") : t("row.favorite.add")}
             hideLabel
             tone={favorite ? "accent" : "muted"}
             onClick={(e) => { e.preventDefault(); onToggleFavorite(item.refId); }}
@@ -189,8 +191,8 @@ export function MailRow({
         {isTask && item.statusBadge === "SENT" && onAcknowledge && (
           <Quick
             icon={<Check size={14} />}
-            title="Acknowledge — accept this task"
-            label="Acknowledge"
+            title={t("row.acknowledgeTitle")}
+            label={t("row.acknowledgeLabel")}
             tone="accent"
             disabled={acknowledgePending}
             onClick={(e) => { e.preventDefault(); onAcknowledge(item.refId); }}
@@ -199,9 +201,9 @@ export function MailRow({
         {isTask && item.statusBadge === "ACKNOWLEDGED" && onComplete && (
           <Quick
             icon={<Flag size={14} />}
-            title="Mark complete"
-            label="Complete"
-            tone="success"
+            title={t("row.completeTitle")}
+            label={t("row.completeLabel")}
+            tone="accent"
             disabled={completePending}
             onClick={(e) => { e.preventDefault(); onComplete(item.refId); }}
           />
@@ -209,8 +211,8 @@ export function MailRow({
         {onRestore && isMail && (
           <Quick
             icon={<Undo2 size={14} />}
-            title="Restore — puts this mail back in the folder it came from"
-            label="Restore"
+            title={t("shared.restoreMailTitle")}
+            label={t("shared.restoreLabel")}
             tone="accent"
             disabled={restorePending}
             onClick={(e) => { e.preventDefault(); onRestore(item.refId); }}
@@ -221,12 +223,12 @@ export function MailRow({
             icon={isMail ? <Trash2 size={14} /> : <X size={14} />}
             title={
               isMail
-                ? "Delete — removes your copy only; nobody else's is affected"
+                ? t("shared.deleteMailTitle")
                 : isTask
-                  ? "Ignore — remove from your mailbox"
-                  : "Ignore — hides for both"
+                  ? t("row.ignoreTitleTask")
+                  : t("row.ignoreTitleThread")
             }
-            label={isMail ? "Delete" : "Ignore"}
+            label={isMail ? t("shared.deleteLabel") : t("row.ignoreLabel")}
             hideLabel={!isTask}
             tone="danger"
             disabled={ignorePending}
@@ -238,8 +240,8 @@ export function MailRow({
         {onDismiss && !isTask && !isMail && (
           <Quick
             icon={<Trash2 size={14} />}
-            title="Delete from your mailbox"
-            label="Delete from your mailbox"
+            title={t("row.dismissTitle")}
+            label={t("row.dismissTitle")}
             hideLabel
             tone="muted"
             disabled={dismissPending}
@@ -251,8 +253,9 @@ export function MailRow({
   );
 }
 
-function statusTone(s: string): "accent" | "success" | "neutral" {
+function statusTone(s: string): "accent" | "success" | "danger" | "neutral" {
   if (s === "SEEN" || s === "COMPLETED") return "success";
+  if (s === "MISSED") return "danger"; // the deadline passed before the task was done
   if (s === "ACKNOWLEDGED" || s === "DELIVERED") return "accent";
   return "neutral";
 }
@@ -277,7 +280,7 @@ function Quick({
   label: string;
   /** Icon only. For Delete, whose icon is conventional and whose row is full. */
   hideLabel?: boolean;
-  tone: "muted" | "danger" | "accent" | "success";
+  tone: "muted" | "danger" | "accent";
   /** True while this row's own request for this action is in flight. */
   disabled?: boolean;
   onClick: (e: React.MouseEvent) => void;
@@ -286,7 +289,6 @@ function Quick({
     muted: "text-muted hover:bg-surface hover:text-fg",
     danger: "text-muted hover:bg-surface hover:text-danger",
     accent: "text-accent hover:bg-accent-soft",
-    success: "text-success hover:bg-success/10",
   };
   return (
     <button

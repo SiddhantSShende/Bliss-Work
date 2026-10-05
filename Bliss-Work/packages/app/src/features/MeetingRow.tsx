@@ -14,7 +14,8 @@
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Clock, MoreHorizontal, Phone, PlayCircle, Users, Video } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Clock, MoreHorizontal, Phone, PlayCircle, Repeat, Users, Video } from "lucide-react";
 import { Avatar, Badge, Button } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
@@ -28,6 +29,8 @@ export function MeetingRow({
   name,
   organiser,
   organiserAvatar,
+  compact = false,
+  selected = false,
   onOpenRoom,
 }: {
   call: CallDTO;
@@ -35,8 +38,11 @@ export function MeetingRow({
   name: string;
   organiser: string;
   organiserAvatar: string | null | undefined;
+  compact?: boolean;
+  selected?: boolean;
   onOpenRoom?: (call: CallDTO) => void;
 }) {
+  const { t } = useTranslation("meetings");
   const nav = useNavigate();
   const { start, end } = occurrenceOf(call);
   const bucket = bucketFor(call);
@@ -50,7 +56,7 @@ export function MeetingRow({
   const openDetail = () => nav({ pathname: `/app/meetings/${call.id}`, search });
 
   return (
-    <li className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-surface-2/60">
+    <li className={`${compact ? "flex flex-col items-stretch gap-2 px-3 py-3" : "flex items-center gap-3 px-3 py-2.5"} transition-colors hover:bg-surface-2/60 ${selected ? "bg-accent-soft/60 ring-1 ring-inset ring-accent/30" : ""}`}>
       <button
         type="button"
         onClick={openDetail}
@@ -67,9 +73,15 @@ export function MeetingRow({
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className="truncate text-sm font-semibold text-fg">{name}</span>
+            {call.series && (
+              <span className="shrink-0 text-muted" title={t("series.badge")}>
+                <Repeat size={12} aria-hidden />
+                <span className="sr-only">{t("series.badge")}</span>
+              </span>
+            )}
             {bucket === "live" ? (
               <Badge tone="success" className="shrink-0">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> Live
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> {t("row.live")}
               </Badge>
             ) : (
               call.status === "CANCELLED" && (
@@ -83,7 +95,7 @@ export function MeetingRow({
         </span>
       </button>
 
-      <div className="hidden w-40 shrink-0 sm:block">
+      <div className={compact ? "flex items-center gap-1 pl-12 text-xs" : "hidden w-40 shrink-0 sm:block"}>
         <div className="truncate text-xs font-medium text-fg">{dayLabel(start)}</div>
         <div className="flex items-center gap-1 truncate text-xs text-muted">
           <Clock size={11} className="shrink-0" aria-hidden />
@@ -99,26 +111,26 @@ export function MeetingRow({
         </div>
       </div>
 
-      <div className="hidden w-36 shrink-0 items-center gap-2 lg:flex">
+      <div className={compact ? "flex items-center gap-2 pl-12" : "hidden w-36 shrink-0 items-center gap-2 lg:flex"}>
         <Avatar name={organiser} src={organiserAvatar} size="sm" />
         <span className="min-w-0">
-          <span className="block text-[10px] uppercase tracking-wide text-muted">Organiser</span>
+          <span className="block text-[10px] uppercase tracking-wide text-muted">{t("row.organiser")}</span>
           <span className="block truncate text-xs font-medium text-fg">{organiser}</span>
         </span>
       </div>
 
       <div
-        className="hidden w-16 shrink-0 items-center gap-1 text-xs text-muted md:flex"
-        title={`${call.participants.length} invited · ${joined} joined`}
+        className={compact ? "flex items-center gap-1 pl-12 text-xs text-muted" : "hidden w-16 shrink-0 items-center gap-1 text-xs text-muted md:flex"}
+        title={t("row.inviteJoinTitle", { invited: call.participants.length, joined })}
       >
         <Users size={13} className="shrink-0" aria-hidden />
         {call.participants.length}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className={compact ? "flex shrink-0 items-center justify-end gap-1.5" : "flex shrink-0 items-center gap-1.5"}>
         {joinable && onOpenRoom ? (
           <Button size="sm" onClick={() => onOpenRoom(call)}>
-            {bucket === "live" ? "Join" : "Open"}
+            {bucket === "live" ? t("row.join") : t("row.open")}
           </Button>
         ) : (
           // A finished meeting has nothing to join. Where there is a recording
@@ -127,10 +139,10 @@ export function MeetingRow({
           <Button size="sm" variant="secondary" onClick={openDetail}>
             {call.recordingStatus === "READY" ? (
               <>
-                <PlayCircle size={14} /> <span className="hidden sm:inline">Recording</span>
+                <PlayCircle size={14} /> <span className="hidden sm:inline">{t("row.recording")}</span>
               </>
             ) : (
-              "Details"
+              t("row.details")
             )}
           </Button>
         )}
@@ -153,6 +165,7 @@ function RowMenu({
   onOpenRoom?: (call: CallDTO) => void;
   onOpenDetail: () => void;
 }) {
+  const { t } = useTranslation("meetings");
   const [open, setOpen] = useState(false);
   const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
 
@@ -168,7 +181,7 @@ function RowMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Actions for ${call.title.trim() || "this meeting"}`}
+        aria-label={t("row.menu.actionsFor", { title: call.title.trim() || t("row.menu.untitledMeeting") })}
         className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
       >
         <MoreHorizontal size={16} />
@@ -178,15 +191,15 @@ function RowMenu({
           role="menu"
           className="absolute right-0 z-40 mt-1 w-48 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
         >
-          <MenuRow label="View details" onClick={pick(onOpenDetail)} />
+          <MenuRow label={t("row.menu.viewDetails")} onClick={pick(onOpenDetail)} />
           {joinable && onOpenRoom && (
             <MenuRow
-              label={call.status === "LIVE" ? "Join meeting" : "Open the room"}
+              label={call.status === "LIVE" ? t("row.menu.joinMeeting") : t("row.menu.openRoom")}
               onClick={pick(() => onOpenRoom(call))}
             />
           )}
           {call.recordingStatus === "READY" && (
-            <MenuRow label="Watch the recording" onClick={pick(onOpenDetail)} />
+            <MenuRow label={t("row.menu.watchRecording")} onClick={pick(onOpenDetail)} />
           )}
         </div>
       )}

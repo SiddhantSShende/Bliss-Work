@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Download, ChevronDown, Monitor, Apple } from "lucide-react";
 import { Button, cn } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
@@ -30,6 +31,7 @@ export function GetAppButton({
   mode?: "compact" | "inline";
   className?: string;
 }) {
+  const { t } = useTranslation("shell");
   const { config } = useRuntime();
   const [open, setOpen] = useState(false);
   const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
@@ -45,7 +47,7 @@ export function GetAppButton({
         <div className="mb-2.5 flex items-center gap-2 text-xs font-medium text-muted">
           <span className="h-px flex-1 bg-border" />
           <span className="inline-flex items-center gap-1.5">
-            <Download size={13} /> Get the desktop app
+            <Download size={13} /> {t("getAppButton.getDesktopApp")}
           </span>
           <span className="h-px flex-1 bg-border" />
         </div>
@@ -58,7 +60,11 @@ export function GetAppButton({
                 key={id}
                 href={p.primary.url}
                 download
-                title={`Download BlissWork for ${p.name} — ${p.requirement}`}
+                title={t("getAppButton.downloadForPlatform", {
+                  brand: "BlissWork",
+                  platform: p.name,
+                  requirement: t(`getAppButton.requirement.${id}`),
+                })}
                 className={cn(
                   "group flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center transition-colors",
                   recommended
@@ -88,7 +94,7 @@ export function GetAppButton({
         aria-expanded={open}
       >
         <Download size={15} />
-        <span className="hidden sm:inline">Get App</span>
+        <span className="hidden sm:inline">{t("getAppButton.getApp")}</span>
         <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
       </Button>
       {open && (
@@ -100,7 +106,7 @@ export function GetAppButton({
           className="absolute right-0 z-50 mt-1.5 w-60 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
         >
           <p className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
-            Download BlissWork
+            {t("getAppButton.downloadHeading", { brand: "BlissWork" })}
           </p>
           {PLATFORM_ORDER.map((id) => {
             const p = PLATFORMS[id];

@@ -150,7 +150,8 @@ func (s *Server) RunCallSweeper(ctx context.Context) {
 	}
 }
 
-// sweepOverdueCalls runs one pass of all three rules. Separated from the loop
+// sweepOverdueCalls runs one pass of every rule: topping up repeating meetings,
+// then the three that end or start calls. Separated from the loop
 // so it is testable without a clock.
 //
 // All three run every tick, and none short-circuits another: a call can be
@@ -160,6 +161,18 @@ func (s *Server) RunCallSweeper(ctx context.Context) {
 // are separate queries rather than one because they are separate reasons, and
 // the log line has to be able to say which.
 func (s *Server) sweepOverdueCalls(ctx context.Context) {
+	// First, so an occurrence that has just come inside the horizon and is
+	// already due is started by THIS tick rather than the next one. Silent: a
+	// repeating meeting announced itself when it was created, and each
+	// occurrence announces itself when it starts, below.
+	advanced, err := s.store.TopUpDueSeries(ctx, store.SeriesSweepLimit)
+	if err != nil {
+		s.log.Warn("call sweep failed", "rule", "series", "err", err)
+	}
+	if advanced > 0 {
+		s.log.Info("meeting series topped up", "series", advanced)
+	}
+
 	due, err := s.store.ActivateDueCalls(ctx, store.DueSweepLimit)
 	if err != nil {
 		s.log.Warn("call sweep failed", "rule", "due", "err", err)

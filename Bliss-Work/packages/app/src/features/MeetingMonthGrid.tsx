@@ -12,6 +12,7 @@
  * and blanking the days either side leaves a meeting on the 31st looking like
  * it has no neighbours.
  */
+import { useTranslation } from "react-i18next";
 import type { CallDTO } from "@taskboard/shared";
 import { timeLabel } from "../lib/meetingTime";
 import { meetingBucketOrPast, meetingTitle } from "../lib/meetingView";
@@ -46,9 +47,10 @@ export function MeetingMonthGrid({
   onPickDay: (day: number) => void;
   nameOf: (id: string) => string;
 }) {
+  const { i18n } = useTranslation("meetings");
   const month = new Date(startOfMonth(anchor)).getMonth();
   const weekdayNames = days.slice(0, 7).map((d) =>
-    new Date(d).toLocaleDateString(undefined, { weekday: "short" }),
+    new Date(d).toLocaleDateString(i18n.language, { weekday: "short" }),
   );
 
   return (
@@ -100,6 +102,7 @@ function DayCell({
   onPickDay: (day: number) => void;
   nameOf: (id: string) => string;
 }) {
+  const { t } = useTranslation("meetings");
   const ordered = [...calls].sort((a, b) => occurrenceOf(a).start - occurrenceOf(b).start);
   const shown = ordered.slice(0, CHIPS_PER_DAY);
   const hidden = ordered.length - shown.length;
@@ -113,7 +116,7 @@ function DayCell({
       <button
         type="button"
         onClick={() => onPickDay(day)}
-        title="Open this week"
+        title={t("monthGrid.openThisWeek")}
         className={`mb-1 flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold transition-colors ${
           today
             ? "bg-accent text-accent-fg"
@@ -152,7 +155,7 @@ function DayCell({
             onClick={() => onPickDay(day)}
             className="px-1 text-[10px] font-semibold text-muted hover:text-accent"
           >
-            +{hidden} more
+            {t("monthGrid.more", { count: hidden })}
           </button>
         )}
       </div>

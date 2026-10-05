@@ -10,8 +10,12 @@ import { useRuntime } from '@taskboard/app/lib/runtime';
  * OTHER export, CaptchaField, is built on DOM elements and @taskboard/ui,
  * neither portable to React Native; splitting the hook out into its own file
  * would be a refactor of shared web code for a dependency this small.
+ *
+ * `enabled` false fetches nothing (iOS sign-in is not challenged); flipping it
+ * to true starts the fetch, which is how LoginScreen falls back to showing a
+ * CAPTCHA the server turns out to want after all.
  */
-export function useCaptcha() {
+export function useCaptcha(enabled = true) {
   const { api } = useRuntime();
   const [captchaId, setCaptchaId] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -34,8 +38,8 @@ export function useCaptcha() {
   }, [api]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (enabled) void refresh();
+  }, [enabled, refresh]);
 
   return { captchaId, imageUrl, value, setValue, loading, refresh };
 }

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, ChevronUp, Loader2, PhoneMissed, Camera } from "lucide-react";
+import { MessageSquare, ChevronUp, Loader2, PhoneMissed, Camera, Eye, Download } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Avatar } from "@taskboard/ui";
 import type { MessageDTO } from "@taskboard/shared";
 import { clock, groupMessages } from "../lib/chatFormat";
@@ -67,6 +68,7 @@ export function ThreadView({
    *  Returns null to fall back to the default text bubble. */
   renderBody?: (m: ThreadMsgVisual) => ReactNode | null;
 }) {
+  const { t } = useTranslation("chatThread");
   const listRef = useRef<HTMLDivElement>(null);
   const prevRef = useRef<{ threadId?: string; lastId?: string }>({});
   const anchorHeightRef = useRef<number | null>(null);
@@ -122,15 +124,15 @@ export function ThreadView({
         <div className="flex justify-center pb-2">
           {isFetchingPrev ? (
             <span className="inline-flex items-center gap-2 rounded-full bg-surface-2 px-3 py-1 text-[11px] text-muted">
-              <Loader2 size={12} className="animate-spin" /> Loading older messages…
+              <Loader2 size={12} className="animate-spin" /> {t("threadView.loadOlder.loading")}
             </span>
           ) : (
             <button
               onClick={onTopReached}
               className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-3 py-1 text-[11px] font-medium text-muted hover:text-fg"
-              title="Load previous 12 messages"
+              title={t("threadView.loadOlder.title")}
             >
-              <ChevronUp size={12} /> Load previous 12
+              <ChevronUp size={12} /> {t("threadView.loadOlder.button")}
             </button>
           )}
         </div>
@@ -141,7 +143,7 @@ export function ThreadView({
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
             <MessageSquare size={24} />
           </div>
-          <div className="text-sm">No messages yet — say hi 👋</div>
+          <div className="text-sm">{t("shared.emptyMessages")}</div>
         </div>
       ) : (
         groupMessages(messages).map(({ msg: m, day, grouped }) => {
@@ -162,7 +164,7 @@ export function ThreadView({
               <div key={m.id}>
                 {dayChip}
                 <SystemPill icon={<PhoneMissed size={12} className="text-danger" />} at={m.at}>
-                  {mine ? `${m.body} · no answer` : m.body}
+                  {mine ? t("shared.callMissedNoAnswer", { body: m.body }) : m.body}
                 </SystemPill>
               </div>
             );
@@ -175,6 +177,20 @@ export function ThreadView({
               <div key={m.id}>
                 {dayChip}
                 <SystemPill icon={<Camera size={12} className="text-warning" />} at={m.at}>
+                  {m.body}
+                </SystemPill>
+              </div>
+            );
+          }
+
+          // A file activity notice — "X opened/downloaded FILE" — is
+          // server-authored the same way; nothing to vary between mine/theirs.
+          if (m.kind === "attachment_opened" || m.kind === "attachment_downloaded") {
+            const Icon = m.kind === "attachment_opened" ? Eye : Download;
+            return (
+              <div key={m.id}>
+                {dayChip}
+                <SystemPill icon={<Icon size={12} className="text-muted" />} at={m.at}>
                   {m.body}
                 </SystemPill>
               </div>
@@ -222,7 +238,7 @@ export function ThreadView({
                     </div>
                   )}
                   <span className="mt-0.5 flex items-center gap-1 px-1 text-[10px] text-muted/70">
-                    {m.pending ? "Sending…" : clock(m.at)}
+                    {m.pending ? t("shared.sending") : clock(m.at)}
                     {mine && !m.pending && <MessageStatusBadge status={m.status} />}
                   </span>
                 </div>

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Forward, Trash2 } from "lucide-react";
 import { Button } from "@taskboard/ui";
 
@@ -29,18 +30,19 @@ export function SelectionToolbar({
   onDelete: () => void;
   onForward: () => void;
 }) {
+  const { t } = useTranslation("chatList");
   return (
     <div className="flex items-center gap-2 border-t border-border/60 bg-surface-2/60 p-3">
       <span aria-live="polite" className="flex-1 text-sm font-medium text-fg">
-        {count} selected
+        {t("selectionToolbar.selectedCount", { count })}
         {deletableCount < count && (
           <span className="ml-1 font-normal text-muted">
-            · {count - deletableCount} can&apos;t be deleted
+            {t("selectionToolbar.cannotDelete", { count: count - deletableCount })}
           </span>
         )}
       </span>
       <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
-        Cancel
+        {t("common.cancel")}
       </Button>
       <Button
         type="button"
@@ -49,7 +51,7 @@ export function SelectionToolbar({
         onClick={onForward}
         disabled={count === 0 || busy}
       >
-        <Forward size={14} /> Forward
+        <Forward size={14} /> {t("selectionToolbar.forward")}
       </Button>
       <Button
         type="button"
@@ -58,7 +60,7 @@ export function SelectionToolbar({
         onClick={onDelete}
         disabled={count === 0 || busy}
       >
-        <Trash2 size={14} /> Delete
+        <Trash2 size={14} /> {t("selectionToolbar.delete")}
       </Button>
     </div>
   );

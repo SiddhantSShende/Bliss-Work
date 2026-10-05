@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Mic, MicOff, PhoneOff, ScreenShare, UserPlus, Video, VideoOff } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
 import { useCallDuration } from "../lib/callTimer";
 
@@ -84,7 +85,7 @@ export function CallControls({
   sharing,
   startedAt,
   canAddPeople = true,
-  addPeopleTitle = "Add people",
+  addPeopleTitle,
   addingPeople = false,
   variant = "overlay",
   className,
@@ -121,6 +122,7 @@ export function CallControls({
   onToggleCam: () => void;
   onEnd: () => void;
 }) {
+  const { t } = useTranslation("callRoom");
   const skin = SKIN[variant];
   // Only while sharing, because that is the only state that renders it. Passed
   // as undefined otherwise so the hook tears its interval down: this row is
@@ -134,7 +136,7 @@ export function CallControls({
       {onAddPeople && (
         <Control
           variant={variant}
-          title={addPeopleTitle}
+          title={addPeopleTitle ?? t("controls.addPeopleDefault")}
           onClick={onAddPeople}
           disabled={!canAddPeople || addingPeople}
         >
@@ -146,7 +148,7 @@ export function CallControls({
           being an icon in a row and becomes a red, ticking indicator. */}
       <Control
         variant={variant}
-        title={sharing ? "Stop sharing your screen" : "Share your screen"}
+        title={sharing ? t("controls.stopSharing") : t("controls.startSharing")}
         pressed={sharing}
         onClick={onToggleShare}
         className={cn(
@@ -156,7 +158,7 @@ export function CallControls({
       >
         <ScreenShare size={skin.icon} />
         {sharing && (
-          <span className="text-sm font-semibold tabular-nums" aria-label="Call duration">
+          <span className="text-sm font-semibold tabular-nums" aria-label={t("controls.callDurationAriaLabel")}>
             {duration}
           </span>
         )}
@@ -164,7 +166,7 @@ export function CallControls({
 
       <Control
         variant={variant}
-        title={micOn ? "Mute" : "Unmute"}
+        title={micOn ? t("controls.mute") : t("controls.unmute")}
         pressed={!micOn}
         onClick={onToggleMic}
         className={cn(!micOn && skin.off)}
@@ -174,7 +176,7 @@ export function CallControls({
 
       <Control
         variant={variant}
-        title={camOn ? "Turn camera off" : "Turn camera on"}
+        title={camOn ? t("controls.cameraOff") : t("controls.cameraOn")}
         pressed={camOn}
         onClick={onToggleCam}
         className={cn(!camOn && skin.off)}
@@ -184,7 +186,7 @@ export function CallControls({
 
       <Control
         variant={variant}
-        title="End call"
+        title={t("controls.endCall")}
         onClick={onEnd}
         className="bg-danger text-white hover:brightness-90"
       >

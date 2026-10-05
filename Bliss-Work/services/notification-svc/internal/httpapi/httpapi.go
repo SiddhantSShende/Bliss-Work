@@ -2,11 +2,14 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,13 +134,42 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 type notificationDTO struct {
-	ID        string  `json:"id"`
-	Kind      string  `json:"kind"`
-	Text      string  `json:"text"`
-	TaskID    *string `json:"taskId"`
-	Read      bool    `json:"read"`
-	CreatedAt string  `json:"createdAt"`
+	ID             string  `json:"id"`
+	Kind           string  `json:"kind"`
+	Text           string  `json:"text"`
+	TaskID         *string `json:"taskId"`
+	ChannelID      *string `json:"channelId"`
+	ConversationID *string `json:"conversationId"`
+	MessageID      *string `json:"messageId"`
+	CallID         *string `json:"callId"`
+	Read           bool    `json:"read"`
+	CreatedAt      string  `json:"createdAt"`
 }
+
+type notificationPageDTO struct {
+	Items      []notificationDTO `json:"items"`
+	NextCursor *string           `json:"nextCursor"`
+}
+
+type notificationCursor struct {
+	CreatedAt time.Time `json:"createdAt"`
+	ID        string    `json:"id"`
+}
+
+const (
+	defaultNotificationPageSize = 10
+	maxNotificationPageSize     = 50
+)
+
+// listNotificationsSQL: $1 recipient, $2/$3 keyset cursor, $4 limit, $5 optional
+// read-state filter (NULL = both).
+const listNotificationsSQL = `SELECT id, kind, text, task_id, channel_id, conversation_id, message_id, call_id, read_at, created_at
+		   FROM notifications
+		  WHERE recipient_id = $1
+		    AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::uuid))
+		    AND ($5::boolean IS NULL OR (read_at IS NOT NULL) = $5::boolean)
+		  ORDER BY created_at DESC, id DESC
+		  LIMIT $4`
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.FromContext(r.Context())
@@ -146,13 +178,45 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := s.pool.Query(r.Context(),
-		`SELECT id, kind, text, task_id, read_at, created_at
-		   FROM notifications
-		  WHERE recipient_id = $1 AND org_id = $2
-		  ORDER BY created_at DESC
-		  LIMIT 200`,
-		claims.UserID, claims.OrgID)
+	legacyArray := r.URL.Query().Get("limit") == "" && r.URL.Query().Get("cursor") == ""
+	limit := defaultNotificationPageSize
+	if legacyArray {
+		limit = 200
+	}
+	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+		parsedLimit, err := strconv.Atoi(rawLimit)
+		if err != nil || parsedLimit < 1 || parsedLimit > maxNotificationPageSize {
+			writeError(w, http.StatusBadRequest, "invalid notification page size")
+			return
+		}
+		limit = parsedLimit
+	}
+
+	// Optional state filter, applied in SQL so a page is a page of the rows the
+	// caller asked for: filtering a fetched page client-side would show "nothing
+	// unread" for a first page of read rows with unread ones further down.
+	var readFilter interface{}
+	switch rawRead := r.URL.Query().Get("read"); rawRead {
+	case "":
+	case "true", "false":
+		readFilter = rawRead == "true"
+	default:
+		writeError(w, http.StatusBadRequest, "invalid read filter")
+		return
+	}
+
+	var cursorTime, cursorID interface{}
+	if rawCursor := r.URL.Query().Get("cursor"); rawCursor != "" {
+		createdAt, id, err := decodeNotificationCursor(rawCursor)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid notification cursor")
+			return
+		}
+		cursorTime, cursorID = createdAt, id
+	}
+
+	rows, err := s.pool.Query(r.Context(), listNotificationsSQL,
+		claims.UserID, cursorTime, cursorID, limit+1, readFilter)
 	if err != nil {
 		s.log.Error("list notifications query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -160,33 +224,69 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	out := make([]notificationDTO, 0)
+	out := make([]notificationDTO, 0, limit)
+	var lastCreatedAt time.Time
+	var lastID uuid.UUID
+	hasMore := false
 	for rows.Next() {
 		var (
-			id        uuid.UUID
-			kind      string
-			text      string
-			taskID    *uuid.UUID
-			readAt    *time.Time
-			createdAt time.Time
+			id             uuid.UUID
+			kind           string
+			text           string
+			taskID         *uuid.UUID
+			channelID      *uuid.UUID
+			conversationID *uuid.UUID
+			messageID      *uuid.UUID
+			callID         *uuid.UUID
+			readAt         *time.Time
+			createdAt      time.Time
 		)
-		if err := rows.Scan(&id, &kind, &text, &taskID, &readAt, &createdAt); err != nil {
+		if err := rows.Scan(&id, &kind, &text, &taskID, &channelID, &conversationID, &messageID, &callID, &readAt, &createdAt); err != nil {
 			s.log.Error("scan notification failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
+		if len(out) == limit {
+			hasMore = true
+			break
+		}
+		lastCreatedAt, lastID = createdAt, id
 		var taskStr *string
 		if taskID != nil {
 			t := taskID.String()
 			taskStr = &t
 		}
+		var channelStr *string
+		if channelID != nil {
+			c := channelID.String()
+			channelStr = &c
+		}
+		var conversationStr *string
+		if conversationID != nil {
+			c := conversationID.String()
+			conversationStr = &c
+		}
+		var messageStr *string
+		if messageID != nil {
+			m := messageID.String()
+			messageStr = &m
+		}
+		var callStr *string
+		if callID != nil {
+			c := callID.String()
+			callStr = &c
+		}
 		out = append(out, notificationDTO{
-			ID:        id.String(),
-			Kind:      kind,
-			Text:      text,
-			TaskID:    taskStr,
-			Read:      readAt != nil,
-			CreatedAt: createdAt.UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+			ID:             id.String(),
+			Kind:           kind,
+			Text:           text,
+			TaskID:         taskStr,
+			ChannelID:      channelStr,
+			ConversationID: conversationStr,
+			MessageID:      messageStr,
+			CallID:         callStr,
+			Read:           readAt != nil,
+			CreatedAt:      createdAt.UTC().Format("2006-01-02T15:04:05.000Z07:00"),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -195,7 +295,37 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, out)
+	var nextCursor *string
+	if hasMore {
+		cursor := encodeNotificationCursor(lastCreatedAt, lastID)
+		nextCursor = &cursor
+	}
+	if legacyArray {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	writeJSON(w, http.StatusOK, notificationPageDTO{Items: out, NextCursor: nextCursor})
+}
+
+func encodeNotificationCursor(createdAt time.Time, id uuid.UUID) string {
+	payload, _ := json.Marshal(notificationCursor{CreatedAt: createdAt.UTC(), ID: id.String()})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeNotificationCursor(raw string) (time.Time, uuid.UUID, error) {
+	var cursor notificationCursor
+	payload, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return time.Time{}, uuid.Nil, err
+	}
+	if err := json.Unmarshal(payload, &cursor); err != nil {
+		return time.Time{}, uuid.Nil, err
+	}
+	id, err := uuid.Parse(cursor.ID)
+	if err != nil || cursor.CreatedAt.IsZero() {
+		return time.Time{}, uuid.Nil, errors.New("invalid cursor ordering key")
+	}
+	return cursor.CreatedAt.UTC(), id, nil
 }
 
 // unreadCountDTO is the response shape for handleUnreadCount.
@@ -218,8 +348,8 @@ func (s *Server) handleUnreadCount(w http.ResponseWriter, r *http.Request) {
 	var count int64
 	err := s.pool.QueryRow(r.Context(),
 		`SELECT count(*) FROM notifications
-		  WHERE recipient_id = $1 AND org_id = $2 AND read_at IS NULL`,
-		claims.UserID, claims.OrgID).Scan(&count)
+		  WHERE recipient_id = $1 AND read_at IS NULL`,
+		claims.UserID).Scan(&count)
 	if err != nil {
 		s.log.Error("unread count query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -284,8 +414,8 @@ func (s *Server) markRead(ctx context.Context, tx pgx.Tx, id uuid.UUID, userID, 
 	tag, err := tx.Exec(ctx,
 		`UPDATE notifications
 		    SET read_at = now()
-		  WHERE id = $1 AND recipient_id = $2 AND org_id = $3 AND read_at IS NULL`,
-		id, userID, orgID)
+		  WHERE id = $1 AND recipient_id = $2 AND read_at IS NULL`,
+		id, userID)
 	if err != nil {
 		return false, err
 	}
@@ -300,8 +430,8 @@ func (s *Server) markRead(ctx context.Context, tx pgx.Tx, id uuid.UUID, userID, 
 	// changed nothing, so no event: a second click on "Mark read" must not
 	// re-broadcast to every active session.
 	if err := tx.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM notifications WHERE id=$1 AND recipient_id=$2 AND org_id=$3)`,
-		id, userID, orgID).Scan(&exists); err != nil {
+		`SELECT EXISTS(SELECT 1 FROM notifications WHERE id=$1 AND recipient_id=$2)`,
+		id, userID).Scan(&exists); err != nil {
 		return false, err
 	}
 	return exists, nil
@@ -351,8 +481,8 @@ func (s *Server) markAllRead(ctx context.Context, tx pgx.Tx, userID, orgID strin
 	tag, err := tx.Exec(ctx,
 		`UPDATE notifications
 		    SET read_at = now()
-		  WHERE recipient_id = $1 AND org_id = $2 AND read_at IS NULL`,
-		userID, orgID)
+		  WHERE recipient_id = $1 AND read_at IS NULL`,
+		userID)
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,5 @@
 import { Check, FileIcon, Loader2, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { prettySize } from "../lib/fileOffer";
 import type { TransferState } from "../lib/rtcTransfer";
 
@@ -25,6 +26,7 @@ interface FileAttachmentBubbleProps {
 }
 
 export function FileAttachmentBubble(props: FileAttachmentBubbleProps) {
+  const { t } = useTranslation("chatMedia");
   const { mine, fileName, fileSize, state } = props;
 
   return (
@@ -57,15 +59,15 @@ export function FileAttachmentBubble(props: FileAttachmentBubbleProps) {
             instead of sitting in the thread forever. */}
         {state.kind === "OFFERED" && !mine && (
           <>
-            <span className="text-xs opacity-70">File downloads are turned off.</span>
-            <Btn variant="ghost" onClick={props.onDecline}>Decline</Btn>
+            <span className="text-xs opacity-70">{t("fileAttachment.downloadsOff")}</span>
+            <Btn variant="ghost" onClick={props.onDecline}>{t("fileAttachment.decline")}</Btn>
           </>
         )}
         {state.kind === "OFFERED" && mine && (
-          <Btn variant="ghost" onClick={props.onCancel}>Cancel</Btn>
+          <Btn variant="ghost" onClick={props.onCancel}>{t("fileAttachment.cancel")}</Btn>
         )}
         {state.kind === "TRANSFERRING" && (
-          <Btn variant="ghost" onClick={props.onCancel}>Cancel</Btn>
+          <Btn variant="ghost" onClick={props.onCancel}>{t("fileAttachment.cancel")}</Btn>
         )}
         {/* "Open" reveals the received file on disk — same reason as Accept.
             Historic DONE transfers keep their completion line, without the
@@ -76,7 +78,7 @@ export function FileAttachmentBubble(props: FileAttachmentBubbleProps) {
               <X size={12} /> {state.reason}
             </span>
             {mine && props.onRetry && (
-              <Btn variant="ghost" onClick={props.onRetry}>Retry</Btn>
+              <Btn variant="ghost" onClick={props.onRetry}>{t("fileAttachment.retry")}</Btn>
             )}
           </>
         )}
@@ -86,13 +88,14 @@ export function FileAttachmentBubble(props: FileAttachmentBubbleProps) {
 }
 
 function StateLine({ state }: { state: TransferState }) {
+  const { t } = useTranslation("chatMedia");
   if (state.kind === "OFFERED") {
-    return <div className="text-xs opacity-70">Direct transfer — peer-to-peer.</div>;
+    return <div className="text-xs opacity-70">{t("fileAttachment.directTransfer")}</div>;
   }
   if (state.kind === "CONNECTING") {
     return (
       <div className="flex items-center gap-1 text-xs opacity-70">
-        <Loader2 size={12} className="animate-spin" /> Establishing peer connection…
+        <Loader2 size={12} className="animate-spin" /> {t("fileAttachment.establishingConnection")}
       </div>
     );
   }
@@ -120,7 +123,7 @@ function StateLine({ state }: { state: TransferState }) {
     );
   }
   if (state.kind === "DONE") {
-    return <div className="text-xs opacity-80">Transfer complete.</div>;
+    return <div className="text-xs opacity-80">{t("fileAttachment.transferComplete")}</div>;
   }
   return null;
 }

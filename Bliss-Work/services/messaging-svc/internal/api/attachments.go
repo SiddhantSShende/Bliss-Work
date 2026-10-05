@@ -328,23 +328,19 @@ func (s *Server) downloadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	// ServeAs is the XSS boundary: only a closed allowlist of inert types is
-	// ever served inline, everything else is downgraded to octet-stream AND
-	// forced to attachment. See internal/media/mime.go.
-	ct, inline := media.ServeAs(att.MIME)
-	// NOTE: `?dl=1` is deliberately NOT honoured. It used to let the UI's
-	// Download button force `Content-Disposition: attachment` even for types
-	// that display inline; downloading chat attachments is no longer offered, so
-	// the parameter is ignored rather than removed — old links in a cache or a
-	// pasted URL then render inline instead of saving.
+	// ServeAs (via ServeHeaders) is the XSS boundary: only a closed allowlist of
+	// inert types is ever served inline, everything else is downgraded to
+	// octet-stream AND forced to attachment. See internal/media/mime.go.
 	//
-	// This is deterrence, not DRM: `inline` is still false for everything
-	// ServeAs refuses to display, because forcing a script-capable file to
-	// download rather than execute is a security control and stays put. Media a
-	// viewer can see, a viewer can still capture.
+	// `?dl=1` is the EXPLICIT Download (a file's 3-dot menu → Download): it forces
+	// `attachment` even for a type that would render inline. A normal open never
+	// sends it. It is deliberately not part of the signed grant — whoever holds a
+	// valid link could already read these bytes, and the flag can only make the
+	// browser treat them more strictly, never less.
+	ct, disposition := media.ServeHeaders(att.MIME, att.Filename, r.URL.Query().Get("dl") == "1")
 	h := w.Header()
 	h.Set("Content-Type", ct)
-	h.Set("Content-Disposition", media.ContentDisposition(inline, att.Filename))
+	h.Set("Content-Disposition", disposition)
 	h.Set("X-Content-Type-Options", "nosniff")
 	// Content-addressed bytes never change, but the LINK is short-lived and
 	// per-user, so the cache must be private.

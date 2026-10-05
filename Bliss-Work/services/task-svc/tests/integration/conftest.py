@@ -128,7 +128,8 @@ async def db_app(database_url):
         await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         for table in (
             "task_assignees",
-            "tasks",
+            "tasks",  # cascades to task_channels
+            "task_schedules",
             "idempotency_keys",
             "org_keys",
             "user_projection",
@@ -137,3 +138,27 @@ async def db_app(database_url):
 
     yield
     await dispose_engine()
+
+
+@pytest_asyncio.fixture
+async def seed_members(db_app):
+    """Put users in an org's `user_projection`, the mirror `create_task` checks
+    client-named assignees against (an id that is not an active member of the
+    caller's org is refused). Returns an async `seed(org_id, *user_ids)`."""
+    from sqlalchemy import text
+
+    from app.db import get_engine
+
+    async def seed(org_id: str, *user_ids: str) -> None:
+        async with get_engine().begin() as conn:
+            await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
+            for i, user_id in enumerate(user_ids):
+                await conn.execute(
+                    text(
+                        "INSERT INTO user_projection (user_id, org_id, username, display_name) "
+                        "VALUES (:uid, :org, :name, :name)"
+                    ),
+                    {"uid": user_id, "org": org_id, "name": f"member-{i}"},
+                )
+
+    return seed

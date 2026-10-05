@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { AuthLayout } from "./Onboarding";
@@ -17,6 +18,7 @@ import { AuthLayout } from "./Onboarding";
  * was the bug. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 4.
  */
 export function VerifyEmail() {
+  const { t } = useTranslation("auth");
   const { api } = useRuntime();
   const [params] = useSearchParams();
   const token = params.get("token") ?? "";
@@ -51,26 +53,26 @@ export function VerifyEmail() {
 
   if (!token || valid === false)
     return (
-      <AuthLayout title="Verification failed" subtitle="This verification link is invalid or has expired.">
+      <AuthLayout title={t("verifyEmail.failed.title")} subtitle={t("verifyEmail.failed.subtitle")}>
         <Link to="/app" className="block text-center text-sm font-medium text-accent hover:underline">
-          Back to app
+          {t("verifyEmail.backToApp")}
         </Link>
       </AuthLayout>
     );
 
   if (status === "ok")
     return (
-      <AuthLayout title="Email verified" subtitle="Thanks — your email address is confirmed.">
+      <AuthLayout title={t("verifyEmail.verified.title")} subtitle={t("verifyEmail.verified.subtitle")}>
         <Link to="/app" className="block text-center text-sm font-medium text-accent hover:underline">
-          Continue to BlissWork
+          {t("verifyEmail.verified.continueToApp", { brand: "BlissWork" })}
         </Link>
       </AuthLayout>
     );
 
   return (
     <AuthLayout
-      title="Confirm your email"
-      subtitle={valid === null ? "Checking your link…" : "Click below to confirm this is your email address."}
+      title={t("verifyEmail.confirm.title")}
+      subtitle={valid === null ? t("verifyEmail.confirm.checkingLink") : t("verifyEmail.confirm.subtitle")}
     >
       <Button
         onClick={confirm}
@@ -79,7 +81,7 @@ export function VerifyEmail() {
         disabled={valid !== true}
         className="w-full"
       >
-        {busy ? "Confirming…" : "Confirm your email"}
+        {busy ? t("verifyEmail.confirm.confirming") : t("verifyEmail.confirm.confirmButton")}
       </Button>
     </AuthLayout>
   );

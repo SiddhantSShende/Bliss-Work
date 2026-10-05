@@ -17,6 +17,7 @@ re-implemented copy. CI installs requirements.txt and runs it for real.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -71,3 +72,49 @@ def test_boundary_values_accepted() -> None:
 def test_multiple_valid_uuid_assignees() -> None:
     req = CreateTaskRequest(title="t", assigneeIds=[_UID, _UID2])
     assert req.assigneeIds == [_UID, _UID2]
+
+
+def test_scheduled_request_requires_a_future_timezone_aware_time() -> None:
+    when = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    req = CreateTaskRequest(title="later", assigneeIds=[_UID], allocation="SCHEDULED", scheduledFor=when)
+    assert req.allocation == "SCHEDULED"
+    assert req.scheduledFor is not None and req.scheduledFor.tzinfo is not None
+
+
+def test_weekly_recurrence_requires_weekdays() -> None:
+    with pytest.raises(ValidationError):
+        CreateTaskRequest(
+            title="weekly",
+            assigneeIds=[_UID],
+            allocation="RECURRING",
+            recurrence={
+                "startAt": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
+                "frequency": "WEEKLY",
+                "interval": 1,
+            },
+        )
+
+
+def test_monthly_recurrence_requires_a_rule() -> None:
+    with pytest.raises(ValidationError):
+        CreateTaskRequest(
+            title="monthly",
+            assigneeIds=[_UID],
+            allocation="RECURRING",
+            recurrence={
+                "startAt": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
+                "frequency": "MONTHLY",
+                "interval": 1,
+            },
+        )
+
+
+def test_recurrence_end_conditions_require_matching_values() -> None:
+    start = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    with pytest.raises(ValidationError):
+        CreateTaskRequest(
+            title="daily",
+            assigneeIds=[_UID],
+            allocation="RECURRING",
+            recurrence={"startAt": start, "frequency": "DAILY", "endCondition": "AFTER_OCCURRENCES"},
+        )

@@ -1,22 +1,53 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCheck, Bell, Hash } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { CheckCheck, Bell, CalendarDays, Hash, MessageSquare } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { decrementUnreadCount, refreshUnreadCount } from "../lib/unreadNotificationCount";
+import { markNotificationPagesRead } from "../lib/notificationPages";
+import { notificationDestination, openNotificationRoute } from "../lib/notificationDestination";
+
+// Kept exported from here: it is where callers have always imported it from.
+export { notificationDestination };
 import { Sheet } from "./Modal";
+
+/** One server-filtered feed (unread or read): whether its first page is still in
+ *  flight, and how to page further. */
+export interface NotificationFeedState {
+  loading: boolean;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  loadMore: () => void;
+}
+const IDLE_FEED: NotificationFeedState = {
+  loading: false,
+  hasNextPage: false,
+  isFetchingNextPage: false,
+  loadMore: () => {},
+};
 
 export function NotificationsPanel({
   open,
   onClose,
   notifications,
+  unreadFeed = IDLE_FEED,
+  readFeed = IDLE_FEED,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Both feeds merged, one row per id. */
   notifications: NotificationDTO[];
+  unreadFeed?: NotificationFeedState;
+  readFeed?: NotificationFeedState;
 }) {
+  const { t, i18n } = useTranslation("shell");
   const { api } = useRuntime();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const qc = useQueryClient();
   const [showRead, setShowRead] = useState(false);
 
@@ -26,64 +57,72 @@ export function NotificationsPanel({
     if (!open) setShowRead(false);
   }, [open]);
 
-  // Mark everything read when the panel CLOSES — not when it opens.
-  //
-  // Opening was the wrong moment, and it made the panel useless for the one
-  // thing it is for. The effect flipped every row to `read` on open, `unread`
-  // emptied on the same render, and the user was left staring at "You're all
-  // caught up": the notifications they opened the bell to read had moved into
-  // "Show read" before they could read them.
-  //
-  // Closing is the honest moment to call them seen — the rows were on screen
-  // for as long as the panel was open — and the bell badge (AppShell counts
-  // !read) still clears without the user having to touch each row.
-  //
-  // The cleanup reads the CACHE rather than the `notifications` prop: the prop
-  // is captured when the effect runs (panel open) and would miss anything that
-  // arrived while it was open. Best-effort + idempotent, as before.
-  useEffect(() => {
-    if (!open) return;
-    return () => {
-      const current = qc.getQueryData<NotificationDTO[]>(qk.notifications) ?? [];
-      if (!current.some((n) => !n.read)) return;
-      void api.readAllNotifications().catch(() => {});
-      qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
-        (prev ?? []).map((n) => (n.read ? n : { ...n, read: true })),
-      );
-    };
-  }, [open, api, qc]);
-
+  // Opening or closing the panel never changes read state. A notification only
+  // becomes read when the user acts on it (clicks the row or "Mark read"); the
+  // badge is the server's unread count and moves only through those actions.
   const markRead = async (id: string) => {
-    await api.markNotificationRead(id).catch(() => {});
-    qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
-      (prev ?? []).map((n) => (n.id === id ? { ...n, read: true } : n)),
+    // Flip the row and lower the badge BEFORE the request, so the UI answers the
+    // click immediately; the refresh below lets the server have the last word.
+    const flipped = markNotificationPagesRead(qc, (n) => n.id === id);
+    decrementUnreadCount(qc, flipped);
+
+    const failed = await api.markNotificationRead(id).then(
+      () => false,
+      () => true,
     );
+    // The server has the last word. Failed: it still holds the row unread, so
+    // refetch the list as well and the row comes back; otherwise just the count.
+    void (failed ? qc.invalidateQueries({ queryKey: qk.notifications }) : refreshUnreadCount(qc));
   };
 
-  // Read notifications are HISTORY, not news. Showing them by default meant the
-  // panel looked identical after every reopen — "all my notifications came
-  // back, including the ones I'd already read" — because nothing ever left it.
-  // They stay one click away rather than being thrown out.
+  const openNotification = (notification: NotificationDTO) => {
+    void markRead(notification.id);
+    onClose();
+    openNotificationRoute(navigate, pathname, notificationDestination(notification));
+  };
+
+  // Read notifications are HISTORY, not news: unread by default, the rest one
+  // click away. Partitioned by read state alone — never by kind — and each id is
+  // in exactly one of the two lists, so toggling never shows a row twice.
   const unread = notifications.filter((n) => !n.read);
-  const shown = showRead ? notifications : unread;
-  const readCount = notifications.length - unread.length;
+  const read = notifications.filter((n) => n.read);
+  const shown = showRead ? [...unread, ...read] : unread;
+  const readCount = read.length;
+
+  // The unread feed is filtered on the server, but rows marked read locally stay
+  // in its cache until it refetches. If those hide the whole loaded page while
+  // more pages exist, keep paging rather than claim there is nothing unread.
+  const needMoreUnread = !showRead && unread.length === 0 && unreadFeed.hasNextPage;
+  const loadMoreUnread = useRef(unreadFeed.loadMore);
+  loadMoreUnread.current = unreadFeed.loadMore;
+  useEffect(() => {
+    if (open && needMoreUnread && !unreadFeed.isFetchingNextPage) loadMoreUnread.current();
+  }, [open, needMoreUnread, unreadFeed.isFetchingNextPage]);
+
+  // "Nothing here" is only established once the feeds say so: the unread feed has
+  // answered and has no further pages, and — when it is empty — the read feed has
+  // answered too, so we know which empty state is true.
+  const loading =
+    shown.length === 0 && (unreadFeed.loading || needMoreUnread || unreadFeed.isFetchingNextPage || readFeed.loading);
+  // Load more pages the feed the current view is still short of.
+  const hasMore = showRead ? unreadFeed.hasNextPage || readFeed.hasNextPage : unreadFeed.hasNextPage;
+  const fetchingMore = showRead
+    ? unreadFeed.isFetchingNextPage || readFeed.isFetchingNextPage
+    : unreadFeed.isFetchingNextPage;
+  const loadMore = () => (showRead && !unreadFeed.hasNextPage ? readFeed : unreadFeed).loadMore();
 
   return (
-    <Sheet open={open} onClose={onClose} title="Notifications">
-      {shown.length === 0 ? (
+    <Sheet open={open} onClose={onClose} title={t("notifications.title")}>
+      {loading ? (
+        <p className="py-6 text-center text-sm text-muted">{t("notifications.loadingMore")}</p>
+      ) : shown.length === 0 ? (
         <EmptyState
           icon={<Bell size={22} />}
-          title={showRead ? "No notifications yet" : "You're all caught up"}
-          hint={
-            showRead
-              ? "Task updates will show up here."
-              : readCount > 0
-                ? "Nothing unread. Earlier notifications are under “Show read”."
-                : "Task updates will show up here."
-          }
+          title={readCount > 0 ? t("notifications.empty.allCaughtUp") : t("notifications.empty.noneYet")}
+          hint={readCount > 0 ? t("notifications.empty.hintNothingUnread") : t("notifications.empty.hint")}
         />
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex min-w-0 flex-col gap-2">
           {shown.map((n) => (
             <li
               key={n.id}
@@ -94,15 +133,23 @@ export function NotificationsPanel({
               <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
                 {/* A channel invitation under a double-tick reads as "your task
                     was completed", which is the opposite of what happened. */}
-                {n.kind === "CHANNEL_ADDED" ? <Hash size={16} /> : <CheckCheck size={16} />}
+                {n.kind === "CHANNEL_ADDED" || n.kind === "CHANNEL_CREATED" ? <Hash size={16} /> : n.kind === "DM_MESSAGE" || n.kind === "CHANNEL_MESSAGE" ? <MessageSquare size={16} /> : n.kind.startsWith("MEETING_") ? <CalendarDays size={16} /> : <CheckCheck size={16} />}
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm text-fg">{n.text}</p>
-                <p className="mt-0.5 text-xs text-muted">{new Date(n.createdAt).toLocaleString()}</p>
+              <div className="min-w-0 flex-1 break-words">
+                <button
+                  type="button"
+                  className="block w-full text-left"
+                  onClick={() => void openNotification(n)}
+                >
+                  <NotificationText notification={n} />
+                  <span className="mt-0.5 block text-xs text-muted">
+                    {new Date(n.createdAt).toLocaleString(i18n.language)}
+                  </span>
+                </button>
               </div>
               {!n.read && (
-                <button className="text-xs font-medium text-accent hover:underline" onClick={() => markRead(n.id)}>
-                  Mark read
+                <button className="shrink-0 text-xs font-medium text-accent hover:underline" onClick={() => markRead(n.id)}>
+                  {t("notifications.row.markRead")}
                 </button>
               )}
             </li>
@@ -115,9 +162,51 @@ export function NotificationsPanel({
           onClick={() => setShowRead((v) => !v)}
           className="mt-3 w-full rounded-xl border border-border px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
         >
-          {showRead ? "Hide read" : `Show read (${readCount})`}
+          {showRead ? t("notifications.toggleHideRead") : t("notifications.toggleShowRead", { total: `${readCount}${readFeed.hasNextPage ? "+" : ""}` })}
+        </button>
+      )}
+
+      {hasMore && (
+        <button
+          type="button"
+          onClick={loadMore}
+          disabled={fetchingMore}
+          className="mt-3 w-full rounded-xl border border-border px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:cursor-wait disabled:opacity-60"
+        >
+          {fetchingMore ? t("notifications.loadingMore") : t("notifications.loadMore")}
         </button>
       )}
     </Sheet>
   );
+}
+
+function NotificationText({ notification }: { notification: NotificationDTO }) {
+  const text = notification.text;
+  if (notification.kind === "DM_MESSAGE") {
+    const separator = text.indexOf(": ");
+    if (separator > 0) {
+      return (
+        <span className="block text-sm text-fg">
+          <span className="font-medium">{text.slice(0, separator)}</span>
+          <span className="block">{text.slice(separator + 2)}</span>
+        </span>
+      );
+    }
+  }
+  if (notification.kind === "CHANNEL_MESSAGE") {
+    const separator = text.indexOf(": ");
+    const channelMarker = text.indexOf(" in #");
+    if (separator > 0 && channelMarker > 0 && channelMarker < separator) {
+      return (
+        <span className="block text-sm text-fg">
+          <span className="font-medium">
+            {text.slice(0, channelMarker)}
+            <span className="font-normal text-muted"> · {text.slice(channelMarker + 5, separator)}</span>
+          </span>
+          <span className="block">{text.slice(separator + 2)}</span>
+        </span>
+      );
+    }
+  }
+  return <span className="block break-words text-sm text-fg">{text}</span>;
 }

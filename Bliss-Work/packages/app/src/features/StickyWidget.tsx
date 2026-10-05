@@ -1,6 +1,10 @@
-import { Check, X, Flag, LogOut, Pin, Minus } from "lucide-react";
+import { Check, X, Flag, LogOut, PinOff, Minus } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Avatar, Badge } from "@taskboard/ui";
-import { shouldOfferPin, type StickyTaskDTO, type TaskAction } from "@taskboard/shared";
+import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
+import type { ParticipantTargets } from "./AddParticipantsPicker";
+import { TaskParticipantAdd, TaskParticipants } from "./TaskParticipants";
+import { TaskTimes } from "./TaskTimes";
 
 /**
  * Presentational task card. Used inline in the Tasks/Inbox screens and as the
@@ -17,23 +21,27 @@ import { shouldOfferPin, type StickyTaskDTO, type TaskAction } from "@taskboard/
  * is an OS window the user can resize and whose document cannot scroll. See the
  * class list below.
  *
- * Pin model (Electron only):
- *   - `onPin` present → render a "Pin to desktop" button on ACKNOWLEDGED tasks.
- *   - `pinned` → the task is already floating; show a "Pinned" chip instead.
- *   - `locked` → this is (or mirrors) an acknowledged pinned note: the only exit
- *     is Complete, so Ignore/Leave are suppressed and `onCollapse` offers a
- *     collapse-to-pill control.
+ * Pin model (Electron only): tasks pin to the desktop automatically, so the card
+ * itself carries no pin controls.
+ *   - `locked` → this is (or mirrors) an acknowledged pinned note: pinning only
+ *     changes the note chrome; the task's valid Complete/Leave actions remain.
+ *   - `onUnpin` → floating note only: an Unpin button that removes the note
+ *     from the desktop popup.
  */
 export function StickyWidget({
   task,
   onAction,
   busy = false,
   compact = false,
-  onPin,
-  pinned = false,
   locked = false,
   onCollapse,
-  onDismiss,
+  onUnpin,
+  currentUserId,
+  onAddParticipants,
+  onWithdrawParticipant,
+  participantLayout = "chips",
+  onWithdrawSelf,
+  headerPin,
 }: {
   task: StickyTaskDTO;
   onAction: (action: TaskAction) => void;
@@ -41,32 +49,83 @@ export function StickyWidget({
    *  action button so a slow request can't be double-submitted. */
   busy?: boolean;
   compact?: boolean;
-  /** Electron-only: pin this task to the desktop (shown on ACKNOWLEDGED tasks). */
-  onPin?: () => void;
-  /** Whether this task is already pinned to the desktop. */
-  pinned?: boolean;
-  /** Locked = pinned & inescapable: hide Ignore/Leave, leave only Complete. */
+  /** Locked = pinned note chrome; it does not change the task's valid actions. */
   locked?: boolean;
   /** Floating note only: collapse this note to a pill. */
   onCollapse?: () => void;
   /**
-   * Floating note only: clear the NOTE without touching the TASK. Distinct from
-   * Ignore, which is a decision about the work; this just says "I've seen it".
+   * Floating note only: unpin the NOTE from the desktop without touching the
+   * TASK. Distinct from Ignore, which is a decision about the work; the task
+   * stays in the Tasks list with all its actions.
    */
-  onDismiss?: () => void;
+  onUnpin?: () => void;
+  currentUserId?: string;
+  onAddParticipants?: (targets: ParticipantTargets) => Promise<void>;
+  onWithdrawParticipant?: (userId: string) => Promise<void>;
+  participantLayout?: "chips" | "list";
+  /**
+   * "list" layout only: giving this shows a labelled Withdraw on the viewer's OWN
+   * row of the participants list. It is not a new operation — it is called with
+   * the existing self-removal action that `task.actions` currently allows:
+   * IGNORE while the task is still SENT, LEAVE once it is ACKNOWLEDGED. Omitted
+   * (the floating desktop note, the inbox card) the card is unchanged.
+   */
+  onWithdrawSelf?: (action: Extract<TaskAction, "IGNORE" | "LEAVE">) => void;
+  /**
+   * In-app cards only: a Pin / Unpin control for the header's top-right slot.
+   * When given it REPLACES whatever would sit there (the Ignore X on a SENT
+   * card, the collapse/unpin pair on a locked one), so the corner is only ever a
+   * pin control. Ignore and Leave stay in the button row below. Omitted, the
+   * header is exactly as it was — the floating desktop note and the inbox card
+   * do not pass it.
+   */
+  headerPin?: React.ReactNode;
 }) {
-  const showPin = shouldOfferPin({
-    status: task.myStatus,
-    canPinOnPlatform: !!onPin,
-    alreadyPinned: pinned,
-    locked,
-  });
-
+  const { t } = useTranslation("stickies");
   // senderUsername is the email local-part, so "from j.okafor" is what a note
   // built from it alone says. This widget also renders in the desktop sticky
   // window, which has no directory query — hence the field on the DTO rather
   // than a lookup here.
   const senderName = task.senderDisplayName || task.senderUsername;
+  const activeTask = task.myStatus === "SENT" || task.myStatus === "ACKNOWLEDGED";
+  const showCardAdd = participantLayout === "list" && activeTask && !!currentUserId && !!onAddParticipants;
+  // Withdrawing from your own assignment is Leave once acknowledged and Ignore
+  // before — the card already knows which is valid, so offer exactly that one.
+  const selfWithdrawAction = task.actions.includes("LEAVE") ? "LEAVE" : task.actions.includes("IGNORE") ? "IGNORE" : null;
+  const withdrawSelf = onWithdrawSelf && selfWithdrawAction ? () => onWithdrawSelf(selfWithdrawAction) : undefined;
+
+  // The floating note is a fixed-size window that clips what does not fit, and its
+  // buttons would otherwise stack into a second row there. Below 15rem of row width
+  // the (decorative) icons give way instead, so the labels stay whole and the
+  // buttons stay on one line. Only the compact note: an in-app card just grows.
+  //
+  // The in-app card has the same ladder one step lower: a label is only ever
+  // squeezed once the row is narrower than the longest one, and then in order —
+  // icons go (<9rem), then padding (see ActionBtn), then, below what the longest
+  // label can fit in at all (<7rem), each button takes its own line and the word
+  // may finally break rather than leave its button and the card. Above 9rem
+  // nothing here applies, so a card that fits looks exactly as before.
+  const rowIcon = compact ? "@max-[15rem]/actions:hidden" : "@max-[9rem]/actions:hidden";
+
+  const avatar = <Avatar name={senderName} size="sm" />;
+  const titleBlock = (
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0 line-clamp-2 font-semibold leading-tight text-fg">{task.title}</div>
+        {participantLayout === "chips" && currentUserId && onAddParticipants && task.participants.some((p) => p.status === "SENT" || p.status === "ACKNOWLEDGED") && (
+          <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants} />
+        )}
+      </div>
+      {/* Unlike the title above it, kept single-line: left to wrap, a
+          two-word sender name turned into three lines on a narrow note
+          and the header alone ate the room the action row needed. */}
+      <div className="truncate text-xs text-muted">{t("card.from", { name: senderName })}</div>
+    </div>
+  );
+  // A missed task reads as such at a glance: danger badge here, danger "Missed" chip
+  // and a danger-tinted border below.
+  const badgeTone = task.myStatus === "ACKNOWLEDGED" ? "accent" : task.myStatus === "MISSED" ? "danger" : "neutral";
+  const statusBadge = <Badge tone={badgeTone}>{task.myStatus.toLowerCase()}</Badge>;
 
   // Whole surface is the OS-window drag region so the user can grab the note
   // from anywhere — title, body, even the empty space below the description.
@@ -76,7 +135,9 @@ export function StickyWidget({
   // expected to be a bug.
   return (
     <div
-      className={`app-drag flex flex-col gap-3 rounded-2xl border border-border bg-surface p-4 ${
+      className={`app-drag flex min-w-0 flex-col gap-3 rounded-2xl border bg-surface p-4 ${
+        task.myStatus === "MISSED" ? "border-danger/40" : "border-border"
+      } ${
         // The floating note lives in a fixed-size, user-resizable OS window
         // whose document is `overflow: hidden` — anything taller than the window
         // is not scrolled, it is silently cut off. Capping the card at the
@@ -87,52 +148,80 @@ export function StickyWidget({
         compact ? "max-h-full min-h-0 shadow-widget" : "shadow-soft"
       }`}
     >
-      <div className="flex shrink-0 items-start justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-2.5">
-          <Avatar name={senderName} size="sm" />
-          <div className="min-w-0">
-            <div className="truncate font-semibold leading-tight text-fg">{task.title}</div>
-            {/* Truncated like the title above it. Left to wrap, a two-word
-                sender name turned into three lines on a narrow note and the
-                header alone ate the room the action row needed. */}
-            <div className="truncate text-xs text-muted">from {senderName}</div>
+      {headerPin ? (
+        // ── Header with the Pin / Unpin control ────────────────────────────────
+        // The pin takes a fixed 24px beside an avatar (28px) and the status badge
+        // (up to ~112px for "acknowledged"), which in a narrow card left the title
+        // with 0px. So the header is laid out by how wide THIS CARD is (an
+        // `@container` query, not the viewport — it follows column count and
+        // browser zoom for free), in three steps:
+        //   wide   (>= 19rem)  avatar | title | badge | pin      — one row
+        //   medium (>= 11rem)  avatar | title | pin, badge below the title (it may
+        //                      run under the pin column too — never ellipsized here)
+        //   narrow             avatar … pin, then title and badge each full width
+        // The pin stays in the top-right corner in every step, and each step
+        // leaves the title at least ~6.5rem (~104px) — or the whole row.
+        <div className="@container shrink-0">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1.5 @min-[11rem]:grid-cols-[auto_minmax(0,1fr)_auto] @min-[19rem]:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+            <div className="col-start-1 row-start-1">{avatar}</div>
+            <div className="col-span-2 col-start-1 row-start-2 min-w-0 @min-[11rem]:col-span-1 @min-[11rem]:col-start-2 @min-[11rem]:row-start-1 @min-[11rem]:ml-0.5">
+              {titleBlock}
+            </div>
+            <div className="app-no-drag col-span-2 col-start-1 row-start-3 flex min-w-0 items-center @min-[11rem]:col-span-2 @min-[11rem]:col-start-2 @min-[11rem]:row-start-2 @min-[11rem]:ml-0.5 @min-[19rem]:col-span-1 @min-[19rem]:col-start-3 @min-[19rem]:row-start-1 @min-[19rem]:ml-0 @min-[19rem]:h-6">
+              {/* Allowed to shrink and ellipsize: in the narrowest step it has the
+                  card's whole inner width, and "acknowledged" is wider than that
+                  in a very narrow card (e.g. 2 columns at 150% zoom). Tighter
+                  padding there keeps it from truncating until it truly must. */}
+              <Badge
+                tone={badgeTone}
+                className="min-w-0 max-w-full px-1.5 tracking-normal @min-[11rem]:px-2 @min-[11rem]:tracking-wide"
+              >
+                <span className="truncate">{task.myStatus.toLowerCase()}</span>
+              </Badge>
+            </div>
+            <div className="app-no-drag col-start-2 row-start-1 flex h-6 items-center justify-self-end @min-[11rem]:col-start-3 @min-[19rem]:col-start-4 @min-[19rem]:-ml-0.5">
+              {headerPin}
+            </div>
           </div>
+        </div>
+      ) : (
+      <div className="flex shrink-0 items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          {avatar}
+          {titleBlock}
         </div>
         {/* `shrink-0`: on a narrow note the long status word ("acknowledged")
             otherwise wraps this cluster onto a second line, nearly doubling the
             header and shoving the action row off the bottom of the window. The
-            title beside it is already `min-w-0` + `truncate`, so it is the one
-            that should give way. */}
+            title beside it is already `min-w-0` + `line-clamp-2`, so it is the
+            one that should give way. */}
         <div className="app-no-drag flex shrink-0 items-center gap-1.5">
-          <Badge tone={task.myStatus === "ACKNOWLEDGED" ? "accent" : "neutral"}>
-            {task.myStatus.toLowerCase()}
-          </Badge>
+          {statusBadge}
           {locked || compact ? (
             // Floating note: Ignore lives in the button row, so the header gets
-            // a collapse-to-pill control — plus, now, a real dismiss.
+            // a collapse-to-pill control — plus Unpin.
             <>
               {onCollapse && (
                 <button
                   className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-                  title="Collapse to a pill"
+                  title={t("card.collapseToPill")}
                   onClick={onCollapse}
                 >
                   <Minus size={16} />
                 </button>
               )}
-              {/* Clearing the NOTE is not the same as ignoring the TASK, and
-                  the note used to offer neither: collapse replaced the X, so a
-                  note the user had read could only be got rid of by completing
-                  or ignoring the task it belonged to. This closes it and
-                  remembers, without touching the commitment. */}
-              {onDismiss && (
+              {/* Unpinning the NOTE is not the same as ignoring the TASK: collapse
+                  replaced the header X, so without this a note could only be got
+                  rid of by completing or ignoring the task it belonged to. This
+                  removes the note and remembers, without touching the task. */}
+              {onUnpin && (
                 <button
                   className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-                  title="Clear this note (the task stays)"
-                  aria-label="Clear this note"
-                  onClick={onDismiss}
+                  title={t("card.unpinNoteTitle")}
+                  aria-label={t("card.unpin")}
+                  onClick={onUnpin}
                 >
-                  <X size={16} />
+                  <PinOff size={16} />
                 </button>
               )}
             </>
@@ -142,7 +231,7 @@ export function StickyWidget({
             // so the X is hidden rather than firing a 409.
             <button
               className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-              title="Dismiss (ignore)"
+              title={t("card.dismissIgnore")}
               disabled={busy}
               onClick={() => onAction("IGNORE")}
             >
@@ -151,22 +240,43 @@ export function StickyWidget({
           ) : null}
         </div>
       </div>
+      )}
 
-      {/* The only part of the card that can afford to lose room: a shortened
-          description is a nuisance, a missing Acknowledge button is a dead end.
-          Two lines on the floating note rather than three, so the labelled
-          action row fits the default window with the clamp landing on a line
-          boundary (with its ellipsis) instead of slicing one in half; `min-h-0`
-          lets even those two lines give way if the user shrinks the note
-          further. Three lines still on the roomier in-app cards. */}
+      {/* Keep the card and its actions stable while allowing the full
+          description to be read in place. `app-no-drag` is required here: the
+          whole card is an OS drag region (see above), and without opting out,
+          Electron treats a wheel/trackpad gesture over this element as window
+          drag input rather than forwarding it to the scrollable paragraph —
+          so it showed a scrollbar that never actually scrolled. */}
       {task.description && (
         <p
-          className={`min-h-0 text-sm leading-relaxed text-fg/80 ${
-            compact ? "line-clamp-2" : "line-clamp-3"
-          }`}
+          className={`app-no-drag min-h-0 max-h-20 overflow-y-auto overscroll-contain whitespace-pre-wrap text-sm leading-relaxed text-fg/80 ${
+            compact ? "max-h-16" : "max-h-20"
+          } [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]`}
         >
           {task.description}
         </p>
+      )}
+
+      <TaskTimes assignedAt={task.assignedAt} deadlineAt={task.deadlineAt} missedAt={task.missedAt} />
+
+      {currentUserId && task.participants.length > 0 && (
+        <TaskParticipants
+          participants={task.participants}
+          currentUserId={currentUserId}
+          allocatorId={task.senderId}
+          onAdd={participantLayout === "chips" ? onAddParticipants : undefined}
+          onWithdraw={onWithdrawParticipant}
+          onWithdrawSelf={withdrawSelf}
+          selfWithdrawDisabled={busy}
+          addPlacement="name"
+          layout={participantLayout}
+        />
+      )}
+      {showCardAdd && (
+        <div className={`mt-3 flex justify-end ${task.participants.length === 0 ? "border-t border-border/50 pt-3" : ""}`}>
+          <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants!} prominent />
+        </div>
       )}
 
       {/* Every action is LABELLED, including on the compact floating note. It
@@ -177,10 +287,18 @@ export function StickyWidget({
           `shrink-0` keeps that fix effective: labelled buttons are taller and
           wider than glyphs, so on a short note this row is exactly what a
           content-sized card pushed past the window edge. */}
-      <div className="app-no-drag flex shrink-0 flex-wrap gap-2">
+      {/* `flex-wrap`: on a narrow card the buttons drop onto their own lines
+          instead of squeezing each other until a label ("Acknowledge") spills out
+          of its button. They stay side by side, equal width, whenever they fit.
+          A button's width is never below its own min-content (the longest word
+          plus its icon — the default `min-width: auto` of a flex item), so a word
+          is never split; `max-w-full` caps that at the card's width. Do NOT add
+          `overflow-wrap: anywhere` here: it shrinks min-content to one letter and
+          lets "Acknowledge" break mid-word. */}
+      <div className="app-no-drag @container/actions flex min-w-0 shrink-0 flex-wrap gap-2">
         {task.actions.includes("ACKNOWLEDGE") && !locked && (
-          <ActionBtn tone="accent" label="Acknowledge" disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
-            <Check size={15} /> Acknowledge
+          <ActionBtn tight={compact} tone="accent" label={t("card.acknowledge")} disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
+            <Check size={15} className={rowIcon} /> {t("card.acknowledge")}
           </ActionBtn>
         )}
         {/* Explicit Ignore button next to Acknowledge for every SENT card. On
@@ -189,29 +307,19 @@ export function StickyWidget({
             expect (and asked for) a clearly-labelled Ignore button beside
             Acknowledge rather than only a corner ✗ — so render it in both. */}
         {task.actions.includes("IGNORE") && !locked && (
-          <ActionBtn tone="danger" label="Ignore" disabled={busy} onClick={() => onAction("IGNORE")}>
-            <X size={15} /> Ignore
+          <ActionBtn tight={compact} tone="danger" label={t("card.ignore")} disabled={busy} onClick={() => onAction("IGNORE")}>
+            <X size={15} className={rowIcon} /> {t("card.ignore")}
           </ActionBtn>
         )}
         {task.actions.includes("COMPLETE") && (
-          <ActionBtn tone="success" label="Complete" disabled={busy} onClick={() => onAction("COMPLETE")}>
-            <Flag size={15} /> Complete
+          <ActionBtn tight={compact} tone="accent" label={t("card.complete")} disabled={busy} onClick={() => onAction("COMPLETE")}>
+            <Flag size={15} className={rowIcon} /> {t("card.complete")}
           </ActionBtn>
         )}
-        {task.actions.includes("LEAVE") && !locked && (
-          <ActionBtn tone="ghost" label="Leave" disabled={busy} onClick={() => onAction("LEAVE")}>
-            <LogOut size={15} /> Leave
+        {task.actions.includes("LEAVE") && (
+          <ActionBtn tight={compact} tone="ghost" label={t("card.leave")} disabled={busy} onClick={() => onAction("LEAVE")}>
+            <LogOut size={15} className={rowIcon} /> {t("card.leave")}
           </ActionBtn>
-        )}
-        {showPin && (
-          <ActionBtn tone="ghost" onClick={() => onPin?.()}>
-            <Pin size={15} /> Pin to desktop
-          </ActionBtn>
-        )}
-        {pinned && (
-          <span className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2 text-sm font-medium text-accent">
-            <Pin size={15} /> Pinned to desktop
-          </span>
         )}
       </div>
     </div>
@@ -224,17 +332,20 @@ function ActionBtn({
   tone,
   label,
   disabled = false,
+  tight = false,
 }: {
   children: React.ReactNode;
   onClick: () => void;
-  tone: "accent" | "success" | "ghost" | "danger";
+  tone: "accent" | "ghost" | "danger";
+  /** Compact (floating) note only: 2px less horizontal padding when the row is under
+   *  15rem, so a one-line pair still fits instead of stacking into a taller row. */
+  tight?: boolean;
   /** Tooltip text. The visible label is the button's own children. */
   label?: string;
   disabled?: boolean;
 }) {
   const tones = {
     accent: "bg-accent text-accent-fg hover:bg-accent-strong shadow-soft",
-    success: "bg-success text-white hover:brightness-110 shadow-soft",
     ghost: "border border-border text-fg hover:bg-surface-2",
     danger: "bg-danger text-white hover:brightness-110 shadow-soft",
   };
@@ -243,7 +354,7 @@ function ActionBtn({
       onClick={onClick}
       disabled={disabled}
       title={label}
-      className={`inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${tones[tone]}`}
+      className={`inline-flex max-w-full flex-1 basis-0 items-center justify-center gap-1.5 whitespace-normal rounded-xl px-2.5 py-2 text-center text-sm font-medium transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 @max-[9rem]/actions:px-1.5 @max-[7rem]/actions:basis-full @max-[7rem]/actions:[overflow-wrap:anywhere] ${tight ? "@max-[15rem]/actions:px-2" : ""} ${tones[tone]}`}
     >
       {children}
     </button>

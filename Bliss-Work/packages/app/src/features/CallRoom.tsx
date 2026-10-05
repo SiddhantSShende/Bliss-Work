@@ -15,6 +15,16 @@
  * one column, three tabs, collapsing smoothly rather than popping open as an
  * overlay — see useCollapseTransition).
  *
+ * ── The room is exactly the window ───────────────────────────────────────────
+ * The shell is `fixed inset-0`: the box IS the viewport, so nothing inside it
+ * can make the page taller than the window, whatever a camera's aspect ratio or
+ * however many people are in the room. Every flex ancestor between the shell and
+ * a tile carries `min-h-0`/`min-w-0` (a flex item will not shrink below its
+ * content otherwise), and the video area's frames are inset-0 boxes with tiles
+ * of definite size in them. Below `sm` the sidebar becomes a bottom dock (the
+ * shell flips to a column), and below `md` the side panel becomes a sheet over
+ * the stage.
+ *
  * The video area itself takes one of two shapes depending on what the stage
  * actually is:
  *  - A speaking/pinned PERSON: their tile framed in BracketFrame, a vertical
@@ -30,13 +40,18 @@
  * channel is: the same audience, the same lifetime, and no table anywhere.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, ScreenShare, Video, VideoOff } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Button, cn } from "@taskboard/ui";
 import { type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
+import { qk } from "../lib/queryBridge";
 import { isGetUserMediaDenied, useCallRoom } from "../lib/useCallRoom";
+import { CAMERA_PREVIEW_CONSTRAINTS } from "../lib/mediaConstraints";
+import { useVideoAspect } from "../lib/useVideoAspect";
 import { useCollapseTransition } from "../lib/useCollapseTransition";
 import { CHAT_SYNC_MAX, NOTES_SYNC_MAX } from "../lib/roomMessages";
 import {
@@ -75,7 +90,9 @@ import { useLocalRecording } from "../lib/useLocalRecording";
 import { MiniMeeting } from "./MiniMeeting";
 import { BracketFrame } from "./BracketFrame";
 import { CallSidebar } from "./CallSidebar";
-import { CallTile, UnpinButton } from "./CallTile";
+import { CallAudioSinks } from "./CallAudioSinks";
+import { UnpinButton } from "./CallTile";
+import { CallTileHostProvider, CallTileSlot } from "./CallTileHost";
 import { CallMembers } from "./CallMembers";
 import { CallSpeakerFilmstrip } from "./CallSpeakerFilmstrip";
 import { SpeakingWave } from "./SpeakingWave";
@@ -103,19 +120,30 @@ const SPEAKER_TICK_MS = 250;
  *  playing. */
 const PANEL_TRANSITION_MS = 300;
 /**
- * Sizing while open/closed. Collapses on the axis that actually reclaims
- * space at each breakpoint: height, stacked under `lg` where the panel is a
- * full-width block below the video area; width at `lg` and up, where it's a
- * column beside it and a 0-height collapse would do nothing. `overflow-hidden`
- * keeps content from spilling out while it shrinks.
+ * How the side panel is placed and sized, open and closed — three shapes,
+ * chosen by breakpoint (the panel is a sibling of the video area, so its shape
+ * is the room's, not the content's):
+ *  - below `md` (768px): a sheet over the video area (`absolute`, inset to the
+ *    content's edges). A split at this size leaves two surfaces neither of
+ *    which is usable — a stage 100px tall, a chat 100px tall (a phone held
+ *    sideways is 640–700px wide and only ~360px tall) — so the panel takes over
+ *    instead, and the dock's own button (or the panel's ✕) puts the stage back.
+ *  - `md` up to `lg`: a block stacked under the video area, capped at 16rem or
+ *    half the space, whichever is less (so a short window keeps a usable stage) —
+ *    but never below 13rem, the least at which its own header, notice and
+ *    message box all fit — and collapsing on height.
+ *  - `lg` and up: a column beside it, collapsing on width. `lg:h-auto
+ *    lg:max-h-none` because a height cap does nothing there.
+ * `overflow-hidden` keeps content from spilling out while it shrinks.
  */
-const SIDE_PANEL_TRANSITION_BASE =
-  "w-full shrink-0 overflow-hidden transition-all duration-300 ease-out lg:h-auto lg:max-h-none";
-const SIDE_PANEL_OPEN = "max-h-64 opacity-100 lg:w-72 xl:w-80";
-const SIDE_PANEL_CLOSED = "pointer-events-none max-h-0 opacity-0 lg:w-0";
+const SIDE_PANEL_TRANSITION_BASE = "shrink-0 overflow-hidden transition-all duration-300 ease-out";
+const SIDE_PANEL_SHEET =
+  "absolute inset-x-3 bottom-3 top-0 z-30 sm:inset-x-6 sm:bottom-6 md:static md:z-auto md:w-full";
+const SIDE_PANEL_OPEN = `${SIDE_PANEL_SHEET} opacity-100 md:min-h-52 md:max-h-[min(16rem,50%)] lg:h-auto lg:min-h-0 lg:max-h-none lg:w-72 xl:w-80`;
+const SIDE_PANEL_CLOSED = `${SIDE_PANEL_SHEET} pointer-events-none opacity-0 md:max-h-0 lg:w-0`;
 
 export function CallRoom({
-  call,
+  call: initialCall,
   onClose,
   autoJoin,
 }: {
@@ -128,7 +156,8 @@ export function CallRoom({
    *  it was. */
   autoJoin?: "video" | "voice";
 }) {
-  const room = useCallRoom(call.id);
+  const { t, i18n } = useTranslation("callRoom");
+  const room = useCallRoom(initialCall.id);
   const {
     join,
     leave,
@@ -151,6 +180,28 @@ export function CallRoom({
     identity,
   } = room;
   const { api, config } = useRuntime();
+  /**
+   * `initialCall` is a snapshot from whenever the caller opened this meeting
+   * (MeetingSession's `enter()` sets it once and never again — see its own
+   * doc). A meeting opened while still SCHEDULED keeps that frozen copy, with
+   * no `startedAt`, for as long as this room stays mounted — even once the
+   * host starts it and the meeting is genuinely LIVE.
+   *
+   * `qk.call(id)` is the same cache entry queryBridge.tsx already refreshes
+   * on CallStarted/CallEnded/CallShareStarted/… (see handleCallEvent) for
+   * every other surface (Meetings, MeetingDetail); this just adds the
+   * observer that was missing here, so the room picks up that refresh too
+   * instead of only whoever happens to revisit one of those. `initialData`
+   * means the very first render is identical to before — nothing to load —
+   * and it is ignored once the cache holds anything newer, so a late join or
+   * a remount can never regress an already-fresher `startedAt` back to this
+   * stale snapshot.
+   */
+  const { data: call } = useQuery({
+    queryKey: qk.call(initialCall.id),
+    queryFn: () => api.call(initialCall.id),
+    initialData: initialCall,
+  });
   const me = useSession((s) => s.user);
   /**
    * Optional so this component can still be rendered on its own — the dev
@@ -170,6 +221,7 @@ export function CallRoom({
   /** Bumped by the "Try again" button to re-run the getUserMedia effect. */
   const [previewAttempt, setPreviewAttempt] = useState(0);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const previewAspect = useVideoAspect(previewVideoRef);
   const [starting, setStarting] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
@@ -183,6 +235,13 @@ export function CallRoom({
     PANEL_TRANSITION_MS,
   );
   const effectivePanel = panel ?? lastPanelRef.current;
+  // Below `md` the open panel is a sheet laid over the stage (see SIDE_PANEL_*).
+  // The sheet is translucent glass, so the stage would show through it and the
+  // chat would be written over a moving picture; hidden (not unmounted — the
+  // media keeps running) it is out of sight AND out of the tab order, which is
+  // right for controls the sheet covers. The sharer's stop control lives in
+  // <main> outside the stage, so it is not affected.
+  const stageUnderSheet = panel !== null ? "max-md:invisible" : "";
 
   const [pinned, setPinned] = useState<string | null>(null);
   const [hands, setHands] = useState<Set<string>>(() => new Set());
@@ -204,20 +263,32 @@ export function CallRoom({
   const [recording, setRecording] = useState(false);
 
   /**
-   * Who is on the stage: the viewer's own pin if they made one, otherwise
-   * whoever the room is listening to.
+   * A shared screen takes the stage over everything else, including a pin —
+   * it is what the room is now looking at, not a suggestion. Read fresh from
+   * `participants` on every render rather than latched into state anywhere:
+   * there is then nothing about "who is sharing" that can go stale, and
+   * nothing to restore once it stops — the stage just falls through to
+   * `pinned`/the active speaker again on its own, taking with it whatever the
+   * viewer had chosen before the share started. See CallSpeakerFilmstrip for
+   * the other half (the sharer keeps a seat there too, showing their camera).
+   */
+  const sharer = participants.find((p) => p.sharing)?.identity ?? null;
+
+  /**
+   * Who is on the stage: a live screen share first, then the viewer's own
+   * pin if they made one, otherwise whoever the room is listening to.
    *
-   * The pin WINS, and that is the whole distinction — someone who chose a tile
-   * deliberately should not lose it every time another person speaks. Unpinning
-   * falls through to the active speaker again with no extra state, and because
-   * `pinned` is this component's own state, one viewer's choice is invisible to
-   * everybody else in the meeting.
+   * The pin WINS over the active speaker, and that is the whole distinction —
+   * someone who chose a tile deliberately should not lose it every time
+   * another person speaks. Unpinning falls through to the active speaker again
+   * with no extra state, and because `pinned` is this component's own state,
+   * one viewer's choice is invisible to everybody else in the meeting.
    *
    * Computed here, ahead of the "waiting" early return below, because
    * useMeetingPiP (a hook) needs it and hooks cannot follow a conditional
    * return.
    */
-  const stageId = pinned ?? speakers.active;
+  const stageId = sharer ?? pinned ?? speakers.active;
   const stage = stageId ? participants.find((p) => p.identity === stageId) : undefined;
 
   // What Picture-in-Picture follows: the same track CallTile would show on
@@ -249,12 +320,12 @@ export function CallRoom({
   );
   const minimized = display.mode === "MINIMIZED";
 
-  const title = call.title || (call.kind === "CHANNEL" ? "Channel call" : "Meeting");
+  const title = call.title || (call.kind === "CHANNEL" ? t("room.defaultTitleChannel") : t("room.defaultTitleMeeting"));
   // The MEETING's own start time, not this client's own connectedAt — every
   // participant's timer must read the same number regardless of when THEY
-  // joined. call.startedAt is server-authoritative and already kept fresh via
-  // the CallStarted WS event (see queryBridge.tsx), same source the Meetings
-  // list/detail duration already reads (lib/meetingView.ts's durationMsOf).
+  // joined. call.startedAt is server-authoritative and kept fresh by the
+  // live-refreshed `call` above, same source the Meetings list/detail
+  // duration already reads (lib/meetingView.ts's durationMsOf).
   const meetingStartedAt = call.startedAt ? new Date(call.startedAt).getTime() : undefined;
   const meetingDuration = useCallDuration(meetingStartedAt);
 
@@ -265,7 +336,6 @@ export function CallRoom({
 
   useEffect(() => {
     console.debug("[CALL ROOM] Mounted");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -273,7 +343,7 @@ export function CallRoom({
     let cancelled = false;
     setPreviewError(null);
     navigator.mediaDevices
-      .getUserMedia({ audio: true, video: true })
+      .getUserMedia({ audio: true, video: CAMERA_PREVIEW_CONSTRAINTS })
       .then((stream) => {
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
@@ -325,7 +395,7 @@ export function CallRoom({
     });
     setPreviewCamOn((on) => !on);
   };
-  const myName = participants.find((p) => p.isLocal)?.name || me?.displayName || "You";
+  const myName = participants.find((p) => p.isLocal)?.name || me?.displayName || t("room.youFallbackName");
   const handRaised = identity ? hands.has(identity) : false;
   // Only a HOST may record, and the server says so too — this gate exists so
   // nobody is shown a button that answers 403, not as the control itself.
@@ -589,23 +659,6 @@ export function CallRoom({
     if (heldChat.length) sendData({ t: "chat-sync", msgs: heldChat.slice(-CHAT_SYNC_MAX) });
   }, [status, sendData]);
 
-  /**
-   * A shared screen takes the stage by itself.
-   *
-   * Only when the SHARER changes, so it is a one-time claim rather than a
-   * policy: pin something else, or unpin, and the room leaves it alone until
-   * somebody starts sharing next. When the share ends the stage is released —
-   * but only if the share was what was on it, since by then the pin may be
-   * somebody the viewer chose deliberately.
-   */
-  const sharer = participants.find((p) => p.sharing)?.identity ?? null;
-  const lastSharer = useRef<string | null>(null);
-  useEffect(() => {
-    if (sharer && sharer !== lastSharer.current) setPinned(sharer);
-    if (!sharer && lastSharer.current && pinnedRef.current === lastSharer.current) setPinned(null);
-    lastSharer.current = sharer;
-  }, [sharer]);
-
   // Someone pinned can leave. Their tile is gone; the pin must go with it, or
   // the stage renders nothing and the members stay squeezed into a strip.
   const identities = participants.map((p) => p.identity).join(",");
@@ -730,18 +783,18 @@ export function CallRoom({
       setRecording(false);
       sendData({ t: "recording", on: false });
       await localRec.stop();
-      toast("Recording saved to your downloads");
+      toast(t("room.toasts.recordingSaved"));
       return;
     }
     try {
       localRec.start();
     } catch {
-      toast.error("This browser can't record meetings");
+      toast.error(t("room.toasts.recordingUnsupported"));
       return;
     }
     setRecording(true);
     sendData({ t: "recording", on: true });
-    toast("Recording started — it will save to this device");
+    toast(t("room.toasts.recordingStarted"));
   };
 
   // Mint (once) and copy a link anyone can use to join this call — shared
@@ -749,7 +802,7 @@ export function CallRoom({
   // lib/useCallInviteLink.
   const { isPending: mintingInviteLink, copyLink: copyInviteLinkUrl } = useCallInviteLink(call.id);
   const copyInviteLink = async () => {
-    if (await copyInviteLinkUrl()) toast("Invite link copied");
+    if (await copyInviteLinkUrl()) toast(t("room.toasts.inviteLinkCopied"));
   };
 
   const hangUp = async () => {
@@ -758,97 +811,123 @@ export function CallRoom({
   };
 
   if (preJoin) {
+    // What the preview box is shaped like: the camera's own aspect ratio while
+    // there is a picture, clamped between 9:16 and 16:9 — every ordinary camera
+    // shape, portrait phone streams included, fills its box exactly; only an
+    // ultrawide gets (small) bars rather than a box too flat to look at.
+    // The <video> stays mounted whatever the camera is doing (its srcObject is
+    // bound once, in an effect), and is only hidden — so this reads the same
+    // element for the whole lobby.
+    const previewShowsVideo = previewCamOn && !previewError;
+    const previewBoxAspect =
+      previewShowsVideo && previewAspect ? Math.min(16 / 9, Math.max(9 / 16, previewAspect)) : 16 / 9;
     const scheduledAt = call.scheduledAt;
     const scheduled = scheduledAt == null ? null : new Date(scheduledAt);
     const scheduledLabel = scheduled
-      ? scheduled.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
-      : "Ready to join";
+      ? scheduled.toLocaleString(i18n.language, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+      : t("preJoin.readyToJoinLabel");
 
     return (
-      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col text-fg">
+      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col text-fg">
         <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-5 py-3">
           <div className="min-w-0">
             <div className="truncate font-semibold">{title}</div>
             <div className="text-xs text-muted">{scheduledLabel}</div>
           </div>
           <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
-            Leave
+            {t("preJoin.leave")}
           </Button>
         </header>
-        <main className="flex min-h-0 flex-1 items-center justify-center p-6">
-          {/* max-h-full + overflow-y-auto: `main` above is a properly
-              height-bounded flex-1/min-h-0 box (its own height resolves
-              against the fixed inset-0 shell minus the header), so capping
-              the card at 100% of THAT — rather than leaving it sized purely
-              by its own content — is what stops it (and the aspect-video
-              preview inside it) from ever pushing past the fixed lobby's
-              edges on a short window. overflow-y-auto is the fallback for
-              whatever still doesn't fit even after the preview's own cap
-              below, so the Join button stays reachable by scrolling instead
-              of landing off-screen. */}
-          <div className="glass max-h-full w-full max-w-3xl overflow-y-auto rounded-2xl p-6">
-            {/* aspect-video sizes purely from WIDTH, which stays large even in
-                a vertically cramped window (this room, or the desktop app's
-                own pop-out meeting window — main/meeting-window-manager.ts,
-                min 480px tall) — nothing here previously stopped that from
-                exceeding the space actually available. min(50dvh,27rem) caps
-                it at the ORIGINAL max-w-3xl-driven height (27rem) once
-                there's room for it, so nothing changes on a normal-size
-                window, and shrinks proportionally to the viewport once
-                there isn't. object-cover on the <video> below already
-                handles a container that ends up shorter than 16:9. */}
-            <div className="relative flex aspect-video max-h-[min(50dvh,27rem)] items-center justify-center overflow-hidden rounded-xl bg-bg ring-1 ring-border/60">
-              <video
-                ref={previewVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className={`h-full w-full -scale-x-100 object-cover ${previewCamOn ? "" : "hidden"}`}
-              />
-              {!previewCamOn && !previewError && (
-                <div className="text-center text-muted">
-                  <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-accent-soft text-2xl font-semibold text-accent">
-                    {myName.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="text-sm">Your camera is off</div>
+        <main className="flex min-h-0 flex-1 items-center justify-center p-3 sm:p-6">
+          {/* The lobby card is ONE bounded box: as tall as the window leaves room
+              for, up to a comfortable 40rem. `h-[min(100%,40rem)]` is a DEFINITE
+              height — `main` above is a flex-1/min-h-0 box under a fixed shell —
+              and that is what lets the preview below be sized by what is LEFT
+              after the heading and the Join button, instead of by its own
+              content. Both of those are shrink-0, so Join is on screen at every
+              size; overflow-y-auto is only the backstop for a window too small
+              for even that.
+
+              Portrait windows stack the preview over the heading and Join;
+              landscape ones put them side by side (the window is short there,
+              and the row is what keeps the preview from being squeezed to a
+              strip). */}
+          <div className="glass flex h-[min(100%,40rem)] w-full max-w-6xl flex-col gap-4 overflow-y-auto rounded-2xl p-4 sm:p-6 landscape:flex-row landscape:items-stretch">
+            <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+              {/* The space the preview may use. [container-type:size] makes its
+                  own size available to the box inside as `cqw`/`cqh`, which is
+                  what lets that box be "as large as fits, at this aspect ratio"
+                  — something no combination of aspect-ratio and max-height can
+                  say, because a max-height that clamps the height leaves the
+                  width behind and breaks the ratio (the black side bars). */}
+              <div className="flex min-h-0 flex-1 items-center justify-center [container-type:size]">
+                <div
+                  className="relative flex max-h-full max-w-full items-center justify-center overflow-hidden rounded-xl bg-bg ring-1 ring-border/60"
+                  // The camera's OWN aspect ratio (clamped so an extreme one
+                  // cannot make the box a sliver), so the picture fills its
+                  // box exactly: no bars for a 4:3 or portrait camera. 16:9
+                  // while there is no picture (camera off, or an error).
+                  style={{
+                    aspectRatio: previewBoxAspect,
+                    width: `min(100cqw, calc(100cqh * ${previewBoxAspect}))`,
+                  }}
+                >
+                  <video
+                    ref={previewVideoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className={`h-full w-full -scale-x-100 object-contain ${previewShowsVideo ? "" : "hidden"}`}
+                  />
+                  {!previewCamOn && !previewError && (
+                    <div className="text-center text-muted">
+                      <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-accent-soft text-2xl font-semibold text-accent">
+                        {myName.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="text-sm">{t("preJoin.cameraOffPlaceholder")}</div>
+                    </div>
+                  )}
+                  {previewError && (
+                    <div className="max-w-xs px-4 text-center text-muted">
+                      <AlertCircle className="mx-auto mb-2 text-danger" size={28} />
+                      <div className="text-sm font-medium text-fg">
+                        {previewError === "denied"
+                          ? t("preJoin.error.deniedTitle")
+                          : t("preJoin.error.otherTitle")}
+                      </div>
+                      <p className="mt-1 text-xs">
+                        {previewError === "denied"
+                          ? t("preJoin.error.deniedHint")
+                          : t("preJoin.error.otherHint")}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                        <Button size="sm" variant="ghost" onClick={() => setPreviewAttempt((n) => n + 1)}>
+                          {t("preJoin.error.tryAgain")}
+                        </Button>
+                        {previewError === "denied" && config.openCameraSettings && (
+                          <Button size="sm" variant="ghost" onClick={() => void config.openCameraSettings!()}>
+                            {t("preJoin.error.openCameraSettings")}
+                          </Button>
+                        )}
+                        {previewError === "denied" && config.openMicrophoneSettings && (
+                          <Button size="sm" variant="ghost" onClick={() => void config.openMicrophoneSettings!()}>
+                            {t("preJoin.error.openMicrophoneSettings")}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-              {previewError && (
-                <div className="max-w-xs px-4 text-center text-muted">
-                  <AlertCircle className="mx-auto mb-2 text-danger" size={28} />
-                  <div className="text-sm font-medium text-fg">
-                    {previewError === "denied"
-                      ? "Camera and microphone are blocked"
-                      : "Couldn't access your camera or microphone"}
-                  </div>
-                  <p className="mt-1 text-xs">
-                    {previewError === "denied"
-                      ? "Check this app's camera and microphone permission, then try again."
-                      : "Make sure a camera and microphone are connected and not already in use, then try again."}
-                  </p>
-                  <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setPreviewAttempt((n) => n + 1)}>
-                      Try again
-                    </Button>
-                    {previewError === "denied" && config.openCameraSettings && (
-                      <Button size="sm" variant="ghost" onClick={() => void config.openCameraSettings!()}>
-                        Open camera settings
-                      </Button>
-                    )}
-                    {previewError === "denied" && config.openMicrophoneSettings && (
-                      <Button size="sm" variant="ghost" onClick={() => void config.openMicrophoneSettings!()}>
-                        Open microphone settings
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )}
-              <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 p-1.5 shadow-card">
+              </div>
+              {/* Under the picture, never over it: over it they sat on the face
+                  and on whatever the error state was saying. One fixed place,
+                  whatever the preview is showing. */}
+              <div className="flex shrink-0 items-center justify-center gap-2 self-center rounded-full border border-border bg-surface/95 p-1.5 shadow-card">
                 <button
                   type="button"
                   onClick={togglePreviewMic}
-                  title={previewMicOn ? "Mute microphone" : "Unmute microphone"}
-                  aria-label={previewMicOn ? "Mute microphone" : "Unmute microphone"}
+                  title={previewMicOn ? t("preJoin.muteMic") : t("preJoin.unmuteMic")}
+                  aria-label={previewMicOn ? t("preJoin.muteMic") : t("preJoin.unmuteMic")}
                   className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${previewMicOn ? "bg-surface-2 text-fg hover:bg-border" : "bg-danger text-white hover:brightness-110"}`}
                 >
                   {previewMicOn ? <Mic size={17} /> : <MicOff size={17} />}
@@ -856,23 +935,25 @@ export function CallRoom({
                 <button
                   type="button"
                   onClick={togglePreviewCam}
-                  title={previewCamOn ? "Turn camera off" : "Turn camera on"}
-                  aria-label={previewCamOn ? "Turn camera off" : "Turn camera on"}
+                  title={previewCamOn ? t("preJoin.cameraOff") : t("preJoin.cameraOn")}
+                  aria-label={previewCamOn ? t("preJoin.cameraOff") : t("preJoin.cameraOn")}
                   className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${previewCamOn ? "bg-surface-2 text-fg hover:bg-border" : "bg-danger text-white hover:brightness-110"}`}
                 >
                   {previewCamOn ? <Video size={17} /> : <VideoOff size={17} />}
                 </button>
               </div>
-            </div>
-            <div className="mt-5 flex flex-col items-center gap-3 text-center">
+            </section>
+            <section className="flex shrink-0 flex-col items-center justify-center gap-3 text-center landscape:w-56 lg:landscape:w-72">
               <div>
-                <h1 className="text-xl font-semibold">Ready to join?</h1>
-                <p className="mt-1 text-sm text-muted">Check your camera and microphone before entering the meeting.</p>
+                <h1 className="text-xl font-semibold">{t("preJoin.heading")}</h1>
+                {/* The one piece that can go on a very short window: the heading
+                    and the button are what the screen is for. */}
+                <p className="mt-1 text-sm text-muted [@media(max-height:480px)]:hidden">{t("preJoin.description")}</p>
               </div>
               <Button size="lg" onClick={() => setPreJoin(false)}>
-                Join meeting
+                {t("preJoin.joinButton")}
               </Button>
-            </div>
+            </section>
           </div>
         </main>
       </div>
@@ -911,17 +992,17 @@ export function CallRoom({
           <div className="text-lg font-semibold text-fg">{title}</div>
           <p className="mt-1 text-sm text-muted">
             {canStart
-              ? "You're the first one here. Start it to let everyone else in."
-              : "This hasn't been opened yet. You'll join automatically the moment it starts."}
+              ? t("waitingRoom.canStartHint")
+              : t("waitingRoom.waitingHint")}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
-            Leave
+            {t("waitingRoom.leave")}
           </Button>
           {canStart && (
             <Button size="sm" onClick={startNow} disabled={starting}>
-              {starting ? "Starting…" : "Start now"}
+              {starting ? t("waitingRoom.starting") : t("waitingRoom.startNow")}
             </Button>
           )}
         </div>
@@ -947,6 +1028,28 @@ export function CallRoom({
    * directly — the hook already resets `roomRef`/`joining` on the failure path
    * (see useCallRoom.ts), so a second call is a clean re-attempt.
    */
+  if (status === "switch_required") {
+    return (
+      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+          <AlertCircle size={24} />
+        </div>
+        <div className="max-w-sm">
+          <div className="text-lg font-semibold text-fg">{t("joinFailed.anotherDeviceTitle")}</div>
+          <p className="mt-1 text-sm text-muted">{t("joinFailed.anotherDeviceHint")}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
+            {t("joinFailed.leave")}
+          </Button>
+          <Button size="sm" onClick={() => void join({ switchHere: true })}>
+            {t("joinFailed.switchHere")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (status === "failed") {
     const retry = () => {
       setRetrying(true);
@@ -954,16 +1057,20 @@ export function CallRoom({
     };
     const failTitle =
       failStage === "token"
-        ? "Unable to obtain meeting credentials"
+        ? t("joinFailed.tokenTitle")
         : failStage === "disconnected"
-          ? "Disconnected from the meeting"
-          : "Unable to connect to the meeting";
+          ? t("joinFailed.disconnectedTitle")
+          : failStage === "displaced"
+            ? t("joinFailed.displacedTitle")
+            : t("joinFailed.genericTitle");
     const failHint =
       failStage === "token"
-        ? "The token request didn't go through. Check your connection and try again."
+        ? t("joinFailed.tokenHint")
         : failStage === "disconnected"
-          ? "The connection to the meeting was lost and couldn't be recovered. Check your connection, then rejoin."
-          : "The connection to the meeting server didn't go through. Check your connection and try again.";
+          ? t("joinFailed.disconnectedHint")
+          : failStage === "displaced"
+            ? t("joinFailed.displacedHint")
+            : t("joinFailed.genericHint");
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-danger/10 text-danger">
@@ -975,11 +1082,13 @@ export function CallRoom({
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
-            Leave
+            {t("joinFailed.leave")}
           </Button>
-          <Button size="sm" onClick={retry} disabled={retrying}>
-            {retrying ? "Retrying…" : "Retry"}
-          </Button>
+          {failStage !== "displaced" && (
+            <Button size="sm" onClick={retry} disabled={retrying}>
+              {retrying ? t("joinFailed.retrying") : t("joinFailed.retry")}
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -999,7 +1108,7 @@ export function CallRoom({
   // invitation. The way in is to be in the channel.
   const canAddPeople = call.kind !== "CHANNEL" && (status === "connected" || status === "reconnecting");
   const addPeopleTitle =
-    call.kind === "CHANNEL" ? "Everyone in the channel is already invited" : "Add people";
+    call.kind === "CHANNEL" ? t("room.channelAlreadyInvited") : t("room.addPeopleDefaultTitle");
 
   // Only what this viewer is party to — the wire already guarantees it, and
   // this is the second lock (see lib/callChat).
@@ -1008,6 +1117,11 @@ export function CallRoom({
 
   return (
     <>
+      {/* Everyone's voice, once each — not tied to which tiles the layout shows
+          (see CallAudioSinks). A sibling of the hidden room, like MiniMeeting,
+          so it plays whether the room is visible or minimised. */}
+      <CallAudioSinks participants={participants} />
+
       {/* The meeting, small and on top, while the app is used underneath.
           Rendered as a SIBLING of the room rather than inside it: the room is
           hidden when minimised, and anything nested in it would be hidden too. */}
@@ -1032,7 +1146,7 @@ export function CallRoom({
           posts the leave (see useCallRoom's cleanup), so keeping this in the
           DOM is precisely what lets the meeting outlive a minimise. */}
       <div
-        className={minimized ? "hidden" : "meeting-theme meeting-mesh fixed inset-0 z-[100] flex text-fg"}
+        className={minimized ? "hidden" : "meeting-surface meeting-theme meeting-mesh fixed inset-0 z-[100] flex min-h-0 min-w-0 flex-col-reverse text-fg sm:flex-row"}
       >
         <CallSidebar
           micOn={micOn}
@@ -1075,13 +1189,13 @@ export function CallRoom({
             below that at a narrow window width — the classic cause of
             horizontal overflow in a flex row. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="shrink-0 px-6 py-4">
+          <header className="shrink-0 px-3 py-2 sm:px-6 sm:py-4">
             <div className="truncate text-base font-semibold uppercase tracking-wide text-fg">
               {title}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted">
               <span>
-                {participants.length} Participant{participants.length === 1 ? "" : "s"} Present
+                {t("room.header.participantsPresent", { count: participants.length })}
               </span>
               {meetingDuration && (
                 <span className="flex items-center gap-1">
@@ -1092,78 +1206,95 @@ export function CallRoom({
                 // Worth stating plainly: someone outside the organisation is in
                 // the room, and that should never be something you have to infer.
                 <span className="flex items-center gap-1 text-warning">
-                  <Globe size={12} /> {externals} external
+                  <Globe size={12} /> {t("room.header.external", { count: externals })}
                 </span>
               )}
               {recording && (
                 // Shown to EVERYONE, not only whoever pressed the button. Being
                 // recorded is not something anyone should have to work out.
                 <span className="flex items-center gap-1 font-medium text-danger">
-                  <Circle size={9} className="animate-pulse fill-current" /> Recording
+                  <Circle size={9} className="animate-pulse fill-current" /> {t("room.header.recording")}
                 </span>
               )}
-              {status === "reconnecting" && <span className="text-warning">Reconnecting…</span>}
-              {status === "connecting" && <span>Connecting…</span>}
+              {status === "reconnecting" && <span className="text-warning">{t("room.header.reconnecting")}</span>}
+              {status === "connecting" && <span>{t("room.header.connecting")}</span>}
             </div>
           </header>
 
           {/* Below the header: the video area next to whichever of
               Chat/Notes/Participants is open. Nothing here ever overlays the
               video as a popup — the side panel collapses in place instead. */}
-          <div className="flex min-h-0 flex-1 flex-col gap-4 px-6 pb-6 lg:flex-row">
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden px-3 pb-3 sm:px-6 sm:pb-6 lg:flex-row">
             {/* min-w-0: becomes a flex-ROW sibling of CallSidePanel at lg:,
                 same shrink-below-content-width reason as above. */}
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-              {/* The sharer's own reminder, and the only stop control that exists. */}
-              {sharing && <ScreenSharePopup startedAt={connectedAt} onStop={() => void toggleShare()} />}
-
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+              {/* One provider for the whole video area: the stage, the grid
+                  and the filmstrip below all need to share it so a tile can
+                  move between them (active speaker, pin, a share starting)
+                  without remounting its <video> — see CallTileHost's own
+                  doc for why. */}
+              <CallTileHostProvider>
               {participants.length === 0 ? (
-                <BracketFrame className="glass min-h-0 flex-1">
+                <BracketFrame className={cn("glass min-h-0 flex-1", stageUnderSheet)}>
                   <div className="flex h-full items-center justify-center text-sm text-muted">
-                    Connecting…
+                    {t("room.stage.connectingPlaceholder")}
                   </div>
                 </BracketFrame>
               ) : stage ? (
                 // A screen share is wide and wants the row below it; a
                 // speaking person's tile wants a companion column beside it.
-                <div className={cn("flex min-h-0 flex-1 gap-3", stage.sharing ? "flex-col" : "flex-row")}>
-                  <BracketFrame className="glass relative min-h-0 flex-1">
-                    {/* Offered only for a pin somebody MADE. The stage following
-                        the speaker is the room's normal behaviour, and "unpin"
-                        over a tile nobody pinned is a control with nothing to
-                        undo. */}
-                    {pinned ? (
-                      <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
-                    ) : (
-                      <span className="pointer-events-none absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
-                        <Mic size={12} className="text-accent" />
-                        <SpeakingWave className="text-accent" />
-                        Speaking
-                      </span>
+                // `@container` so the strip can ask how wide the STAGE AREA is —
+                // not the window, which the side panel has already taken a share
+                // of. The inner box is inset-0 for the same reason BracketFrame's
+                // is: it is exactly the space the flex gave this, never more.
+                <div className={cn("@container relative min-h-0 flex-1", stageUnderSheet)}>
+                  <div className={cn("absolute inset-0 flex gap-3", stage.sharing ? "flex-col" : "flex-col @xl:flex-row")}>
+                    <BracketFrame className="glass relative min-h-0 flex-1">
+                      {/* Offered only for a pin somebody MADE. The stage following
+                          the speaker — or a screen share taking it over, which
+                          outranks a pin entirely (see the `sharer` doc comment
+                          above `stageId`) — is the room's normal behaviour, and
+                          "unpin" over a tile nobody pinned is a control with
+                          nothing to undo; it also couldn't move a share off the
+                          stage even if it were offered. */}
+                      {stage.sharing ? (
+                        <span className="pointer-events-none absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+                          <ScreenShare size={12} className="text-accent" />
+                          {t("room.stage.presenting")}
+                        </span>
+                      ) : pinned === stage.identity ? (
+                        <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
+                      ) : (
+                        <span className="pointer-events-none absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+                          <Mic size={12} className="text-accent" />
+                          <SpeakingWave className="text-accent" />
+                          {t("room.stage.speaking")}
+                        </span>
+                      )}
+                      {/* `active`, not `p.speaking`: whoever is on the stage — by
+                          speaking or by a manual pin — gets the highlight for as
+                          long as they hold it, not just the instants they're
+                          actually making sound. */}
+                      <CallTileSlot className="h-full w-full" p={stage} size="stage" active />
+                    </BracketFrame>
+                    {/* Everyone else, small. Skipped when the stage participant
+                        is the only one here: a thumbnail of the same lone face
+                        has nothing to add. */}
+                    {participants.length > 1 && (
+                      <CallSpeakerFilmstrip
+                        participants={participants}
+                        activeId={stageId}
+                        hands={hands}
+                        pinned={pinned}
+                        onTogglePin={togglePin}
+                        orientation={stage.sharing ? "horizontal" : "auto"}
+                        limit={stage.sharing ? 4 : 3}
+                      />
                     )}
-                    {/* `active`, not `p.speaking`: whoever is on the stage — by
-                        speaking or by a manual pin — gets the highlight for as
-                        long as they hold it, not just the instants they're
-                        actually making sound. */}
-                    <CallTile p={stage} size="stage" active />
-                  </BracketFrame>
-                  {/* Everyone else, small. Skipped when the stage participant
-                      is the only one here: a thumbnail of the same lone face
-                      has nothing to add. */}
-                  {participants.length > 1 && (
-                    <CallSpeakerFilmstrip
-                      participants={participants}
-                      activeId={stageId}
-                      hands={hands}
-                      pinned={pinned}
-                      onTogglePin={togglePin}
-                      orientation={stage.sharing ? "horizontal" : "vertical"}
-                      limit={stage.sharing ? 4 : 3}
-                    />
-                  )}
+                  </div>
                 </div>
               ) : (
-                <BracketFrame className="glass min-h-0 flex-1">
+                <BracketFrame className={cn("glass min-h-0 flex-1", stageUnderSheet)}>
                   <CallMembers
                     participants={participants}
                     hands={hands}
@@ -1173,6 +1304,7 @@ export function CallRoom({
                   />
                 </BracketFrame>
               )}
+              </CallTileHostProvider>
             </main>
 
             {/* Chat, Notes, or Participants — one panel, three tabs (see
@@ -1207,6 +1339,22 @@ export function CallRoom({
             )}
           </div>
         </div>
+
+        {/* The sharer's own reminder, and the only stop control that exists.
+            A direct child of the shell — not of <main> — because it anchors
+            itself to the nearest positioned ancestor (absolute right-0 top-4):
+            the shell puts it in the empty right of the header row, where it
+            covers nothing. Inside the content region (which is `relative`, for
+            the side panel's sheet) it would sit over the stage instead. */}
+        {sharing && (
+          <ScreenSharePopup
+            startedAt={connectedAt}
+            onStop={() => void toggleShare()}
+            // The header is shorter below `sm` — sit higher, so the popup does
+            // not reach down over the stage's own controls.
+            className="max-sm:top-1"
+          />
+        )}
 
         <AddPeopleDialog
           open={addOpen}

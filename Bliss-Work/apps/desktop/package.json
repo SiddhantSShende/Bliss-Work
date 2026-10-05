@@ -6,6 +6,9 @@
   "author": "BlissWork",
   "homepage": "https://blisswork.rnrtechs.com",
   "main": "out/main/index.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "unset ELECTRON_RUN_AS_NODE; electron-vite dev",
     "build": "electron-vite build",
@@ -29,7 +32,10 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/koffi/build/koffi/{freebsd,openbsd,musl}_*/**",
+      "!node_modules/koffi/build/koffi/linux_{armhf,ia32,loong64,riscv64d}/**",
+      "!node_modules/koffi/build/koffi/win32_{arm64,ia32}/**"
     ],
     "extraResources": [
       {
@@ -85,7 +91,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "BlissWork",
-      "uninstallDisplayName": "BlissWork"
+      "uninstallDisplayName": "BlissWork",
+      "differentialPackage": false
     },
     "mac": {
       "target": [
@@ -167,6 +174,6 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
-    "get-windows": "^9.3.0"
+    "koffi": "2.16.3"
   }
 }

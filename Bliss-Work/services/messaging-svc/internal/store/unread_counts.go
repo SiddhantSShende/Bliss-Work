@@ -67,7 +67,11 @@ func (s *Store) UnreadCounts(ctx context.Context, orgID, userID string) (UnreadC
 			    (SELECT count(*) FROM channel_messages m2
 			     WHERE m2.channel_id = c.id
 			       AND m2.sender_id <> $2
-			       AND m2.seq > mine.last_read_seq)
+			       AND m2.seq > mine.last_read_seq
+			       AND NOT EXISTS (
+			           SELECT 1 FROM message_hides h
+			           WHERE h.message_id = m2.id AND h.user_id = $2
+			       ))
 			), 0)
 			FROM channels c
 			JOIN mine ON mine.channel_id = c.id

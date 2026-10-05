@@ -147,6 +147,10 @@ var cappedRoutes = map[string]string{
 	// runs under the same cap.
 	"PATCH /api/v1/mail/drafts/{id}": "small",
 	"POST /api/v1/mail/{id}/read":    "small",
+	// Recording that a reader started a download of a mail's file. No body at
+	// all — both ids are in the path — and it sits in the same /api/v1 group,
+	// so the cap is inherited.
+	"POST /api/v1/mail/{id}/attachments/{attachmentId}/downloaded": "small",
 
 	// Calls. Every one of these sits inside the same /api/v1 small-body group,
 	// so the cap is inherited. The bodies are a title, a timestamp and at most
@@ -176,6 +180,12 @@ var cappedRoutes = map[string]string{
 	// bounded to store.CallTranscriptTextMax, so "small" is generous already.
 	"POST /api/v1/calls/{id}/chat":  "small",
 	"POST /api/v1/calls/{id}/notes": "small",
+
+	// A repeating meeting's series. Both carry at most a title, two id lists
+	// (bounded in the handler) and a rule, and sit inside the same /api/v1
+	// small-body group, so the cap is inherited.
+	"PATCH /api/v1/meeting-series/{id}":  "small",
+	"DELETE /api/v1/meeting-series/{id}": "small",
 
 	// LiveKit's egress/room webhook. PUBLIC — it is reached without a session,
 	// so an uncapped body here would be a denial-of-service anyone could send.

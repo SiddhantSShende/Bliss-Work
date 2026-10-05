@@ -148,9 +148,13 @@ func entryTime(clientMs int64) time.Time {
 }
 
 // callHostOrgForRead answers "may this caller see this call at all, and whose
-// meeting is it". The SELECT is the authorization: the calls RLS policy admits
-// the hosting org and anyone on the roster, and nobody else, so ErrNoRows here
-// is a real refusal rather than a missing row.
+// meeting is it". The SELECT is the authorization: the calls RLS policy
+// (`call_access`, 0015_calls.sql) admits the ENTIRE hosting org, not just the
+// roster — same deliberate policy GetCall and RecordingForCall document (any
+// org member may read back their own org's meeting content; the roster
+// disjunct is what additionally lets a cross-org guest who attended read it
+// too) — so ErrNoRows here is a real refusal (a different org, and never on
+// this call's roster) rather than a missing row.
 func (s *Store) callHostOrgForRead(ctx context.Context, orgID, callerID, callID string) (string, error) {
 	var host string
 	err := s.withCaller(ctx, orgID, callerID, func(tx pgx.Tx) error {

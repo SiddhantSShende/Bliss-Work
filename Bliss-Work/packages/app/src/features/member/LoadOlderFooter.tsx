@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 
 /**
@@ -30,11 +31,12 @@ export function LoadOlderFooter({
    *  left to show once paging runs out. */
   children?: ReactNode;
 }) {
+  const { t } = useTranslation("members");
   if (hasNextPage) {
     return (
       <div className={className}>
         <Button variant="ghost" size="sm" loading={isFetchingNextPage} onClick={onLoadMore}>
-          Load older
+          {t("members:loadOlder.button")}
         </Button>
       </div>
     );

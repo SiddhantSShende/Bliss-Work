@@ -1,7 +1,16 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useRuntime } from "./runtime";
 import { canShareFiles, handoffMediaFiles } from "./waMediaForward";
+
+// Mirrors useAttachmentLinks.ts's MAX_LINK_BATCH: the server caps one
+// /attachments/links mint at 50 ids (maxLinkBatch, attachments.go) and 400s
+// the whole request otherwise. A media message forwarded to WhatsApp isn't
+// bounded to that many items, so this call site needs the same chunking —
+// unchunked, forwarding a big enough album would fail outright instead of
+// just the items past the cap.
+const MAX_LINK_BATCH = 50;
 
 /**
  * Fires the media half of a WhatsApp forward, alongside (never instead of)
@@ -18,6 +27,7 @@ import { canShareFiles, handoffMediaFiles } from "./waMediaForward";
  */
 export function useWhatsAppMediaForward() {
   const { api } = useRuntime();
+  const { t } = useTranslation("chatThread");
 
   return useCallback(
     (attachments: Array<{ id: string; name: string; mime: string }>, caption?: string) => {
@@ -29,10 +39,18 @@ export function useWhatsAppMediaForward() {
         try {
           // Same authorized, short-lived, scope-rechecked link mint every
           // rendered attachment already goes through (useAttachmentLinks) —
-          // no new authorization surface for external forwarding.
-          links = await api.attachmentLinks(attachments.map((a) => a.id));
+          // no new authorization surface for external forwarding. Chunked
+          // the same way, since this list isn't bounded to the server's
+          // per-request cap the way a single rendered page usually is.
+          const ids = attachments.map((a) => a.id);
+          const chunks: string[][] = [];
+          for (let index = 0; index < ids.length; index += MAX_LINK_BATCH) {
+            chunks.push(ids.slice(index, index + MAX_LINK_BATCH));
+          }
+          const responses = await Promise.all(chunks.map((chunk) => api.attachmentLinks(chunk)));
+          links = responses.flat();
         } catch {
-          toast.error("Couldn't prepare the attachment for WhatsApp");
+          toast.error(t("whatsAppForward.mediaPrepareFailed"));
           return;
         }
         const byId = new Map(links.map((l) => [l.id, l] as const));
@@ -52,8 +70,8 @@ export function useWhatsAppMediaForward() {
           }
         }
         if (files.length === 0) {
-          toast.error("Couldn't prepare the attachment for WhatsApp", {
-            description: "It may no longer be available.",
+          toast.error(t("whatsAppForward.mediaPrepareFailed"), {
+            description: t("whatsAppForward.mediaNoLongerAvailable"),
           });
           return;
         }
@@ -61,26 +79,26 @@ export function useWhatsAppMediaForward() {
         const outcome = await handoffMediaFiles(files, { text: caption, download: downloadFile });
         switch (outcome.kind) {
           case "shared":
-            toast.success("Opened the share sheet with the attachment", {
-              description: "Pick WhatsApp there — BlissWork can't confirm what happens after that.",
+            toast.success(t("whatsAppForward.sharedToast"), {
+              description: t("whatsAppForward.sharedDescription"),
             });
             break;
           case "share-cancelled":
             break; // The user closed the sheet without choosing anything — not an error.
           case "downloaded":
-            toast(outcome.count === 1 ? "Attachment downloaded for WhatsApp" : `${outcome.count} attachments downloaded for WhatsApp`, {
-              description: "This device can't hand files to WhatsApp automatically — attach the download in WhatsApp yourself.",
+            toast(t("whatsAppForward.downloadedToast", { count: outcome.count }), {
+              description: t("whatsAppForward.downloadedDescription"),
             });
             break;
           case "unsupported":
             break;
           case "error":
-            toast.error("Couldn't share the attachment with WhatsApp", { description: outcome.message });
+            toast.error(t("whatsAppForward.mediaShareFailed"), { description: outcome.message });
             break;
         }
       })();
     },
-    [api],
+    [api, t],
   );
 }
 

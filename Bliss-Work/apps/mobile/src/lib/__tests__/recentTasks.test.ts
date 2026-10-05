@@ -10,6 +10,7 @@ const task = (id: string, assignedAt: string, over: Partial<StickyTaskDTO> = {})
   senderUsername: 'sender',
   myStatus: 'SENT',
   actions: [],
+  participants: [],
   statusVersion: 1,
   assignedAt,
   acknowledgedAt: null,

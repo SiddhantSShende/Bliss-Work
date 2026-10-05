@@ -454,8 +454,9 @@ func decodeInboxCursor(s string) (time.Time, string, error) {
 //     the row doesn't exist (the projector may race the InsertTaskInboxItem
 //     across topic partitions; the Insert wins next time the InsertTask side
 //     fires).
-//   - HideTaskInboxItem flips hidden_for_owner=true on task.ignored. A reopen
-//     would require a new task.assigned with the same taskId (out of scope).
+//   - HideTaskInboxItem flips hidden_for_owner=true on task.ignored. An ignored
+//     task is not reopened. A COMPLETED one is: a later task.assigned for the
+//     same (assignee, task) puts the badge back to SENT (see InsertTaskInboxItem).
 // ─────────────────────────────────────────────────────────────────────────────
 
 // InsertTaskInboxItem creates the (assignee, TASK, taskId) row on TaskAssigned.
@@ -503,8 +504,20 @@ func (s *Store) InsertTaskInboxItem(
 			VALUES ($1, $2, 'TASK', $3, $4, NULL, $5, $6, 1, 'SENT', false, false, now())
 			ON CONFLICT (owner_user_id, item_kind, ref_id)
 			DO UPDATE SET
+			    -- A task.assigned that is NEWER than everything this row has seen, for a
+			    -- row sitting at COMPLETED, is the allocator reopening the task (task-svc
+			    -- POST /tasks/{id}/reassign): it is work to do again, and unread. A
+			    -- redelivery of the original assignment is older than the completion, so
+			    -- it falls through to the no-op branch. (SET expressions all read the OLD
+			    -- row, so the three CASEs agree.)
+			    unread_count  = CASE WHEN inbox_items.status_badge = 'COMPLETED'
+			                          AND EXCLUDED.last_event_at > inbox_items.last_event_at
+			                         THEN 1 ELSE inbox_items.unread_count END,
+			    status_badge  = CASE WHEN inbox_items.status_badge = 'COMPLETED'
+			                          AND EXCLUDED.last_event_at > inbox_items.last_event_at
+			                         THEN 'SENT'
+			                         ELSE COALESCE(inbox_items.status_badge, EXCLUDED.status_badge) END,
 			    last_event_at = GREATEST(inbox_items.last_event_at, EXCLUDED.last_event_at),
-			    status_badge  = COALESCE(inbox_items.status_badge, EXCLUDED.status_badge),
 			    updated_at    = now()`,
 			orgID, assigneeID, taskID, senderID, previewEnc, occurredAt); err != nil {
 			return err

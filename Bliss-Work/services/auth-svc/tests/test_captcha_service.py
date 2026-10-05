@@ -197,3 +197,41 @@ async def test_plaintext_value_is_never_logged(monkeypatch: pytest.MonkeyPatch) 
 
     flat = repr(calls)
     assert value not in flat
+
+
+# ── Platform exemption (see is_exempt_platform) ───────────────────────────────
+@pytest.mark.parametrize("platform", ["macos", "ios", "MacOS", "  ios  "])
+def test_macos_and_ios_are_exempt(platform: str) -> None:
+    assert cs.is_exempt_platform(platform) is True
+
+
+@pytest.mark.parametrize(
+    "platform", ["windows", "linux", "android", "unknown", "", "   ", "mac", "darwin", "iphone", None]
+)
+def test_everything_else_is_not_exempt(platform: str | None) -> None:
+    assert cs.is_exempt_platform(platform) is False
+
+
+async def test_exempt_platform_skips_the_check_without_touching_the_store() -> None:
+    await cs.verify_and_consume(None, None, "macos")  # does not raise
+    await cs.verify_and_consume(None, None, "ios")  # does not raise
+
+
+@pytest.mark.parametrize("platform", ["windows", "linux", "android", "unknown", None])
+async def test_non_exempt_platform_is_still_challenged(platform: str | None) -> None:
+    with pytest.raises(cs.HTTPException):
+        await cs.verify_and_consume(None, None, platform)
+
+
+async def test_omitting_the_platform_keeps_the_original_behaviour() -> None:
+    """create_org's call shape — two arguments — must stay fully enforced."""
+    with pytest.raises(cs.HTTPException):
+        await cs.verify_and_consume(None, None)
+
+
+def test_exempt_list_is_configurable_and_empty_means_nobody(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cs.settings, "captcha_exempt_platforms", "ios")
+    assert cs.is_exempt_platform("ios") is True
+    assert cs.is_exempt_platform("macos") is False
+    monkeypatch.setattr(cs.settings, "captcha_exempt_platforms", "")
+    assert cs.is_exempt_platform("ios") is False

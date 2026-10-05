@@ -30,8 +30,9 @@ def _envelope(org_id: str, event_type: str) -> dict:
 def task_assigned(
     *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
     status_version: int, sender_username: str, title: str, description: str,
+    members: list[str] | None = None,
 ) -> dict:
-    return {
+    event = {
         **_envelope(org_id, "task.assigned"),
         "taskId": task_id,
         "assigneeId": assignee_id,
@@ -41,6 +42,26 @@ def task_assigned(
         "title": title,
         "description": description,
     }
+    if members:
+        event["members"] = members
+    return event
+
+
+def task_withdrawn(
+    *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
+    status_version: int, assignee_username: str, members: list[str] | None = None,
+) -> dict:
+    event = {
+        **_envelope(org_id, "task.withdrawn"),
+        "taskId": task_id,
+        "assigneeId": assignee_id,
+        "senderId": sender_id,
+        "statusVersion": status_version,
+        "assigneeUsername": assignee_username,
+    }
+    if members:
+        event["members"] = members
+    return event
 
 
 def task_acknowledged(
@@ -91,6 +112,24 @@ def task_left(
 ) -> dict:
     return {
         **_envelope(org_id, "task.left"),
+        "taskId": task_id,
+        "assigneeId": assignee_id,
+        "senderId": sender_id,
+        "statusVersion": status_version,
+        "assigneeUsername": assignee_username,
+    }
+
+
+def task_missed(
+    *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
+    status_version: int, assignee_username: str,
+) -> dict:
+    # Emitted by task-svc itself (never a client action) when an assignment's
+    # deadline passed before it was completed — see app/deadlines.py. Routed to
+    # [senderId, assigneeId] like the other outcomes, so the assignee's cards move
+    # to Missed live and the allocator's board refreshes.
+    return {
+        **_envelope(org_id, "task.missed"),
         "taskId": task_id,
         "assigneeId": assignee_id,
         "senderId": sender_id,

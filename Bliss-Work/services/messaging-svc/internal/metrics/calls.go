@@ -76,6 +76,18 @@ const (
 	// FailReasonServerError: anything else — an unclassified/unexpected error,
 	// almost always a database or programming fault.
 	FailReasonServerError = "server_error"
+
+	// ReconnectReasonMedia: LiveKit's own Room "Reconnected" event — a
+	// transient ICE/signal disruption the SDK recovered from on its own.
+	ReconnectReasonMedia = "media"
+	// ReconnectReasonTokenRefresh: the client's own scheduled token refresh
+	// (useCallRoom.ts's scheduleRefresh, ~80% into the ~15-minute room
+	// token's life) — a deliberate Room.disconnect()+connect() the SDK does
+	// NOT surface as a "Reconnected" event (that event is specific to its
+	// own auto-recovery, not an app-initiated reconnect), so it would
+	// otherwise never reach this counter at all. See the doc on
+	// CallReconnectTotal below.
+	ReconnectReasonTokenRefresh = "token_refresh"
 )
 
 // CallTypeFor maps a store call kind (store.CallDirect / CallChannel /
@@ -131,13 +143,19 @@ var (
 		Help: "Previously-connected calls the SFU reported as unexpectedly disconnected, excluding explicit leave/end requests.",
 	}, []string{"call_type"})
 
-	// CallReconnectTotal counts client-reported successful ICE/media
-	// reconnects (LiveKit's Room "Reconnected" event) after a transient
-	// disruption. Self-reported — see the package doc comment.
+	// CallReconnectTotal counts client-reported successful reconnects, by a
+	// bounded reason (see the ReconnectReason* constants): "media" is
+	// LiveKit's own Room "Reconnected" event after a transient ICE/signal
+	// disruption; "token_refresh" is the client's own scheduled
+	// disconnect()+connect() cycle to hand LiveKit a fresh room token before
+	// the ~15-minute one expires — a DELIBERATE reconnect the SDK does not
+	// emit "Reconnected" for, so without this label it was invisible here
+	// even though it is the single most frequent reconnect a long call sees.
+	// Self-reported — see the package doc comment.
 	CallReconnectTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "messaging_call_reconnect_total",
-		Help: "Client-reported successful reconnects after a transient WebRTC disruption.",
-	}, []string{"call_type"})
+		Help: "Client-reported successful reconnects, labeled by a bounded reason (media disruption vs. scheduled token refresh).",
+	}, []string{"call_type", "reason"})
 
 	// CallSetupDurationSeconds is the client-measured time from requesting a
 	// LiveKit token to the Room reporting Connected. Client-reported — see
@@ -164,13 +182,15 @@ func init() {
 		CallAttemptTotal.WithLabelValues(ct)
 		CallConnectedTotal.WithLabelValues(ct)
 		CallDroppedTotal.WithLabelValues(ct)
-		CallReconnectTotal.WithLabelValues(ct)
 		CallSetupDurationSeconds.WithLabelValues(ct)
 		for _, reason := range []string{
 			FailReasonPermissionDenied, FailReasonCallUnavailable,
 			FailReasonLiveKitConnection, FailReasonServerError,
 		} {
 			CallFailedTotal.WithLabelValues(ct, reason)
+		}
+		for _, reason := range []string{ReconnectReasonMedia, ReconnectReasonTokenRefresh} {
+			CallReconnectTotal.WithLabelValues(ct, reason)
 		}
 	}
 }

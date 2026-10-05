@@ -15,6 +15,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Eye, EyeOff, Search, UserCheck } from "lucide-react";
 import { Avatar, Badge, Button, EmptyState, GlassCard, IconButton, Input, Spinner } from "@taskboard/ui";
 import type { AvailabilityDTO, UserDTO } from "@taskboard/shared";
@@ -26,6 +27,7 @@ import { type AvailablePerson, useAvailability } from "../lib/useAvailability";
 import { useOnCall, usePresence, type UserStatus } from "../lib/usePresence";
 
 export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }) {
+  const { t } = useTranslation("org");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
@@ -63,9 +65,10 @@ export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }
     },
     onError: (err, vars, ctx) => {
       if (ctx?.prev !== undefined) qc.setQueryData(qk.availability, ctx.prev);
-      toast.error(vars.hide ? "Couldn't hide that person" : "Couldn't restore that person", {
-        description: String(err),
-      });
+      toast.error(
+        vars.hide ? t("org:availablePeople.toasts.hideFailed") : t("org:availablePeople.toasts.restoreFailed"),
+        { description: String(err) },
+      );
     },
     onSettled: () => void qc.invalidateQueries({ queryKey: qk.availability }),
   });
@@ -105,7 +108,7 @@ export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }
         />
         <Input
           className="h-10 pl-9"
-          placeholder="Search teammates…"
+          placeholder={t("org:availablePeople.searchPlaceholder")}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -114,11 +117,11 @@ export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }
       {results.length === 0 ? (
         <EmptyState
           icon={<UserCheck size={24} />}
-          title={q ? "No matches" : "Everyone's busy"}
+          title={q ? t("org:availablePeople.empty.noMatchesTitle") : t("org:availablePeople.empty.allBusyTitle")}
           hint={
             q
-              ? "No available teammate matches that search."
-              : "People with no acknowledged tasks appear here."
+              ? t("org:availablePeople.empty.noMatchesHint")
+              : t("org:availablePeople.empty.allBusyHint")
           }
         />
       ) : (
@@ -159,7 +162,7 @@ export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }
       {canManage && hiddenAll.length > 0 && (
         <div className="border-t border-border/60 pt-3">
           <Button variant="ghost" size="sm" onClick={() => setShowHidden((v) => !v)}>
-            <EyeOff size={14} /> Hidden from this list ({hiddenAll.length})
+            <EyeOff size={14} /> {t("org:availablePeople.hiddenToggle", { count: hiddenAll.length })}
           </Button>
           {showHidden && (
             <div className="mt-2 flex flex-col divide-y divide-border/50">
@@ -170,12 +173,12 @@ export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }
                     <div className="truncate text-sm font-medium text-fg">{p.user.displayName}</div>
                     <div className="truncate text-xs text-muted">
                       {busy
-                        ? "Has active tasks — won't reappear until they're free"
+                        ? t("org:availablePeople.hiddenBusyNote")
                         : `@${p.user.username}`}
                     </div>
                   </div>
                   <IconButton
-                    title="Restore to Available"
+                    title={t("org:availablePeople.restoreTitle")}
                     onClick={() => setHidden.mutate({ userId: p.user.id, hide: false })}
                   >
                     <Eye size={16} />
@@ -205,6 +208,7 @@ function PersonCard({
   onAssign: () => void;
   onHide?: () => void;
 }) {
+  const { t } = useTranslation("org");
   return (
     <GlassCard className="relative">
       <button
@@ -215,7 +219,11 @@ function PersonCard({
         // exists, so it must never be offered here.
         disabled={isMe}
         onClick={isMe ? undefined : onAssign}
-        title={isMe ? "You can't allocate a task to yourself" : `Allocate a task to ${p.user.displayName}`}
+        title={
+          isMe
+            ? t("org:availablePeople.card.selfTitle")
+            : t("org:availablePeople.card.assignTitle", { name: p.user.displayName })
+        }
         className={`flex w-full items-center gap-3 rounded-2xl p-4 text-left transition-colors ${
           isMe ? "cursor-default opacity-70" : "hover:bg-surface-2/60"
         }`}
@@ -224,23 +232,23 @@ function PersonCard({
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium text-fg">
             {p.user.displayName}
-            {isMe && <span className="text-muted"> (you)</span>}
+            {isMe && <span className="text-muted">{t("org:availablePeople.card.youSuffix")}</span>}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
             <span className="truncate">@{p.user.username}</span>
             {p.pending > 0 && (
               <Badge tone="neutral">
-                {p.pending} pending, unacked
+                {t("org:availablePeople.card.pendingBadge", { count: p.pending })}
               </Badge>
             )}
-            {status === "busy" && <Badge tone="warning">on a call</Badge>}
-            {hiddenSelf && <Badge tone="neutral">hidden from others</Badge>}
+            {status === "busy" && <Badge tone="warning">{t("org:availablePeople.card.onCall")}</Badge>}
+            {hiddenSelf && <Badge tone="neutral">{t("org:availablePeople.card.hiddenFromOthers")}</Badge>}
           </div>
         </div>
       </button>
       {onHide && (
         <IconButton
-          title="Hide from Available"
+          title={t("org:availablePeople.card.hideTitle")}
           // Overlays the card's own click target (which opens the task dialog),
           // so swallow the event rather than allocating on a hide.
           onClick={(e) => {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -80,6 +81,7 @@ func New(ctx context.Context, dbURL string, cryptor *crypto.Cryptor) (*Store, er
 		pool.Close()
 		return nil, err
 	}
+	cryptor.SetKeyCommitter(newFirstKeyCommitter(poolCfg.ConnConfig))
 	return &Store{pool: pool, crypto: cryptor}, nil
 }
 
@@ -594,13 +596,54 @@ const (
 	// the authenticated caller, so this can only ever be a client reporting on
 	// itself, never forged onto someone else's thread.
 	MessageKindScreenshotAttempt = "screenshot_attempt"
+	// MessageKindAttachmentOpened/Downloaded record that the sender's own
+	// client successfully opened (desktop: handed the downloaded file to the
+	// OS's native app) or downloaded an attachment in this chat/channel. Same
+	// trust level as MessageKindScreenshotAttempt — senderID is always the
+	// authenticated caller — but the body ALSO names a filename, which is
+	// attacker-controlled data unless authored from the attachment row itself.
+	// attachmentForActivity is what makes that safe: it re-resolves the real,
+	// decrypted filename from opts.attachmentID and re-checks the caller may
+	// read it, the same way GetAttachmentForDownload does for an actual
+	// download, so a client can only ever claim to have opened/downloaded a
+	// file it can actually see — never an arbitrary string.
+	MessageKindAttachmentOpened     = "attachment_opened"
+	MessageKindAttachmentDownloaded = "attachment_downloaded"
+	MessageKindChannelRenamed       = "channel_renamed"
+	MessageKindChannelCreated       = "channel_created"
+	MessageKindChannelMemberAdded   = "channel_member_added"
+	// MessageKindChannelForwardNotice is posted into a LOCKED channel when a
+	// message that originated there is forwarded (see forward_notice.go). Server
+	// only: the body names the forwarder, so it stays out of ValidMessageKind for
+	// the same reason MessageKindForwardExternal does.
+	MessageKindChannelForwardNotice = "channel_forward_notice"
 )
 
 // ValidMessageKind reports whether a CLIENT-SUPPLIED kind is one we accept on
 // the send path. Server-derived kinds are set through appendOpts.kind and are
 // intentionally absent here — see MessageKindForwardExternal.
 func ValidMessageKind(kind string) bool {
-	return kind == MessageKindText || kind == MessageKindCallMissed || kind == MessageKindScreenshotAttempt
+	return slices.Contains(clientMessageKinds, kind)
+}
+
+// clientMessageKinds is the one list of kinds a client may trigger — the
+// complement of which is everything the server alone authors.
+var clientMessageKinds = []string{
+	MessageKindText, MessageKindCallMissed, MessageKindScreenshotAttempt,
+	MessageKindAttachmentOpened, MessageKindAttachmentDownloaded,
+}
+
+// IsServerAuthoredKind reports whether a stored message's kind is one only the
+// server writes: channel_created / channel_renamed / channel_member_added,
+// channel_forward_notice, forward_external, and any kind added later that has
+// not been put on the client list. It is the complement of ValidMessageKind
+// rather than a second list, so a new server-only kind is protected by default.
+//
+// The sender_id of such a row is the principal that caused the write, not an
+// author in the sense of someone who said it — so authorship must never grant
+// the right to retract it (see DeleteChannelMessageForAll).
+func IsServerAuthoredKind(kind string) bool {
+	return !ValidMessageKind(kind)
 }
 
 // screenshotAttemptBody is the ONLY text a MessageKindScreenshotAttempt
@@ -628,6 +671,27 @@ func screenshotAttemptBody(displayName, username string) string {
 		name = "Someone"
 	}
 	return fmt.Sprintf("%s tried to take a screenshot", name)
+}
+
+// attachmentActionBody is the ONLY text a MessageKindAttachmentOpened or
+// MessageKindAttachmentDownloaded message may ever carry — same reasoning as
+// screenshotAttemptBody, plus the filename must come from the attachment row
+// (attachmentForActivity), never from client-supplied text, or any member
+// could post a fabricated "X opened secret-plan.pdf" naming a file that was
+// never shared here.
+func attachmentActionBody(kind, displayName, username, filename string) string {
+	name := displayName
+	if name == "" {
+		name = username
+	}
+	if name == "" {
+		name = "Someone"
+	}
+	verb := "opened"
+	if kind == MessageKindAttachmentDownloaded {
+		verb = "downloaded"
+	}
+	return fmt.Sprintf("%s %s %s", name, verb, filename)
 }
 
 type MessageDTO struct {

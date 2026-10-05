@@ -11,6 +11,7 @@
  * click, so there is no close control here — see CallRoom.
  */
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
   ChevronUp,
@@ -57,6 +58,7 @@ export function CallRoster({
   /** Sizing/positioning, set by the caller's layout. */
   className?: string;
 }) {
+  const { t } = useTranslation("callRoom");
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(false);
 
@@ -75,12 +77,12 @@ export function CallRoster({
 
   return (
     <aside
-      aria-label="Participants"
+      aria-label={t("roster.ariaLabel")}
       className={cn("glass flex flex-col overflow-hidden rounded-2xl", className)}
     >
       <header className="shrink-0 border-b border-border/70 px-4 py-3">
         <span className="truncate text-sm font-semibold text-fg">
-          Participants <span className="font-normal text-muted">({participants.length})</span>
+          {t("roster.title")} <span className="font-normal text-muted">({participants.length})</span>
         </span>
       </header>
 
@@ -90,8 +92,8 @@ export function CallRoster({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search members…"
-            aria-label="Search members"
+            placeholder={t("roster.searchPlaceholder")}
+            aria-label={t("roster.searchAriaLabel")}
             className="w-full min-w-0 bg-transparent text-xs text-fg outline-none placeholder:text-muted/70"
           />
         </label>
@@ -99,7 +101,7 @@ export function CallRoster({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <div className="px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
-          In meeting · {filtered.length}
+          {t("roster.inMeetingCount", { count: filtered.length })}
         </div>
 
         <div className="space-y-0.5">
@@ -116,19 +118,19 @@ export function CallRoster({
                 <div className="flex items-center gap-1.5 text-sm font-medium text-fg">
                   <span className="truncate">
                     {p.name}
-                    {p.isLocal && <span className="text-muted"> (you)</span>}
+                    {p.isLocal && <span className="text-muted">{t("roster.youSuffix")}</span>}
                   </span>
                   {p.speaking && <SpeakingWave className="text-accent" />}
                 </div>
                 <div className="flex items-center gap-2 text-[11px] text-muted">
                   {p.sharing && (
                     <span className="flex items-center gap-1 text-danger">
-                      <ScreenShare size={11} /> Sharing
+                      <ScreenShare size={11} /> {t("roster.sharing")}
                     </span>
                   )}
                   {hands.has(p.identity) && (
                     <span className="flex items-center gap-1 text-warning">
-                      <Hand size={11} /> Hand up
+                      <Hand size={11} /> {t("roster.handUp")}
                     </span>
                   )}
                 </div>
@@ -139,8 +141,8 @@ export function CallRoster({
                 <button
                   type="button"
                   onClick={() => onTogglePin(p.identity)}
-                  title={pinned === p.identity ? `Unpin ${p.name}` : `Pin ${p.name}`}
-                  aria-label={pinned === p.identity ? `Unpin ${p.name}` : `Pin ${p.name}`}
+                  title={pinned === p.identity ? t("roster.unpin", { name: p.name }) : t("roster.pin", { name: p.name })}
+                  aria-label={pinned === p.identity ? t("roster.unpin", { name: p.name }) : t("roster.pin", { name: p.name })}
                   aria-pressed={pinned === p.identity}
                   className={cn(
                     "rounded-md p-1 transition-colors hover:bg-border/60 hover:text-fg",
@@ -159,7 +161,7 @@ export function CallRoster({
               onClick={() => setExpanded(true)}
               className="flex w-full items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
             >
-              <ChevronDown size={13} /> +{hiddenCount} more members
+              <ChevronDown size={13} /> {t("roster.showMore", { count: hiddenCount })}
             </button>
           )}
           {!searching && expanded && filtered.length > VISIBLE_LIMIT && (
@@ -168,11 +170,13 @@ export function CallRoster({
               onClick={() => setExpanded(false)}
               className="flex w-full items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
             >
-              <ChevronUp size={13} /> Show less
+              <ChevronUp size={13} /> {t("roster.showLess")}
             </button>
           )}
           {searching && filtered.length === 0 && (
-            <p className="px-2 py-6 text-center text-xs text-muted">No members match "{query.trim()}".</p>
+            <p className="px-2 py-6 text-center text-xs text-muted">
+              {t("roster.noMatches", { query: query.trim() })}
+            </p>
           )}
         </div>
       </div>
@@ -186,7 +190,7 @@ export function CallRoster({
             disabled={!canInvite}
             title={canInvite ? undefined : inviteTitle}
           >
-            <UserPlus size={14} /> Invite members
+            <UserPlus size={14} /> {t("roster.inviteMembers")}
           </Button>
         </div>
       )}

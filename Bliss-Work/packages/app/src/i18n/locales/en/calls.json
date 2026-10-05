@@ -1,0 +1,197 @@
+{
+  "notify": {
+    "incomingVideo": "Incoming video call",
+    "incomingVoice": "Incoming voice call",
+    "incomingBody": "{{caller}} is calling you",
+    "missedTitle": "Missed call",
+    "missedBody": "You missed a call from {{caller}}",
+    "cameraUnavailable": "Camera unavailable",
+    "cameraUnavailableDescription": "Check this app's camera permission.",
+    "couldNotShareScreen": "Couldn't share your screen",
+    "ringtoneMuted": "Ringtone is muted by your browser",
+    "ringtoneMutedDescription": "Click anywhere to allow call sounds.",
+    "unknownCaller": "Someone"
+  },
+  "endedReasons": {
+    "noAnswer": "No answer",
+    "mediaBlocked": "Camera/microphone blocked",
+    "declined": "Call declined",
+    "callEnded": "Call ended",
+    "userUnavailable": "User unavailable",
+    "connectionFailed": "connection failed"
+  },
+  "window": {
+    "tabTitle": "{{title}} · {{brand}}",
+    "untitledMeeting": "Meeting",
+    "loading": "Loading meeting…",
+    "loadError": {
+      "title": "Unable to load this meeting.",
+      "hint": "Check your connection and try again.",
+      "returnToMeetings": "Return to Meetings",
+      "retrying": "Retrying…",
+      "retry": "Retry"
+    },
+    "unavailable": {
+      "title": "This meeting isn't available",
+      "hint": "It may have ended, or you may no longer be on its roster.",
+      "close": "Close"
+    }
+  },
+  "join": {
+    "signIn": {
+      "title": "Sign in to join",
+      "hint": "This meeting link works with any {{brand}} account, including one in another organisation."
+    },
+    "joining": "Joining…",
+    "invalid": {
+      "title": "This invite link is no longer valid",
+      "hint": "It may have expired, been revoked, or the meeting has already ended. Ask the organiser for a new one.",
+      "backToApp": "Back to {{brand}}"
+    },
+    "timeout": {
+      "title": "This is taking longer than expected",
+      "hint": "Reloading the page usually fixes this.",
+      "reload": "Reload"
+    },
+    "handoff": {
+      "joining": "Joining the meeting…"
+    }
+  },
+  "chat": {
+    "disclaimer": "Messages here are visible to all meeting members — pick a name below to send one privately.",
+    "empty": "No messages yet. Anything sent here lives for the length of the meeting — download it from the header if you need to keep it.",
+    "toLabel": "To:",
+    "toAriaLabel": "Who this message goes to",
+    "everyone": "Everyone",
+    "privateOption": "{{name}} (private)",
+    "attachmentsUnsupported": "Attachments aren't supported in meeting chat",
+    "privatePlaceholder": "Private message to {{name}}…",
+    "everyonePlaceholder": "Message everyone…",
+    "privateAriaLabel": "Private message to {{name}}",
+    "everyoneAriaLabel": "Message everyone",
+    "send": "Send",
+    "onlyWillSee": "Only {{name}} will see this",
+    "you": "You",
+    "privateToName": "Private to {{name}}",
+    "privateToYou": "Private to you"
+  },
+  "members": {
+    "pagesAriaLabel": "Member pages",
+    "previous": "Previous members",
+    "pageAriaLabel": "Members page {{page}} of {{pages}}",
+    "more": "More members"
+  },
+  "menu": {
+    "call": "Call",
+    "voiceCall": "Voice Call",
+    "videoCall": "Video Call",
+    "sendCallLink": "Send Call Link",
+    "scheduleCall": "Schedule Call"
+  },
+  "notes": {
+    "empty": "No points yet. Anything written here is shared with everyone in the meeting.",
+    "placeholder": "Write an important point…",
+    "ariaLabel": "Write an important point",
+    "enterToAdd": "Enter to add",
+    "addPoint": "Add point"
+  },
+  "sidebar": {
+    "controlsAriaLabel": "Meeting controls",
+    "mute": "Mute",
+    "muted": "Muted",
+    "camera": "Camera",
+    "share": "Share",
+    "raise": "Raise",
+    "people": "People",
+    "add": "Add",
+    "addPeople": "Add people",
+    "chats": "Chats",
+    "notes": "Notes",
+    "record": "Record",
+    "recordUnsupported": "This browser can't record meetings",
+    "copyLink": "Copy Link",
+    "copyInviteLink": "Copy invite link",
+    "pip": "PiP",
+    "exitPip": "Exit PiP",
+    "pictureInPicture": "Picture-in-picture",
+    "exitPictureInPicture": "Exit picture-in-picture",
+    "minimize": "Minimize",
+    "minimise": "Minimise",
+    "end": "End",
+    "endCall": "End call"
+  },
+  "sidePanel": {
+    "tabNames": {
+      "chat": "chat",
+      "notes": "notes",
+      "participants": "participants"
+    },
+    "regionAriaLabel": "Meeting {{tab}}",
+    "tablistAriaLabel": "Chat, notes, or participants",
+    "chatTab": "Chat",
+    "notesTab": "Notes",
+    "peopleTab": "People",
+    "saveAsFile": "Save {{tab}} as a file",
+    "closeTab": "Close {{tab}}"
+  },
+  "filmstrip": {
+    "ariaLabel": "Other participants",
+    "moreMembers": "+{{count}} More members"
+  },
+  "roomLazy": {
+    "connecting": "Connecting…",
+    "error": {
+      "title": "Something went wrong opening the meeting room.",
+      "hint": "Reloading the page usually fixes this.",
+      "reload": "Reload"
+    }
+  },
+  "incomingNotice": {
+    "untitledMeeting": "Meeting",
+    "ariaLabel": "Incoming meeting: {{title}}",
+    "hostedBy": "Hosted by {{organizer}}",
+    "video": "Video",
+    "joinWithCamera": "Join with camera on",
+    "voice": "Voice",
+    "joinVoiceOnly": "Join with voice only",
+    "leave": "Leave"
+  },
+  "scheduledNotice": {
+    "untitledMeeting": "Meeting",
+    "ariaLabel": "Meeting scheduled: {{title}}",
+    "heading": "Meeting scheduled",
+    "hostedBy": "Hosted by {{organizer}}",
+    "join": "Join Meeting",
+    "dismiss": "Dismiss"
+  },
+  "miniMeeting": {
+    "ariaLabel": "{{title}} — meeting in progress",
+    "reconnecting": "Reconnecting…",
+    "connecting": "Connecting…",
+    "backToMeeting": "Back to the meeting",
+    "nobodySpeaking": "Nobody is speaking",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "turnCameraOff": "Turn camera off",
+    "turnCameraOn": "Turn camera on",
+    "newChatMessages_one": "{{count}} new chat message",
+    "newChatMessages_other": "{{count}} new chat messages",
+    "leaveMeeting": "Leave the meeting"
+  },
+  "sendLinkDialog": {
+    "title": "Send a call link",
+    "description": "The link is posted in your chat with {{peerName}}. Anyone you add here gets it as a direct message, and holds a seat in the call under Meetings.",
+    "alsoSendTo": "Also send to",
+    "selectedCount": "— {{count}} selected",
+    "optional": "— optional",
+    "cancel": "Cancel",
+    "sendLink": "Send link"
+  },
+  "screenShare": {
+    "showControls": "Show screen sharing controls",
+    "sharingYourScreen": "You're sharing your screen",
+    "stopSharingTitle": "Stop sharing",
+    "stop": "Stop",
+    "slideOutOfTheWay": "Slide out of the way"
+  }
+}

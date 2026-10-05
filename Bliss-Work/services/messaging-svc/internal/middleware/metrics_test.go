@@ -187,3 +187,23 @@ func TestMetrics_UnmatchedRouteUsesOtherLabel(t *testing.T) {
 		t.Errorf("unmatched route delta on 'other' label = %v, want 1", d)
 	}
 }
+
+// Go accepts any token as a method, so a client could mint a series per value.
+func TestMetrics_UnknownMethodsShareOneSeries(t *testing.T) {
+	r := newRouter("/methods-probe", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	for _, method := range []string{"BREW", "PROPFIND", "X-CUSTOM-1", "X-CUSTOM-2"} {
+		r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(method, "/methods-probe", nil))
+	}
+
+	m, err := httpRequestsTotal.GetMetricWithLabelValues("OTHER", "other", "405")
+	if err != nil {
+		t.Fatalf("GetMetricWithLabelValues: %v", err)
+	}
+	if got := testutil.ToFloat64(m); got != 4 {
+		t.Fatalf("OTHER series counted %v requests, want 4 (every unknown method folded into it)", got)
+	}
+	if got := histCountFor(t, "BREW", "other"); got != 0 {
+		t.Fatalf("a client-chosen method got its own histogram series (%d observations)", got)
+	}
+}

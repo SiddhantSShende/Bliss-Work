@@ -25,6 +25,7 @@ from .logging_setup import log
 # failure integrations-svc's org_consumer.py hit with connection_verifications.
 _TABLES = (
     "task_assignees",
+    "task_channels",
     "tasks",
     "availability_hidden",
     "user_projection",

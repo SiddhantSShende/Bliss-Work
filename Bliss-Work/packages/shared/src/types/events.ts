@@ -40,10 +40,14 @@ export const EventType = {
   ChannelBlocked: "channel.blocked",
   ChannelUnblocked: "channel.unblocked",
   TaskAssigned: "task.assigned",
+  TaskWithdrawn: "task.withdrawn",
   TaskAcknowledged: "task.acknowledged",
   TaskCompleted: "task.completed",
   TaskIgnored: "task.ignored",
   TaskLeft: "task.left",
+  /** Emitted by task-svc's deadline sweeper (never a client action): this
+   *  assignment's deadline passed before it was completed. */
+  TaskMissed: "task.missed",
   TaskReviewed: "task.reviewed",
   /** Internal-only, like OrgDeleted below: an admin hard-deleted the task via
    *  task-svc's internal by-title endpoint. Never pushed to a client socket —
@@ -52,9 +56,14 @@ export const EventType = {
    *  bypassed the normal lifecycle. */
   TaskDeleted: "task.deleted",
   NotificationCreated: "notification.created",
+  NotificationRead: "notification.read",
+  IntegrationActivityCreated: "integration.activity.created",
   /** Emitted by services/sticky-relay: "you have desktop notes you may never
    *  have received — re-fetch". A repair signal, not news; see StickyRefresh. */
   StickyRefresh: "sticky.refresh",
+  /** Emitted by services/sticky-svc: this user pinned or unpinned one of their
+   *  own tasks, on any device. See StickyPinChanged. */
+  StickyPinChanged: "sticky.pin.changed",
   /** A mail landed in someone's Inbox. Signal-only — see MailDelivered. */
   MailDelivered: "mail.delivered",
   PresenceOnline: "presence.online",
@@ -127,6 +136,8 @@ export const MessageCreated = z.object({
   seq: z.number().int().nonnegative(),
   senderId: z.string().uuid(),
   recipientId: z.string().uuid(),
+  senderUsername: z.string().optional(),
+  senderDisplayName: z.string().optional(),
   body: z.string(),
   clientMsgId: z.string().uuid(),
   /** Inbox thread the message belongs to. Default consumer-side: conversationId. */
@@ -383,6 +394,7 @@ export const ChannelMessageCreated = z.object({
    * `senderUsername` (the email local-part).
    */
   senderDisplayName: z.string().optional(),
+  channelName: z.string().optional(),
   body: z.string(),
   /**
    * All channel members — the gateway pushes to each, then DROPS this field.
@@ -443,6 +455,8 @@ export const ChannelMemberJoined = z.object({
    *  which is how a client tells "you were added" from "you joined". Absent
    *  from older producers — treat as unknown, NOT as a self-join. */
   actorId: z.string().uuid().optional(),
+  /** Display-name snapshot for the actor, used by notification-svc. */
+  actorDisplayName: z.string().optional(),
   /** The joiner's handle. Present for parity with the server event; the client
    *  has no use for it (and it is the email local-part — see lib/userLabel). */
   username: z.string().optional(),
@@ -477,9 +491,17 @@ const taskBase = {
 export const TaskAssigned = z.object({
   type: z.literal(EventType.TaskAssigned),
   ...taskBase,
+  members: z.array(z.string().uuid()).optional(),
   senderUsername: z.string(),
   title: z.string(),
   description: z.string(),
+});
+
+export const TaskWithdrawn = z.object({
+  type: z.literal(EventType.TaskWithdrawn),
+  ...taskBase,
+  members: z.array(z.string().uuid()).optional(),
+  assigneeUsername: z.string(),
 });
 
 export const TaskAcknowledged = z.object({
@@ -502,6 +524,15 @@ export const TaskIgnored = z.object({
 
 export const TaskLeft = z.object({
   type: z.literal(EventType.TaskLeft),
+  ...taskBase,
+  assigneeUsername: z.string(),
+});
+
+/** The assignment's deadline passed before it was completed. Fanned out to
+ *  [senderId, assigneeId] like the other outcomes: the assignee's card moves from
+ *  Allocated to Missed, and the allocator's board refreshes. */
+export const TaskMissed = z.object({
+  type: z.literal(EventType.TaskMissed),
   ...taskBase,
   assigneeUsername: z.string(),
 });
@@ -547,14 +578,70 @@ export const StickyRefresh = z.object({
   pinCount: z.number().int().nonnegative(),
 });
 
+/**
+ * The user pinned or unpinned a task (services/sticky-svc, PUT/DELETE
+ * /sticky/pins/{taskId}). Delivered to every device that user owns, so a pin
+ * made on the web moves the desktop note and the other way round.
+ *
+ * `pinState` is the state AFTER the change. It is a USER choice only — a task
+ * finishing closes its pin through the ordinary task.* events and never arrives
+ * as UNPINNED. Carries ids and state, no task content.
+ */
+export const StickyPinChanged = z.object({
+  type: z.literal(EventType.StickyPinChanged),
+  eventId: z.string(),
+  orgId: z.string(),
+  occurredAt: z.string(),
+  /** The user whose pin changed — and the only recipient. */
+  assigneeId: z.string(),
+  taskId: z.string(),
+  pinState: z.enum(["PINNED", "UNPINNED"]),
+});
+
 export const NotificationCreated = z.object({
   type: z.literal(EventType.NotificationCreated),
   ...envelope,
   notificationId: z.string().uuid(),
   recipientId: z.string().uuid(),
-  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT", "CHANNEL_ADDED"]),
+  kind: z.enum([
+    "TASK_ASSIGNED",
+    "TASK_ACKNOWLEDGED",
+    "TASK_COMPLETED",
+    "TASK_IGNORED",
+    "TASK_LEFT",
+    "TASK_WITHDRAWN",
+    "CHANNEL_ADDED",
+    "CHANNEL_CREATED",
+    "DM_MESSAGE",
+    "CHANNEL_MESSAGE",
+    "MEETING_SCHEDULED",
+    "MEETING_INVITATION",
+  ]),
   text: z.string(),
   taskId: z.string().uuid().optional(),
+  channelId: z.string().uuid().optional(),
+  conversationId: z.string().uuid().optional(),
+  messageId: z.string().uuid().optional(),
+  callId: z.string().uuid().optional(),
+});
+
+export const NotificationRead = z.object({
+  type: z.literal(EventType.NotificationRead),
+  ...envelope,
+  recipientId: z.string().uuid(),
+  notificationId: z.string().uuid().optional(),
+});
+
+/** Activity recorded by integrations-svc; signal-only, with no message body. */
+export const IntegrationActivityCreated = z.object({
+  type: z.literal(EventType.IntegrationActivityCreated),
+  ...envelope,
+  recipientId: z.string().uuid(),
+  activityId: z.string().uuid(),
+  connectionId: z.string().uuid(),
+  provider: z.string(),
+  kind: z.string(),
+  direction: z.enum(["inbound", "outbound"]),
 });
 
 /**
@@ -889,13 +976,18 @@ export const ServerEvent = z.discriminatedUnion("type", [
   ChannelBlocked,
   ChannelUnblocked,
   TaskAssigned,
+  TaskWithdrawn,
   TaskAcknowledged,
   TaskCompleted,
   TaskIgnored,
   TaskLeft,
+  TaskMissed,
   TaskReviewed,
   NotificationCreated,
+  NotificationRead,
+  IntegrationActivityCreated,
   StickyRefresh,
+  StickyPinChanged,
   MailDelivered,
   PresenceOnline,
   PresenceOffline,
@@ -923,14 +1015,19 @@ export type ChannelRoleChanged = z.infer<typeof ChannelRoleChanged>;
 export type ChannelBlocked = z.infer<typeof ChannelBlocked>;
 export type ChannelUnblocked = z.infer<typeof ChannelUnblocked>;
 export type TaskAssigned = z.infer<typeof TaskAssigned>;
+export type TaskWithdrawn = z.infer<typeof TaskWithdrawn>;
 export type TaskAcknowledged = z.infer<typeof TaskAcknowledged>;
 export type TaskCompleted = z.infer<typeof TaskCompleted>;
 export type TaskIgnored = z.infer<typeof TaskIgnored>;
 export type TaskLeft = z.infer<typeof TaskLeft>;
+export type TaskMissed = z.infer<typeof TaskMissed>;
 export type TaskDeleted = z.infer<typeof TaskDeleted>;
 export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
+export type NotificationRead = z.infer<typeof NotificationRead>;
+export type IntegrationActivityCreated = z.infer<typeof IntegrationActivityCreated>;
 export type StickyRefresh = z.infer<typeof StickyRefresh>;
+export type StickyPinChanged = z.infer<typeof StickyPinChanged>;
 export type MailDelivered = z.infer<typeof MailDelivered>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;

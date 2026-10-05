@@ -3,6 +3,7 @@ import { FileEdit, Loader2, Paperclip, Trash2 } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import type { MailDraftDTO } from "@taskboard/shared";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { errorText } from "../lib/errorText";
@@ -23,6 +24,7 @@ import { MailListRow } from "./MailListRow";
  * writing, not something you go back to reading.
  */
 export function MailDraftList({ search }: { search: string }) {
+  const { t } = useTranslation("mail");
   const { api } = useRuntime();
   const qc = useQueryClient();
 
@@ -32,16 +34,16 @@ export function MailDraftList({ search }: { search: string }) {
   const discard = useMutation({
     mutationFn: (mailId: string) => api.discardMailDraft(mailId),
     onSuccess: () => {
-      toast.success("Draft discarded");
+      toast.success(t("draftList.discardedToast"));
       void qc.invalidateQueries({ queryKey: qk.mailDrafts });
     },
-    onError: (e) => toast.error("Could not discard", { description: errorText(e) }),
+    onError: (e) => toast.error(t("draftList.couldNotDiscardToast"), { description: errorText(e) }),
   });
 
   if (q.isLoading) {
     return (
       <div className="flex items-center justify-center gap-2 py-10 text-xs text-muted">
-        <Loader2 size={14} className="animate-spin text-accent" /> Loading drafts…
+        <Loader2 size={14} className="animate-spin text-accent" /> {t("draftList.loading")}
       </div>
     );
   }
@@ -49,8 +51,8 @@ export function MailDraftList({ search }: { search: string }) {
     return (
       <EmptyState
         icon={<FileEdit size={22} />}
-        title="Drafts could not be loaded"
-        hint="Check your connection and choose Check for new mail above."
+        title={t("draftList.errorTitle")}
+        hint={t("draftList.errorHint")}
       />
     );
   }
@@ -58,8 +60,8 @@ export function MailDraftList({ search }: { search: string }) {
     return (
       <EmptyState
         icon={<FileEdit size={22} />}
-        title="No drafts"
-        hint="A mail you start and leave without sending is kept here until you finish it."
+        title={t("draftList.emptyTitle")}
+        hint={t("draftList.emptyHint")}
       />
     );
   }
@@ -96,13 +98,14 @@ function DraftRow({
   search: string;
   onDiscard: () => void;
 }) {
+  const { t } = useTranslation("mail");
   const { subject, snippet } = splitMailPreview(draft.preview);
   const addressed =
     draft.to.length === 0
-      ? "No recipient yet"
+      ? t("draftList.noRecipient")
       : draft.to.length === 1
         ? draft.to[0]
-        : `${draft.to[0]} + ${draft.to.length - 1} more`;
+        : t("draftList.addressedMore", { first: draft.to[0], count: draft.to.length - 1 });
 
   return (
     <MailListRow to={{ pathname: `/app/mail/compose/${draft.mailId}`, search }}>
@@ -129,13 +132,13 @@ function DraftRow({
           </span>
         </div>
 
-        <div className="mt-0.5 truncate text-[13px] text-fg/80">{subject || "(no subject)"}</div>
+        <div className="mt-0.5 truncate text-[13px] text-fg/80">{subject || t("shared.noSubject")}</div>
         {snippet && <div className="mt-0.5 truncate text-xs text-muted">{snippet}</div>}
 
         {draft.attachmentCount > 0 && (
           <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-muted/80">
             <Paperclip size={10} />
-            {draft.attachmentCount} {draft.attachmentCount === 1 ? "file" : "files"}
+            {draft.attachmentCount} {draft.attachmentCount === 1 ? t("draftList.file") : t("draftList.files")}
           </div>
         )}
       </div>
@@ -147,8 +150,8 @@ function DraftRow({
             e.preventDefault();
             onDiscard();
           }}
-          title="Discard this draft — it has not been sent to anyone"
-          aria-label="Discard draft"
+          title={t("draftList.discardTitle")}
+          aria-label={t("draftList.discardAriaLabel")}
           className="inline-flex items-center gap-1 rounded-lg p-1.5 text-[11px] font-medium text-muted transition-colors hover:bg-surface hover:text-danger"
         >
           <Trash2 size={14} />

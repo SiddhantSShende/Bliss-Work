@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { StickyWidget, type StickyTaskDTO, type TaskAction } from "@taskboard/app";
-import { isThemeId, themeClasses, defaultThemeFor, ALL_THEME_CLASSES } from "@taskboard/ui";
+import { CUSTOM_THEME_CLASS, customThemeStyle, isCustomThemeActive, isThemeId, readStoredCustomTheme, themeClasses, defaultThemeFor, ALL_THEME_CLASSES } from "@taskboard/ui";
 import { Pin, Maximize2, ChevronLeft, ChevronRight } from "lucide-react";
 import "@taskboard/ui/styles.css";
 import "./index.css";
@@ -22,7 +22,7 @@ declare global {
       setCollapsed: (collapsed: boolean) => void;
       setBackgroundColor: (color: string) => void;
       ready: () => void;
-      dismiss: (taskId: string) => void;
+      unpin: (taskId: string) => void;
     };
   }
 }
@@ -64,6 +64,15 @@ function useSyncedTheme(): void {
       const root = document.documentElement;
       root.classList.remove(...ALL_THEME_CLASSES);
       root.classList.add(...classes);
+      root.classList.remove(CUSTOM_THEME_CLASS);
+      for (const property of ["--color-accent", "--color-accent-strong", "--color-accent-fg", "--color-accent-soft", "--color-brand-from", "--color-brand-mid", "--color-brand-to", "--color-brand-gradient"]) {
+        root.style.removeProperty(property);
+      }
+      const custom = readStoredCustomTheme();
+      if (custom && isCustomThemeActive()) {
+        root.classList.add(CUSTOM_THEME_CLASS);
+        for (const [property, value] of Object.entries(customThemeStyle(custom))) root.style.setProperty(property, value);
+      }
       // The OS window is opaque, not transparent (see windows.ts), so its
       // native background is a fixed colour main doesn't otherwise know —
       // it has to be told. Read the RESOLVED colour off a throwaway element
@@ -114,8 +123,8 @@ function StickyApp() {
   const task = payload.tasks[payload.index] ?? null;
   const hasMultiple = payload.tasks.length > 1;
 
-  // Collapsed pill: a small always-on-top bubble. It can be expanded again but
-  // never dismissed — only completing the task removes the note entirely.
+  // Collapsed pill: a small always-on-top bubble. It can be expanded again;
+  // expand it to reach Unpin.
   if (collapsed) {
     return (
       <div className="app-drag flex h-full items-center gap-2 rounded-2xl border border-border bg-surface px-3 shadow-widget">
@@ -171,7 +180,7 @@ function StickyApp() {
           compact
           locked={task.myStatus === "ACKNOWLEDGED"}
           onCollapse={collapse}
-          onDismiss={() => window.sticky.dismiss(task.taskId)}
+          onUnpin={() => window.sticky.unpin(task.taskId)}
           onAction={(action: TaskAction) => window.sticky.act(task.taskId, VERB[action])}
         />
       </div>

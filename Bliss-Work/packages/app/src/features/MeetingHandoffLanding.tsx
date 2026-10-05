@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { AuthLayout } from "../routes/Onboarding";
 import { meetingDeepLink } from "../lib/meetingDeepLink";
@@ -25,6 +26,7 @@ function isMobileUserAgent(): boolean {
  * gated on trying to detect that.
  */
 export function MeetingHandoffLanding({ token }: { token: string }) {
+  const { t } = useTranslation("meetings");
   const nav = useNavigate();
   const [attempted, setAttempted] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
@@ -45,17 +47,17 @@ export function MeetingHandoffLanding({ token }: { token: string }) {
 
   return (
     <AuthLayout
-      title="Join Meeting"
-      subtitle="You can join this meeting using the desktop app or continue directly in your browser."
+      title={t("handoff.title")}
+      subtitle={t("handoff.subtitle")}
     >
       <div className="flex flex-col gap-4">
         {attempted && (
           <p className="text-center text-sm text-muted">
-            {timedOut ? "Didn't open automatically." : "Opening the BlissWork desktop app…"}
+            {timedOut ? t("handoff.notOpened") : t("handoff.openingApp", { brand: "BlissWork" })}
           </p>
         )}
         <Button size="lg" className="w-full" onClick={continueInBrowser}>
-          Continue in Browser
+          {t("handoff.continueInBrowser")}
         </Button>
       </div>
     </AuthLayout>

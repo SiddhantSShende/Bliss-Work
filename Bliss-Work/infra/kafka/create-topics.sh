@@ -81,6 +81,7 @@ create "task.events.v1"
 # Notification is the high-fan-out hot path — extra partitions in prod (200+).
 create "notification.events.v1" "${NOTIFICATION_PARTITIONS}"
 create "auth.events"
+create "integration.events.v1"
 # Cross-site routing directory: org id / invite token hash -> home site. Bridged
 # to every site by region-bridge, and consumed by every site's auth-svc.
 #

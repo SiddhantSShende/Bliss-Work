@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { ApiError } from "@taskboard/shared";
 import { toast } from "sonner";
@@ -15,6 +16,7 @@ import { checkPassword } from "../lib/password";
  * reset revokes every session server-side, so re-auth confirms the new password).
  */
 export function ResetPassword() {
+  const { t } = useTranslation("auth");
   const { api } = useRuntime();
   const [params] = useSearchParams();
   const token = params.get("token") ?? "";
@@ -40,18 +42,16 @@ export function ResetPassword() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pwOk)
-      return toast.error(
-        "Password must be at least 10 characters with a letter, a number, and a special character",
-      );
+      return toast.error(t("resetPassword.errors.passwordPolicy"));
     setBusy(true);
     try {
       await api.resetPassword({ token, password });
-      toast.success("Password updated — please sign in with your new password.");
+      toast.success(t("resetPassword.success"));
       nav("/login");
     } catch (err) {
       const expired = err instanceof ApiError && err.status === 400;
-      toast.error("Could not reset password", {
-        description: expired ? "This link is invalid or has expired." : String(err),
+      toast.error(t("resetPassword.errors.couldNotResetTitle"), {
+        description: expired ? t("resetPassword.errors.linkInvalidOrExpired") : String(err),
       });
       if (expired) setValid(false);
     } finally {
@@ -61,23 +61,23 @@ export function ResetPassword() {
 
   if (!token || valid === false)
     return (
-      <AuthLayout title="Link expired" subtitle="This password reset link is invalid or has expired.">
+      <AuthLayout title={t("resetPassword.expired.title")} subtitle={t("resetPassword.expired.subtitle")}>
         <Link
           to="/forgot-password"
           className="block text-center text-sm font-medium text-accent hover:underline"
         >
-          Request a new link
+          {t("resetPassword.expired.requestNewLink")}
         </Link>
       </AuthLayout>
     );
 
   return (
     <AuthLayout
-      title="Set a new password"
-      subtitle={valid === null ? "Verifying link…" : "Choose a strong new password for your account."}
+      title={t("resetPassword.title")}
+      subtitle={valid === null ? t("resetPassword.verifyingLink") : t("resetPassword.subtitle")}
     >
       <form onSubmit={submit} className="flex flex-col gap-3.5">
-        <Field label="New password">
+        <Field label={t("resetPassword.newPasswordLabel")}>
           <PasswordField value={password} onChange={setPassword} />
         </Field>
         <Button
@@ -87,7 +87,7 @@ export function ResetPassword() {
           disabled={valid !== true || !pwOk}
           className="mt-2 w-full"
         >
-          {busy ? "Updating…" : "Update password"}
+          {busy ? t("resetPassword.updating") : t("resetPassword.updatePassword")}
         </Button>
       </form>
     </AuthLayout>

@@ -1,0 +1,205 @@
+{
+  "liveEvents": {
+    "newMailInInbox": "New mail in your Inbox"
+  },
+  "shared": {
+    "tryAgain": "Try again",
+    "noSubject": "(no subject)",
+    "restoreMailTitle": "Restore — puts this mail back in the folder it came from",
+    "deleteMailTitle": "Delete — removes your copy only; nobody else's is affected",
+    "restoreLabel": "Restore",
+    "deleteLabel": "Delete",
+    "loading": "Loading…"
+  },
+  "fields": {
+    "to": "To",
+    "cc": "Cc",
+    "bcc": "Bcc"
+  },
+  "layout": {
+    "backToList": "Back to list",
+    "welcome": {
+      "title": "Nothing open",
+      "hint": "Pick a message from the list to read it here, or choose New Mail to write one."
+    }
+  },
+  "folders": {
+    "title": "Mail",
+    "unreadAriaLabel": "{{folder}}, {{count}} unread",
+    "box": {
+      "inbox": "Inbox",
+      "sent": "Sent Items",
+      "drafts": "Drafts",
+      "deleted": "Deleted Items",
+      "favorites": "Favorites"
+    }
+  },
+  "list": {
+    "tabs": {
+      "all": "All",
+      "unread": "Unread"
+    },
+    "newMail": {
+      "title": "New Mail — compose an email",
+      "label": "New Mail"
+    },
+    "checkForNewMail": "Check for new mail",
+    "unknownPeer": "this person",
+    "emptyStates": {
+      "unreadTitle": "Nothing unread",
+      "deletedTitle": "Nothing deleted",
+      "favoritesTitle": "No favorites yet",
+      "defaultTitle": "Nothing here yet",
+      "unreadHint": "Everything in this folder has been read.",
+      "peerHint": "No mail with {{peer}} in {{folder}}.",
+      "deletedHint": "Mail you delete is kept here for 90 days, so you can put it back.",
+      "favoritesHint": "Star a mail from any folder and it is collected here. Stars are kept on this device.",
+      "defaultHint": "Choose New Mail to write one."
+    },
+    "messageCountSingular": "message",
+    "messageCountPlural": "messages",
+    "loadingMore": "Loading more…",
+    "showAllMailTitle": "Show mail from everyone",
+    "errors": {
+      "couldNotRemoveItem": "Couldn't remove that item",
+      "couldNotRestoreItem": "Couldn't restore that mail",
+      "couldNotDeleteMessage": "Couldn't delete that message",
+      "couldNotAcknowledgeTask": "Couldn't acknowledge that task",
+      "couldNotCompleteTask": "Couldn't complete that task"
+    }
+  },
+  "detail": {
+    "loadingMail": "Loading mail…",
+    "loadError": "This mail could not be opened. It may have been removed.",
+    "unknownSender": "Unknown sender",
+    "restoredToast": "Restored to your mailbox",
+    "movedToDeletedToast": "Moved to Deleted Items",
+    "couldNotRestoreToast": "Could not restore",
+    "couldNotRemoveToast": "Could not remove",
+    "statusSent": "sent",
+    "statusInbox": "inbox",
+    "noMessageBody": "(no message body)",
+    "toolbar": {
+      "reply": "Reply",
+      "replyTitle": "Reply to the sender",
+      "replyAll": "Reply all",
+      "replyAllTitle": "Reply to everyone on this mail",
+      "forward": "Forward",
+      "forwardTitle": "Forward this mail to someone else"
+    }
+  },
+  "thread": {
+    "defaultSubject": "Thread",
+    "ignoreTitle": "Ignore — hides for both sides",
+    "messageFailedToast": "Message failed to send",
+    "couldNotRemoveThreadToast": "Couldn't remove this thread"
+  },
+  "task": {
+    "couldNotUpdateToast": "Couldn't update that task",
+    "notFoundTitle": "Task not found",
+    "notFoundHint": "It may have been removed."
+  },
+  "row": {
+    "externalSender": "External sender",
+    "untitledTask": "(untitled task)",
+    "noPreview": "(no preview)",
+    "taskLabel": "Task",
+    "threadLabel": "thread",
+    "newBadge": "new",
+    "favorite": {
+      "add": "Add to Favorites",
+      "remove": "Remove from Favorites"
+    },
+    "acknowledgeTitle": "Acknowledge — accept this task",
+    "acknowledgeLabel": "Acknowledge",
+    "completeTitle": "Mark complete",
+    "completeLabel": "Complete",
+    "ignoreTitleTask": "Ignore — remove from your mailbox",
+    "ignoreTitleThread": "Ignore — hides for both",
+    "ignoreLabel": "Ignore",
+    "dismissTitle": "Delete from your mailbox"
+  },
+  "addressField": {
+    "invalidAddressTitle": "This does not look like an email address",
+    "removeAddress": "Remove {{address}}"
+  },
+  "attachments": {
+    "heading": "Attachments ({{count}})",
+    "couldNotAttachToast": "Could not attach {{filename}}",
+    "tooLargeToast": "{{filename}} is larger than {{maxSize}}.",
+    "couldNotRemoveToast": "Could not remove that file",
+    "tray": {
+      "uploading": "Uploading… {{progress}}%",
+      "remove": "Remove {{filename}}"
+    },
+    "preview": "Preview",
+    "previewFile": "Preview {{filename}}",
+    "open": "Open",
+    "openFile": "Open {{filename}}",
+    "download": "Download",
+    "downloadFile": "Download {{filename}}",
+    "preparing": "Preparing…",
+    "unavailable": "Unavailable"
+  },
+  "draftList": {
+    "discardedToast": "Draft discarded",
+    "couldNotDiscardToast": "Could not discard",
+    "loading": "Loading drafts…",
+    "errorTitle": "Drafts could not be loaded",
+    "errorHint": "Check your connection and choose Check for new mail above.",
+    "emptyTitle": "No drafts",
+    "emptyHint": "A mail you start and leave without sending is kept here until you finish it.",
+    "noRecipient": "No recipient yet",
+    "addressedMore": "{{first}} + {{count}} more",
+    "file": "file",
+    "files": "files",
+    "discardTitle": "Discard this draft — it has not been sent to anyone",
+    "discardAriaLabel": "Discard draft"
+  },
+  "compose": {
+    "headings": {
+      "draft": "Draft",
+      "forward": "Forward",
+      "reply": "Reply",
+      "newMail": "New Mail"
+    },
+    "closeTitle": "Close — keeps this in Drafts",
+    "startErrorBanner": "Could not start a draft. Check your connection and try again.",
+    "retry": "Retry",
+    "openingDraft": "Opening draft…",
+    "loadErrorText": "This draft could not be opened. It may have been sent or discarded.",
+    "ccBccButton": "Cc / Bcc",
+    "toPlaceholder": "name@company.com",
+    "ccPlaceholder": "Copy someone",
+    "bccPlaceholder": "Blind copy — hidden from everyone else",
+    "subjectLabel": "Subject",
+    "subjectPlaceholder": "What is this about?",
+    "messageLabel": "Message",
+    "messagePlaceholder": "Write your email…",
+    "attachTitleReady": "Attach files",
+    "attachTitlePreparing": "Preparing draft…",
+    "attachLabel": "Attach",
+    "removeAll": "Remove all",
+    "preparing": "Preparing…",
+    "discardButton": "Discard",
+    "discardTitle": "Discard — deletes this draft; it has not been sent to anyone",
+    "closeButton": "Close",
+    "sendButton": "Send",
+    "sendingButton": "Sending…",
+    "draftDiscardedToast": "Draft discarded",
+    "couldNotDiscardToast": "Could not discard the draft",
+    "couldNotSendToast": "Could not send",
+    "errors": {
+      "draftNotReady": "draft not ready",
+      "invalidAddress": "\"{{address}}\" does not look like an email address.",
+      "subjectTooLong": "Subject is {{length}} characters — the limit is {{limit}}."
+    },
+    "sentSummary": {
+      "sent": "Sent",
+      "sentToPeople": "Sent to {{count}} people",
+      "delivering": "Sent — delivering",
+      "deliveringToCount": "Sent — delivering to {{count}}",
+      "sentAndDelivering": "Sent to {{inApp}} here, delivering to {{external}} more"
+    }
+  }
+}

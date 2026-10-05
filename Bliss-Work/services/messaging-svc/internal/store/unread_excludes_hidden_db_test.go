@@ -29,6 +29,8 @@ func TestListConversations_HiddenMessageNotCountedUnread(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7()).String()
 	caller := uuid.Must(uuid.NewV7()).String()
 	peer := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, caller, "caller", "Caller")
+	seedUser(t, s, orgID, peer, "peer", "Peer")
 
 	res, err := s.SendMessage(ctx, orgID, peer, caller, "hello", uuid.Must(uuid.NewV7()).String(), SendOptions{})
 	if err != nil {
@@ -71,6 +73,8 @@ func TestListConversations_ClearedConversationHasZeroUnread(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7()).String()
 	caller := uuid.Must(uuid.NewV7()).String()
 	peer := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, caller, "caller", "Caller")
+	seedUser(t, s, orgID, peer, "peer", "Peer")
 
 	res, err := s.SendMessage(ctx, orgID, peer, caller, "hello", uuid.Must(uuid.NewV7()).String(), SendOptions{})
 	if err != nil {
@@ -106,6 +110,8 @@ func TestGetThread_HiddenMessageNotCountedUnread(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7()).String()
 	caller := uuid.Must(uuid.NewV7()).String()
 	peer := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, caller, "caller", "Caller")
+	seedUser(t, s, orgID, peer, "peer", "Peer")
 
 	res, err := s.SendMessage(ctx, orgID, peer, caller, "hello", uuid.Must(uuid.NewV7()).String(), SendOptions{})
 	if err != nil {
@@ -140,6 +146,8 @@ func TestGetThread_UnhiddenMessageStillCountsUnread(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7()).String()
 	caller := uuid.Must(uuid.NewV7()).String()
 	peer := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, caller, "caller", "Caller")
+	seedUser(t, s, orgID, peer, "peer", "Peer")
 
 	res, err := s.SendMessage(ctx, orgID, peer, caller, "hello", uuid.Must(uuid.NewV7()).String(), SendOptions{})
 	if err != nil {

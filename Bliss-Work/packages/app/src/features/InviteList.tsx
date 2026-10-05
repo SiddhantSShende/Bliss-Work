@@ -1,4 +1,5 @@
 import { Mail, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Badge, Button, EmptyState } from "@taskboard/ui";
 import type { InviteDTO } from "@taskboard/shared";
 import { relTime } from "./ListPane";
@@ -14,8 +15,16 @@ export function InviteList({
   onRevoke: (id: string) => void;
   revokingId?: string;
 }) {
+  const { t } = useTranslation("auth");
+
   if (invites.length === 0)
-    return <EmptyState icon={<Mail size={22} />} title="No pending invites" hint="Invites you send will appear here." />;
+    return (
+      <EmptyState
+        icon={<Mail size={22} />}
+        title={t("inviteList.emptyTitle")}
+        hint={t("inviteList.emptyHint")}
+      />
+    );
 
   const now = Date.now();
 
@@ -36,17 +45,17 @@ export function InviteList({
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium text-fg">{inv.email}</div>
               <div className={`text-xs ${expired ? "text-danger" : "text-muted"}`}>
-                {expired ? "Expired" : "Expires"} {relTime(inv.expiresAt)}
+                {expired ? t("inviteList.expired") : t("inviteList.expires")} {relTime(inv.expiresAt)}
               </div>
             </div>
-            {expired && <Badge tone="danger">Expired</Badge>}
+            {expired && <Badge tone="danger">{t("inviteList.expired")}</Badge>}
             <RoleBadge isAdmin={inv.role === "org_admin"} />
             <Button
               variant="ghost"
               size="sm"
               onClick={() => onRevoke(inv.id)}
               loading={revokingId === inv.id}
-              title={expired ? "Remove expired invite" : "Revoke invite"}
+              title={expired ? t("inviteList.removeExpired") : t("inviteList.revoke")}
             >
               <Trash2 size={15} />
             </Button>

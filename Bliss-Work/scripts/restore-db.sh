@@ -22,6 +22,10 @@ export COMPOSE_FILE
 
 detect_docker_sudo
 
+# The restore below goes through compose() rather than `$DOCKER compose`: sudo
+# strips COMPOSE_FILE, and a bare `sudo docker compose` then resolves to the DEV
+# stack — a restore that lands in the wrong postgres, or in no postgres at all.
+
 # --single-transaction wraps the whole restore in one BEGIN/COMMIT: without
 # it, an error partway through (very much the disaster-recovery case this
 # script exists for — restoring onto an existing, possibly-corrupted
@@ -31,5 +35,5 @@ detect_docker_sudo
 # failed restore is a clean no-op to retry, not a database in an unknown
 # partial state mid-incident.
 openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY -in "$FILE" \
-  | $DOCKER compose exec -T postgres psql -U "$PG_USER" -d "$DB" -v ON_ERROR_STOP=1 --single-transaction
+  | compose exec -T postgres psql -U "$PG_USER" -d "$DB" -v ON_ERROR_STOP=1 --single-transaction
 echo "restored $FILE -> $DB"

@@ -1,22 +1,25 @@
 import { BrowserWindow, screen } from "electron";
 import {
   actionsFor,
-  canAcceptNewPin,
   canFloatTask,
   idsToPrune,
   selectFloatingTasks,
   type PinResult,
   type StickyTaskDTO,
 } from "@taskboard/shared";
-import { createStickyWindow, setNoteOnTop } from "./windows";
+import { createStickyWindow } from "./windows";
 import {
   addPinned,
+  addUnpinned,
   clampToPrimary,
   gc,
   getGeometry,
   getPinned,
+  getUnpinned,
   isPinned,
+  isUnpinned,
   removePinned,
+  removeUnpinned,
   saveGeometry,
 } from "./sticky-state";
 import { reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
@@ -29,13 +32,6 @@ import { reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-gro
  * written and age out via the existing 30-day GC.
  */
 const CONTAINER_ID = "sticky:tasks";
-
-/**
- * Hard cap on simultaneous task widgets. Settings-gated raise to 12 lives in
- * Phase 8. Any task beyond the cap is dropped from the rendered widget set but
- * still appears in the in-app inbox/tasks view.
- */
-const MAX_WIDGETS = 5;
 
 /**
  * Per-edge clamp margin to keep restored widgets from straddling the work-area
@@ -63,35 +59,30 @@ const FULL_H = 200;
  * A task floats iff it is PINNED AND still actionable (SENT or ACKNOWLEDGED).
  * Actionable tasks auto-pin on every live server push (see autopinActionable),
  * so a freshly ALLOCATED task pops up on its own showing Acknowledge / Ignore —
- * no manual pin or prior acknowledge needed. (The manual "Pin to desktop"
- * button remains as a fallback.)
+ * no manual pin or prior acknowledge needed.
  *
- * A note is a DESKTOP WIDGET. It rests on the user's desktop and is on screen
- * whenever the desktop is what they are looking at — including while BlissWork
- * is minimised or closed to the tray — and it is taken away only while some
- * OTHER application is in front (setSafeToFloat, driven by ./app-active).
- * Nothing here ever sits over another application's work.
+ * The note is a persistent desktop overlay: always on top of every other
+ * application, on every workspace, and never hidden because focus moved
+ * elsewhere (see createStickyWindow). Nothing here reacts to which application
+ * is in front.
  *
  * ── What removes a note ──────────────────────────────────────────────────────
- * Completing, ignoring or leaving the task. That is the whole list, and it is
- * the promise the feature makes: an allocation you have not dealt with does not
- * go away because you read it, closed the app, or restarted the machine. The
- * server is what decides — a terminal status drops the task from /tasks/sticky
- * and prunePinned then tears the window down.
+ * Completing, ignoring or leaving the task, or the user's explicit Unpin
+ * (unpin()). That is the whole list: an allocation you have not dealt with does
+ * not go away because you read it, closed the app, or restarted the machine.
+ * The server decides the first three — a terminal status drops the task from
+ * /tasks/sticky and prunePinned then tears the window down.
  *
- * `hideForSession` is the one exception, and it is deliberately NOT persisted:
- * the note's own X takes it off screen until the app restarts or the pin is
- * reconciled, and then it comes back. An earlier version persisted that set and
- * also triggered it from merely OPENING the task, which meant reading a task in
- * the inbox silently retired its note for good — the exact opposite of the
- * promise above.
+ * Unpin is persisted (see ./sticky-state's `unpinned`) and respected by every
+ * automatic path, so it holds across server pushes and restarts. Opening a task
+ * never unpins it: an earlier version retired a note whenever its task was
+ * merely read in the inbox, with the task still outstanding.
  *
  * Lifecycle on the note: a SENT note offers Acknowledge / Ignore. Ignoring drops
  * it from the server's actionable list → prunePinned tears the window down.
  * Acknowledging keeps it floating but locks it (Complete only) — the user can
- * COLLAPSE it to a pill (setCollapsed) but the only removal is completing the
- * task. The pinned set persists across relaunches so an unfinished commitment
- * comes back.
+ * COLLAPSE it to a pill (setCollapsed). The pinned set persists across
+ * relaunches so an unfinished commitment comes back.
  *
  * Inherited from Phase 7:
  *   * Geometry restore + persist via ./sticky-state (per-widget x/y/w/h + a
@@ -102,21 +93,14 @@ const FULL_H = 200;
 export class StickyManager {
   /** The single carousel window, or null while nothing is pinned/floating. */
   private win: BrowserWindow | null = null;
-  /** The floating set as of the last reconcile() — what the carousel pages
-   *  through. next()/prev() only move currentIndex within this; reconcile()
-   *  is what recomputes it. */
+  /** The complete floating set as of the last reconcile(). The renderer only
+   *  receives a small window from this list, but navigation uses the full set. */
   private visible: StickyTaskDTO[] = [];
   /** Which entry of `visible` the carousel currently shows. */
   private currentIndex = 0;
   private tasks: StickyTaskDTO[] = [];
-  /**
-   * Notes the user took off screen with the note's own X, THIS RUN ONLY.
-   *
-   * In memory on purpose — see the class doc. Nothing writes it to disk, so a
-   * restart brings every still-actionable note back, and the only permanent
-   * removal remains a terminal status on the server.
-   */
-  private hiddenThisSession = new Set<string>();
+  /** A just-re-pinned task the carousel should page to as soon as it can. */
+  private pendingFocus: string | undefined;
 
   /** Latest known actionable task list (server returns only SENT/ACKNOWLEDGED).
    *  Stored whole so taskCount()/tray reflect ALL active tasks, while only the
@@ -130,86 +114,96 @@ export class StickyManager {
     this.tasks = tasks;
     if (opts.live) this.autopinActionable();
     this.reconcile();
+    if (this.pendingFocus) {
+      this.showTask(this.pendingFocus);
+      this.pendingFocus = undefined;
+    }
   }
 
   /**
-   * Pin every actionable (SENT/ACKNOWLEDGED) task not already pinned, up to the
-   * on-screen cap. This is what makes an allocation auto-float: the ws-process
-   * re-fetches /tasks/sticky on every `task.*` event, so a newly assigned SENT
-   * task lands in `this.tasks` and gets pinned + reconciled into a window with
-   * no manual pin. Capped so the persisted pinned set can't grow unbounded.
+  * Pin every actionable (SENT/ACKNOWLEDGED) task not already pinned. This is
+  * what makes an allocation auto-float: the ws-process re-fetches
+  * /tasks/sticky on every `task.*` event, so a newly assigned SENT task lands
+  * in `this.tasks` and gets pinned + reconciled into the carousel.
    *
-   * Only a THIS-RUN hide holds a task back, and only until the app restarts.
-   * There is deliberately no persisted veto here: an actionable task the user
-   * has not completed or ignored is one this is supposed to keep putting back.
+   * The one thing that holds a task back is the user's explicit Unpin — an
+   * actionable task they have not completed, ignored or unpinned is one this is
+   * supposed to keep putting back.
    */
   private autopinActionable(): void {
-    // Counted off the SAME set reconcile() renders from. Counting the raw
-    // pinned set instead would let notes hidden this run keep occupying slots
-    // under the cap, so hiding one would shrink the desktop to four notes
-    // rather than letting the next task take its place.
-    let floating = selectFloatingTasks(this.tasks, this.visiblePinned(), -1).length;
     for (const t of this.tasks) {
-      if (floating >= MAX_WIDGETS) break;
-      if (this.hiddenThisSession.has(t.taskId)) continue;
+      if (isUnpinned(t.taskId)) continue;
       if (!isPinned(t.taskId) && canFloatTask(t.myStatus)) {
         addPinned(t.taskId);
-        floating++;
       }
     }
   }
 
   /**
-   * Adopt the durable pin set from sticky-svc.
+   * Mirror the user's durable pin state from sticky-svc onto this machine.
    *
-   * Purely ADDITIVE, and that is the whole safety property: this can restore a
-   * pin this machine has never seen — a fresh install, a second device, a
-   * cleared profile — but it can never remove one. Only prunePinned, driven by
-   * task-svc's live actionable list, takes a note away.
+   * sticky-svc is the authority on what the USER chose, because it is the one
+   * thing every device of theirs shares: a pin made on the web, or on a second
+   * desktop, lands here as PINNED, and an Unpin made anywhere lands as UNPINNED.
+   * The local pinned/unpinned sets (./sticky-state) are only the mirror that lets
+   * windows restore offline — they never overrule a successful server read:
    *
-   * So a sticky-svc outage, a lagging consumer, or a build with no stickyBase
-   * configured degrades to exactly the behaviour that shipped before the
-   * service existed, rather than wiping someone's desktop.
+   *   server UNPINNED → drop the note and remember it as unpinned, so no
+   *                     automatic path (autopin, acknowledge) puts it back;
+   *   server PINNED   → clear any local unpin and float it. A task going from
+   *                     unpinned to pinned is an explicit RE-pin, so the carousel
+   *                     pages to it (as pin() does for a newly pinned task).
    *
-   * Notes hidden this run are respected: adopting a pin does not un-hide it,
-   * because the user's decision about this session is more recent than the
-   * server's record of the commitment.
+   * Ids the server says nothing about are left alone — a task with no sticky-svc
+   * row yet still auto-pins locally — and a failed or unconfigured read never
+   * reaches this (the caller passes nothing), degrading to the local mirror
+   * instead of wiping anyone's desktop. Completion/leave/ignore still only ever
+   * removes a note through prunePinned, driven by task-svc's actionable list.
    */
-  adoptServerPins(taskIds: readonly string[]): void {
-    for (const id of taskIds) {
+  applyServerPinState(state: { pinned: readonly string[]; unpinned: readonly string[] }): void {
+    for (const id of state.unpinned) {
       if (typeof id !== "string" || !id) continue;
-      if (!isPinned(id)) addPinned(id);
+      removePinned(id);
+      addUnpinned(id);
+    }
+    let repinned: string | undefined;
+    for (const id of state.pinned) {
+      if (typeof id !== "string" || !id) continue;
+      if (isUnpinned(id)) {
+        removeUnpinned(id);
+        repinned = id;
+      }
+      addPinned(id);
     }
     this.reconcile();
+    if (repinned) {
+      this.showTask(repinned);
+      // The task list this push belongs with usually arrives right after (see
+      // index.ts), and a freshly pinned task may not be in the list we hold yet.
+      // Remember it so setTasks can page to it once it is.
+      this.pendingFocus = repinned;
+    }
   }
 
   /**
-   * The pinned set minus anything hidden this run — what actually goes on
-   * screen, and the single definition both autopinActionable and reconcile
-   * count against so they cannot disagree about how full the desktop is.
+   * Explicit Unpin, from the note's own Unpin button — and from nowhere else.
    *
-   * Ids stay in the persisted pinned set throughout: that is what brings a
-   * hidden note back on the next launch.
-   */
-  private visiblePinned(): string[] {
-    return getPinned().filter((id) => !this.hiddenThisSession.has(id));
-  }
-
-  /**
-   * Take a note off screen for the rest of this run.
+   * This is the LOCAL half, applied at once so the note goes the instant the
+   * button is pressed. The caller (index.ts) also writes it to sticky-svc, which
+   * is what makes it durable and shared; the next server read confirms it. It
+   * removes the task from the pinned set AND records the veto that keeps auto-pin
+   * from putting it straight back on the next push (see ./sticky-state). The task
+   * itself is untouched: this is about where its note
+   * lives, not the commitment, so it stays in the in-app Tasks list with all its
+   * actions.
    *
-   * Called from the note's own X, and from nowhere else — in particular NOT
-   * from opening the task, which is reading it, not dealing with it. The task
-   * is untouched: this is about the note, not the commitment, so the pin stays
-   * on disk and the note is back on the next launch (or the next reconcile) if
-   * the task is still actionable.
+   * reconcile() then drops it from the carousel (closing the shared window if
+   * it was the last one), advancing the index like any other removal.
    */
-  hideForSession(taskId: string): void {
+  unpin(taskId: string): void {
     if (typeof taskId !== "string" || !taskId) return;
-    this.hiddenThisSession.add(taskId);
-    // No per-task window to close any more — reconcile() drops it from the
-    // carousel's visible set (and closes the shared window if that was the
-    // last one), advancing the index the same way any other removal does.
+    removePinned(taskId);
+    addUnpinned(taskId);
     this.reconcile();
   }
 
@@ -222,14 +216,19 @@ export class StickyManager {
   }
 
   /**
-   * Manually pin a task to the desktop (the in-app "Pin to desktop" fallback;
-   * actionable tasks already auto-pin via autopinActionable). Returns the
-   * authoritative pinned set so the renderer reflects reality.
+   * Pin a task to the desktop on request (the acknowledge auto-pin in the app's
+   * query bridge; actionable tasks already auto-pin via autopinActionable).
+   * Returns the authoritative pinned set so the renderer reflects reality.
    *
    * - Idempotent: re-pinning a task surfaces its existing note (restoring a
    *   minimized window / expanding a collapsed pill) rather than duplicating it.
-   * - Capped: refuses (reason "limit") once MAX_WIDGETS tasks already float, so
-   *   we never tell the user a note is pinned when it can't be shown.
+  * - There is no carousel-size cap: every actionable task can be pinned and
+  *   the renderer receives only the current lazy window.
+   * - Refuses (reason "unpinned") a task the user's shared pin state says is
+   *   UNPINNED: acknowledging is not a request to re-pin. This is the AUTOMATIC
+   *   path only. The user's own explicit Pin goes to sticky-svc
+   *   (ApiClient.stickyPin), which clears the unpin on every device and arrives
+   *   here through applyServerPinState — so an Unpin is never permanent.
    * - The note floats with whatever real status the task has (SENT → Acknowledge
    *   / Ignore; ACKNOWLEDGED → Complete); the next list fills in any lag.
    */
@@ -237,9 +236,9 @@ export class StickyManager {
     if (typeof taskId !== "string" || !taskId) {
       return { ok: false, reason: "invalid", pinned: getPinned() };
     }
-    // Asking for a note back is the undo for having hidden it — otherwise a
-    // hidden task reports "already pinned" and nothing appears.
-    this.hiddenThisSession.delete(taskId);
+    if (isUnpinned(taskId)) {
+      return { ok: false, reason: "unpinned", pinned: getPinned() };
+    }
     if (isPinned(taskId)) {
       // Already pinned — bring the CONTAINER into view and page it to this
       // task, rather than creating or duplicating anything.
@@ -270,15 +269,6 @@ export class StickyManager {
         } as unknown as StickyTaskDTO,
       ];
     }
-    // New pin — enforce the on-screen cap (count tasks that already float).
-    // Same set autopinActionable/reconcile count against — see visiblePinned's
-    // doc: counting the raw pinned set would let notes hidden this run keep
-    // occupying slots under the cap, so a manual pin could be refused with
-    // "limit" even though fewer than MAX_WIDGETS notes are actually on screen.
-    const floatingCount = selectFloatingTasks(this.tasks, this.visiblePinned(), -1).length;
-    if (!canAcceptNewPin(floatingCount, MAX_WIDGETS)) {
-      return { ok: false, reason: "limit", pinned: getPinned() };
-    }
     addPinned(taskId);
     this.reconcile();
     // A newly pinned task is what the carousel shows now — satisfies "newly
@@ -298,8 +288,8 @@ export class StickyManager {
     this.pushCurrent();
   }
 
-  /** Task ids currently pinned to the desktop (the renderer reflects this on
-   *  the "Pin to desktop" / "Pinned" button). */
+  /** Task ids currently pinned to the desktop (the in-app cards mirror this to
+   *  lock an acknowledged pinned task to Complete-only). */
   listPinned(): string[] {
     return getPinned();
   }
@@ -330,11 +320,11 @@ export class StickyManager {
    */
   prunePinned(liveIds: Iterable<string>): void {
     const live = [...liveIds];
-    // A task that has left the actionable set can also forget it was hidden:
-    // the session set stays bounded, and a task which becomes actionable AGAIN
-    // (reassigned, re-opened) is free to float once more without a restart.
-    for (const id of idsToPrune(this.hiddenThisSession, live)) {
-      this.hiddenThisSession.delete(id);
+    // A task that has left the actionable set can also forget it was unpinned:
+    // the persisted veto stays bounded, and a task which becomes actionable
+    // AGAIN (reassigned, re-opened) is free to pin itself once more.
+    for (const id of idsToPrune(getUnpinned(), live)) {
+      removeUnpinned(id);
     }
     for (const id of idsToPrune(getPinned(), live)) {
       removePinned(id);
@@ -411,42 +401,6 @@ export class StickyManager {
     }
   }
 
-  /**
-   * Show or hide every note as the desktop reading changes.
-   *
-   * This is the whole of "the note rests on my desktop, and gets out of the way
-   * of other applications". `safe` is true while BlissWork is frontmost OR the
-   * bare desktop is showing; false only while another application is in front.
-   *
-   * Two things happen together, and both matter: the always-on-top flag is
-   * dropped as well as the window hidden. Hiding alone would leave a note that
-   * is merely off screen but still topmost, so anything that reveals it — a
-   * window animation, a workspace switch — flashes it over someone else's work.
-   * Dropping the flag alone would leave it visibly stacked underneath. On Linux
-   * setNoteOnTop is a no-op: `type: "desktop"` already parks the note at the
-   * bottom of the stack, so there is nothing to raise or drop.
-   *
-   * The same windows come back on return — nothing is recreated, so a note
-   * keeps its position, its size, its collapsed state and its task.
-   *
-   * showInactive, never show: a note must not take focus even as it reappears.
-   * The window is non-focusable anyway, which is also why CLICKING a note does
-   * not count as leaving BlissWork — the buttons keep working while it's up.
-   *
-   * See ./app-active for how the reading is decided.
-   */
-  setSafeToFloat(safe: boolean): void {
-    const w = this.win;
-    if (!w || w.isDestroyed()) return;
-    if (safe) {
-      setNoteOnTop(w, true);
-      if (!w.isVisible()) w.showInactive();
-    } else {
-      setNoteOnTop(w, false);
-      if (w.isVisible()) w.hide();
-    }
-  }
-
   /** Re-confine the note to the primary display. Called on display
    *  add/remove/metrics-change so unplugging the monitor it drifted toward
    *  can't strand it off the main desktop screen. */
@@ -470,13 +424,9 @@ export class StickyManager {
   }
 
   private reconcile(): void {
-    // Float only pinned tasks that are still actionable (SENT/ACK), capped.
-    //
-    // Notes hidden this run are filtered out of the PINNED set rather than out
-    // of the result, so a hidden note does not hold a slot under the cap — and,
-    // critically, so the next live push does not put it straight back. It stays
-    // pinned on disk throughout: that is what brings it back after a restart.
-    const visible = selectFloatingTasks(this.tasks, this.visiblePinned(), MAX_WIDGETS);
+    // Keep the complete pinned/actionable set here. pushCurrent() windows the
+    // payload sent to the renderer without discarding navigation targets.
+    const visible = selectFloatingTasks(this.tasks, getPinned(), -1);
 
     if (visible.length === 0) {
       if (this.win && !this.win.isDestroyed()) this.win.close();
@@ -536,8 +486,8 @@ export class StickyManager {
       }
       // Deliberately NOT restoring a stored `minimized` flag. This window is
       // built minimizable:false + skipTaskbar:true, so a note that somehow got
-      // minimised has no taskbar button to bring it back and setSafeToFloat
-      // cannot show it either — it is invisible for good, across every restart,
+      // minimised has no taskbar button to bring it back and nothing else
+      // shows it either — it is invisible for good, across every restart,
       // with tasks still pinned. Older state files (and Linux WMs that
       // minimise regardless of the flag) can both carry one, so it is ignored
       // here and cleared on the next save.
@@ -601,14 +551,22 @@ export class StickyManager {
     w.setBackgroundColor(color);
   }
 
-  /** Push the current carousel page (the full visible set + which index is
-   *  shown) to the renderer. Sending the whole set rather than just the
-   *  index keeps main and renderer trivially in sync — no separate "here's
-   *  the array" vs "here's where you are" messages to keep ordered. */
+  /** Push a small sliding window around the current task. The manager keeps
+   *  the complete set for ordering/indexing; only this payload is bounded so
+   *  the renderer never mounts every task at once. */
   private pushCurrent(): void {
     const w = this.win;
     if (w && !w.isDestroyed()) {
-      w.webContents.send("sticky:tasks", { tasks: this.visible, index: this.currentIndex });
+      const windowSize = 5;
+      const start = Math.max(
+        0,
+        Math.min(this.currentIndex - 2, this.visible.length - windowSize),
+      );
+      const end = Math.min(this.visible.length, start + windowSize);
+      w.webContents.send("sticky:tasks", {
+        tasks: this.visible.slice(start, end),
+        index: this.currentIndex - start,
+      });
     }
   }
 

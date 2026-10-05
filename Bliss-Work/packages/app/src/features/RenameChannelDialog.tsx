@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Button, Input } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -27,6 +28,7 @@ export function RenameChannelDialog({
   channelId: string;
   currentName: string;
 }) {
+  const { t } = useTranslation("chatList");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [name, setName] = useState(currentName);
@@ -39,16 +41,16 @@ export function RenameChannelDialog({
     mutationFn: (next: string) => api.renameChannel(channelId, next),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.channels });
-      toast.success("Channel renamed");
+      toast.success(t("renameChannel.successToast"));
       onClose();
     },
-    onError: () => toast.error("Couldn't rename the channel"),
+    onError: () => toast.error(t("renameChannel.errorToast")),
   });
 
   const trimmed = name.trim();
 
   return (
-    <Modal open={open} onClose={onClose} title="Rename channel">
+    <Modal open={open} onClose={onClose} title={t("renameChannel.title")}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -64,15 +66,15 @@ export function RenameChannelDialog({
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Channel name"
+          placeholder={t("renameChannel.placeholder")}
           required
         />
         <div className="mt-1 flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="submit" loading={rename.isPending} disabled={!trimmed}>
-            {rename.isPending ? "Saving…" : "Save"}
+            {rename.isPending ? t("renameChannel.saving") : t("renameChannel.save")}
           </Button>
         </div>
       </form>

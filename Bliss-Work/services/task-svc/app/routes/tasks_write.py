@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 import httpx
 import uuid6
@@ -26,25 +27,31 @@ router = APIRouter()
 _CANDIDATE_LIMIT = 100
 
 
-async def _resolve_channel_members(channel_id: str, org_id: str) -> list[str]:
+async def _resolve_channel_members(channel_id: str, org_id: str, caller_id: str) -> list[str]:
     """Call messaging-svc's internal endpoint to fetch the channel's current
     member ids. Falls back to an empty list (caller decides what to do) on
     any transport / auth failure — the caller's HTTPException converts that
     into a 400 so the user gets a clean error instead of a half-created task.
 
-    The org_id from the caller's JWT is checked against the org_id the
-    channel belongs to so a cross-org attacker can't fan-out via a channel
-    they aren't in.
+    org_id and caller_id (the user creating the task) are passed so
+    messaging-svc can verify BOTH that the channel belongs to this org AND
+    that caller_id is actually a member of it — task-svc has no
+    channel_members table of its own to check that against, so this is the
+    only gate against an org member naming a private/locked channel they
+    never joined to fan a task out to its whole membership.
     """
     headers = {"X-Internal-Token": settings.messaging_internal_token}
     url = f"{settings.messaging_internal_base}/internal/channels/{channel_id}/members"
+    params = {"orgId": org_id, "callerId": caller_id}
     async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
         try:
-            resp = await client.get(url, headers=headers)
+            resp = await client.get(url, headers=headers, params=params)
         except httpx.HTTPError as exc:
             log.warning("channel_members_fetch_failed", channel_id=channel_id, error=str(exc))
             raise HTTPException(status_code=503, detail="messaging service unreachable") from exc
     if resp.status_code == 404:
+        # Same response whether the channel doesn't exist, belongs to another
+        # org, or caller_id isn't a member of it — see the endpoint's docstring.
         raise HTTPException(status_code=404, detail="channel not found")
     if resp.status_code != 200:
         log.warning(
@@ -55,9 +62,78 @@ async def _resolve_channel_members(channel_id: str, org_id: str) -> list[str]:
         raise HTTPException(status_code=502, detail="messaging service error")
     body = resp.json()
     if body.get("orgId") != org_id:
-        # Cross-org probe — pretend it doesn't exist.
+        # Defense in depth: messaging-svc already checked this server-side.
         raise HTTPException(status_code=404, detail="channel not found")
     return list(body.get("memberIds") or [])
+
+
+async def _resolve_recipients(
+    named_ids: list[str], channel_ids: list[str], org_id: str, caller_id: str
+) -> list[str]:
+    """Everyone a task goes to: the people named, then the current members of every
+    channel named — each person ONCE.
+
+    This is what makes "A, plus #Engineering (which A is in)" one recipient, not
+    two. Ids are compared as canonical UUIDs because the two sources spell them
+    differently (the request accepts any UUID casing, messaging-svc returns
+    lowercase), and task_assignees is keyed (task_id, assignee_id): a duplicate
+    would not just double-notify, it would fail the whole INSERT.
+    """
+    recipients = list(named_ids)
+    for channel_id in channel_ids:
+        recipients.extend(await _resolve_channel_members(channel_id, org_id, caller_id))
+    return list(dict.fromkeys(str(uuid.UUID(r)) for r in recipients))
+
+
+async def _insert_task_channels(
+    db: AsyncSession, *, org_id: str, task_id: str, channel_ids: list[str]
+) -> None:
+    """Record the channels a task is allocated to (one row each, one statement).
+    No-op for a people-only task. A repeated channel is ignored rather than raised:
+    the schedule worker calls this, and a raise there is retried forever."""
+    if not channel_ids:
+        return
+    params: dict[str, str] = {"tid": task_id, "org": org_id}
+    values: list[str] = []
+    for i, channel_id in enumerate(channel_ids):
+        values.append(f"(:tid, :org, :ch{i})")
+        params[f"ch{i}"] = channel_id
+    await db.execute(
+        text(
+            f"INSERT INTO task_channels (task_id, org_id, channel_id) VALUES {', '.join(values)} "
+            "ON CONFLICT (task_id, channel_id) DO NOTHING"
+        ),
+        params,
+    )
+
+
+async def _require_org_members(db: AsyncSession, org_id: str, user_ids: list[str]) -> None:
+    """Every assignee the CLIENT named must be an active member of the caller's org.
+
+    Without it a task can be pushed to a user id from another org: the assignee row
+    is stamped with the caller's org, so RLS is satisfied, and ws-gateway routes
+    task.assigned to the assignee by id alone. An id from another org, an id nobody
+    has and a deactivated member all get the same 400, so the endpoint cannot be
+    used to probe which ids exist.
+
+    Checked against user_projection (the same mirror the assignee picker and the
+    Available roster already rely on). Channel-derived assignees are not checked
+    here: messaging-svc has already resolved them within the org.
+    """
+    rows = await db.execute(
+        text(
+            "SELECT user_id FROM user_projection "
+            "WHERE org_id = :org AND active AND user_id = ANY(:ids)"
+        ),
+        {"org": org_id, "ids": user_ids},
+    )
+    members = {str(r.user_id) for r in rows}
+    # Compared as canonical UUIDs: the request schema accepts any UUID spelling.
+    if any(str(uuid.UUID(u)) not in members for u in user_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="every assignee must be an active member of your organisation",
+        )
 
 
 async def _insert_task_assignees(
@@ -127,6 +203,74 @@ async def _insert_task_assignees(
     )
 
 
+async def _insert_schedule(
+    db: AsyncSession,
+    *,
+    schedule_id: str,
+    org_id: str,
+    sender_id: str,
+    title_enc: bytes,
+    description_enc: bytes,
+    channel_ids: list[str],
+    assignee_ids: list[str],
+    body: CreateTaskRequest,
+) -> None:
+    recurrence = body.recurrence
+    start_at = body.scheduledFor if body.allocation == "SCHEDULED" else recurrence.startAt  # type: ignore[union-attr]
+    # A scheduled task carries one absolute deadline; a recurring series carries the
+    # RULE its occurrences' deadlines are resolved from (app/deadlines.py).
+    rule = recurrence.deadline if recurrence else None
+    await db.execute(
+        text(
+            "INSERT INTO task_schedules ("
+            "id, org_id, sender_id, title_enc, description_enc, channel_id, channel_ids, assignee_ids, "
+            "kind, scheduled_for, start_at, frequency, frequency_interval, weekdays, "
+            "monthly_rule, monthly_day, monthly_ordinal, monthly_weekday, end_condition, "
+            "end_at, occurrence_limit, next_run_at, "
+            "deadline_at, deadline_kind, deadline_amount, deadline_unit, deadline_time, deadline_tz"
+            ") VALUES ("
+            ":id, :org, :sender, :title, :description, :channel, CAST(:channels AS uuid[]), "
+            "CAST(:assignees AS uuid[]), "
+            ":kind, :scheduled, :start, :frequency, :interval, :weekdays, :monthly_rule, "
+            ":monthly_day, :monthly_ordinal, :monthly_weekday, :end_condition, :end_at, "
+            ":occurrence_limit, :next_run, "
+            ":deadline_at, :deadline_kind, :deadline_amount, :deadline_unit, :deadline_time, :deadline_tz"
+            ")"
+        ),
+        {
+            "id": schedule_id,
+            "org": org_id,
+            "sender": sender_id,
+            "title": title_enc,
+            "description": description_enc,
+            # channel_id is the legacy single-channel column (see 012): the first one.
+            "channel": channel_ids[0] if channel_ids else None,
+            "channels": channel_ids,
+            "assignees": assignee_ids,
+            "kind": body.allocation,
+            "scheduled": body.scheduledFor,
+            "start": start_at,
+            "frequency": recurrence.frequency if recurrence else None,
+            "interval": recurrence.interval if recurrence else None,
+            "weekdays": recurrence.weekdays if recurrence else [],
+            "monthly_rule": recurrence.monthlyRule if recurrence else None,
+            "monthly_day": recurrence.monthlyDay if recurrence else None,
+            "monthly_ordinal": recurrence.monthlyOrdinal if recurrence else None,
+            "monthly_weekday": recurrence.monthlyWeekday if recurrence else None,
+            "end_condition": recurrence.endCondition if recurrence else "NO_END",
+            "end_at": recurrence.endAt if recurrence else None,
+            "occurrence_limit": recurrence.occurrenceCount if recurrence else None,
+            "next_run": start_at,
+            "deadline_at": body.deadlineAt,
+            "deadline_kind": rule.kind if rule else None,
+            "deadline_amount": rule.amount if rule else None,
+            "deadline_unit": rule.unit if rule else None,
+            "deadline_time": rule.time_of_day() if rule and rule.kind == "FIXED_TIME" else None,
+            "deadline_tz": rule.timeZone if rule else None,
+        },
+    )
+
+
 @router.post("/tasks", response_model=CreateTaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
     body: CreateTaskRequest,
@@ -136,29 +280,30 @@ async def create_task(
     org_id = principal.org_id
     sender_id = principal.user_id
 
-    # Allocation surface: either explicit assignees OR a channelId. When a
-    # channelId is supplied, we resolve its current members server-side so
-    # the client can't lie about the recipient list AND so future joiners
-    # can be auto-fanned via the ChannelMemberJoined consumer (using the
-    # tasks.channel_id we persist below).
-    channel_id = body.channelId
-    if channel_id:
-        assignee_ids = [a for a in dict.fromkeys(await _resolve_channel_members(channel_id, org_id))]
-    else:
-        # Self-assignment is allowed here, same as it already is via channel
-        # mode above when the caller happens to be a member of the target
-        # channel: the Acknowledge/Ignore lifecycle (transitions.py) only ever
-        # looks up the real sender_id to stamp events with, it never assumes
-        # that id differs from the assignee, so a self-assigned task flows
-        # through unchanged.
-        assignee_ids = [a for a in dict.fromkeys(body.assigneeIds)]
+    # Allocation surface: explicit people, channels, or both — ONE task either way.
+    # Each channel's current members are resolved server-side so the client can't
+    # lie about the recipient list, and the channels stay attached to the task
+    # (task_channels) so future joiners can be auto-fanned via the
+    # ChannelMemberJoined consumer.
+    #
+    # Self-assignment is allowed, same as it is via a channel the caller is a
+    # member of: the Acknowledge/Ignore lifecycle (transitions.py) only ever looks
+    # up the real sender_id to stamp events with, it never assumes that id differs
+    # from the assignee, so a self-assigned task flows through unchanged.
+    named_ids = list(dict.fromkeys(str(uuid.UUID(a)) for a in body.assigneeIds))
+    channel_ids = body.target_channel_ids()
+    if not named_ids and not channel_ids:
+        raise HTTPException(status_code=400, detail="at least one assignee required")
+    assignee_ids = await _resolve_recipients(named_ids, channel_ids, org_id, sender_id)
     if not assignee_ids:
+        # Only channels, and they are all empty.
         raise HTTPException(status_code=400, detail="at least one assignee required")
     if len(assignee_ids) > MAX_ASSIGNEES:
-        # Channel mode is the realistic way to hit this — an explicit
-        # assigneeIds list this long is already rejected at the pydantic
-        # boundary (schemas.py). Fail clearly here rather than accepting a
-        # request whose insert transaction would only time out later.
+        # Channels are the realistic way to hit this — an explicit assigneeIds list
+        # this long is already rejected at the pydantic boundary (schemas.py), and
+        # the union of several channels is bounded by nothing else. Fail clearly
+        # here rather than accepting a request whose insert transaction would only
+        # time out later.
         raise HTTPException(
             status_code=400,
             detail=(
@@ -211,6 +356,14 @@ async def create_task(
 
         sender_username = await resolve_username(db, org_id, sender_id) or principal.username
 
+        # Only a task actually being created gets here (an idempotent replay has
+        # already returned), and it runs before encrypt() so a rejected request
+        # never creates the org's key.
+        # Only the people the CLIENT named are checked; channel members were
+        # resolved within the org by messaging-svc.
+        if named_ids:
+            await _require_org_members(db, org_id, named_ids)
+
         # Encrypt PII (title/description) at rest under the org's DEK. The DEK is
         # created lazily inside THIS write transaction on first use for the org.
         # The Kafka event below still carries plaintext (the relay + messaging
@@ -219,20 +372,43 @@ async def create_task(
         title_enc = await cryptor().encrypt(db, org_id, body.title)
         desc_enc = await cryptor().encrypt(db, org_id, body.description or "")
 
+        if body.allocation != "NOW":
+            # A deferred task stores the same assignment target, but does not
+            # create task_assignees or emit task.assigned until the worker sees
+            # next_run_at. The named people are stored as given; channel membership
+            # is resolved again at that point.
+            await _insert_schedule(
+                db,
+                schedule_id=task_id,
+                org_id=org_id,
+                sender_id=sender_id,
+                title_enc=title_enc,
+                description_enc=desc_enc,
+                channel_ids=channel_ids,
+                assignee_ids=named_ids,
+                body=body,
+            )
+            await db.commit()
+            log.info("task_schedule_created", schedule_id=task_id, kind=body.allocation)
+            return CreateTaskResponse(taskId=task_id, scheduleId=task_id)
+
         await db.execute(
             text(
-                "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id) "
-                "VALUES (:id, :org, :sender, :title_enc, :desc_enc, :ch)"
+                "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id, deadline_at) "
+                "VALUES (:id, :org, :sender, :title_enc, :desc_enc, :ch, :deadline)"
             ),
             {
+                "deadline": body.deadlineAt,
                 "id": task_id,
                 "org": org_id,
                 "sender": sender_id,
                 "title_enc": title_enc,
                 "desc_enc": desc_enc,
-                "ch": channel_id,
+                # Legacy single-channel column (see 012): the first channel.
+                "ch": channel_ids[0] if channel_ids else None,
             },
         )
+        await _insert_task_channels(db, org_id=org_id, task_id=task_id, channel_ids=channel_ids)
 
         await _insert_task_assignees(
             db,
@@ -250,7 +426,7 @@ async def create_task(
             "task_created",
             task_id=task_id,
             assignees=len(assignee_ids),
-            channel_id=channel_id,
+            channel_ids=channel_ids,
         )
         return CreateTaskResponse(taskId=task_id)
 

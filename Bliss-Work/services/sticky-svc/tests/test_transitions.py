@@ -16,6 +16,7 @@ from app.transitions import (
     COMPLETED,
     IGNORED,
     LEFT,
+    MISSED,
     OPEN,
     PinRow,
     plan_transition,
@@ -41,7 +42,7 @@ def test_acknowledging_does_NOT_close_the_pin():
 
 @pytest.mark.parametrize(
     ("event", "reason"),
-    [(COMPLETED, "COMPLETED"), (IGNORED, "IGNORED"), (LEFT, "LEFT")],
+    [(COMPLETED, "COMPLETED"), (IGNORED, "IGNORED"), (LEFT, "LEFT"), (MISSED, "MISSED")],
 )
 def test_only_a_terminal_status_closes_a_pin(event, reason):
     t = plan_transition(PinRow(OPEN, "ACKNOWLEDGED", 1), event, 2)
@@ -85,7 +86,7 @@ class TestRedeliveryIsSafe:
 class TestPinsAreNotInventedFromNothing:
     """A pin may only be created by an assignment we actually saw."""
 
-    @pytest.mark.parametrize("event", [ACKNOWLEDGED, COMPLETED, IGNORED, LEFT])
+    @pytest.mark.parametrize("event", [ACKNOWLEDGED, COMPLETED, IGNORED, LEFT, MISSED])
     def test_a_non_assignment_event_for_an_unknown_task_creates_nothing(self, event):
         # Otherwise a missed assignment plus a completion would put a note on
         # someone's desktop for a task they have already finished.
@@ -101,3 +102,46 @@ def test_reassignment_after_a_terminal_status_reopens_the_pin():
     assert t.status == OPEN
     assert t.assignee_status == "SENT"
     assert t.close_reason is None
+
+
+# ── User pin intent (pin_state) ───────────────────────────────────────────────
+# The second axis. A user's Pin / Unpin and the task lifecycle are separate:
+# these state the half of the promise `plan_transition` cannot.
+
+from app.transitions import (  # noqa: E402
+    CHANGED,
+    CLOSED_OUTCOME,
+    PINNED,
+    UNCHANGED,
+    UNPINNED,
+    plan_user_pin,
+)
+
+
+def test_unpinning_a_pinned_open_task_changes_it():
+    assert plan_user_pin(OPEN, PINNED, UNPINNED) == CHANGED
+
+
+def test_repinning_an_unpinned_open_task_changes_it():
+    # The whole point of replacing the permanent veto: Unpin is reversible.
+    assert plan_user_pin(OPEN, UNPINNED, PINNED) == CHANGED
+
+
+@pytest.mark.parametrize("state", [PINNED, UNPINNED])
+def test_asking_for_the_state_it_is_already_in_is_a_no_op(state):
+    # Idempotent: a retried request must not invert, and must not emit again.
+    assert plan_user_pin(OPEN, state, state) == UNCHANGED
+
+
+@pytest.mark.parametrize("want", [PINNED, UNPINNED])
+@pytest.mark.parametrize("state", [PINNED, UNPINNED])
+def test_a_user_cannot_change_a_closed_pin(state, want):
+    # A finished commitment belongs to the lifecycle, not to the user.
+    assert plan_user_pin(CLOSED, state, want) == CLOSED_OUTCOME
+
+
+def test_no_task_event_can_flip_the_users_choice():
+    # plan_transition has no notion of pin_state at all: whatever a lifecycle
+    # event plans, it can only ever say OPEN or CLOSED. This pins that contract
+    # so adding a pin_state to Transition is a deliberate, reviewed change.
+    assert not hasattr(plan_transition(None, ASSIGNED, 0), "pin_state")

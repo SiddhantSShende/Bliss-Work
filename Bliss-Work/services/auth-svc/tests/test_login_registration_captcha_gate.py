@@ -140,3 +140,90 @@ async def test_captcha_is_still_enforced_even_with_a_correct_password_shaped_bod
     with pytest.raises(HTTPException) as exc_info:
         await auth_routes.login(body, Response(), _bare_request())
     assert exc_info.value.status_code == 400
+
+
+# ── Platform policy: macOS/iOS are not challenged, everything else is ─────────
+# The declared platform can only ever REMOVE the challenge for the two exempt
+# tokens; every other value — including garbage — must land on the same 400 as
+# no platform at all. "Reaches the engine" (the AssertionError) is the proof
+# that the CAPTCHA gate let the request through.
+@pytest.mark.parametrize("platform", ["macos", "ios", "macOS", " iOS "])
+async def test_exempt_platform_login_needs_no_captcha(platform: str) -> None:
+    body = LoginRequest(
+        email="someone@example.com", password="whatever123!", clientPlatform=platform
+    )
+    with pytest.raises(AssertionError, match="engine.begin"):
+        await auth_routes.login(body, Response(), _bare_request())
+
+
+@pytest.mark.parametrize(
+    "platform",
+    ["windows", "linux", "android", "unknown", "", "darwin", "mac", "macos,windows", "web", None],
+)
+async def test_every_other_platform_login_still_requires_captcha(platform: str | None) -> None:
+    body = LoginRequest(
+        email="someone@example.com", password="whatever123!", clientPlatform=platform
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_routes.login(body, Response(), _bare_request())
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.parametrize("platform", ["windows", "linux", "android", "unknown"])
+async def test_captcha_required_platform_still_passes_with_a_valid_captcha(platform: str) -> None:
+    captcha_id = cs.service.new_uuid()
+    await cs._store.put(captcha_id, cs.service.sha256_bytes("AbCdEf12"), cs.settings.captcha_ttl_seconds)
+    body = LoginRequest(
+        email="someone@example.com",
+        password="whatever123!",
+        captchaId=captcha_id,
+        captchaValue="AbCdEf12",
+        clientPlatform=platform,
+    )
+    with pytest.raises(AssertionError, match="engine.begin"):
+        await auth_routes.login(body, Response(), _bare_request())
+
+
+async def test_exempt_platform_with_a_wrong_captcha_is_not_rejected() -> None:
+    """The exemption means the CAPTCHA is not looked at, so a stray value from
+    an exempt client is ignored rather than failing the login."""
+    body = LoginRequest(
+        email="someone@example.com",
+        password="whatever123!",
+        captchaId="does-not-exist",
+        captchaValue="nope",
+        clientPlatform="macos",
+    )
+    with pytest.raises(AssertionError, match="engine.begin"):
+        await auth_routes.login(body, Response(), _bare_request())
+
+
+@pytest.mark.parametrize("platform", ["macos", "ios"])
+async def test_registration_ignores_the_declared_platform(platform: str) -> None:
+    """/auth/orgs stays challenged for everyone: the field is not part of its
+    schema, so a client that adds it changes nothing."""
+    body = CreateOrgRequest.model_validate(
+        {
+            "orgName": "Acme",
+            "email": "new@example.com",
+            "password": "whatever123!",
+            "displayName": "New Admin",
+            "clientPlatform": platform,
+        }
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_routes.create_org(body, Response())
+    assert exc_info.value.status_code == 400
+
+
+async def test_clearing_the_exempt_list_puts_the_captcha_back_on_every_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cs.settings, "captcha_exempt_platforms", "")
+    for platform in ("macos", "ios"):
+        body = LoginRequest(
+            email="someone@example.com", password="whatever123!", clientPlatform=platform
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_routes.login(body, Response(), _bare_request())
+        assert exc_info.value.status_code == 400

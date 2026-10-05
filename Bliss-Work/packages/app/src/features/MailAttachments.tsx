@@ -4,6 +4,7 @@ import {
   X,
   Loader2,
   AlertCircle,
+  Download,
   ExternalLink,
   Eye,
   File as FileIcon,
@@ -12,11 +13,14 @@ import {
   ImageIcon,
 } from "lucide-react";
 import type { AttachmentDTO, MailAttachmentDTO } from "@taskboard/shared";
+import { useTranslation } from "react-i18next";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
+import { useMailAttachmentDownload } from "../lib/useMailAttachmentDownload";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { errorText } from "../lib/errorText";
-import { canPreviewDocInApp, MEDIA_MAX_BYTES, type MediaItem } from "../lib/chatEnvelope";
+import { openAttachmentNatively, rendersInApp } from "../lib/openAttachment";
+import { MEDIA_MAX_BYTES, type MediaItem } from "../lib/chatEnvelope";
 import { prettySize } from "../lib/fileOffer";
 import { Lightbox } from "./Lightbox";
 
@@ -55,6 +59,7 @@ export type MailAttachmentsState = ReturnType<typeof useMailAttachments>;
  *                file the sender does not know they are about to send.
  */
 export function useMailAttachments(mailId: string | undefined, initial?: MailAttachmentDTO[]) {
+  const { t } = useTranslation("mail");
   const { api } = useRuntime();
   const [files, setFiles] = useState<MailAttachment[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -117,7 +122,9 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
         // Kept in the tray as a failed row rather than removed: a file that
         // vanishes silently is one the user believes they attached.
         patch(key, { error: errorText(e) });
-        toast.error(`Could not attach ${file.name}`, { description: errorText(e) });
+        toast.error(t("attachments.couldNotAttachToast", { filename: file.name }), {
+          description: errorText(e),
+        });
         return;
       }
       controllers.current.delete(key);
@@ -145,7 +152,7 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
         // oversized file simply cannot be attached rather than starting an
         // upload the server will refuse.
         if (file.size > MEDIA_MAX_BYTES) {
-          toast.error(`${file.name} is larger than ${prettySize(MEDIA_MAX_BYTES)}.`);
+          toast.error(t("attachments.tooLargeToast", { filename: file.name, maxSize: prettySize(MEDIA_MAX_BYTES) }));
           continue;
         }
         void upload(file);
@@ -172,7 +179,7 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
         void api
           .removeDraftAttachment(mailId, removedId)
           .catch((e) => {
-            toast.error("Could not remove that file", { description: errorText(e) });
+            toast.error(t("attachments.couldNotRemoveToast"), { description: errorText(e) });
           })
           .finally(() => {
             setPendingRemovals((prev) => {
@@ -216,11 +223,12 @@ export function MailAttachmentTray({
   files,
   remove,
 }: Pick<MailAttachmentsState, "files" | "remove">) {
+  const { t } = useTranslation("mail");
   if (files.length === 0) return null;
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-[13px] font-medium text-fg/80">
-        Attachments ({files.length})
+        {t("attachments.heading", { count: files.length })}
       </span>
       <ul className="flex flex-col gap-1">
         {files.map((f) => (
@@ -238,13 +246,13 @@ export function MailAttachmentTray({
             <span className="min-w-0 flex-1">
               <span className="block truncate text-fg">{f.filename}</span>
               <span className={`block truncate ${f.error ? "text-danger" : "text-muted"}`}>
-                {f.error ?? (f.id ? formatBytes(f.sizeBytes) : `Uploading… ${f.progress}%`)}
+                {f.error ?? (f.id ? formatBytes(f.sizeBytes) : t("attachments.tray.uploading", { progress: f.progress }))}
               </span>
             </span>
             <button
               type="button"
               onClick={() => remove(f.key)}
-              aria-label={`Remove ${f.filename}`}
+              aria-label={t("attachments.tray.remove", { filename: f.filename })}
               className="shrink-0 rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-danger"
             >
               <X size={13} />
@@ -255,6 +263,10 @@ export function MailAttachmentTray({
     </div>
   );
 }
+
+/** Shared look of the Preview / Open / Download actions on a card. */
+const ACTION_CLASS =
+  "inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft";
 
 /** MailAttachmentDTO, reshaped for the same Lightbox chat attachments preview
  *  in — Lightbox only needs the fields it actually renders. */
@@ -287,39 +299,36 @@ function toMediaItem(a: MailAttachmentDTO): MediaItem {
  * file itself rather than on the system browser. Web has no such capability
  * and keeps the `target="_blank"` anchor exactly as before.
  */
-export function MailAttachmentCards({ attachments }: { attachments: MailAttachmentDTO[] }) {
+export function MailAttachmentCards({ mailId, attachments }: { mailId: string; attachments: MailAttachmentDTO[] }) {
+  const { t } = useTranslation("mail");
   const { config } = useRuntime();
   const ids = useMemo(() => attachments.map((a) => a.id), [attachments]);
   const links = useAttachmentLinks(ids);
+  const download = useMailAttachmentDownload(mailId);
   const [preview, setPreview] = useState<MailAttachmentDTO | null>(null);
   if (attachments.length === 0) return null;
 
-  const openNatively = async (filename: string, url: string) => {
-    const result = await config.openAttachment!(url, filename);
-    if (!result.ok) toast.error(`Could not open ${filename}`, { description: result.error });
-  };
+  const openNatively = (filename: string, url: string) => openAttachmentNatively(config, url, filename);
 
   return (
     <section className="mt-6 border-t border-border/60 pt-4">
       <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-fg/80">
-        <Paperclip size={14} /> Attachments ({attachments.length})
+        <Paperclip size={14} /> {t("attachments.heading", { count: attachments.length })}
       </h3>
       <ul className="grid gap-2 sm:grid-cols-2">
         {attachments.map((a) => {
           const url = links.urlFor(a.id);
           const { Icon, tone } = fileGlyph(a.mime, a.filename);
-          const previewable =
-            !!url &&
-            (canPreviewDocInApp(a.mime) || a.mime.startsWith("image/") || a.mime.startsWith("video/"));
+          const previewable = !!url && rendersInApp(a.mime);
           return (
             <li
               key={a.id}
-              className="flex items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-xs transition-colors hover:border-accent/40"
+              className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-xs transition-colors hover:border-accent/40"
             >
               <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone}`}>
                 <Icon size={17} />
               </span>
-              <span className="min-w-0 flex-1">
+              <span className="min-w-[7rem] flex-1">
                 <span className="block truncate font-medium text-fg">{a.filename}</span>
                 <span className="block truncate text-muted">{formatBytes(a.sizeBytes)}</span>
               </span>
@@ -327,40 +336,54 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                 <button
                   type="button"
                   onClick={() => setPreview(a)}
-                  title={`Preview ${a.filename}`}
-                  aria-label={`Preview ${a.filename}`}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
+                  title={t("attachments.previewFile", { filename: a.filename })}
+                  aria-label={t("attachments.previewFile", { filename: a.filename })}
+                  className={ACTION_CLASS}
                 >
-                  <Eye size={14} /> Preview
+                  <Eye size={14} /> {t("attachments.preview")}
                 </button>
               ) : url && config.openAttachment ? (
                 <button
                   type="button"
                   onClick={() => void openNatively(a.filename, url)}
-                  title={`Open ${a.filename}`}
-                  aria-label={`Open ${a.filename}`}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
+                  title={t("attachments.openFile", { filename: a.filename })}
+                  aria-label={t("attachments.openFile", { filename: a.filename })}
+                  className={ACTION_CLASS}
                 >
-                  <ExternalLink size={14} /> Open
+                  <ExternalLink size={14} /> {t("attachments.open")}
                 </button>
               ) : url ? (
                 <a
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={`Open ${a.filename}`}
-                  aria-label={`Open ${a.filename}`}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
+                  title={t("attachments.openFile", { filename: a.filename })}
+                  aria-label={t("attachments.openFile", { filename: a.filename })}
+                  className={ACTION_CLASS}
                 >
-                  <ExternalLink size={14} /> Open
+                  <ExternalLink size={14} /> {t("attachments.open")}
                 </a>
               ) : (
                 // Links are minted in one batched, short-lived request; a
                 // missing one means the mint is still in flight or access was
                 // denied, and neither is a broken download button.
                 <span className="shrink-0 text-muted">
-                  {links.isLoading ? "Preparing…" : "Unavailable"}
+                  {links.isLoading ? t("attachments.preparing") : t("attachments.unavailable")}
                 </span>
+              )}
+              {/* The one explicit download, for every type — images and other
+                  previewable files included. Separate from Preview/Open above,
+                  which never save and are never counted as downloads. */}
+              {url && (
+                <button
+                  type="button"
+                  onClick={() => download({ id: a.id, name: a.filename }, url)}
+                  title={t("attachments.downloadFile", { filename: a.filename })}
+                  aria-label={t("attachments.downloadFile", { filename: a.filename })}
+                  className={ACTION_CLASS}
+                >
+                  <Download size={14} /> {t("attachments.download")}
+                </button>
               )}
             </li>
           );

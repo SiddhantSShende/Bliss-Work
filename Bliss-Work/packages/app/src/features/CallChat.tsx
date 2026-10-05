@@ -20,6 +20,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Lock, Paperclip, Send } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Avatar, Button, cn } from "@taskboard/ui";
 import { EmojiPickerButton } from "./EmojiPicker";
 import { CHAT_TEXT_MAX, type ChatEntry } from "../lib/callChat";
@@ -42,6 +43,7 @@ export function CallChat({
   me: string;
   onSend: (text: string, to: string | null) => void;
 }) {
+  const { t } = useTranslation("calls");
   const [draft, setDraft] = useState("");
   const [to, setTo] = useState<string>(EVERYONE);
   const listRef = useRef<HTMLDivElement>(null);
@@ -84,15 +86,12 @@ export function CallChat({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <p className="shrink-0 border-b border-border/70 px-4 py-2 text-[11px] text-muted">
-        Messages here are visible to all meeting members — pick a name below to send one privately.
+        {t("chat.disclaimer")}
       </p>
 
       <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
         {chat.length === 0 ? (
-          <p className="pt-6 text-center text-xs text-muted">
-            No messages yet. Anything sent here lives for the length of the meeting — download
-            it from the header if you need to keep it.
-          </p>
+          <p className="pt-6 text-center text-xs text-muted">{t("chat.empty")}</p>
         ) : (
           chat.map((c) => <ChatBubble key={c.id} entry={c} mine={c.from === me} nameOf={nameOf} />)
         )}
@@ -100,19 +99,19 @@ export function CallChat({
 
       <div className="shrink-0 space-y-2 border-t border-border/70 p-3">
         <label className="flex items-center gap-2 text-[11px] text-muted">
-          <span className="shrink-0">To:</span>
+          <span className="shrink-0">{t("chat.toLabel")}</span>
           <select
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            aria-label="Who this message goes to"
+            aria-label={t("chat.toAriaLabel")}
             className={`min-w-0 flex-1 rounded-lg border bg-surface-2 px-2 py-1 text-xs outline-none focus:border-accent ${
               privateTo ? "border-warning/60 text-warning" : "border-border text-fg"
             }`}
           >
-            <option value={EVERYONE}>Everyone</option>
+            <option value={EVERYONE}>{t("chat.everyone")}</option>
             {others.map((p) => (
               <option key={p.identity} value={p.identity}>
-                {p.name} (private)
+                {t("chat.privateOption", { name: p.name })}
               </option>
             ))}
           </select>
@@ -124,8 +123,8 @@ export function CallChat({
           <button
             type="button"
             disabled
-            title="Attachments aren't supported in meeting chat"
-            aria-label="Attachments aren't supported in meeting chat"
+            title={t("chat.attachmentsUnsupported")}
+            aria-label={t("chat.attachmentsUnsupported")}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Paperclip size={18} />
@@ -153,8 +152,16 @@ export function CallChat({
             }}
             maxLength={CHAT_TEXT_MAX}
             rows={1}
-            placeholder={privateTo ? `Private message to ${privateTo}…` : "Message everyone…"}
-            aria-label={privateTo ? `Private message to ${privateTo}` : "Message everyone"}
+            placeholder={
+              privateTo
+                ? t("chat.privatePlaceholder", { name: privateTo })
+                : t("chat.everyonePlaceholder")
+            }
+            aria-label={
+              privateTo
+                ? t("chat.privateAriaLabel", { name: privateTo })
+                : t("chat.everyoneAriaLabel")
+            }
             className="max-h-[100px] min-h-[44px] min-w-0 flex-1 resize-none rounded-2xl border border-border bg-surface-2 px-3 py-2.5 text-sm text-fg outline-none placeholder:text-muted/70 focus:border-accent"
           />
           <Button
@@ -162,7 +169,7 @@ export function CallChat({
             className="h-11 w-11 shrink-0 rounded-full"
             onClick={submit}
             disabled={!draft.trim()}
-            title="Send"
+            title={t("chat.send")}
           >
             <Send size={16} />
           </Button>
@@ -171,7 +178,7 @@ export function CallChat({
         {privateTo && (
           <span className="inline-flex items-center gap-1 text-[11px] text-warning">
             <Lock size={10} />
-            Only {privateTo} will see this
+            {t("chat.onlyWillSee", { name: privateTo })}
           </span>
         )}
       </div>
@@ -195,10 +202,11 @@ function ChatBubble({
   mine: boolean;
   nameOf: (id: string) => string;
 }) {
+  const { t, i18n } = useTranslation("calls");
   const isPrivate = entry.to !== null;
   return (
     <div className={cn("flex items-end gap-2", mine && "flex-row-reverse")}>
-      <Avatar name={mine ? "You" : entry.fromName} size="sm" />
+      <Avatar name={mine ? t("chat.you") : entry.fromName} size="sm" />
       <div
         className={cn(
           "max-w-[75%] rounded-xl px-3 py-2",
@@ -211,10 +219,10 @@ function ChatBubble({
       >
         <div className="flex items-baseline justify-between gap-2 text-[11px] text-muted">
           <span className={cn("truncate font-medium", mine ? "text-fg" : "text-accent")}>
-            {mine ? "You" : entry.fromName}
+            {mine ? t("chat.you") : entry.fromName}
           </span>
           <span className="shrink-0 tabular-nums">
-            {new Date(entry.at).toLocaleTimeString(undefined, {
+            {new Date(entry.at).toLocaleTimeString(i18n.language, {
               hour: "numeric",
               minute: "2-digit",
             })}
@@ -226,7 +234,7 @@ function ChatBubble({
           // not see it before they reply to it in front of everyone.
           <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-warning">
             <Lock size={9} />
-            {mine ? `Private to ${nameOf(entry.to!)}` : "Private to you"}
+            {mine ? t("chat.privateToName", { name: nameOf(entry.to!) }) : t("chat.privateToYou")}
           </div>
         )}
         <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-fg">{entry.text}</p>

@@ -62,8 +62,8 @@ const api = {
   setToken: (token: string | null) => ipcRenderer.send("auth:token", token),
 
   /** Pin an acknowledged task to the desktop as a locked sticky note. Resolves
-   *  with the authoritative pinned set (+ refusal reason, e.g. the on-screen
-   *  cap was hit) so the renderer never optimistically lies about pin state. */
+   *  with the authoritative pinned set and any refusal reason so the renderer
+   *  never optimistically lies about pin state. */
   pinTask: (taskId: string): Promise<PinResult> => ipcRenderer.invoke("task:pin", taskId),
 
   /** Task ids currently pinned to the desktop (source of truth = main process
@@ -113,6 +113,16 @@ const api = {
     const handler = (_: unknown, token: string) => cb(token);
     ipcRenderer.on("deeplink:meeting", handler);
     return () => ipcRenderer.removeListener("deeplink:meeting", handler);
+  },
+
+  /** Emitted when the user clicks an OS notification: the in-app route that
+   *  notification leads to. Same channel name as main/notification-open.ts's
+   *  OPEN_ROUTE_CHANNEL (preload cannot import from main). The renderer
+   *  re-validates the path before navigating. */
+  onOpenRoute: (cb: (path: string) => void) => {
+    const handler = (_: unknown, path: string) => cb(path);
+    ipcRenderer.on("notification:open-route", handler);
+    return () => ipcRenderer.removeListener("notification:open-route", handler);
   },
 
   /** Open an https URL in the system browser. Used for OAuth: Google rejects
@@ -184,9 +194,10 @@ const api = {
    *  always false — main no longer records anything itself (see
    *  screenshot-guard.ts) — so the renderer reports every attempt itself
    *  through its own session beacon, which is what leaves the server-side
-   *  trace of a refused capture. */
-  onScreenshotBlocked: (cb: (info: { chord: string; recorded: boolean }) => void) => {
-    const handler = (_: unknown, info: { chord: string; recorded: boolean }) => cb(info);
+   *  trace of a refused capture. `route`, when present, comes from the window
+   *  that actually received the capture attempt. */
+  onScreenshotBlocked: (cb: (info: { chord: string; recorded: boolean; route?: string }) => void) => {
+    const handler = (_: unknown, info: { chord: string; recorded: boolean; route?: string }) => cb(info);
     ipcRenderer.on("security:screenshot-blocked", handler);
     return () => ipcRenderer.removeListener("security:screenshot-blocked", handler);
   },
@@ -273,6 +284,14 @@ const api = {
     getDesktopEnabled: (): Promise<boolean> => ipcRenderer.invoke("notifications:get-desktop-enabled"),
     setDesktopEnabled: (enabled: boolean): Promise<void> =>
       ipcRenderer.invoke("notifications:set-desktop-enabled", enabled),
+    showIncomingCall: (caller: string, media: "audio" | "video"): void =>
+      ipcRenderer.send("incoming-call:show", { caller, media }),
+    closeIncomingCall: (): void => ipcRenderer.send("incoming-call:close"),
+    onIncomingCallAction: (cb: (action: "accept" | "reject") => void): (() => void) => {
+      const handler = (_event: unknown, action: "accept" | "reject") => cb(action);
+      ipcRenderer.on("incoming-call:action", handler);
+      return () => ipcRenderer.removeListener("incoming-call:action", handler);
+    },
   },
 
   /** Phase 10 sender-side streaming sha256 — the renderer feeds file slices and

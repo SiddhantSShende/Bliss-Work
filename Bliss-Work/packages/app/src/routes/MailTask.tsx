@@ -2,11 +2,14 @@ import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ApiError, type NotificationDTO, type StickyTaskDTO, type TaskAction } from "@taskboard/shared";
+import { useTranslation } from "react-i18next";
+import { ApiError, type StickyTaskDTO, type TaskAction } from "@taskboard/shared";
 import { EmptyState } from "@taskboard/ui";
 import { ListTodo } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { decrementUnreadCount, refreshUnreadCount } from "../lib/unreadNotificationCount";
+import { flattenNotificationPages, markNotificationPagesRead } from "../lib/notificationPages";
 import { StickyWidget } from "../features/StickyWidget";
 
 /**
@@ -22,6 +25,7 @@ import { StickyWidget } from "../features/StickyWidget";
  * inbox / sticky.
  */
 export function MailTask() {
+  const { t } = useTranslation("mail");
   const { taskId } = useParams<{ taskId: string }>();
   const { api, config } = useRuntime();
   const qc = useQueryClient();
@@ -62,7 +66,7 @@ export function MailTask() {
       void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
     },
     onError: (err) =>
-      toast.error(err instanceof ApiError ? err.message : "Couldn't update that task"),
+      toast.error(err instanceof ApiError ? err.message : t("task.couldNotUpdateToast")),
   });
 
   // Mark the task "seen" the moment its detail view opens. Task inbox rows are
@@ -97,14 +101,15 @@ export function MailTask() {
     // opened and reviewed here. Opening IS reading it, for the bell — but only
     // for the bell. The floating note is a commitment, not a notification, and
     // is deliberately left alone (see above).
-    const unreadForTask = (qc.getQueryData<NotificationDTO[]>(qk.notifications) ?? []).filter(
+    const unreadForTask = flattenNotificationPages(qc.getQueryData(qk.notifications)).filter(
       (n) => n.taskId === taskId && !n.read,
     );
     if (unreadForTask.length > 0) {
-      qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
-        (prev ?? []).map((n) => (n.taskId === taskId ? { ...n, read: true } : n)),
+      const flipped = markNotificationPagesRead(qc, (n) => n.taskId === taskId);
+      decrementUnreadCount(qc, flipped);
+      void Promise.all(unreadForTask.map((n) => api.markNotificationRead(n.id).catch(() => {}))).then(() =>
+        refreshUnreadCount(qc),
       );
-      void Promise.all(unreadForTask.map((n) => api.markNotificationRead(n.id).catch(() => {})));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
@@ -113,32 +118,23 @@ export function MailTask() {
     // Still resolving the server fallback — don't flash "not found".
     if (fetching) {
       return (
-        <div className="flex h-full items-center justify-center text-muted">Loading…</div>
+        <div className="flex h-full items-center justify-center text-muted">{t("shared.loading")}</div>
       );
     }
     return (
       <div className="flex h-full items-center justify-center">
         <EmptyState
           icon={<ListTodo size={26} />}
-          title="Task not found"
-          hint="It may have been removed."
+          title={t("task.notFoundTitle")}
+          hint={t("task.notFoundHint")}
         />
       </div>
     );
   }
 
-  // Lock + chip track what actually floats: pinned AND still acknowledged.
+  // The lock tracks what actually floats: pinned AND still acknowledged.
+  // Pinning itself is automatic, so the card shows no pin control.
   const floatable = pinnedIds.includes(task.taskId) && task.myStatus === "ACKNOWLEDGED";
-  const pin = async () => {
-    try {
-      const res = await config.pinTask!(task.taskId);
-      qc.setQueryData<string[]>(qk.taskPins, () => res.pinned);
-      if (!res.ok && res.reason === "limit")
-        toast("Desktop is full — complete or unpin a note first (max 5 pinned).");
-    } catch {
-      void qc.invalidateQueries({ queryKey: qk.taskPins });
-    }
-  };
 
   return (
     <div className="flex h-full items-start justify-center overflow-auto p-6">
@@ -148,8 +144,6 @@ export function MailTask() {
           onAction={(a) => actMut.mutate(a)}
           busy={actMut.isPending}
           compact={false}
-          onPin={config.pinTask ? () => void pin() : undefined}
-          pinned={floatable}
           locked={floatable}
         />
       </div>

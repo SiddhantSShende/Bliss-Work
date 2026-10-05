@@ -1,5 +1,6 @@
 import { Outlet, useLocation, Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { isMeetingDetailPath } from "../lib/meetingView";
 
 /**
@@ -20,6 +21,7 @@ import { isMeetingDetailPath } from "../lib/meetingView";
  * default one — including any parameter added here later.
  */
 export function MeetingsLayout() {
+  const { t } = useTranslation("meetings");
   const loc = useLocation();
   const detailOpen = isMeetingDetailPath(loc.pathname);
 
@@ -30,7 +32,7 @@ export function MeetingsLayout() {
           to={{ pathname: "/app/meetings/all", search: loc.search }}
           className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-2 text-xs font-medium text-muted transition-colors hover:text-fg"
         >
-          <ChevronLeft size={15} /> Back to calendar
+          <ChevronLeft size={15} /> {t("layout.backToCalendar")}
         </Link>
       )}
       <div className="min-h-0 flex-1">

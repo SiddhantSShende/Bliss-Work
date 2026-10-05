@@ -19,6 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
   COMPLETED: 'Completed',
   IGNORED: 'Ignored',
   LEFT: 'Left',
+  MISSED: 'Missed — the deadline passed',
 };
 
 export function TaskDetailScreen({ route, navigation }: Props) {

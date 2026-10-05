@@ -24,6 +24,8 @@ const TASK_LIFECYCLE = [
   "task.completed",
   "task.ignored",
   "task.left",
+  // The deadline passed: terminal, so the note must come off the desktop.
+  "task.missed",
 ] as const;
 
 /**
@@ -33,7 +35,18 @@ const TASK_LIFECYCLE = [
  */
 const STICKY_REFRESH = "sticky.refresh";
 
-const REFRESH_ON: ReadonlySet<string> = new Set<string>([...TASK_LIFECYCLE, STICKY_REFRESH]);
+/**
+ * The user pinned or unpinned a task, on ANY of their devices (sticky-svc).
+ * This is how a pin made on the web reaches the desktop note and the other way
+ * round, so it re-reads the shared state rather than patching local state.
+ */
+const STICKY_PIN_CHANGED = "sticky.pin.changed";
+
+const REFRESH_ON: ReadonlySet<string> = new Set<string>([
+  ...TASK_LIFECYCLE,
+  STICKY_REFRESH,
+  STICKY_PIN_CHANGED,
+]);
 
 /**
  * Should this event trigger a re-fetch of /tasks/sticky?
@@ -43,4 +56,94 @@ const REFRESH_ON: ReadonlySet<string> = new Set<string>([...TASK_LIFECYCLE, STIC
  */
 export function shouldRefreshSticky(eventType: string): boolean {
   return REFRESH_ON.has(eventType);
+}
+
+/**
+ * Ordering guard for overlapping /tasks/sticky re-reads.
+ *
+ * Every lifecycle event starts its own fetch, so two can be in flight at once,
+ * and responses do not return in the order they were asked for. A slow older
+ * one landing AFTER a newer one would be applied on top of it — auto-pinning a
+ * task the newer list had just dropped (completed, ignored) and leaving its note
+ * on screen with nothing to take it down until the next event. `begin()` hands
+ * out a ticket; only the holder of the newest one may publish its result.
+ *
+ * "Only the newest" would throw away good data if the newest then never
+ * succeeds: an older refresh that DID succeed would be discarded for nothing,
+ * leaving the notes stale until the next event. So one that finishes after being
+ * superseded is kept as a spare, and published only if the newest gives up. It
+ * is never used once something newer has gone out — that would put back what the
+ * newer publication took down.
+ */
+export function createRefreshGate<T>() {
+  let latest = 0;
+  /** The newest ticket whose result went out. */
+  let published = 0;
+  let spare: { ticket: number; result: T } | undefined;
+  return {
+    begin: (): number => ++latest,
+    isCurrent: (ticket: number): boolean => ticket === latest,
+
+    /** A refresh succeeded. True: it is the newest — publish it. False: it was
+     *  superseded; it is kept as a spare unless something newer is already out. */
+    succeeded(ticket: number, result: T): boolean {
+      if (ticket === latest) {
+        published = ticket;
+        spare = undefined;
+        return true;
+      }
+      if (ticket > published && (!spare || ticket > spare.ticket)) spare = { ticket, result };
+      return false;
+    },
+
+    /** The newest refresh exhausted its retries. The spare to publish in its
+     *  place, if there is one. (A spare is always newer than `published`: every
+     *  publication and cancel() clears it.) */
+    gaveUp(ticket: number): T | undefined {
+      if (ticket !== latest || !spare) return undefined;
+      published = spare.ticket;
+      const { result } = spare;
+      spare = undefined;
+      return result;
+    },
+
+    /** Sign-out: nothing in flight for the user who left may be published or kept. */
+    cancel(): void {
+      published = ++latest;
+      spare = undefined;
+    },
+  };
+}
+
+
+/** The user's pin choice per task, as sticky-svc holds it. */
+export interface PinStates {
+  pinned: readonly string[];
+  unpinned: readonly string[];
+}
+
+/**
+ * Lay the user's in-flight pin/unpin requests over a server read.
+ *
+ * The server is the authority, but a read that started before the user's own
+ * request committed would still say the OLD thing — and applying it would flick
+ * the note back on screen for the instant before the request lands, then off
+ * again. Until a request settles, the user's intent wins for THAT task only; the
+ * moment it settles (success or failure) the entry is dropped and the next read
+ * is plain server truth again. Nothing here persists: it is a view of requests
+ * already on the wire, not a second record of the pin.
+ */
+export function overlayPendingPins(
+  read: PinStates,
+  pending: ReadonlyMap<string, "PINNED" | "UNPINNED">,
+): PinStates {
+  if (pending.size === 0) return read;
+  const pinned = new Set(read.pinned);
+  const unpinned = new Set(read.unpinned);
+  for (const [id, want] of pending) {
+    pinned.delete(id);
+    unpinned.delete(id);
+    (want === "PINNED" ? pinned : unpinned).add(id);
+  }
+  return { pinned: [...pinned], unpinned: [...unpinned] };
 }

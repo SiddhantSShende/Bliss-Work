@@ -10,36 +10,47 @@ const (
 	// TopicAuth is read for org.deleted only. Notifications carry task titles
 	// and message previews, so an erased workspace has to take them with it.
 	TopicAuth = "auth.events"
-	// TopicMessaging is read for channel.member.joined only — being added to a
-	// channel by someone else is a notification, and messaging-svc is the only
-	// service that knows it happened.
+	// TopicMessaging is read for channel.member.joined and message-created
+	// events, which notification-svc projects into persisted channel/DM alerts.
 	//
-	// This does mean the consumer group receives every chat message on the
-	// platform and discards almost all of it. That is the cost of the one event
-	// worth having, it is bounded by a `type` check before any database work,
-	// and task-svc already carries the same stream for the same event.
+	// This means the consumer group receives every chat message on the platform.
+	// Irrelevant event types are discarded by a type check before database work.
 	TopicMessaging = "messaging.events.v1"
 )
 
 // Event type discriminants.
 const (
-	TypeTaskAcknowledged    = "task.acknowledged"
-	TypeTaskCompleted       = "task.completed"
-	TypeTaskIgnored         = "task.ignored"
-	TypeTaskLeft            = "task.left"
-	TypeNotificationCreated = "notification.created"
-	TypeNotificationRead    = "notification.read"
-	TypeOrgDeleted          = "org.deleted"
-	TypeChannelMemberJoined = "channel.member.joined"
+	TypeTaskAssigned          = "task.assigned"
+	TypeTaskAcknowledged      = "task.acknowledged"
+	TypeTaskCompleted         = "task.completed"
+	TypeTaskIgnored           = "task.ignored"
+	TypeTaskLeft              = "task.left"
+	TypeTaskWithdrawn         = "task.withdrawn"
+	TypeNotificationCreated   = "notification.created"
+	TypeNotificationRead      = "notification.read"
+	TypeOrgDeleted            = "org.deleted"
+	TypeChannelMemberJoined   = "channel.member.joined"
+	TypeMessageCreated        = "message.created"
+	TypeChannelMessageCreated = "channel.message.created"
+	TypeCallScheduled         = "call.scheduled"
+	TypeCallRing              = "call.ring"
+	TypeCallParticipantAdded  = "call.participant_added"
 )
 
 // Notification kinds.
 const (
+	KindTaskAssigned     = "TASK_ASSIGNED"
 	KindTaskAcknowledged = "TASK_ACKNOWLEDGED"
 	KindTaskCompleted    = "TASK_COMPLETED"
 	KindTaskIgnored      = "TASK_IGNORED"
 	KindTaskLeft         = "TASK_LEFT"
+	KindTaskWithdrawn    = "TASK_WITHDRAWN"
 	KindChannelAdded     = "CHANNEL_ADDED"
+	KindChannelCreated   = "CHANNEL_CREATED"
+	KindDMMessage        = "DM_MESSAGE"
+	KindChannelMessage   = "CHANNEL_MESSAGE"
+	KindMeetingScheduled = "MEETING_SCHEDULED"
+	KindMeetingInvite    = "MEETING_INVITATION"
 )
 
 // TaskEvent is the shape consumed off task.events.v1. It is a superset that
@@ -55,6 +66,8 @@ type TaskEvent struct {
 	SenderID         string `json:"senderId"`
 	StatusVersion    int    `json:"statusVersion"`
 	AssigneeUsername string `json:"assigneeUsername"`
+	SenderUsername   string `json:"senderUsername"`
+	Title            string `json:"title"`
 }
 
 // ChannelMemberJoined is the shape consumed off messaging.events.v1.
@@ -66,14 +79,58 @@ type TaskEvent struct {
 // their own click is worse than one that is missing, and the ambiguity resolves
 // itself as soon as messaging-svc is deployed.
 type ChannelMemberJoined struct {
-	Type        string `json:"type"`
-	EventID     string `json:"eventId"`
-	OrgID       string `json:"orgId"`
-	OccurredAt  string `json:"occurredAt"`
-	ChannelID   string `json:"channelId"`
-	ChannelName string `json:"channelName"`
-	UserID      string `json:"userId"`
-	ActorID     string `json:"actorId"`
+	Type             string `json:"type"`
+	EventID          string `json:"eventId"`
+	OrgID            string `json:"orgId"`
+	OccurredAt       string `json:"occurredAt"`
+	ChannelID        string `json:"channelId"`
+	ChannelName      string `json:"channelName"`
+	UserID           string `json:"userId"`
+	ActorID          string `json:"actorId"`
+	ActorDisplayName string `json:"actorDisplayName"`
+}
+
+type MessageCreated struct {
+	Type              string `json:"type"`
+	EventID           string `json:"eventId"`
+	OrgID             string `json:"orgId"`
+	ConversationID    string `json:"conversationId"`
+	MessageID         string `json:"messageId"`
+	SenderID          string `json:"senderId"`
+	RecipientID       string `json:"recipientId"`
+	Body              string `json:"body"`
+	Kind              string `json:"kind,omitempty"`
+	Origin            string `json:"origin,omitempty"`
+	SenderDisplayName string `json:"senderDisplayName,omitempty"`
+	SenderUsername    string `json:"senderUsername,omitempty"`
+}
+
+type ChannelMessageCreated struct {
+	Type              string   `json:"type"`
+	EventID           string   `json:"eventId"`
+	OrgID             string   `json:"orgId"`
+	ChannelID         string   `json:"channelId"`
+	MessageID         string   `json:"messageId"`
+	SenderID          string   `json:"senderId"`
+	SenderUsername    string   `json:"senderUsername"`
+	SenderDisplayName string   `json:"senderDisplayName,omitempty"`
+	ChannelName       string   `json:"channelName,omitempty"`
+	Body              string   `json:"body"`
+	Kind              string   `json:"kind,omitempty"`
+	Members           []string `json:"members"`
+}
+
+type CallLifecycle struct {
+	Type        string   `json:"type"`
+	EventID     string   `json:"eventId"`
+	OrgID       string   `json:"orgId"`
+	OccurredAt  string   `json:"occurredAt"`
+	CallID      string   `json:"callId"`
+	Kind        string   `json:"kind"`
+	Title       string   `json:"title"`
+	ScheduledAt string   `json:"scheduledAt"`
+	ActorID     string   `json:"actorId"`
+	Members     []string `json:"members"`
 }
 
 // NotificationCreated is the event written to the outbox / produced to
@@ -88,6 +145,10 @@ type NotificationCreated struct {
 	Kind           string  `json:"kind"`
 	Text           string  `json:"text"`
 	TaskID         *string `json:"taskId,omitempty"`
+	ChannelID      *string `json:"channelId,omitempty"`
+	ConversationID *string `json:"conversationId,omitempty"`
+	MessageID      *string `json:"messageId,omitempty"`
+	CallID         *string `json:"callId,omitempty"`
 }
 
 // NotificationRead is emitted by the HTTP API after a notification (or the

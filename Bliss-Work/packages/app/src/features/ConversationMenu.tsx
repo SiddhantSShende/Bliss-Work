@@ -37,13 +37,9 @@ import {
   User,
   Users,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
-
-/** Said on the row itself, because a disabled row with no explanation reads as
- *  a bug. Matches the wording the channel rows have carried since they were
- *  first rendered inert. */
-const UNAVAILABLE_HINT = "Not available yet — needs a server endpoint";
 
 export interface ConversationMenuProps {
   /** Which surface this is. Decides the trigger's label and the profile row's
@@ -107,6 +103,11 @@ export function ConversationMenu({
   onDelete,
   className,
 }: ConversationMenuProps) {
+  const { t } = useTranslation("chatThread");
+  // Said on the row itself, because a disabled row with no explanation reads as
+  // a bug. Matches the wording the channel rows have carried since they were
+  // first rendered inert.
+  const unavailableHint = t("conversationMenu.unavailableHint");
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -126,7 +127,7 @@ export function ConversationMenu({
     run();
   };
 
-  const label = scope === "channel" ? "Channel options" : "Chat options";
+  const label = scope === "channel" ? t("conversationMenu.label.channel") : t("conversationMenu.label.chat");
 
   return (
     <div ref={wrap} className="relative">
@@ -170,24 +171,24 @@ export function ConversationMenu({
           >
             <Item
               icon={scope === "channel" ? <Users size={15} /> : <User size={15} />}
-              label="View Profile"
+              label={t("conversationMenu.items.viewProfile")}
               onClick={pick(onViewProfile)}
             />
-            <Item icon={<Search size={15} />} label="Search" onClick={pick(onSearch)} />
+            <Item icon={<Search size={15} />} label={t("conversationMenu.items.search")} onClick={pick(onSearch)} />
             <Item
               icon={<Images size={15} />}
-              label="Media, Links & Docs"
+              label={t("conversationMenu.items.media")}
               onClick={pick(onMedia)}
             />
             <Item
               icon={<ListChecks size={15} />}
-              label="Select Messages"
+              label={t("conversationMenu.items.selectMessages")}
               onClick={onSelectMessages ? pick(onSelectMessages) : undefined}
-              hint={onSelectMessages ? undefined : UNAVAILABLE_HINT}
+              hint={onSelectMessages ? undefined : unavailableHint}
             />
             <Item
               icon={muted ? <BellOff size={15} /> : <Bell size={15} />}
-              label={muted ? "Unmute Notifications" : "Mute Notifications"}
+              label={muted ? t("conversationMenu.items.unmute") : t("conversationMenu.items.mute")}
               onClick={pick(onToggleMute)}
             />
 
@@ -198,7 +199,7 @@ export function ConversationMenu({
                   className={cn("transition-transform", expanded && "rotate-180")}
                 />
               }
-              label="More"
+              label={t("conversationMenu.items.more")}
               expanded={expanded}
               onClick={() => setExpanded((v) => !v)}
             />
@@ -208,19 +209,27 @@ export function ConversationMenu({
               <div className="ml-3.5 border-l border-border pl-1">
                 <Item
                   icon={<Eraser size={15} />}
-                  label="Clear Chat"
+                  label={t("conversationMenu.items.clearChat")}
                   onClick={onClearChat ? pick(onClearChat) : undefined}
-                  hint={onClearChat ? undefined : UNAVAILABLE_HINT}
+                  hint={onClearChat ? undefined : unavailableHint}
                   danger
                 />
                 <Item
                   icon={<Download size={15} />}
-                  label="Export Chat"
+                  label={t("conversationMenu.items.exportChat")}
                   onClick={pick(onExport)}
                 />
                 <Item
                   icon={<Pin size={15} />}
-                  label={shortcut ? `Unpin ${scope === "channel" ? "Channel" : "Chat"}` : `Pin ${scope === "channel" ? "Channel" : "Chat"}`}
+                  label={
+                    shortcut
+                      ? t("conversationMenu.items.unpin", {
+                          scope: t(scope === "channel" ? "conversationMenu.scope.channel" : "conversationMenu.scope.chat"),
+                        })
+                      : t("conversationMenu.items.pin", {
+                          scope: t(scope === "channel" ? "conversationMenu.scope.channel" : "conversationMenu.scope.chat"),
+                        })
+                  }
                   onClick={pick(onToggleShortcut)}
                 />
               </div>
@@ -231,20 +240,20 @@ export function ConversationMenu({
                 <div className="my-1 h-px bg-border" role="separator" />
                 <Item
                   icon={<Pencil size={15} />}
-                  label="Rename"
+                  label={t("conversationMenu.items.rename")}
                   onClick={onRename ? pick(onRename) : undefined}
-                  hint={onRename ? undefined : UNAVAILABLE_HINT}
+                  hint={onRename ? undefined : unavailableHint}
                 />
                 <Item
                   icon={<Trash2 size={15} />}
-                  label="Delete"
+                  label={t("conversationMenu.items.delete")}
                   onClick={onDelete ? pick(onDelete) : undefined}
-                  hint={onDelete ? undefined : UNAVAILABLE_HINT}
+                  hint={onDelete ? undefined : unavailableHint}
                   danger
                 />
                 <Item
                   icon={<LogOut size={15} />}
-                  label={leaving ? "Leaving…" : "Leave"}
+                  label={leaving ? t("conversationMenu.items.leaving") : t("conversationMenu.items.leave")}
                   onClick={leaving ? undefined : pick(onLeave)}
                   danger
                 />

@@ -17,10 +17,14 @@ import (
 // task event type discriminants (mirrors packages/shared/src/types/events.ts).
 const (
 	typeTaskAssigned     = "task.assigned"
+	typeTaskWithdrawn    = "task.withdrawn"
 	typeTaskAcknowledged = "task.acknowledged"
 	typeTaskCompleted    = "task.completed"
 	typeTaskIgnored      = "task.ignored"
 	typeTaskLeft         = "task.left"
+	// task-svc's deadline sweeper: the deadline passed before the assignment was
+	// completed. Shown on the inbox row as a MISSED badge.
+	typeTaskMissed = "task.missed"
 	// Internal-only (see packages/shared/src/types/events.ts's TaskDeleted):
 	// an admin hard-deleted the task via task-svc's internal by-title endpoint.
 	typeTaskDeleted = "task.deleted"
@@ -62,7 +66,8 @@ func NewTaskProjectionConsumer(st *store.Store, brokers []string, log *slog.Logg
 // FetchMessage + an explicit CommitMessages after a SUCCESSFUL handle — see
 // consumer.go's Run for why: ReadMessage commits before returning whenever
 // the reader belongs to a consumer group, which could commit an offset before
-// the message behind it was ever actually applied.
+// the message behind it was ever actually applied. A failed message is retried
+// in place (handleWithRetry) so a later commit cannot carry the offset past it.
 func (c *TaskProjectionConsumer) Run(ctx context.Context) {
 	defer c.r.Close()
 	for {
@@ -83,11 +88,10 @@ func (c *TaskProjectionConsumer) Run(ctx context.Context) {
 			}
 			continue
 		}
-		msgCtx, span := startConsumeSpan(ctx, m)
-		ok := c.handleSafely(msgCtx, m.Value)
-		span.End()
-		if !ok {
-			continue
+		if !handleWithRetry(ctx, c.log, "task projector", m, func(msgCtx context.Context) bool {
+			return c.handleSafely(msgCtx, m.Value)
+		}) {
+			return // shutting down mid-retry: left uncommitted, so a restart redelivers it
 		}
 		if err := c.r.CommitMessages(ctx, m); err != nil {
 			c.log.Error("task projector commit failed", "err", err)
@@ -134,7 +138,7 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 		return true
 	}
 	switch evt.Type {
-	case typeTaskAssigned, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft, typeTaskDeleted:
+	case typeTaskAssigned, typeTaskWithdrawn, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft, typeTaskMissed, typeTaskDeleted:
 		// supported
 	default:
 		return true
@@ -166,12 +170,16 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 			ctx, evt.OrgID, evt.AssigneeID, evt.TaskID, evt.SenderID,
 			evt.Title, evt.Description, occurred,
 		)
+	case typeTaskWithdrawn:
+		werr = c.store.DeleteTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred)
 	case typeTaskAcknowledged:
 		werr = c.updateBadge(ctx, evt, occurred, "ACKNOWLEDGED")
 	case typeTaskCompleted:
 		werr = c.updateBadge(ctx, evt, occurred, "COMPLETED")
 	case typeTaskLeft:
 		werr = c.updateBadge(ctx, evt, occurred, "LEFT")
+	case typeTaskMissed:
+		werr = c.updateBadge(ctx, evt, occurred, "MISSED")
 	case typeTaskIgnored:
 		werr = c.store.HideTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred)
 	case typeTaskDeleted:

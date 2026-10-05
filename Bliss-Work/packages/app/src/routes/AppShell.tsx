@@ -3,11 +3,13 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { MailWarning, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk, WsEventBridge } from "../lib/queryBridge";
 import { listSectionOf, railSectionOf } from "../lib/section";
 import { useSelectedChat } from "../lib/selectedChat";
+import { useSyncUnreadCounts } from "../lib/useSyncUnreadCounts";
 import { TelemetryBridge } from "../lib/telemetry";
 import { CallProvider } from "../lib/useCall";
 import { CallUI } from "../features/CallUI";
@@ -20,6 +22,8 @@ import { TasksList } from "./TasksList";
 import { ChannelsList } from "./ChannelsList";
 import { MembersList } from "./MembersList";
 import { MailFolders } from "./MailFolders";
+import { mergeNotificationFeeds } from "../lib/notificationPages";
+import { useNotificationPages } from "../lib/useCursorPagination";
 
 export function AppShell() {
   const { api } = useRuntime();
@@ -48,6 +52,7 @@ export function AppShell() {
     queryKey: qk.unreadCounts,
     queryFn: () => api.unreadCounts(),
   });
+  useSyncUnreadCounts();
   const { data: notifUnread } = useQuery({
     queryKey: qk.notificationsUnreadCount,
     queryFn: () => api.notificationsUnreadCount(),
@@ -56,11 +61,12 @@ export function AppShell() {
 
   // The bell's own list — unlike the badge count above, this genuinely only
   // needs to exist once the panel is actually opened.
-  const { data: notifications = [] } = useQuery({
-    queryKey: qk.notifications,
-    queryFn: () => api.notifications(),
-    enabled: notifOpen,
-  });
+  // Two server-filtered feeds: unread (the default view) and read ("View read").
+  // Both load on open so the unread view is complete without browsing read pages,
+  // and the read count is known.
+  const unreadPages = useNotificationPages(api, notifOpen, false);
+  const readPages = useNotificationPages(api, notifOpen, true);
+  const notifications = mergeNotificationFeeds(unreadPages.data, readPages.data);
 
   const railBadges: Record<string, number> = {
     mail: unreadCounts?.inboxPeers ?? 0,
@@ -147,6 +153,18 @@ export function AppShell() {
         open={notifOpen}
         onClose={() => setNotifOpen(false)}
         notifications={notifications}
+        unreadFeed={{
+          loading: unreadPages.isPending,
+          hasNextPage: unreadPages.hasNextPage,
+          isFetchingNextPage: unreadPages.isFetchingNextPage,
+          loadMore: () => void unreadPages.fetchNextPage(),
+        }}
+        readFeed={{
+          loading: readPages.isPending,
+          hasNextPage: readPages.hasNextPage,
+          isFetchingNextPage: readPages.isFetchingNextPage,
+          loadMore: () => void readPages.fetchNextPage(),
+        }}
       />
       <MobileNavDrawer
         open={drawerOpen}
@@ -166,6 +184,7 @@ export function AppShell() {
  * Dismissible for the session; "Resend" re-issues the link.
  */
 function VerifyEmailBanner() {
+  const { t } = useTranslation(["appShell", "common"]);
   const user = useSession((s) => s.user);
   const { api } = useRuntime();
   const [dismissed, setDismissed] = useState(false);
@@ -176,25 +195,25 @@ function VerifyEmailBanner() {
   const resend = async () => {
     setSent(true);
     await api.resendVerification().catch(() => {});
-    toast.success("Verification email sent — check your inbox.");
+    toast.success(t("appShell:verifyEmail.resentToast"));
   };
 
   return (
     <div className="flex items-center justify-center gap-3 border-b border-warning/30 bg-warning/15 px-4 py-2 text-center text-[13px] text-fg">
       <MailWarning size={15} className="shrink-0 text-warning" aria-hidden />
-      <span>Verify your email address to fully secure your account.</span>
+      <span>{t("appShell:verifyEmail.message")}</span>
       <button
         onClick={resend}
         disabled={sent}
         className="font-semibold text-accent hover:underline disabled:opacity-60"
       >
-        {sent ? "Sent ✓" : "Resend email"}
+        {sent ? t("appShell:verifyEmail.resendSent") : t("appShell:verifyEmail.resend")}
       </button>
       <button
         onClick={() => setDismissed(true)}
         className="ml-1 text-muted hover:text-fg"
-        aria-label="Dismiss"
-        title="Dismiss"
+        aria-label={t("common:buttons.dismiss")}
+        title={t("common:buttons.dismiss")}
       >
         ✕
       </button>
@@ -208,6 +227,7 @@ function VerifyEmailBanner() {
  *  blocks them into enrollment instead (see mfa_service.mfa_gate), so this
  *  banner is only ever seen during the warning window. */
 function MfaRequiredBanner() {
+  const { t, i18n } = useTranslation(["appShell", "common"]);
   const user = useSession((s) => s.user);
   const nav = useNavigate();
   const [dismissed, setDismissed] = useState(false);
@@ -221,8 +241,10 @@ function MfaRequiredBanner() {
   )
     return null;
 
+  // Follows the in-app selected locale (i18n.language) rather than the
+  // browser's own locale, so this reads consistently with the rest of the UI.
   const deadline = user.orgMfaGracePeriodEndsAt
-    ? new Date(user.orgMfaGracePeriodEndsAt).toLocaleDateString(undefined, {
+    ? new Date(user.orgMfaGracePeriodEndsAt).toLocaleDateString(i18n.language, {
         month: "long",
         day: "numeric",
       })
@@ -232,20 +254,21 @@ function MfaRequiredBanner() {
     <div className="flex items-center justify-center gap-3 border-b border-warning/30 bg-warning/15 px-4 py-2 text-center text-[13px] text-fg">
       <ShieldAlert size={15} className="shrink-0 text-warning" aria-hidden />
       <span>
-        Your workspace requires two-factor authentication for admins
-        {deadline ? ` — enable it by ${deadline}` : ""}.
+        {deadline
+          ? t("appShell:mfaRequired.messageWithDeadline", { deadline })
+          : t("appShell:mfaRequired.messageNoDeadline")}
       </span>
       <button
         onClick={() => nav("/app/settings/security")}
         className="font-semibold text-accent hover:underline"
       >
-        Enable now
+        {t("appShell:mfaRequired.enableNow")}
       </button>
       <button
         onClick={() => setDismissed(true)}
         className="ml-1 text-muted hover:text-fg"
-        aria-label="Dismiss"
-        title="Dismiss"
+        aria-label={t("common:buttons.dismiss")}
+        title={t("common:buttons.dismiss")}
       >
         ✕
       </button>

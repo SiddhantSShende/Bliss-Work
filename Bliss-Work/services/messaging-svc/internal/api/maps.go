@@ -87,8 +87,8 @@ func (s *Server) staticMap(w http.ResponseWriter, r *http.Request) {
 	latS := strconv.FormatFloat(lat, 'f', 5, 64)
 	lngS := strconv.FormatFloat(lng, 'f', 5, 64)
 
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%dx%d|%s|%s",
-		s.mapsCfg.Provider, zoom, staticMapWidth, staticMapHeight, latS, lngS)))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s|%d|%dx%d|%s|%s",
+		s.mapsCfg.Provider, zoom, staticMapWidth, staticMapHeight, latS, lngS))
 	key := hex.EncodeToString(sum[:])
 
 	if f, err := s.blobs.CacheGet("maps", key); err == nil {
@@ -135,7 +135,11 @@ func (s *Server) fetchStaticMap(ctx context.Context, key, lat, lng string, zoom 
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		// See geocode.go's stripRequestURL: http.Client wraps a transport
+		// failure in a *url.Error whose Error() string embeds the full
+		// request URL, including this server's apiKey= — and staticMap logs
+		// this error.
+		return fmt.Errorf("map provider request failed: %w", stripRequestURL(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

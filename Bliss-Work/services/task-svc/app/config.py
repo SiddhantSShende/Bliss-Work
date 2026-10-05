@@ -89,6 +89,11 @@ class Settings(BaseSettings):
             problems.append("DATA_BLIND_INDEX_KEY is still the dev default")
         if "taskboard_dev_pw" in self.task_database_url:
             problems.append("TASK_DATABASE_URL still uses the dev password")
+        if urlsplit(self.task_database_url).username == "taskboard":
+            problems.append(
+                "TASK_DATABASE_URL must not use the taskboard superuser role "
+                "— use the least-privileged task_user role (superuser bypasses Row-Level Security)"
+            )
         if "sslmode=verify-full" not in self.task_database_url:
             problems.append("TASK_DATABASE_URL must use sslmode=verify-full in production")
         if not self.internal_token:

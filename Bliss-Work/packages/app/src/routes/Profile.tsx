@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Camera, Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Avatar, Button, Input, PageHeader } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -25,6 +26,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 export function Profile() {
+  const { t } = useTranslation("account");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const goBack = useGoBack();
@@ -41,10 +43,10 @@ export function Profile() {
     onSuccess: (updated) => {
       setUser(updated);
       setName(updated.displayName);
-      toast.success("Profile updated");
+      toast.success(t("account:profile.toasts.profileUpdated"));
       qc.invalidateQueries({ queryKey: qk.directory });
     },
-    onError: (e) => toast.error("Could not update profile", { description: String(e) }),
+    onError: (e) => toast.error(t("account:profile.toasts.updateFailed"), { description: String(e) }),
   });
 
   // Same shape as `save` above — its own mutation because it fires the
@@ -54,10 +56,10 @@ export function Profile() {
     mutationFn: (avatarUrl: string) => api.updateProfile({ avatarUrl }),
     onSuccess: (updated) => {
       setUser(updated);
-      toast.success("Profile photo updated");
+      toast.success(t("account:profile.toasts.photoUpdated"));
       qc.invalidateQueries({ queryKey: qk.directory });
     },
-    onError: (e) => toast.error("Could not update your photo", { description: String(e) }),
+    onError: (e) => toast.error(t("account:profile.toasts.photoUpdateFailed"), { description: String(e) }),
   });
 
   const onPhotoSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,7 +68,9 @@ export function Profile() {
     event.target.value = "";
     if (!file) return;
     if (!ACCEPTED_PHOTO_TYPES.includes(file.type)) {
-      toast.error("Unsupported file type", { description: "Please choose a JPG, PNG, or WebP image." });
+      toast.error(t("account:profile.toasts.unsupportedFileType.title"), {
+        description: t("account:profile.toasts.unsupportedFileType.description"),
+      });
       return;
     }
     // Resizes client-side (packages/app/src/lib/thumbnail.ts — the same
@@ -74,7 +78,9 @@ export function Profile() {
     // upload is a small, uniform image rather than a multi-MB phone photo.
     const { thumb } = await makeThumbnail(file);
     if (!thumb) {
-      toast.error("Couldn't process that image", { description: "Please try a different photo." });
+      toast.error(t("account:profile.toasts.processFailed.title"), {
+        description: t("account:profile.toasts.processFailed.description"),
+      });
       return;
     }
     uploadPhoto.mutate(await blobToDataUrl(thumb.blob));
@@ -82,7 +88,11 @@ export function Profile() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="My Profile" subtitle="Manage how you appear to your team." onBack={goBack} />
+      <PageHeader
+        title={t("account:profile.header.title")}
+        subtitle={t("account:profile.header.subtitle")}
+        onBack={goBack}
+      />
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-xl space-y-6">
           <div className="glass flex items-center gap-4 rounded-2xl p-5">
@@ -92,8 +102,10 @@ export function Profile() {
                 type="button"
                 onClick={() => photoInputRef.current?.click()}
                 disabled={uploadPhoto.isPending}
-                title={user.avatarUrl ? "Change photo" : "Add photo"}
-                aria-label={user.avatarUrl ? "Change profile photo" : "Add profile photo"}
+                title={user.avatarUrl ? t("account:profile.photo.changePhoto") : t("account:profile.photo.addPhoto")}
+                aria-label={
+                  user.avatarUrl ? t("account:profile.photo.changePhotoAria") : t("account:profile.photo.addPhotoAria")
+                }
                 className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-accent-fg shadow-soft ring-2 ring-surface transition hover:brightness-105 disabled:pointer-events-none disabled:opacity-60"
               >
                 {uploadPhoto.isPending ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
@@ -120,17 +132,22 @@ export function Profile() {
             }}
             className="glass space-y-4 rounded-2xl p-5"
           >
-            <Field label="Display name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" maxLength={80} />
+            <Field label={t("account:profile.form.displayNameLabel")}>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t("account:profile.form.displayNamePlaceholder")}
+                maxLength={80}
+              />
             </Field>
-            <ReadOnly label="Email" value={user.email} />
-            <ReadOnly label="Username" value={`@${user.username}`} />
+            <ReadOnly label={t("account:profile.form.emailLabel")} value={user.email} />
+            <ReadOnly label={t("account:profile.form.usernameLabel")} value={`@${user.username}`} />
             <div className="flex justify-end gap-2 pt-1">
               <Button type="button" variant="ghost" onClick={() => setName(user.displayName)} disabled={!dirty}>
-                Cancel
+                {t("account:profile.form.cancel")}
               </Button>
               <Button type="submit" loading={save.isPending} disabled={!dirty}>
-                Save changes
+                {t("account:profile.form.saveChanges")}
               </Button>
             </div>
           </form>

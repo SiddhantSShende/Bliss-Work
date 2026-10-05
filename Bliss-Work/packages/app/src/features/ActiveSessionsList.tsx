@@ -1,4 +1,5 @@
 import { Laptop } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Badge, Button } from "@taskboard/ui";
 import type { ActiveSessionDTO } from "@taskboard/shared";
 import { relativeTime } from "../lib/relativeTime";
@@ -31,6 +32,7 @@ export function ActiveSessionsList({
    *  admin's own session. */
   currentSessionId?: string | null;
 }) {
+  const { t } = useTranslation("account");
   return (
     <div className="space-y-1">
       {sessions.map((s) => {
@@ -41,14 +43,20 @@ export function ActiveSessionsList({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium text-fg">{s.device}</span>
-                {isCurrent && <Badge tone="success">This device</Badge>}
+                {isCurrent && <Badge tone="success">{t("account:activeSessionsList.thisDevice")}</Badge>}
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
-                <span title={s.lastSeenAt}>Active {relativeTime(s.lastSeenAt)}</span>
-                <span title={s.createdAt}>Signed in {relativeTime(s.createdAt)}</span>
+                <span title={s.lastSeenAt}>
+                  {t("account:activeSessionsList.active", { time: relativeTime(s.lastSeenAt) })}
+                </span>
+                <span title={s.createdAt}>
+                  {t("account:activeSessionsList.signedIn", { time: relativeTime(s.createdAt) })}
+                </span>
                 {/* A /24 or /48 prefix, never the full address — see
                     ActiveSessionDTO's doc comment in packages/shared. */}
-                {s.approxLocation && <span title="Approximate network">{s.approxLocation}</span>}
+                {s.approxLocation && (
+                  <span title={t("account:activeSessionsList.approximateNetwork")}>{s.approxLocation}</span>
+                )}
               </div>
             </div>
             <Button
@@ -58,7 +66,7 @@ export function ActiveSessionsList({
               disabled={revokingId !== null && revokingId !== s.id}
               onClick={() => onRevoke(s)}
             >
-              Sign out
+              {t("account:activeSessionsList.signOut")}
             </Button>
           </div>
         );

@@ -58,8 +58,13 @@ type hydrateReq struct {
 // since it must be preserved verbatim for the client's existing eventId
 // dedup (see docs/REDIS-REPLAY-RECORD-OPTIMIZATION.md section H).
 type wireMessageCreated struct {
-	Type            string `json:"type"`
-	EventID         string `json:"eventId"`
+	Type    string `json:"type"`
+	EventID string `json:"eventId"`
+	// OrgID and ClientMsgID are REQUIRED by the client's ServerEvent schema
+	// (the envelope's orgId, and MessageCreated's clientMsgId): a frame missing
+	// either fails validation and is dropped, so this replay entry would vanish.
+	OrgID           string `json:"orgId"`
+	ClientMsgID     string `json:"clientMsgId"`
 	ConversationID  string `json:"conversationId"`
 	MessageID       string `json:"messageId"`
 	ThreadID        string `json:"threadId,omitempty"`

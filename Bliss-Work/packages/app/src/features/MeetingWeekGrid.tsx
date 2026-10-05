@@ -14,6 +14,7 @@
  * cancelled ones the muted one, which are states rather than branding — the
  * same rule the meeting badges already follow.
  */
+import { useTranslation } from "react-i18next";
 import type { CallDTO } from "@taskboard/shared";
 import { Phone, Video } from "lucide-react";
 import { timeLabel } from "../lib/meetingTime";
@@ -32,6 +33,12 @@ import {
  *  stretching the page, so this is a real height and not a fraction. */
 const HOUR_HEIGHT_REM = 3.5;
 
+/** Hour labels are 1rem tall and centred on the line they name, so a label sits
+ *  this far above its line. The label for the window's END line (12 AM after
+ *  11 PM) has no row of its own, so the scroll body gets this much tail below
+ *  that line — enough to show the label, not an extra hour. */
+const LABEL_LIFT_REM = 0.5;
+
 export function MeetingWeekGrid({
   days,
   calls,
@@ -47,6 +54,7 @@ export function MeetingWeekGrid({
   onOpen: (call: CallDTO) => void;
   nameOf: (id: string) => string;
 }) {
+  const { i18n } = useTranslation("meetings");
   const hours = hourRows(win);
   const bodyHeight = `${hours.length * HOUR_HEIGHT_REM}rem`;
 
@@ -65,8 +73,8 @@ export function MeetingWeekGrid({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex" style={{ height: bodyHeight }}>
-            <div className="w-14 shrink-0">
-              {hours.map((h) => (
+            <div className="relative w-14 shrink-0">
+              {hours.map((h, index) => (
                 <div
                   key={h}
                   className="relative border-b border-transparent"
@@ -74,12 +82,27 @@ export function MeetingWeekGrid({
                 >
                   {/* Lifted onto the line it labels rather than sitting inside
                       the hour below it, which is what makes a block starting at
-                      10:00 line up with the "10 AM" it is next to. */}
-                  <span className="absolute -top-2 right-2 text-[11px] font-medium text-muted">
-                    {hourLabel(h)}
+                      10:00 line up with the "10 AM" it is next to. The very
+                      first row has no row above it to lift into — scrolled to
+                      the top, that negative offset pushes the label above the
+                      scroll container's own edge and clips it (whichever hour
+                      the window happens to start at, e.g. 12 AM). So the first
+                      row's label sits flush at its own top instead. */}
+                  <span
+                    className={`absolute right-2 text-[11px] font-medium text-muted ${
+                      index === 0 ? "top-0" : "-top-2"
+                    }`}
+                  >
+                    {hourLabel(h, i18n.language)}
                   </span>
                 </div>
               ))}
+              <span
+                className="absolute right-2 text-[11px] font-medium leading-4 text-muted"
+                style={{ top: `calc(100% - ${LABEL_LIFT_REM}rem)` }}
+              >
+                {hourLabel(win.endHour % 24, i18n.language)}
+              </span>
             </div>
 
             {days.map((day) => (
@@ -94,15 +117,16 @@ export function MeetingWeekGrid({
               />
             ))}
           </div>
+          <div aria-hidden style={{ height: `${LABEL_LIFT_REM}rem` }} />
         </div>
       </div>
     </div>
   );
 }
 
-function hourLabel(hour: number): string {
+function hourLabel(hour: number, locale: string): string {
   // Through Intl so a 24-hour locale gets "13:00" rather than a forced "1 PM".
-  return new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, { hour: "numeric" });
+  return new Date(2000, 0, 1, hour).toLocaleTimeString(locale, { hour: "numeric" });
 }
 
 function DayHeading({ day, today }: { day: number; today: boolean }) {
