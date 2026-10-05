@@ -183,3 +183,35 @@ func TestNoCredentialOrTokenLeakageInLogsOrResponses(t *testing.T) {
 		t.Error("internal token logged")
 	}
 }
+
+func TestAccessLog_RecordsMethodPathStatusDuration_AndNothingSensitive(t *testing.T) {
+	h, logs := newServer(&stub{}, token)
+	do(h, "GET", "/readyz", "", "")
+	do(h, "GET", "/v1/languages?target=en", "", "") // 401, still logged
+	do(h, "POST", "/v1/translate", `{"q":["TOPSECRET-BODY-TEXT"],"target":"hi","format":"html"}`, token)
+
+	var lines []map[string]any
+	for _, l := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(l), &m); err == nil && m["msg"] == "request" {
+			lines = append(lines, m)
+		}
+	}
+	if len(lines) != 2 {
+		t.Fatalf("want 2 request lines (health probe not logged), got %d:\n%s", len(lines), logs)
+	}
+	if lines[0]["method"] != "GET" || lines[0]["path"] != "/v1/languages" || lines[0]["status"] != float64(401) {
+		t.Errorf("401 line: %v", lines[0])
+	}
+	if lines[1]["method"] != "POST" || lines[1]["path"] != "/v1/translate" || lines[1]["status"] != float64(200) {
+		t.Errorf("translate line: %v", lines[1])
+	}
+	if _, ok := lines[1]["duration_ms"]; !ok {
+		t.Error("no duration_ms")
+	}
+	for _, secret := range []string{token, "TOPSECRET-BODY-TEXT", "target=en", "X-Internal-Token"} {
+		if strings.Contains(logs.String(), secret) {
+			t.Errorf("access log leaked %q:\n%s", secret, logs)
+		}
+	}
+}
