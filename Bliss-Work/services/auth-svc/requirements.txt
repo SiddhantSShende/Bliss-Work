@@ -4,6 +4,9 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 aiokafka==0.12.0
 httpx==0.28.1
+# Cloud Translation service-account / ADC auth for app/i18n_auth.py (the API-key path needs neither).
+google-auth==2.59.1
+requests==2.34.2
 pyjwt[crypto]==2.13.0
 argon2-cffi==23.1.0
 structlog==24.4.0

@@ -7,6 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { useTranslation } from "react-i18next";
 import userEvent from "@testing-library/user-event";
 
 const h = vi.hoisted(() => ({
@@ -119,6 +120,55 @@ describe("LanguageProvider — dynamic locale fetch", () => {
     await waitFor(() => expect(h.toastError).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId("locale")).toHaveTextContent("en");
     expect(i18n.language).toBe("en");
+    expect(localStorage.getItem("tb-locale")).toBeNull();
+  });
+
+  it("switches to Hindi and the visible strings change, placeholders intact", async () => {
+    useSession.setState({ status: "authed" });
+    h.api.i18nCatalog.mockResolvedValue({
+      locale: "hi",
+      namespaces: { common: { loading: "लोड हो रहा है…", due: "{{count}} कार्य बाकी" } },
+      partial: false,
+    });
+    function Probe() {
+      const { t } = useTranslation("common");
+      const { setLocale } = useLanguage();
+      return <button onClick={() => setLocale("hi")}>{t("due", { count: 3, defaultValue: "{{count}} tasks due" })}</button>;
+    }
+    render(
+      <LanguageProvider>
+        <Probe />
+      </LanguageProvider>,
+    );
+    const user = userEvent.setup();
+    expect(screen.getByRole("button")).toHaveTextContent("3 tasks due");
+
+    await user.click(screen.getByRole("button"));
+
+    await waitFor(() => expect(screen.getByRole("button")).toHaveTextContent("3 कार्य बाकी"));
+    expect(h.api.i18nCatalog).toHaveBeenCalledWith("hi");
+  });
+
+  it("treats a malformed persisted locale as English without calling the backend", async () => {
+    localStorage.setItem("tb-locale", "not a locale!!");
+    useSession.setState({ status: "authed" });
+    renderProvider();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.getByTestId("locale")).toHaveTextContent("en");
+    expect(h.api.i18nCatalog).not.toHaveBeenCalled();
+  });
+
+  it("falls back to English and tells the user when the backend rejects an unsupported locale", async () => {
+    useSession.setState({ status: "authed" });
+    h.api.i18nCatalog.mockRejectedValue(new Error("400 unsupported locale: es"));
+    renderProvider();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText("switch to es"));
+
+    await waitFor(() => expect(h.toastError).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("locale")).toHaveTextContent("en");
     expect(localStorage.getItem("tb-locale")).toBeNull();
   });
 

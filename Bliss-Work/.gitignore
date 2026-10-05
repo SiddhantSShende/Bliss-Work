@@ -58,6 +58,9 @@ apps/desktop/release/
 
 # keys (dev keypair generated locally)
 keys/*.pem
+# Google service-account key files (Cloud Translation) — secrets, never commit
+keys/*.json
+*service-account*.json
 
 # desktop code-signing material — NEVER commit private keys / certs (see SIGNING.md)
 apps/desktop/build/certs/
