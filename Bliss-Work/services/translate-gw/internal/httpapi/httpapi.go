@@ -17,6 +17,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/task-board/shared-internalauth"
 	"github.com/task-board/translate-gw/internal/gtranslate"
@@ -42,7 +44,37 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", ok)
 	mux.HandleFunc("GET /v1/languages", s.internal(s.languages))
 	mux.HandleFunc("POST /v1/translate", s.internal(s.translate))
-	return mux
+	return s.accessLog(mux)
+}
+
+// statusRecorder remembers the status code a handler wrote.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// accessLog logs one line per /v1 request: method, path, status, duration. That
+// is all it logs, on purpose — no query string, no headers (X-Internal-Token),
+// no bodies (the strings being translated). Its job is to make "did this call
+// reach Google?" observable: every /v1/translate that was NOT served from
+// auth-svc's cache appears here exactly once. Health probes are not logged.
+func (s *Server) accessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/v1/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
+		next.ServeHTTP(rec, r)
+		s.Log.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.status,
+			"duration_ms", time.Since(start).Milliseconds())
+	})
 }
 
 // internal fails CLOSED: with no token configured, nobody gets in.
