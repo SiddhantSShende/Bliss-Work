@@ -64,8 +64,8 @@ def test_flatten_unflatten_round_trip():
     assert i18n_service._unflatten(flat) == nested
 
 
-async def test_languages_empty_without_a_google_key(client, monkeypatch):
-    monkeypatch.setattr(i18n_service.settings, "google_translate_api_key", "")
+async def test_languages_empty_without_a_translate_gateway(client, monkeypatch):
+    monkeypatch.setattr(i18n_service.settings, "translate_gw_url", "")
     async with client as c:
         r = await c.get("/i18n/languages")
     assert r.status_code == 200
@@ -73,7 +73,8 @@ async def test_languages_empty_without_a_google_key(client, monkeypatch):
 
 
 async def test_languages_excludes_english_and_caches_across_calls(client, monkeypatch):
-    monkeypatch.setattr(i18n_service.settings, "google_translate_api_key", "fake-key")
+    monkeypatch.setattr(i18n_service.settings, "translate_gw_url", "http://translate-gw:8010")
+    monkeypatch.setattr(i18n_service.settings, "translate_internal_token", "fake-token")
     calls = []
 
     # Patched at the httpx boundary (not `_fetch_google_languages` itself), so
@@ -85,12 +86,10 @@ async def test_languages_excludes_english_and_caches_across_calls(client, monkey
 
         def json(self):
             return {
-                "data": {
-                    "languages": [
-                        {"language": "en", "name": "English"},
-                        {"language": "es", "name": "Spanish"},
-                    ]
-                }
+                "languages": [
+                    {"code": "en", "name": "English"},
+                    {"code": "es", "name": "Spanish"},
+                ]
             }
 
     class _FakeAsyncClient:
