@@ -13,7 +13,16 @@
     // aren't (BroadcastChannel, navigator.locks) are already feature-detected
     // at runtime in that shared code (`typeof BroadcastChannel === "undefined"`)
     // before use, so typing them here does not change what actually runs.
-    "lib": ["esnext", "dom", "dom.iterable"]
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "jsx": "react-native",
+    // Same helpers as metro.config.js (not in packages/app's `exports`).
+    "paths": {
+      "@taskboard/app/lib/errorText": ["../../packages/app/src/lib/errorText.ts"],
+      "@taskboard/app/lib/mailView": ["../../packages/app/src/lib/mailView.ts"],
+      "@taskboard/app/lib/mailActions": ["../../packages/app/src/lib/mailActions.ts"],
+      "@taskboard/app/lib/dateRange": ["../../packages/app/src/lib/dateRange.ts"],
+      "@taskboard/app/lib/relativeTime": ["../../packages/app/src/lib/relativeTime.ts"]
+    }
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["**/node_modules", "**/Pods"]

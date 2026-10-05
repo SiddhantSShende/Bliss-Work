@@ -1,11 +1,14 @@
 import { useMemo } from 'react';
 import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Check, CheckCheck, Clock, ExternalLink, FileText, MapPin } from 'lucide-react-native';
+import { Check, CheckCheck, Clock, ExternalLink, FileText, MapPin, Play } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { MessageDTO } from '@taskboard/shared';
 import { parseChatEnvelope, prettySize, readablePrefix, type MediaItem } from '@taskboard/app/chatEnvelope';
 import { formatCoords } from '@taskboard/app/lib/mapsLink';
 import { mapsLink } from '../lib/mapsLink';
+import { mediaCaption } from '../lib/attachmentCaption';
+import { openAttachment, openImageGroup } from '../attachments/openAttachment';
+import { LinkedText } from './LinkedText';
 import { radius, spacing, type ThemeColors } from '../constants/theme';
 import { useThemeColors } from '../theme/ThemeProvider';
 
@@ -16,6 +19,8 @@ import { useThemeColors } from '../theme/ThemeProvider';
  *  satisfy MessageDTO. */
 export interface RenderableMessage {
   body: string;
+  /** Set for system entries (e.g. "screenshot_attempt"); absent = an ordinary message. */
+  kind?: string;
   status?: MessageDTO['status'];
   deletedForAll?: boolean;
 }
@@ -37,6 +42,8 @@ interface MessageBubbleProps {
    *  missing URL means "still loading"; after, it means "not available to
    *  you" (e.g. a forwarded attachment from a conversation you're not in). */
   isResolved?: boolean;
+  /** Sender's name, shown above others' messages in a channel (DMs omit it). */
+  senderName?: string;
 }
 
 /** One chat/channel message bubble: purple gradient for outgoing, light
@@ -47,7 +54,7 @@ interface MessageBubbleProps {
  *  attachments instead of raw text — everything else (plain text, and the
  *  legacy v1 peer-to-peer file offer mobile never implemented a transfer UI
  *  for) falls back to its readable prefix. */
-export function MessageBubble({ message, mine, time, urlFor, isResolved }: MessageBubbleProps) {
+export function MessageBubble({ message, mine, time, urlFor, isResolved, senderName }: MessageBubbleProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const envelope = useMemo(() => parseChatEnvelope(message.body), [message.body]);
@@ -80,11 +87,22 @@ export function MessageBubble({ message, mine, time, urlFor, isResolved }: Messa
     );
   } else {
     const text = envelope?.kind === 'fileOffer' ? readablePrefix(message.body) : message.body;
-    content = <Text style={mine ? styles.textMine : styles.textTheirs}>{text}</Text>;
+    content = (
+      <LinkedText
+        text={text}
+        style={mine ? styles.textMine : styles.textTheirs}
+        linkStyle={mine ? styles.linkMine : styles.linkTheirs}
+      />
+    );
   }
 
   const body = (
     <>
+      {!mine && senderName ? (
+        <Text style={styles.sender} numberOfLines={1}>
+          {senderName}
+        </Text>
+      ) : null}
       {content}
       <View style={styles.meta}>
         <Text style={mine ? styles.timeMine : styles.timeTheirs}>{time}</Text>
@@ -177,24 +195,40 @@ function MediaContent({
   // forever; treat "no resolver at all" as already-settled.
   const linksSupported = typeof urlFor === 'function';
 
-  const open = (item: MediaItem) => {
-    const url = urlFor?.(item.id);
-    if (url) void Linking.openURL(url);
+  // Images open the in-app lightbox (as a swipeable set of every image in
+  // THIS message, not just the one tapped); a video (no in-app player exists)
+  // and every other file type open through the shared classify-and-open
+  // dispatcher — never a bare Linking.openURL straight to the OS/browser.
+  const openVisual = (item: MediaItem) => {
+    if (item.mime.startsWith('image/')) {
+      openImageGroup(visuals, (i) => urlFor?.(i.id), item);
+    } else {
+      openAttachment(item, urlFor?.(item.id));
+    }
   };
+  const openFile = (item: MediaItem) => openAttachment(item, urlFor?.(item.id));
 
   return (
     <View style={mediaStyles.container}>
+      <Text style={[mediaStyles.caption, { color: mine ? 'rgba(255,255,255,0.85)' : colors.muted }]}>
+        {mediaCaption(items, mine)}
+      </Text>
       {visuals.length > 0 ? (
         <View style={mediaStyles.grid}>
           {visuals.map((item) => {
-            const url = urlFor?.(item.thumbId) ?? urlFor?.(item.id);
+            // A video with no poster must not be handed to <Image> (it cannot
+            // decode mp4 and would render blank); mobile uploads have no poster.
+            const isVideo = item.mime.startsWith('video/');
+            const url = isVideo && !item.thumbId ? undefined : urlFor?.(item.thumbId) ?? urlFor?.(item.id);
             return (
-              <Pressable key={item.id} onPress={() => open(item)} style={mediaStyles.visualTile}>
+              <Pressable key={item.id} onPress={() => openVisual(item)} style={mediaStyles.visualTile}>
                 {url ? (
                   <Image source={{ uri: url }} style={mediaStyles.visualImage} resizeMode="cover" />
                 ) : (
                   <View style={[mediaStyles.visualImage, mediaStyles.placeholder]}>
-                    {!linksSupported || isResolved ? (
+                    {isVideo ? (
+                      <Play size={22} color={colors.muted} />
+                    ) : !linksSupported || isResolved ? (
                       <FileText size={16} color={colors.muted} />
                     ) : (
                       <ActivityIndicator size="small" color={colors.muted} />
@@ -209,7 +243,7 @@ function MediaContent({
       {others.map((item) => {
         const url = urlFor?.(item.id);
         return (
-          <Pressable key={item.id} onPress={() => open(item)} style={mediaStyles.fileRow}>
+          <Pressable key={item.id} onPress={() => openFile(item)} style={mediaStyles.fileRow}>
             <View
               style={[mediaStyles.fileIconWrap, { backgroundColor: mine ? 'rgba(255,255,255,0.18)' : colors.accentSoft }]}
             >
@@ -247,6 +281,7 @@ const locationStyles = StyleSheet.create({
 
 const mediaStyles = StyleSheet.create({
   container: { gap: spacing.xs },
+  caption: { fontSize: 12, fontWeight: '600' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   visualTile: { width: 132, height: 132, borderRadius: 12, overflow: 'hidden', backgroundColor: 'rgba(0,0,0,0.08)' },
   visualImage: { width: '100%', height: '100%' },
@@ -270,7 +305,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'flex-end',
     },
     bubble: {
-      maxWidth: '78%',
+      maxWidth: 320,
       borderRadius: radius.card,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
@@ -279,11 +314,14 @@ function createStyles(colors: ThemeColors) {
       borderBottomRightRadius: 4,
     },
     bubbleTheirs: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.surfaceStrong,
       borderWidth: 1,
       borderColor: colors.border,
       borderBottomLeftRadius: 4,
     },
+    sender: { fontSize: 12, fontWeight: '700', color: colors.accent, marginBottom: 2 },
+    linkMine: { color: '#ffffff', textDecorationLine: 'underline', fontWeight: '600' },
+    linkTheirs: { color: colors.accent, textDecorationLine: 'underline', fontWeight: '600' },
     textMine: {
       color: colors.accentFg,
       fontSize: 15,

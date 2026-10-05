@@ -32,3 +32,7 @@ const globalWithBuffer = globalThis as unknown as { Buffer?: typeof Buffer };
 if (typeof globalWithBuffer.Buffer === 'undefined') {
   globalWithBuffer.Buffer = Buffer;
 }
+
+// Dev-only: log failed requests (method, path, status — never headers/bodies/tokens).
+import { installDevNetworkLog } from './lib/devNetworkLog';
+installDevNetworkLog();

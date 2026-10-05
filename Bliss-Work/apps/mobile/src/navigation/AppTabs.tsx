@@ -1,6 +1,10 @@
-import { MessageCircle, CheckSquare, Video, MoreHorizontal } from 'lucide-react-native';
+import type { ReactNode } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { MessageCircle, CheckSquare, Video, MoreHorizontal, Home } from 'lucide-react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnectEventBridge } from '@taskboard/app/lib/runtime';
+import { HomeStackNavigator } from './HomeStackNavigator';
 import { ChatsStackNavigator } from './ChatsStackNavigator';
 import { TasksStackNavigator } from './TasksStackNavigator';
 import { MeetingsStackNavigator } from './MeetingsStackNavigator';
@@ -10,38 +14,31 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useMailInbox } from '../hooks/useMailInbox';
 import { useChannels } from '../hooks/useChannels';
 import { useWsBridge } from '../hooks/useWsBridge';
-import { useQuickActions } from '../hooks/useQuickActions';
+import { GlassSurface } from '../components/glass/GlassSurface';
 import { useThemeColors } from '../theme/ThemeProvider';
 import type { AppTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 
-/**
- * Signed-in surface: Chats, Tasks, Meetings, More — no Home tab. Chats is the
- * `initialRouteName` (also simply first in registration order below) so it's
- * the screen every authed user lands on, whether that's a fresh login, a
- * cold relaunch, or a resume from background — there is no "last visited
- * tab" persistence anywhere in this app (React Navigation just keeps
- * whichever screen was already mounted showing across an ordinary
- * background/foreground cycle, same as any other RN app), so the only way
- * a DIFFERENT tab could ever be the first thing shown is a fresh mount of
- * this navigator, which always starts here.
- *
- * Mail/Channels/Members/Org — folded under Home's old grid — now live behind
- * a header icon on the Chats screen (see ChatsListScreen's "Workspace"
- * button) instead of a tab of their own, since More is now the account menu
- * (Profile/Settings/Dark Theme/Sign out), not a feature grid.
- *
- * Connects the realtime socket + this app's WS→cache bridge exactly once for
- * the whole authed session, the same way AppShell.tsx mounts WsEventBridge
- * once for all of /app on web — every screen underneath gets live updates
- * for free instead of each one wiring its own subscription.
- */
+const NAV_HEIGHT = 64;
+const NAV_RADIUS = 28;
+
+/** Tab icon; the active tab gets a soft accent glow pill behind it. */
+function TabIcon({ focused, children }: { focused: boolean; children: ReactNode }) {
+  const colors = useThemeColors();
+  return (
+    <View style={[tabIconStyles.wrap, focused && { backgroundColor: colors.selected, borderWidth: 1, borderColor: colors.accent, shadowColor: colors.accent, shadowOpacity: 0.6, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } }]}>{children}</View>
+  );
+}
+const tabIconStyles = StyleSheet.create({
+  wrap: { width: 44, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+});
+
 export function AppTabs() {
   useConnectEventBridge();
   useWsBridge();
-  useQuickActions();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
 
   const { data: conversations } = useConversations();
   const { data: notifications } = useNotifications();
@@ -50,28 +47,54 @@ export function AppTabs() {
 
   const chatsBadge = conversations?.reduce((sum, c) => sum + c.unread, 0) ?? 0;
   const tasksBadge = notifications?.filter((n) => !n.read).length ?? 0;
-  const mailUnread = mailPage?.items.reduce((sum, it) => sum + it.unreadCount, 0) ?? 0;
+  const mailUnread = mailPage?.pages.flatMap((p) => p.items).reduce((sum, it) => sum + it.unreadCount, 0) ?? 0;
   const channelsUnread = channels?.reduce((sum, c) => sum + c.unread, 0) ?? 0;
   const moreBadge = mailUnread + channelsUnread;
-  // Same "99+" cap Rail.tsx (web) already uses — tabBarBadge takes a string
-  // or number verbatim with no cap of its own.
   const capped = (n: number) => (n > 99 ? '99+' : n);
 
   return (
     <Tab.Navigator
-      initialRouteName="Chats"
+      initialRouteName="Home"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: { borderTopColor: colors.border, backgroundColor: colors.surface },
+        // Tabs are plain icon + label: no per-tab fill in any state (the active tab is shown by tint only).
+        tabBarVariant: 'uikit',
+        tabBarActiveBackgroundColor: 'transparent',
+        tabBarInactiveBackgroundColor: 'transparent',
+        // Screens are transparent over the shared atmosphere.
+        sceneStyle: { backgroundColor: 'transparent' },
+        // A floating glass panel, not a full-width opaque bar: the bar itself is
+        // transparent and `tabBarBackground` draws the glass (blur, reflection, edge).
+        // It stays in the layout flow (not absolute) so every screen keeps ending above it.
+        tabBarBackground: () => <GlassSurface variant="navigation" borderRadius={NAV_RADIUS} style={StyleSheet.absoluteFill} blur />,
+        tabBarStyle: {
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
+          elevation: 0,
+          height: NAV_HEIGHT,
+          marginHorizontal: 14,
+          marginBottom: Math.max(insets.bottom, 10),
+          paddingTop: 6,
+          paddingBottom: 6,
+        },
+        tabBarItemStyle: { borderRadius: NAV_RADIUS },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       }}
     >
+      <Tab.Screen
+        name="Home"
+        component={HomeStackNavigator}
+        options={{
+          tabBarIcon: ({ color, size, focused }) => <TabIcon focused={focused}><Home color={color} size={size} /></TabIcon>,
+        }}
+      />
       <Tab.Screen
         name="Chats"
         component={ChatsStackNavigator}
         options={{
-          tabBarIcon: ({ color, size }) => <MessageCircle color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => <TabIcon focused={focused}><MessageCircle color={color} size={size} /></TabIcon>,
           tabBarBadge: chatsBadge > 0 ? capped(chatsBadge) : undefined,
         }}
       />
@@ -79,20 +102,20 @@ export function AppTabs() {
         name="Tasks"
         component={TasksStackNavigator}
         options={{
-          tabBarIcon: ({ color, size }) => <CheckSquare color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => <TabIcon focused={focused}><CheckSquare color={color} size={size} /></TabIcon>,
           tabBarBadge: tasksBadge > 0 ? capped(tasksBadge) : undefined,
         }}
       />
       <Tab.Screen
         name="Meetings"
         component={MeetingsStackNavigator}
-        options={{ tabBarIcon: ({ color, size }) => <Video color={color} size={size} /> }}
+        options={{ tabBarIcon: ({ color, size, focused }) => <TabIcon focused={focused}><Video color={color} size={size} /></TabIcon> }}
       />
       <Tab.Screen
         name="More"
         component={MoreStackNavigator}
         options={{
-          tabBarIcon: ({ color, size }) => <MoreHorizontal color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => <TabIcon focused={focused}><MoreHorizontal color={color} size={size} /></TabIcon>,
           tabBarBadge: moreBadge > 0 ? capped(moreBadge) : undefined,
         }}
       />

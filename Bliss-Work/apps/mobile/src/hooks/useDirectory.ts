@@ -11,7 +11,7 @@ import { qk } from './queryKeys';
 export function useDirectory(query: string) {
   const { api } = useRuntime();
   const me = useSession((s) => s.user);
-  const { data: users = [], isLoading } = useQuery({
+  const { data: users = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: qk.directory,
     queryFn: () => api.directory(),
   });
@@ -19,5 +19,5 @@ export function useDirectory(query: string) {
   const all = useMemo(() => users.filter((u) => u.id !== me?.id), [users, me?.id]);
   const filtered = useMemo(() => all.filter((u) => matchUser(u, query)), [all, query]);
 
-  return { all, filtered, isLoading };
+  return { all, filtered, isLoading, isError, error, refetch };
 }

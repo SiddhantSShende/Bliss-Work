@@ -1,3 +1,10 @@
 <resources>
   <string name="app_name">BlissWorkMobile</string>
+  <string name="shortcut_chats_short">Chats</string>
+  <string name="shortcut_chats_long">Quick Chat</string>
+  <string name="shortcut_channels_short">Channels</string>
+  <string name="shortcut_channels_long">Quick Channel message</string>
+  <string name="shortcut_tasks_short">Tasks</string>
+  <string name="shortcut_tasks_long">Quick Task</string>
+  <string name="shortcut_disabled">This shortcut is no longer available.</string>
 </resources>

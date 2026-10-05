@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
-import { ArrowLeft, Bell, HelpCircle, Info, LogOut, Palette, ShieldCheck, User } from 'lucide-react-native';
-import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { ArrowLeft, LogOut, User } from 'lucide-react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useRuntime } from '@taskboard/app/lib/runtime';
@@ -9,21 +9,15 @@ import { signOut } from '../../services/auth';
 import { Avatar } from '../../components/Avatar';
 import { Card } from '../../components/Card';
 import { ListRow } from '../../components/ListRow';
-import { Badge } from '../../components/Badge';
-import { useNotifications } from '../../hooks/useNotifications';
 import { spacing, type ThemeColors } from '../../constants/theme';
 import { useThemeColors } from '../../theme/ThemeProvider';
 import type { MoreStackParamList } from '../../navigation/types';
-import { ThemePickerModal } from './ThemePickerModal';
-import { NotificationsSheet } from '../chats/NotificationsSheet';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Account'>;
 
 /** The real BlissWork contact address — reused from the website's own legal/
  *  security contact (Bliss-Website/src/components/legal/LegalDoc.tsx), not
  *  a fabricated support inbox. */
-const SUPPORT_EMAIL = 'siddhant.shende@consultrnr.com';
-
 /**
  * The account hub — mirrors the reference's "Profile" screen: large avatar,
  * name/email, then My Profile / Notifications / Theme / Privacy & Security /
@@ -36,10 +30,6 @@ export function AccountScreen({ navigation }: Props) {
   const user = useSession((s) => s.user);
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const { data: notifications } = useNotifications();
-  const notificationsUnread = notifications?.filter((n) => !n.read).length ?? 0;
 
   const confirmSignOut = () => {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
@@ -71,37 +61,6 @@ export function AccountScreen({ navigation }: Props) {
             title="My Profile"
             onPress={() => navigation.navigate('Profile')}
           />
-          <View style={styles.divider} />
-          <ListRow
-            leading={<Bell size={18} color={colors.accent} />}
-            title="Notifications"
-            trailing={notificationsUnread ? <Badge count={notificationsUnread} /> : undefined}
-            onPress={() => setNotificationsOpen(true)}
-          />
-          <View style={styles.divider} />
-          <ListRow
-            leading={<Palette size={18} color={colors.accent} />}
-            title="Theme"
-            onPress={() => setThemePickerOpen(true)}
-          />
-          <View style={styles.divider} />
-          <ListRow
-            leading={<ShieldCheck size={18} color={colors.accent} />}
-            title="Privacy & Security"
-            onPress={() => navigation.navigate('Settings')}
-          />
-          <View style={styles.divider} />
-          <ListRow
-            leading={<HelpCircle size={18} color={colors.accent} />}
-            title="Help & Support"
-            onPress={() => void Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
-          />
-          <View style={styles.divider} />
-          <ListRow
-            leading={<Info size={18} color={colors.accent} />}
-            title="About BlissWork"
-            onPress={() => navigation.navigate('About')}
-          />
         </Card>
 
         <Pressable onPress={confirmSignOut} style={styles.logoutBtn}>
@@ -109,9 +68,6 @@ export function AccountScreen({ navigation }: Props) {
           <Text style={styles.logoutText}>Log Out</Text>
         </Pressable>
       </View>
-
-      <ThemePickerModal visible={themePickerOpen} onClose={() => setThemePickerOpen(false)} />
-      <NotificationsSheet visible={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
     </View>
   );
 }

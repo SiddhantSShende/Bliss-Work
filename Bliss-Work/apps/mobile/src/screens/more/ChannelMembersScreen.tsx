@@ -12,6 +12,7 @@ import { Button } from '../../components/Button';
 import { useChannelRoster, useKickChannelMember } from '../../hooks/useChannels';
 import { spacing, type ThemeColors } from '../../constants/theme';
 import { useThemeColors } from '../../theme/ThemeProvider';
+import { ErrorState, LoadingState } from '../../components/QueryState';
 import type { MoreStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'ChannelMembers'>;
@@ -28,7 +29,7 @@ export function ChannelMembersScreen({ route, navigation }: Props) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const me = useSession((s) => s.user);
-  const { data: roster, isLoading } = useChannelRoster(channelId);
+  const { data: roster, isLoading, isError, error, refetch } = useChannelRoster(channelId);
   const kick = useKickChannelMember(channelId);
   const [query, setQuery] = useState('');
 
@@ -67,7 +68,9 @@ export function ChannelMembersScreen({ route, navigation }: Props) {
       </View>
 
       {isLoading ? (
-        <ActivityIndicator color={colors.accent} style={{ marginTop: spacing.xl }} />
+        <LoadingState label="Loading members..." />
+      ) : isError ? (
+        <ErrorState title="Unable to load members" error={error} onRetry={() => void refetch()} />
       ) : (
         <FlatList
           data={filtered}

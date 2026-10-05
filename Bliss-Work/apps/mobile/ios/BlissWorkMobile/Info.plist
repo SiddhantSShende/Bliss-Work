@@ -44,12 +44,16 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>UIBackgroundModes</key>
+    <array>
+      <string>audio</string>
+    </array>
     <key>NSCameraUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your camera</string>
+    <string>BlissWork uses the camera for video calls and meetings.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your location to share it in a chat</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <string>BlissWork uses the microphone for voice and video calls and meetings.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your photos</string>
     <key>RCTMetroPort</key>
@@ -75,5 +79,32 @@
     <string>Light</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
-  </dict>
+      <key>UIApplicationShortcutItems</key>
+    <array>
+      <dict>
+        <key>UIApplicationShortcutItemType</key>
+        <string>chats</string>
+        <key>UIApplicationShortcutItemTitle</key>
+        <string>Chats</string>
+        <key>UIApplicationShortcutItemIconType</key>
+        <string>UIApplicationShortcutIconTypeMessage</string>
+      </dict>
+      <dict>
+        <key>UIApplicationShortcutItemType</key>
+        <string>channels</string>
+        <key>UIApplicationShortcutItemTitle</key>
+        <string>Channels</string>
+        <key>UIApplicationShortcutItemIconType</key>
+        <string>UIApplicationShortcutIconTypeCompose</string>
+      </dict>
+      <dict>
+        <key>UIApplicationShortcutItemType</key>
+        <string>assign-task</string>
+        <key>UIApplicationShortcutItemTitle</key>
+        <string>Tasks</string>
+        <key>UIApplicationShortcutItemIconType</key>
+        <string>UIApplicationShortcutIconTypeTask</string>
+      </dict>
+    </array>
+</dict>
 </plist>

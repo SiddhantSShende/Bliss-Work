@@ -34,7 +34,7 @@ export function MoreMenuScreen({ navigation }: Props) {
   const { data: mailPage } = useMailInbox();
   const { data: channels } = useChannels();
 
-  const mailUnread = mailPage?.items.reduce((sum, it) => sum + it.unreadCount, 0) ?? 0;
+  const mailUnread = mailPage?.pages.flatMap((p) => p.items).reduce((sum, it) => sum + it.unreadCount, 0) ?? 0;
   const channelsUnread = channels?.reduce((sum, c) => sum + c.unread, 0) ?? 0;
 
   return (

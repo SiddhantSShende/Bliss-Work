@@ -5,8 +5,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AssigneeStatus, SentTaskDTO, StickyTaskDTO } from '@taskboard/shared';
 import { useTasks } from '../../hooks/useTasks';
+import { STATUS_LABEL } from '../../lib/taskStatus';
 import { Card } from '../../components/Card';
 import { EmptyState } from '../../components/EmptyState';
+import { ListEmpty } from '../../components/QueryState';
 import { Chip } from '../../components/Chip';
 import { Tabs } from '../../components/Tab';
 import { spacing, type ThemeColors } from '../../constants/theme';
@@ -18,14 +20,6 @@ type Props = NativeStackScreenProps<TasksStackParamList, 'TasksList'>;
 type MainTab = 'mine' | 'assigned' | 'all';
 type StatusFilter = 'all' | AssigneeStatus;
 
-const STATUS_LABEL: Record<AssigneeStatus, string> = {
-  SENT: 'Awaiting response',
-  ACKNOWLEDGED: 'In progress',
-  COMPLETED: 'Completed',
-  IGNORED: 'Ignored',
-  LEFT: 'Left',
-  MISSED: 'Missed',
-};
 
 interface Row {
   key: string;
@@ -82,9 +76,11 @@ export function TasksListScreen({ navigation }: Props) {
   const sentRows = useMemo(() => (sent.data ?? []).map(sentRow), [sent.data]);
 
   const rows = tab === 'mine' ? sentRows : tab === 'assigned' ? assignedRows : [...sentRows, ...assignedRows];
-  const isLoading = tab === 'mine' ? sent.isLoading : assigned.isLoading;
-  const isRefetching = tab === 'mine' ? sent.isRefetching : assigned.isRefetching;
-  const refetch = tab === 'mine' ? sent.refetch : assigned.refetch;
+  const active = tab === 'mine' ? [sent] : tab === 'assigned' ? [assigned] : [sent, assigned];
+  const isLoading = active.some((q) => q.isLoading);
+  const failed = active.find((q) => q.isError);
+  const isRefetching = active.some((q) => q.isRefetching && !q.isLoading);
+  const refetch = () => Promise.all(active.map((q) => q.refetch()));
 
   return (
     <View style={[styles.flex, { paddingTop: insets.top }]}>
@@ -126,13 +122,23 @@ export function TasksListScreen({ navigation }: Props) {
         contentContainerStyle={styles.list}
         refreshing={isRefetching}
         onRefresh={() => void refetch()}
-        ListEmptyComponent={!isLoading ? <EmptyState icon={CheckSquare} title="Nothing here" /> : null}
+        ListEmptyComponent={
+          <ListEmpty
+            isLoading={isLoading}
+            isError={!!failed}
+            error={failed?.error}
+            onRetry={() => void refetch()}
+            errorTitle="Unable to load tasks"
+            loadingLabel="Loading tasks..."
+            empty={<EmptyState icon={CheckSquare} title="Nothing here" />}
+          />
+        }
         renderItem={({ item }) => (
           <Pressable
             disabled={item.kind !== 'assigned'}
             onPress={() => item.assignedTask && navigation.navigate('TaskDetail', { taskId: item.assignedTask.taskId })}
           >
-            <Card style={styles.card}>
+            <Card flat style={styles.card}>
               <View style={styles.cardText}>
                 <Text style={styles.title} numberOfLines={2}>
                   {item.title}

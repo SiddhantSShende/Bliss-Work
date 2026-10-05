@@ -8,7 +8,7 @@ const Stack = createNativeStackNavigator<TasksStackParamList>();
 
 export function TasksStackNavigator() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}>
       <Stack.Screen name="TasksList" component={TasksListScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="AssignTask" component={AssignTaskScreen} />

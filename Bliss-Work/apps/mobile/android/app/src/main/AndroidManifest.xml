@@ -5,6 +5,30 @@
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" tools:replace="android:maxSdkVersion"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
+  <!-- Android 14+: be told when a screenshot is taken of a protected chat/channel screen. -->
+  <uses-permission android:name="android.permission.DETECT_SCREEN_CAPTURE"/>
+  <!-- Calls: microphone + camera (runtime prompts), audio routing, and the
+       Android 13+ notification permission for incoming-call notifications. -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+  <uses-permission android:name="android.permission.CAMERA"/>
+  <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+  <!-- Incoming calls: let the ring take over the screen (lock screen / screen off)
+       like a phone call. Android 14+ lets the user revoke this per app; without it
+       the call still rings as a heads-up notification. -->
+  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+  <!-- Meeting reminders are dated local notifications. With this, Android 12+ may
+       deliver them at the exact minute even in Doze (auto-granted on 12/12L, a
+       user opt-in on 13+); without it they still fire, but can be delayed by
+       the OS's battery batching. -->
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+  <!-- Screen sharing in meetings: react-native-webrtc captures the screen with
+       MediaProjection inside a foreground service (declared by the library and
+       kept below). Android 14+ requires both foreground-service permissions. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+  <!-- Merged in by the LiveKit libraries but unused: no Bluetooth admin. -->
+  <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" tools:node="remove"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" tools:replace="android:maxSdkVersion"/>
   <queries>
     <intent>
@@ -18,11 +42,12 @@
     <meta-data android:name="expo.modules.updates.ENABLE_BSDIFF_PATCH_SUPPORT" android:value="true"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
-    <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|assetsPaths" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true">
+    <activity android:name=".MainActivity" android:supportsPictureInPicture="true" android:resizeableActivity="true" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|assetsPaths" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
+      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
       <intent-filter>
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
@@ -30,5 +55,7 @@
         <data android:scheme="blisswork"/>
       </intent-filter>
     </activity>
+    <!-- Decline on the incoming-call notification (no UI). Not exported: only our own PendingIntent reaches it. -->
+    <receiver android:name=".IncomingCallReceiver" android:exported="false"/>
   </application>
 </manifest>

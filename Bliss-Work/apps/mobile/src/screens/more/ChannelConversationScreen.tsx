@@ -1,12 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Info, MoreVertical, Trash2, X } from 'lucide-react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { ArrowLeft, Info, MoreVertical, Phone, Trash2, Video, X } from 'lucide-react-native';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -15,8 +14,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ChannelMessageDTO, UserDTO } from '@taskboard/shared';
-import { useRuntime } from '@taskboard/app/lib/runtime';
 import { useSession } from '@taskboard/app/store/session';
+import { copyableText, copyMessageText } from '../../lib/copyMessage';
 import { attachmentIdsOf, parseChatEnvelope, readablePrefix, type MediaItem } from '@taskboard/app/chatEnvelope';
 import { useAttachmentLinks } from '@taskboard/app/lib/useAttachmentLinks';
 import {
@@ -30,14 +29,21 @@ import {
   useSetChannelReaction,
 } from '../../hooks/useChannels';
 import { useForwardMessage } from '../../hooks/useMessages';
+import { ErrorState, LoadingState } from '../../components/QueryState';
 import { useMutedConversations } from '../../hooks/useMutedConversations';
 import { EmojiPickerModal } from '../../components/EmojiPickerModal';
 import { MessageRow } from '../../components/MessageRow';
+import { ChatKeyboardAvoider } from '../../components/ChatKeyboardAvoider';
 import { Composer } from '../../components/Composer';
+import { UploadStrip } from '../../components/UploadStrip';
+import { useChatAttachments } from '../../hooks/useChatAttachments';
 import { SearchInput } from '../../components/SearchInput';
 import { spacing, type ThemeColors } from '../../constants/theme';
 import type { MoreStackParamList } from '../../navigation/types';
 import { useThemeColors } from '../../theme/ThemeProvider';
+import { useCalls } from '../../calls/CallProvider';
+import { clearThreadFocused, setThreadFocused } from '../../calls/messageNotifications';
+import { protectThread } from '../../security/screenSecurity';
 import { ChatHeaderMenu, type ChatHeaderMenuAnchor } from '../chats/ChatHeaderMenu';
 import { ChatMediaLinksModal } from '../chats/ChatMediaLinksModal';
 import { ForwardMessageSheet } from '../chats/ForwardMessageSheet';
@@ -62,13 +68,27 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { channelId, channelName } = route.params;
+  const { startChannelCall } = useCalls();
   const insets = useSafeAreaInsets();
-  const { rtcAvailable } = useRuntime();
   const me = useSession((s) => s.user);
+  // While this exact channel is on screen, a new message in it should not
+  // also raise an OS notification for what the user is already reading.
+  useFocusEffect(
+    useCallback(() => {
+      const ref = { kind: 'channel' as const, id: channelId };
+      setThreadFocused(ref);
+      // Screenshots of this channel are blocked (and reported) while it is on screen.
+      const release = protectThread({ kind: 'channel', channelId });
+      return () => {
+        clearThreadFocused(ref);
+        release();
+      };
+    }, [channelId]),
+  );
   const { data: channels } = useChannels();
   const myRole = channels?.find((c) => c.id === channelId)?.myRole ?? '';
   const canManage = myRole === 'owner' || myRole === 'admin';
-  const { messages, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage, data } = useChannelMessages(channelId);
+  const { messages, isLoading, isError, error, refetch, hasNextPage, fetchNextPage, isFetchingNextPage, data } = useChannelMessages(channelId);
   const reactionsFor = useChannelReactions(channelId, (data?.pageParams as (number | undefined)[] | undefined) ?? [undefined]);
   const setReaction = useSetChannelReaction(channelId);
   const send = useSendChannelMessage(channelId);
@@ -79,7 +99,7 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
   const { isMuted, toggle: toggleMute } = useMutedConversations();
   const [draft, setDraft] = useState('');
 
-  const moreButtonRef = useRef<View>(null);
+  const moreButtonRef = useRef<any>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [headerMenuAnchor, setHeaderMenuAnchor] = useState<ChatHeaderMenuAnchor | null>(null);
   const [rowMenuOpen, setRowMenuOpen] = useState(false);
@@ -129,6 +149,9 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
     return messages.filter((m) => readablePrefix(m.body).toLowerCase().includes(query));
   }, [messages, searchOpen, searchQuery]);
 
+  const sendBody = (body: string) => send.mutateAsync(body);
+  const { pickFiles, pickMedia, uploads, retry: retryUpload, dismiss: dismissUpload } = useChatAttachments(channelId, sendBody, 'channel');
+
   const onSend = () => {
     const body = draft.trim();
     if (!body) return;
@@ -143,7 +166,7 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
       setHeaderMenuOpen(false);
       return;
     }
-    moreButtonRef.current?.measureInWindow((x, y, width, height) => {
+    moreButtonRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
       setHeaderMenuAnchor({ top: y + height + spacing.xs, right: Dimensions.get('window').width - (x + width) });
       setHeaderMenuOpen(true);
     });
@@ -200,18 +223,15 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
     ]);
   };
 
-  const onPickForwardTarget = async (user: UserDTO) => {
+  const onForwardTo = async (users: UserDTO[]) => {
     if (!forwardFor) return;
+    const messageId = forwardFor.id;
     setForwardFor(null);
-    await forwardMessage.mutateAsync({ messageId: forwardFor.id, targetUserId: user.id });
+    await forwardMessage.mutateAsync({ messageId, targetUserIds: users.map((u) => u.id) }).catch(() => undefined);
   };
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.flex, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-    >
+    <ChatKeyboardAvoider style={[styles.flex, { paddingTop: insets.top }]} iosKeyboardVerticalOffset={insets.top}>
       {selectionMode ? (
         <View style={styles.header}>
           <Pressable onPress={cancelSelection} hitSlop={8}>
@@ -231,6 +251,13 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
             # {channelName}
           </Text>
           <View style={styles.headerActions}>
+            {/* In-app channel call: joins the call already running here, or starts one. */}
+            <Pressable onPress={() => void startChannelCall(channelId, channelName, 'audio')} hitSlop={8} style={styles.headerIcon} accessibilityLabel="Start voice call">
+              <Phone size={20} color={colors.fg} />
+            </Pressable>
+            <Pressable onPress={() => void startChannelCall(channelId, channelName, 'video')} hitSlop={8} style={styles.headerIcon} accessibilityLabel="Start video call">
+              <Video size={20} color={colors.fg} />
+            </Pressable>
             <Pressable onPress={() => navigation.navigate('ChannelDetail', { channelId, channelName })} hitSlop={8} style={styles.headerIcon}>
               <Info size={20} color={colors.fg} />
             </Pressable>
@@ -253,7 +280,9 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
       ) : null}
 
       {isLoading ? (
-        <ActivityIndicator color={colors.accent} style={styles.spinner} />
+        <LoadingState label="Loading messages..." />
+      ) : isError && messages.length === 0 ? (
+        <ErrorState title="Unable to load messages" error={error} onRetry={() => void refetch()} />
       ) : (
         <FlatList<ChannelMessageDTO>
           data={[...displayedMessages].reverse()}
@@ -262,7 +291,7 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
           contentContainerStyle={styles.messages}
           onEndReached={() => hasNextPage && !isFetchingNextPage && void fetchNextPage()}
           onEndReachedThreshold={0.4}
-          ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color={colors.accent} /> : null}
+          ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color={colors.accent} /> : undefined}
           renderItem={({ item }) => (
             <MessageRow
               message={item}
@@ -270,6 +299,7 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
               time={formatTime(item.createdAt)}
               urlFor={urlFor}
               isResolved={isResolved}
+              senderName={item.senderDisplayName || item.senderUsername}
               reactions={reactionsFor(item.id)}
               onToggleReaction={(emoji, on) => toggleReaction(item, emoji, on)}
               reactionsDisabled={setReaction.isPending}
@@ -298,8 +328,18 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
         </View>
       ) : null}
 
+      {!selectionMode ? <UploadStrip uploads={uploads} onRetry={retryUpload} onDismiss={dismissUpload} /> : null}
+
       {!selectionMode ? (
-        <Composer value={draft} onChangeText={setDraft} onSend={onSend} sending={send.isPending} attachAvailable={rtcAvailable} />
+        <Composer
+          value={draft}
+          onChangeText={setDraft}
+          onSend={onSend}
+          sending={send.isPending}
+          attachAvailable
+          onAttach={() => void pickFiles()}
+          onAttachMedia={() => void pickMedia()}
+        />
       ) : null}
 
       <ChatHeaderMenu
@@ -345,6 +385,11 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
         onOpenFullPicker={() => setEmojiPickerFor(actionSheetFor)}
         onReply={() => setReplyTarget(actionSheetFor)}
         onForward={() => setForwardFor(actionSheetFor)}
+        onCopy={
+          actionSheetFor && copyableText(actionSheetFor.body, actionSheetFor.deletedForAll)
+            ? () => void copyMessageText(copyableText(actionSheetFor.body, actionSheetFor.deletedForAll)!)
+            : undefined
+        }
         onSelect={() => {
           if (!actionSheetFor) return;
           setSelectionMode(true);
@@ -368,9 +413,9 @@ export function ChannelConversationScreen({ route, navigation }: Props) {
       <ForwardMessageSheet
         visible={Boolean(forwardFor)}
         onClose={() => setForwardFor(null)}
-        onPick={(user) => void onPickForwardTarget(user)}
+        onForward={onForwardTo}
       />
-    </KeyboardAvoidingView>
+    </ChatKeyboardAvoider>
   );
 }
 

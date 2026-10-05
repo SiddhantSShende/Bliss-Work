@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Alert, Keyboard, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ApiError } from '@taskboard/shared';
 import { useRuntime } from '@taskboard/app/lib/runtime';
@@ -48,6 +48,7 @@ export function MfaChallengeScreen({ route }: Props) {
 
   const submit = async () => {
     if (code.length < 4 || busy) return;
+    Keyboard.dismiss();
     setBusy(true);
     try {
       const session = await api.mfaChallengeVerify(

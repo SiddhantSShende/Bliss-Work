@@ -444,6 +444,15 @@ export class ApiClient {
     }, z.array(z.string()));
   }
 
+  // ── devices ──────────────────────────────────────────────────────────────────
+  /** Register a push token (e.g. ExpoPushToken) for the current user session. */
+  registerDevice(deviceToken: string, platform: string = 'android') {
+    return this.req(this.cfg.telemetryBase, "/api/v1/telemetry/devices", {
+      method: "POST",
+      body: JSON.stringify({ deviceToken, platform }),
+    });
+  }
+
   // ── member administration (org_admin) ────────────────────────────────────────
   /** Every membership including suspended and removed ones — this is the screen
    *  they are reactivated from, so hiding them would strand them. */

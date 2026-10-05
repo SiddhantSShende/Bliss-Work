@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Static launcher shortcuts: long-press the BlissWork icon and Android's own
+  shortcut popup lists these three. Static (not dynamic) so they exist from the
+  first launch after install, before anyone signs in, and need no JS to register.
+
+  Each one fires a VIEW intent at MainActivity for `blisswork://quick/<flow>`,
+  a dedicated entry point (see src/quick/*): it opens a lightweight full-screen
+  Quick Chat / Quick Channel / Quick Task flow instead of the tab UI.
+
+  Rank order = declaration order: Chats, Channels, Tasks. (Launchers draw the
+  first one nearest the icon, so the popup reads Chats / Channels / Tasks.)
+  Each row carries its own glyph (chat bubble, hash, check-circle); the popup
+  header shows the BlissWork app icon automatically.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+  <shortcut
+    android:shortcutId="blisswork_chats"
+    android:enabled="true"
+    android:icon="@drawable/ic_shortcut_chats"
+    android:shortcutShortLabel="@string/shortcut_chats_short"
+    android:shortcutLongLabel="@string/shortcut_chats_long"
+    android:shortcutDisabledMessage="@string/shortcut_disabled">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:data="blisswork://quick/chat"
+      android:targetPackage="com.mayank2109.blissworkmobile"
+      android:targetClass="com.mayank2109.blissworkmobile.MainActivity" />
+  </shortcut>
+  <shortcut
+    android:shortcutId="blisswork_channels"
+    android:enabled="true"
+    android:icon="@drawable/ic_shortcut_channels"
+    android:shortcutShortLabel="@string/shortcut_channels_short"
+    android:shortcutLongLabel="@string/shortcut_channels_long"
+    android:shortcutDisabledMessage="@string/shortcut_disabled">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:data="blisswork://quick/channel"
+      android:targetPackage="com.mayank2109.blissworkmobile"
+      android:targetClass="com.mayank2109.blissworkmobile.MainActivity" />
+  </shortcut>
+  <shortcut
+    android:shortcutId="blisswork_tasks"
+    android:enabled="true"
+    android:icon="@drawable/ic_shortcut_tasks"
+    android:shortcutShortLabel="@string/shortcut_tasks_short"
+    android:shortcutLongLabel="@string/shortcut_tasks_long"
+    android:shortcutDisabledMessage="@string/shortcut_disabled">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:data="blisswork://quick/task"
+      android:targetPackage="com.mayank2109.blissworkmobile"
+      android:targetClass="com.mayank2109.blissworkmobile.MainActivity" />
+  </shortcut>
+</shortcuts>

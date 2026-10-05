@@ -13,7 +13,7 @@ const Stack = createNativeStackNavigator<AuthStackParamList>();
  *  now; existing accounts sign in here today. */
 export function AuthNavigator() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}>
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="MfaChallenge" component={MfaChallengeScreen} />
     </Stack.Navigator>

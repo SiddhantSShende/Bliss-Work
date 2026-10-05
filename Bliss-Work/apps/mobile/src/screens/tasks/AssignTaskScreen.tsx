@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft } from 'lucide-react-native';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { UserDTO } from '@taskboard/shared';
+import { errorText } from '@taskboard/app/lib/errorText';
 import { useDirectory } from '../../hooks/useDirectory';
 import { usePresence } from '../../hooks/usePresence';
 import { useCreateTask } from '../../hooks/useTasks';
 import { Avatar } from '../../components/Avatar';
 import { Checkbox } from '../../components/Checkbox';
+import { ListEmpty } from '../../components/QueryState';
 import { SearchInput } from '../../components/SearchInput';
 import { TextField } from '../../components/TextField';
 import { Button } from '../../components/Button';
@@ -36,9 +38,16 @@ export function AssignTaskScreen({ navigation }: Props) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const { filtered, isLoading } = useDirectory(query);
+  const { filtered, all, isLoading, isError, error, refetch } = useDirectory(query);
   const online = usePresence(filtered.map((u) => u.id));
   const create = useCreateTask();
+
+  // "Assign to: Rahul, Amit + 1 more" — spelled out so the chosen member is unmistakable.
+  const chosenNames = all.filter((u) => selected.has(u.id)).map((u) => u.displayName);
+  const assignSummary =
+    chosenNames.length === 0
+      ? 'Assign to: select a member'
+      : `Assign to: ${chosenNames.slice(0, 2).join(', ')}${chosenNames.length > 2 ? ` + ${chosenNames.length - 2} more` : ''}`;
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -59,7 +68,7 @@ export function AssignTaskScreen({ navigation }: Props) {
           Alert.alert('Task sent', `Assigned to ${selected.size} ${selected.size === 1 ? 'person' : 'people'}.`);
           navigation.goBack();
         },
-        onError: () => Alert.alert('Could not create task', 'Please try again.'),
+        onError: (e) => Alert.alert('Could not create task', errorText(e)),
       },
     );
   };
@@ -75,12 +84,12 @@ export function AssignTaskScreen({ navigation }: Props) {
   );
 
   return (
-    <View style={[styles.flex, { paddingTop: insets.top }]}>
+    <KeyboardAvoidingView style={[styles.flex, { paddingTop: insets.top }]} behavior="padding">
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
           <ArrowLeft size={22} color={colors.fg} />
         </Pressable>
-        <Text style={styles.headerTitle}>Assign Task</Text>
+        <Text style={styles.headerTitle}>Create Task</Text>
         <View style={{ width: 22 }} />
       </View>
 
@@ -100,19 +109,29 @@ export function AssignTaskScreen({ navigation }: Props) {
               numberOfLines={4}
               style={styles.descriptionInput}
             />
-            <Text style={styles.label}>Assign to{selected.size ? ` (${selected.size})` : ''}</Text>
+            <Text style={styles.label}>{assignSummary}</Text>
             <SearchInput value={query} onChangeText={setQuery} placeholder="Search people..." />
           </View>
         }
         renderItem={({ item }) => renderRow(item)}
         contentContainerStyle={styles.list}
-        ListEmptyComponent={isLoading ? null : <Text style={styles.emptyText}>No matches.</Text>}
+        ListEmptyComponent={
+          <ListEmpty
+            isLoading={isLoading}
+            isError={isError}
+            error={error}
+            onRetry={() => void refetch()}
+            errorTitle="Unable to load members"
+            loadingLabel="Loading members..."
+            empty={<Text style={styles.emptyText}>No matches.</Text>}
+          />
+        }
       />
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
-        <Button title="Send task" onPress={submit} loading={create.isPending} />
+        <Button title="Create Task" onPress={submit} loading={create.isPending} />
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

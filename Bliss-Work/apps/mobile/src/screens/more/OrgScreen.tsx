@@ -6,9 +6,11 @@ import { useQuery } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useRuntime } from '@taskboard/app/lib/runtime';
 import { Card } from '../../components/Card';
+import { withAlpha } from '../../lib/color';
 import { spacing, type ThemeColors } from '../../constants/theme';
 import type { MoreStackParamList } from '../../navigation/types';
 import { useThemeColors } from '../../theme/ThemeProvider';
+import { ErrorState, LoadingState } from '../../components/QueryState';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Org'>;
 
@@ -21,7 +23,7 @@ export function OrgScreen({ navigation }: Props) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const { api } = useRuntime();
-  const { data: org, isLoading } = useQuery({ queryKey: ['orgLifecycle'], queryFn: () => api.org() });
+  const { data: org, isLoading, isError, error, refetch } = useQuery({ queryKey: ['orgLifecycle'], queryFn: () => api.org() });
 
   return (
     <View style={[styles.flex, { paddingTop: insets.top }]}>
@@ -33,8 +35,10 @@ export function OrgScreen({ navigation }: Props) {
         <View style={{ width: 22 }} />
       </View>
 
-      {isLoading || !org ? (
-        <ActivityIndicator color={colors.accent} style={styles.spinner} />
+      {isLoading ? (
+        <LoadingState label="Loading organization..." />
+      ) : isError || !org ? (
+        <ErrorState title="Unable to load the organization" error={error} onRetry={() => void refetch()} />
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
           <Card style={styles.card}>
@@ -89,7 +93,7 @@ function createStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'flex-start',
       gap: spacing.sm,
-      backgroundColor: '#fffbeb',
+      backgroundColor: withAlpha(colors.warning, 0.14),
       borderColor: colors.warning,
     },
     warningText: { flex: 1, fontSize: 13, color: colors.fg, lineHeight: 18 },

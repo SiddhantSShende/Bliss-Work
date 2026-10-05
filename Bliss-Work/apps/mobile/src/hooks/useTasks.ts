@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRuntime } from '@taskboard/app/lib/runtime';
+import { errorText } from '@taskboard/app/lib/errorText';
 import { qk } from './queryKeys';
 
 /** Tasks assigned to me (mine/available/completed buckets are derived
@@ -33,8 +34,8 @@ export function useTaskAction() {
       void qc.invalidateQueries({ queryKey: qk.tasksAssigned });
       void qc.invalidateQueries({ queryKey: qk.tasksSent });
     },
-    onError: () => {
-      Alert.alert("Couldn't update task", 'Please try again.');
+    onError: (e) => {
+      Alert.alert("Couldn't update task", errorText(e));
     },
   });
 }

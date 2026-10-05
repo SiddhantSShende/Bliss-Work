@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react-native';
 import { StyleSheet, TextInput, View } from 'react-native';
 import { radius, spacing, type ThemeColors } from '../constants/theme';
@@ -8,15 +8,17 @@ interface SearchInputProps {
   value: string;
   onChangeText: (text: string) => void;
   placeholder: string;
+  autoFocus?: boolean;
 }
 
 /** Rounded pill search field with a leading icon — used by Chats, New Chat,
  *  and Members search, all needing the exact same look. */
-export function SearchInput({ value, onChangeText, placeholder }: SearchInputProps) {
+export function SearchInput({ value, onChangeText, placeholder, autoFocus }: SearchInputProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const [focused, setFocused] = useState(false);
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, focused && styles.containerFocused]}>
       <Search size={18} color={colors.muted} />
       <TextInput
         value={value}
@@ -26,6 +28,11 @@ export function SearchInput({ value, onChangeText, placeholder }: SearchInputPro
         style={styles.input}
         autoCapitalize="none"
         autoCorrect={false}
+        autoFocus={autoFocus}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        returnKeyType="search"
+        accessibilityLabel={placeholder}
       />
     </View>
   );
@@ -37,11 +44,14 @@ function createStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
-      backgroundColor: colors.surface2,
+      backgroundColor: colors.input,
+      borderWidth: 1,
+      borderColor: colors.border,
       borderRadius: radius.pill,
       paddingHorizontal: spacing.md,
       height: 42,
     },
+    containerFocused: { borderColor: colors.accent },
     input: {
       flex: 1,
       fontSize: 15,

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRuntime } from '@taskboard/app/lib/runtime';
 import { qk } from './queryKeys';
 
@@ -6,9 +6,11 @@ import { qk } from './queryKeys';
  *  plan's lighter tier for Mail (no compose/reply in this pass). */
 export function useMailInbox() {
   const { api } = useRuntime();
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: qk.mailInbox,
-    queryFn: () => api.inbox(undefined, 50, undefined, ['MAIL']),
+    queryFn: ({ pageParam }) => api.inbox(pageParam as string | undefined, 50, undefined, ['MAIL']),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
 }
 

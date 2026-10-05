@@ -108,7 +108,7 @@ export function ActiveSessionsScreen({ navigation }: Props) {
         keyExtractor={(s) => s.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          !isLoading ? <EmptyState icon={MonitorSmartphone} title="No active sessions" subtitle="You'll see every signed-in device here." /> : null
+          !isLoading ? <EmptyState icon={MonitorSmartphone} title="No active sessions" subtitle="You'll see every signed-in device here." /> : undefined
         }
         ListFooterComponent={
           others.length > 0 ? (
@@ -123,12 +123,12 @@ export function ActiveSessionsScreen({ navigation }: Props) {
             >
               <Text style={styles.revokeAllBtnText}>Sign out of all other sessions</Text>
             </Pressable>
-          ) : null
+          ) : undefined
         }
         renderItem={({ item }) => {
           const isCurrent = item.id === currentSessionId;
           return (
-            <Card style={styles.row}>
+            <Card flat style={styles.row}>
               <Laptop size={18} color={colors.muted} style={{ marginTop: 2 }} />
               <View style={styles.rowText}>
                 <View style={styles.rowTop}>

@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     padding: spacing.xl,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.bgSolid,
   },
   title: {
     fontSize: 16,

@@ -8,9 +8,11 @@ import { ActiveSessionsScreen } from '../screens/more/ActiveSessionsScreen';
 import { MyActivityScreen } from '../screens/more/MyActivityScreen';
 import { AboutScreen } from '../screens/more/AboutScreen';
 import { MembersScreen } from '../screens/more/MembersScreen';
+import { MemberDetailScreen } from '../screens/more/MemberDetailScreen';
 import { OrgScreen } from '../screens/more/OrgScreen';
 import { MailListScreen } from '../screens/more/MailListScreen';
-import { MailDetailScreen } from '../screens/more/MailDetailScreen';
+import { MailDetailScreen } from '../screens/mail/MailDetailScreen';
+import { MailComposeScreen } from '../screens/mail/MailComposeScreen';
 import { ChannelsListScreen } from '../screens/more/ChannelsListScreen';
 import { CreateChannelScreen } from '../screens/more/CreateChannelScreen';
 import { ChannelDetailScreen } from '../screens/more/ChannelDetailScreen';
@@ -24,7 +26,7 @@ const Stack = createNativeStackNavigator<MoreStackParamList>();
 
 export function MoreStackNavigator() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}>
       <Stack.Screen name="MoreMenu" component={MoreMenuScreen} />
       <Stack.Screen name="Account" component={AccountScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
@@ -34,9 +36,11 @@ export function MoreStackNavigator() {
       <Stack.Screen name="MyActivity" component={MyActivityScreen} />
       <Stack.Screen name="About" component={AboutScreen} />
       <Stack.Screen name="Members" component={MembersScreen} />
+      <Stack.Screen name="MemberDetail" component={MemberDetailScreen} />
       <Stack.Screen name="Org" component={OrgScreen} />
       <Stack.Screen name="Mail" component={MailListScreen} />
       <Stack.Screen name="MailDetail" component={MailDetailScreen} />
+      <Stack.Screen name="MailCompose" component={MailComposeScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Channels" component={ChannelsListScreen} />
       <Stack.Screen name="CreateChannel" component={CreateChannelScreen} />
       <Stack.Screen name="ChannelDetail" component={ChannelDetailScreen} />

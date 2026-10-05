@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, KeyRound, ShieldCheck, ShieldOff } from 'lucide-react-native';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal as RNModal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal } from '../../components/Modal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useRuntime } from '@taskboard/app/lib/runtime';
@@ -121,12 +122,12 @@ export function MfaSettingsScreen({ navigation }: Props) {
         )}
       </View>
 
-      <Modal visible={newBackupCodes !== null} animationType="slide" onRequestClose={() => {}}>
+      <RNModal visible={newBackupCodes !== null} animationType="slide" onRequestClose={() => {}}>
         <View style={[styles.modalFlex, { paddingTop: insets.top + spacing.lg }]}>
           <Text style={styles.modalTitle}>Save your backup codes</Text>
           {newBackupCodes ? <BackupCodesView codes={newBackupCodes} onDone={() => setNewBackupCodes(null)} /> : null}
         </View>
-      </Modal>
+      </RNModal>
 
       <StepUpModal
         action={stepUpAction}
@@ -195,43 +196,34 @@ function StepUpModal({
   };
 
   return (
-    <Modal visible={action !== null} animationType="fade" transparent onRequestClose={close}>
-      <View style={styles.stepUpBackdrop}>
-        <View style={[styles.stepUpCard, { marginBottom: insets.bottom + spacing.xl }]}>
-          <Text style={styles.modalTitle}>
-            {action === 'disable' ? "Confirm it's you" : "Confirm it's you to regenerate codes"}
-          </Text>
-          <TextField
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Your password"
-            secureTextEntry
-            autoFocus
+    <Modal
+      visible={action !== null}
+      onClose={close}
+      variant="center"
+      title={action === 'disable' ? "Confirm it's you" : "Confirm it's you to regenerate codes"}
+    >
+      <View style={styles.stepUpBody}>
+        <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry autoFocus />
+        <TextField
+          label={useBackupCode ? 'Backup code' : 'Authentication code'}
+          value={code}
+          onChangeText={setCode}
+          placeholder={useBackupCode ? 'Backup code' : 'Authentication code'}
+          keyboardType={useBackupCode ? 'default' : 'number-pad'}
+        />
+        <Pressable onPress={() => setUseBackupCode((v) => !v)}>
+          <Text style={styles.switchModeText}>{useBackupCode ? 'Use an authentication code instead' : 'Use a backup code instead'}</Text>
+        </Pressable>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <View style={styles.stepUpActions}>
+          <Button title="Cancel" variant="ghost" onPress={close} style={styles.cancelButton} />
+          <Button
+            title={action === 'disable' ? 'Turn off 2FA' : 'Regenerate codes'}
+            onPress={submit}
+            loading={busy}
+            disabled={!password || code.length < 4}
+            style={styles.confirmButton}
           />
-          <TextField
-            label={useBackupCode ? 'Backup code' : 'Authentication code'}
-            value={code}
-            onChangeText={setCode}
-            placeholder={useBackupCode ? 'Backup code' : 'Authentication code'}
-            keyboardType={useBackupCode ? 'default' : 'number-pad'}
-          />
-          <Pressable onPress={() => setUseBackupCode((v) => !v)}>
-            <Text style={styles.switchModeText}>
-              {useBackupCode ? 'Use an authentication code instead' : 'Use a backup code instead'}
-            </Text>
-          </Pressable>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <View style={styles.stepUpActions}>
-            <Button title="Cancel" variant="ghost" onPress={close} style={styles.cancelButton} />
-            <Button
-              title={action === 'disable' ? 'Turn off 2FA' : 'Regenerate codes'}
-              onPress={submit}
-              loading={busy}
-              disabled={!password || code.length < 4}
-              style={styles.confirmButton}
-            />
-          </View>
         </View>
       </View>
     </Modal>
@@ -273,7 +265,7 @@ function createStyles(colors: ThemeColors) {
     dangerBtnText: { color: colors.accentFg },
     modalFlex: { flex: 1, backgroundColor: colors.bg, padding: spacing.lg },
     modalTitle: { fontSize: 17, fontWeight: '700', color: colors.fg, marginBottom: spacing.md },
-    stepUpBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+    stepUpBody: { gap: spacing.md },
     stepUpCard: {
       backgroundColor: colors.surface,
       borderTopLeftRadius: radius.card,

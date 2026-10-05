@@ -1,8 +1,6 @@
 /**
- * BlissWork's visual tokens. The 6 selectable accent-family palettes
- * (light + dark each) live in `./theme/themes.ts`, ported by hand from
- * `packages/ui/src/theme.css` — CSS custom properties don't exist in RN, so
- * that's a deliberate one-time port rather than a shared import.
+ * BlissWork's visual tokens. The six selectable themes (light + dark each —
+ * twelve palettes) live in `./theme/themes.ts`.
  */
 /** Every palette shares this shape — declared explicitly (rather than
  *  `typeof someRealPalette`) so each field is typed as plain `string`, not
@@ -10,16 +8,57 @@
  *  DIFFERENT family/mode's palette (different hex strings at every key)
  *  would fail to satisfy a type inferred from just one example object. */
 export interface ThemeColors {
+  /** Screen background. TRANSPARENT in every theme: the atmospheric background
+   *  (`ThemeBackground`) is painted once, behind the whole app, and glass reads
+   *  it through the screens. Use `bgSolid` where something genuinely needs an opaque fill. */
   bg: string;
+  /** The opaque base colour of the theme (status/nav bars, wash behind a full-screen overlay). */
+  bgSolid: string;
+  /** Second stop of the background gradient (backgroundSecondary). */
+  bgSecondary: string;
+  /** Glass card fill — translucent, drawn over a blurred backdrop. */
   surface: string;
+  /** Inner/raised glass: chips, inset rows, pressed rows. */
   surface2: string;
+  /** Same fill as `surface` (the glass token by its glass name). */
+  surfaceGlass: string;
+  /** Denser glass for things that must stay legible: menus, popovers, bubbles. */
+  surfaceStrong: string;
   border: string;
-  muted: string;
+  /** The bright specular edge of a glass panel. */
+  borderHighlight: string;
+  /** Primary text (the `text` token). */
   fg: string;
+  /** Secondary text. */
+  textSecondary: string;
+  /** Muted text (the `textMuted` token). */
+  muted: string;
   accent: string;
   accentStrong: string;
   accentFg: string;
   accentSoft: string;
+  /** The theme's second brand colour. */
+  accentSecondary: string;
+  /** Icon tint. */
+  icon: string;
+  /** Selected/active fill. */
+  selected: string;
+  /** Text-input fill. */
+  input: string;
+  /** Popup/modal panel fill (denser than a card, so text stays sharp). */
+  modal: string;
+  /** Floating tab-bar fill. */
+  navigation: string;
+  /** Drop-shadow colour. */
+  shadow: string;
+  /** Soft outer glow around glass panels. */
+  glow: string;
+  /** 0..1 — how much of a glass panel is its own fill (documentation + reflection scaling). */
+  glassOpacity: number;
+  /** 1..100 — backdrop blur strength for real-blur panels. */
+  blurIntensity: number;
+  /** 0..1 — strength of the water-glass reflection sheen. */
+  reflectionOpacity: number;
   brandFrom: string;
   brandTo: string;
   success: string;
@@ -28,17 +67,11 @@ export interface ThemeColors {
   unread: string;
 }
 
-/** The default family's (Blue + Purple) light/dark palettes — used only as
- *  the fixed fallback for contexts that can't react to the user's real
- *  selection: ThemeProvider's initial context value (before AsyncStorage
- *  resolves) and ErrorBoundary's fixed light palette (a class component
- *  mounted outside ThemeProvider — see that file's own doc comment). Every
- *  themed screen reads the user's actual family/mode via `useThemeColors()`
- *  instead — sourced from `./theme/themes.ts`, the single table holding all
- *  6 families, rather than duplicated here. */
-import { DEFAULT_FAMILY, paletteFor } from '../theme/themes';
-export const lightColors: ThemeColors = paletteFor(DEFAULT_FAMILY, false);
-export const darkColors: ThemeColors = paletteFor(DEFAULT_FAMILY, true);
+import { DEFAULT_FAMILY, DEFAULT_MODE, paletteFor } from '../theme/themes';
+/** The default theme's palette — the fixed fallback for contexts that can't react to the user's
+ *  selection: ThemeProvider's initial value (before AsyncStorage resolves) and ErrorBoundary (a class
+ *  component mounted outside ThemeProvider). Every themed screen reads `useThemeColors()` instead. */
+export const lightColors: ThemeColors = paletteFor(DEFAULT_FAMILY, DEFAULT_MODE);
 
 /** `rounded-2xl` is the dominant corner radius across cards/panels/buttons
  *  throughout the web app (Tailwind's `2xl` = 16px) — the one radius token

@@ -115,6 +115,8 @@ export function sourceLabel(source: ActivitySource, t?: TFunction): { text: stri
   switch (source) {
     case "server":
       return { text: tt("members:activityLabels.source.verified", "Verified"), verified: true };
+    case "mobile":
+      return { text: tt("members:activityLabels.source.mobile", "Mobile app"), verified: false };
     case "desktop":
       return { text: tt("members:activityLabels.source.desktop", "Desktop app"), verified: false };
     case "extension":

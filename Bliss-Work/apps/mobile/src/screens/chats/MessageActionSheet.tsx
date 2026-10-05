@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { CornerUpLeft, Forward, ListChecks, Pin, PinOff, Plus, Trash, Trash2, type LucideIcon } from 'lucide-react-native';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Copy, CornerUpLeft, Forward, ListChecks, Pin, PinOff, Plus, Trash, Trash2, type LucideIcon } from 'lucide-react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal } from '../../components/Modal';
+import { MenuItem } from '../../components/MenuItem';
 import { radius, spacing, type ThemeColors } from '../../constants/theme';
 import { useThemeColors } from '../../theme/ThemeProvider';
 
@@ -24,6 +25,8 @@ interface MessageActionSheetProps {
   onOpenFullPicker: () => void;
   onReply: () => void;
   onForward: () => void;
+  /** Present only for messages that have copyable text. */
+  onCopy?: () => void;
   onSelect: () => void;
   onTogglePin?: () => void;
   onDeleteForMe: () => void;
@@ -50,6 +53,7 @@ export function MessageActionSheet({
   onOpenFullPicker,
   onReply,
   onForward,
+  onCopy,
   onSelect,
   onTogglePin,
   onDeleteForMe,
@@ -57,7 +61,6 @@ export function MessageActionSheet({
 }: MessageActionSheetProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const insets = useSafeAreaInsets();
 
   const run = (action: () => void) => {
     action();
@@ -67,6 +70,7 @@ export function MessageActionSheet({
   const actions: { key: string; label: string; icon: LucideIcon; danger?: boolean; onPress: () => void }[] = [
     { key: 'reply', label: 'Reply', icon: CornerUpLeft, onPress: onReply },
     { key: 'forward', label: 'Forward', icon: Forward, onPress: onForward },
+    ...(onCopy ? [{ key: 'copy', label: 'Copy', icon: Copy, onPress: onCopy }] : []),
     { key: 'select', label: 'Select', icon: ListChecks, onPress: onSelect },
   ];
   if (canPin && onTogglePin) {
@@ -78,83 +82,41 @@ export function MessageActionSheet({
   }
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <View style={[styles.sheet, { marginBottom: insets.bottom + spacing.lg }]}>
-          <View style={[styles.quickRow, mine && styles.quickRowMine]}>
-            {QUICK_REACTIONS.map((emoji) => (
-              <Pressable key={emoji} onPress={() => run(() => onQuickReact(emoji))} style={styles.quickEmoji}>
-                <Text style={styles.quickEmojiText}>{emoji}</Text>
-              </Pressable>
-            ))}
-            <Pressable onPress={() => run(onOpenFullPicker)} style={[styles.quickEmoji, styles.morePicker]}>
-              <Plus size={18} color={colors.muted} />
-            </Pressable>
-          </View>
+    <Modal visible={visible} onClose={onClose}>
+      <View style={[styles.quickRow, mine && styles.quickRowMine]}>
+        {QUICK_REACTIONS.map((emoji) => (
+          <Pressable key={emoji} onPress={() => run(() => onQuickReact(emoji))} style={styles.quickEmoji} accessibilityLabel={`React ${emoji}`}>
+            <Text style={styles.quickEmojiText}>{emoji}</Text>
+          </Pressable>
+        ))}
+        <Pressable onPress={() => run(onOpenFullPicker)} style={[styles.quickEmoji, styles.morePicker]} accessibilityLabel="More reactions">
+          <Plus size={18} color={colors.muted} />
+        </Pressable>
+      </View>
 
-          {actions.map((action, index) => (
-            <Pressable
-              key={action.key}
-              style={[styles.item, index < actions.length - 1 && styles.itemDivider]}
-              onPress={() => run(action.onPress)}
-            >
-              <action.icon size={18} color={action.danger ? colors.danger : colors.fg} />
-              <Text style={[styles.itemText, action.danger && styles.itemTextDanger]}>{action.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </Pressable>
+      {actions.map((action, index) => (
+        <MenuItem key={action.key} icon={action.icon} label={action.label} danger={action.danger} divider={index < actions.length - 1} onPress={() => run(action.onPress)} />
+      ))}
     </Modal>
   );
 }
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    backdrop: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.35)',
-      justifyContent: 'flex-end',
-    },
-    sheet: {
-      marginHorizontal: spacing.lg,
-      backgroundColor: colors.surface,
-      borderRadius: radius.card,
-      overflow: 'hidden',
-    },
     quickRow: {
       flexDirection: 'row',
       justifyContent: 'flex-start',
       alignItems: 'center',
+      flexWrap: 'wrap',
       gap: spacing.xs,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      borderBottomWidth: 1,
+      paddingBottom: spacing.sm,
+      marginBottom: spacing.xs,
+      borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.border,
     },
     quickRowMine: { justifyContent: 'flex-end' },
-    quickEmoji: {
-      width: 38,
-      height: 38,
-      borderRadius: radius.pill,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    morePicker: {
-      backgroundColor: colors.surface2,
-    },
-    quickEmojiText: { fontSize: 20 },
-    item: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-    },
-    itemDivider: {
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    itemText: { fontSize: 15, fontWeight: '500', color: colors.fg },
-    itemTextDanger: { color: colors.danger },
+    quickEmoji: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+    morePicker: { backgroundColor: colors.surface2 },
+    quickEmojiText: { fontSize: 22 },
   });
 }
