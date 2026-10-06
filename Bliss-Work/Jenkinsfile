@@ -99,6 +99,14 @@ def IMAGES = [
         dockerfile: 'services/ws-gateway/Dockerfile',
         paths     : ['services/ws-gateway/', 'services/shared/kafkaauth/', 'services/shared/backoff/', 'services/shared/internalauth/']
     ],
+    // Google Cloud Translation gateway: owns all UI translation. Context is the
+    // repo root: go.mod replaces shared-internalauth with the sibling module, and
+    // the image copies the English UI catalogs from packages/app.
+    'translate-gw': [
+        context   : '.',
+        dockerfile: 'services/translate-gw/Dockerfile',
+        paths     : ['services/translate-gw/', 'services/shared/internalauth/', 'packages/app/src/i18n/locales/en/']
+    ],
     // Cross-region replication (docs/CROSS-REGION.md). Built here so CI keeps
     // the image current, but NOT part of docker-compose.prod.yml's default
     // service set — it only runs via the opt-in docker-compose.crossregion.yml

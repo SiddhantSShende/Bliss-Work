@@ -4,7 +4,7 @@ import { initReactI18next } from "react-i18next";
 /**
  * Locales this build ships catalogs for. Only English is bundled — every
  * other locale is fetched at runtime from BlissWork's own backend (which
- * calls Google Cloud Translation server-side; the client never holds that
+ * calls Google Cloud Translation server-side via translate-gw; the client never holds that
  * credential and never calls Google directly). This constant will grow once
  * that dynamic-fetch path exists; for now it is exactly what the app ships.
  */

@@ -8,7 +8,7 @@ import { qk } from "../lib/queryBridge";
 import { useAvailability } from "../lib/useAvailability";
 import { useDeadlineRefetch } from "../lib/useDeadlineRefetch";
 import { useMarkTaskNotificationsRead } from "../lib/useMarkTaskNotificationsRead";
-import { ListHeader, rowClass } from "../features/ListPane";
+import { ListHeader, NavIconTile, rowClass } from "../features/ListPane";
 
 const CATS = [
   { view: "mine", icon: Send },
@@ -69,9 +69,9 @@ export function TasksList() {
           const n = counts[c.view] ?? 0;
           return (
             <NavLink key={c.view} to={`/app/tasks/${c.view}`} className={({ isActive }) => rowClass(isActive)}>
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <NavIconTile>
                 <c.icon size={17} />
-              </span>
+              </NavIconTile>
               <span className="flex-1 text-sm font-medium text-fg">{categoryLabel[c.view]}</span>
               {n > 0 && (
                 <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold text-muted">{n}</span>

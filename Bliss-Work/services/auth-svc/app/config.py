@@ -108,22 +108,14 @@ class Settings(BaseSettings):
     redis_url: str = ""
     slowapi_storage_uri: str = ""
 
-    # Server-side-only credential for the dynamic UI-translation endpoints
-    # (routes/i18n.py) — Cloud Translation Basic (v2), API-key auth. Never sent
-    # to, or readable by, any client. Empty disables translation: /i18n/languages
-    # returns no languages and the app stays on its bundled English catalog,
-    # which is the only locale it ever ships client-side.
-    google_translate_api_key: str = ""
-    # Preferred over the key when set (see i18n_auth.py): a service-account JSON
-    # path, or GOOGLE_TRANSLATE_USE_ADC=true for Application Default Credentials
-    # with no file (attached service account / workload identity / gcloud ADC).
-    google_application_credentials: str = ""
-    google_translate_use_adc: bool = False
-    # Which locales the switcher offers, comma-separated, in display order —
-    # intersected with what Google actually supports. Adding a language is an env
-    # change, not a code change. Empty = every language Google supports.
-    # English is always available (bundled) and need not be listed.
-    i18n_locales: str = "es,fr,de,hi,pt,ja,zh,ko"
+    # Dynamic UI translation (routes/i18n_proxy.py). auth-svc holds NO Google
+    # credential and no translation logic: it authenticates the caller and
+    # forwards to translate-gw (services/translate-gw, Go), the one component that
+    # talks to Cloud Translation, using Application Default Credentials. Either
+    # value empty disables translation: /i18n/languages then returns no languages
+    # and the app stays on its bundled English catalog.
+    translate_gw_url: str = ""
+    translate_internal_token: str = ""
 
     # Refresh-cookie security. `secure` MUST be True in production so the cookie
     # is only sent over TLS; driven by env (COOKIE_SECURE) so a prod deploy flips

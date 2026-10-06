@@ -859,6 +859,62 @@ services:
       resources:
         limits: { cpus: "1.00", memory: 512M }
 
+  # ── Google Cloud Translation gateway (opt-in: `--profile i18n`) ─────────────
+  # Owns ALL UI translation: language list, English source catalogs, placeholder
+  # protection, cache (REDIS_URL) and the Cloud Translation calls, using the
+  # official Go client authenticated by Application Default Credentials (the
+  # library mints and refreshes its own access tokens). auth-svc
+  # (TRANSLATE_GW_URL + TRANSLATE_INTERNAL_TOKEN) is its only caller; it is never
+  # routed by Caddy and publishes no host port.
+  #
+  # Deliberately NOT in the Makefile's DEPLOY_* lists and gated behind a profile:
+  # a service added there is also named by `prod-deploy`'s rollback path, which
+  # would then ask an older compose file/image set for a service it never had.
+  # (A hand-started profiled service survives `up -d --remove-orphans`.) Enable:
+  #     docker compose --env-file .env --env-file .env.prod -f docker-compose.prod.yml \
+  #         --profile i18n up -d --build translate-gw
+  #
+  # THE credential configuration point — see docs/I18N-TRANSLATION.md:
+  #   TRANSLATE_ADC_DIR                host directory, mounted READ-ONLY at /run/adc
+  #                                    (default ./keys/translate-adc, git-ignored)
+  #   TRANSLATE_GOOGLE_CREDENTIALS     path of the credential file INSIDE the container
+  #                                    (default /run/adc/credentials.json). Set it EMPTY
+  #                                    to use Google's normal ADC chain instead (metadata
+  #                                    server on GCE/GKE/Cloud Run; no file needed).
+  # The file is a Workload Identity Federation `external_account` config (or an
+  # impersonated_service_account config) — it holds no long-lived secret. A
+  # downloaded service-account key and a person's gcloud login file are not
+  # acceptable here. If the config's credential_source points at a token file,
+  # put that file in the same directory. Everything must be readable by uid 10001.
+  # With no credential the gateway still starts, answers 503 "unconfigured", and
+  # the switcher stays English-only.
+  translate-gw:
+    <<: *svc-defaults
+    profiles: ["i18n"]
+    build:
+      context: .
+      dockerfile: services/translate-gw/Dockerfile
+    image: ${REGISTRY_PREFIX:-task-board}/translate-gw:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
+      GOOGLE_APPLICATION_CREDENTIALS: ${TRANSLATE_GOOGLE_CREDENTIALS-/run/adc/credentials.json}
+    # env_file inherited from x-svc-defaults (.env.prod carries
+    # TRANSLATE_INTERNAL_TOKEN, I18N_LOCALES and REDIS_URL). Volumes are re-listed
+    # (not inherited) — see the x-svc-defaults note: `<<:` replaces the list.
+    volumes:
+      - ${TRANSLATE_ADC_DIR:-./keys/translate-adc}:/run/adc:ro
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8012/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      replicas: 1
+      resources:
+        limits: { cpus: "0.50", memory: 128M }
+
   email-worker:
     <<: *svc-defaults
     build:

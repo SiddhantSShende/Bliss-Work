@@ -2,8 +2,8 @@
  * The i18n calls go to auth-svc's own /i18n routes through the edge's /api/auth
  * mount. A browser console line "GET /api/auth/i18n/languages 404" is therefore NOT
  * a wrong URL: Caddy's handle_path strips /api/auth and auth-svc serves
- * /i18n/languages (routes/i18n_service.py, APIRouter prefix "/i18n"). It means the
- * deployed auth-svc build predates that router — scripts/verify-edge-routes.sh
+ * /i18n/languages (routes/i18n_proxy.py, APIRouter prefix "/i18n"; it forwards to
+ * translate-gw). It means the deployed auth-svc build predates that router — scripts/verify-edge-routes.sh
  * tells the two apart on a live edge.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,7 +29,7 @@ describe("i18n requests", () => {
     expect(new Headers(init.headers).get("authorization")).toBe("Bearer tok");
   });
 
-  it("accepts the empty list auth-svc answers when no translation key is configured", async () => {
+  it("accepts the empty list auth-svc answers when translation is not configured", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(200, { languages: [] })));
     await expect(edge().i18nLanguages()).resolves.toEqual({ languages: [] });
   });

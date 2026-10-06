@@ -136,6 +136,47 @@ services:
       timeout: 5s
       retries: 20
 
+  # ── Google Cloud Translation gateway (opt-in: `--profile i18n`) ─────────────
+  # Owns ALL UI translation: language list, English source catalogs, placeholder
+  # protection, cache (REDIS_URL) and the Cloud Translation calls. The official Go
+  # client authenticated by Application Default Credentials: the library mints and
+  # refreshes its own access tokens. No service-account key, no API key, and no
+  # token in any env file or image. auth-svc (TRANSLATE_GW_URL +
+  # TRANSLATE_INTERNAL_TOKEN) is its only caller; no host port is published.
+  #
+  # THE credential configuration point (same variables in docker-compose.prod.yml):
+  #   TRANSLATE_ADC_DIR                host directory, mounted READ-ONLY at /run/adc
+  #   TRANSLATE_GOOGLE_CREDENTIALS     path of the credential file INSIDE the container
+  #                                    (default /run/adc/credentials.json). Set it EMPTY
+  #                                    to use Google's normal ADC chain instead (metadata
+  #                                    server on GCE/GKE/Cloud Run; no file needed).
+  # A directory (not a file) is mounted so a missing credential is just "not
+  # configured" instead of Docker creating a stray directory in its place.
+  # DEV: after `gcloud auth application-default login`, set in .env
+  #   TRANSLATE_ADC_DIR=<your ~/.config/gcloud, as an explicit path — under `sudo docker`
+  #                      $HOME is root's>
+  #   TRANSLATE_GOOGLE_CREDENTIALS=/run/adc/application_default_credentials.json
+  #   TRANSLATE_RUN_AS=<id -u>:<id -g>   (so the container can read the 0600 file)
+  # With the profile off (or no credential) the language switcher stays English-only.
+  translate-gw:
+    <<: *svc-defaults
+    profiles: ["i18n"]
+    build:
+      context: .
+      dockerfile: services/translate-gw/Dockerfile
+    user: "${TRANSLATE_RUN_AS:-10001}"
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: ${TRANSLATE_GOOGLE_CREDENTIALS-/run/adc/credentials.json}
+    volumes:
+      - ${TRANSLATE_ADC_DIR:-./keys/translate-adc}:/run/adc:ro
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8012/readyz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   email-worker:
     <<: *svc-defaults
     build:

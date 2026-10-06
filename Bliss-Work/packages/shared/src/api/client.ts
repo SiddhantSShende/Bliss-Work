@@ -640,9 +640,10 @@ export class ApiClient {
   me() {
     return this.req(this.cfg.authBase, "/auth/me", {}, UserDTO);
   }
-  /** The locales auth-svc can currently translate the UI into — live from
-   *  Google Cloud Translation (Redis-cached server-side), never a client-side
-   *  hardcoded list. Empty when no Google credential is configured. */
+  /** The locales the translation backend can currently translate the UI into —
+   *  decided server-side by translate-gw (configured locales ∩ what Google
+   *  Cloud Translation supports), never a client-side hardcoded list. Empty
+   *  when translation is unconfigured or unavailable. */
   i18nLanguages() {
     return this.req(this.cfg.authBase, "/i18n/languages", {}, I18nLanguagesDTO);
   }

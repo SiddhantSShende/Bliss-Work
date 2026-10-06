@@ -136,6 +136,17 @@
   background: var(--color-brand-gradient) !important;
 }
 
+/* Secondary-nav icon tiles (NavIconTile) under a custom theme: a dark shade of
+   the theme's accent behind a light shade of it — the reverse of the pale fill
+   + accent icon every other theme uses. Both shades are mixed from the same
+   --color-accent the builder already sets, so no new colour token exists. The
+   mix ratios keep the icon ≥ 4.5:1 on the tile for any accent, light or dark
+   (checked in navIconTileContrast.test.ts). */
+.custom-theme .nav-icon-tile {
+  background-color: color-mix(in srgb, var(--color-accent) 30%, black);
+  color: color-mix(in srgb, var(--color-accent) 40%, white);
+}
+
 /* ── Named colour themes ──────────────────────────────────────────────────
    Six theme families selectable from Settings → Theme (light ids only — see
    themes.ts). "Blue" is the app's original palette (the bare `:root`/`.dark`

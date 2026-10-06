@@ -109,10 +109,15 @@ export function Rail({
       } ${className}`}
     >
       <div
-        className={`min-h-0 w-full flex-1 overflow-y-auto overscroll-contain [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin] ${
-          // -mx-2/px-2 gives the active item's glow room inside the scroller
-          // instead of being sliced at the 48px button edge.
-          side ? "-mx-2 flex w-[calc(100%+1rem)] flex-col items-center gap-1 px-2" : "space-y-1"
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin] ${
+          // The 72px rail is 70px inside its glass border and only 46px inside
+          // px-3 — less than one 48px button. So the side scroller bleeds out
+          // across that padding (-mx-3, +1.5rem) to the full 70px, keeping just
+          // px-1 of its own: 62px of content, 52px beside the thin scrollbar,
+          // either way room for the 48px buttons and their glow. Do not add
+          // w-full here — it overrides the calc width and brings back the
+          // sideways overflow.
+          side ? "-mx-3 flex w-[calc(100%+1.5rem)] flex-col items-center gap-1 px-1" : "w-full space-y-1"
         }`}
       >
         {buttons(ITEMS)}

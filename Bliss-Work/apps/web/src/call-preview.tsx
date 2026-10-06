@@ -74,7 +74,7 @@ function NeonRoomPreview() {
             chatActive={panel === "chat"} unreadChat={3} onToggleChat={() => setPanel((p) => (p === "chat" ? null : "chat"))}
             notesActive={panel === "notes"} onToggleNotes={() => setPanel((p) => (p === "notes" ? null : "notes"))}
             isHost recordingSupported recording={false} onToggleRecording={() => {}}
-            pipSupported pipActive={false} onTogglePip={() => {}} onMinimize={() => {}}
+            pipSupported pipAvailable={false /* useMeetingPiP: supported && (active || track); no tracks here */} pipActive={false} onTogglePip={() => {}} onMinimize={() => {}}
             onEnd={() => {}}
           />
           <div className="flex min-h-0 flex-1 flex-col">

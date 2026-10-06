@@ -30,10 +30,15 @@ import { useNotificationPages } from "../lib/useCursorPagination";
  *  navigation labels — see the width comment on the <aside> below. */
 const ROW_LIST_SECTIONS = new Set<string>(["chats", "channels", "members"]);
 
-/** Width of the secondary-navigation pane from lg up: ONE value for every
- *  section. Chat's pane was 280px (md:w-[280px] below); 280 × 1.5 = 420px. The
- *  main pane (flex-1) takes the rest. Literal class so Tailwind can see it. */
+/** Width of the secondary-navigation pane from lg up: one value for every
+ *  section except Mail. Chat's pane was 280px (md:w-[280px] below); 280 × 1.5 =
+ *  420px. The main pane (flex-1) takes the rest. Literal class so Tailwind can
+ *  see it. */
 const LIST_PANE_LG_WIDTH = "lg:w-[420px]";
+
+/** Mail's folder pane from lg up: half of LIST_PANE_LG_WIDTH. It holds only
+ *  five short folder labels, so the rest of 420px was dead space. */
+const MAIL_PANE_LG_WIDTH = "lg:w-[210px]";
 
 export function AppShell() {
   const { api } = useRuntime();
@@ -136,7 +141,7 @@ export function AppShell() {
             // and from lg up every section shares LIST_PANE_LG_WIDTH.
             className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 ${
               ROW_LIST_SECTIONS.has(section) ? "md:w-[280px]" : "md:w-[208px]"
-            } ${LIST_PANE_LG_WIDTH} ${showListOnMobile ? "flex" : "hidden"} md:flex`}
+            } ${section === "mail" ? MAIL_PANE_LG_WIDTH : LIST_PANE_LG_WIDTH} ${showListOnMobile ? "flex" : "hidden"} md:flex`}
           >
             {section === "mail" && <MailFolders />}
             {section === "chats" && <ChatsList />}

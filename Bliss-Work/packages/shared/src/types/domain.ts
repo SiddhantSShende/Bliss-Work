@@ -309,8 +309,9 @@ export type CaptchaChallengeDTO = z.infer<typeof CaptchaChallengeDTO>;
 
 /** GET /i18n/languages' response — the live set of locales the dynamic
  *  translation backend can currently produce a catalog for. Never a
- *  hardcoded client-side list; always whatever auth-svc's Google
- *  Cloud Translation check just returned (or its Redis-cached copy of it). */
+ *  hardcoded client-side list; always whatever translate-gw (behind
+ *  auth-svc) offers: its configured locales that Google Cloud Translation
+ *  also supports. */
 export const I18nLanguageDTO = z.object({
   code: z.string(),
   name: z.string(),
@@ -326,7 +327,8 @@ export type I18nLanguagesDTO = z.infer<typeof I18nLanguagesDTO>;
  *  the exact shape `i18next.addResourceBundle(locale, namespace, ...)` wants for each entry.
  *  `partial` is true when Google failed to translate some strings for this
  *  request — those keys carry their English source text and rely on the
- *  client's own `fallbackLng: "en"` to read correctly either way. */
+ *  client's own `fallbackLng: "en"` to read correctly either way. A partial
+ *  catalog is applied but not cached client-side. */
 export const I18nCatalogDTO = z.object({
   locale: z.string(),
   namespaces: z.record(z.string(), z.record(z.string(), z.unknown())),

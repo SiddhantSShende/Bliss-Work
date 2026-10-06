@@ -8,7 +8,7 @@ import { Button, EmptyState } from "@taskboard/ui";
 import type { ChannelDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { ListHeader, rowClass, relTime } from "../features/ListPane";
+import { ListHeader, NavIconTile, rowClass, relTime } from "../features/ListPane";
 import { AddChannelDialog } from "../features/AddChannelDialog";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
@@ -295,9 +295,9 @@ function ChannelRow({
   return (
     <div className={rowClass(isActive)}>
       <NavLink to={`/app/channels/${c.id}`} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+        <NavIconTile>
           <Icon size={17} />
-        </span>
+        </NavIconTile>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <span className="flex min-w-0 items-center gap-1.5">
@@ -455,9 +455,9 @@ function OpenChannelRow({
   const { t } = useTranslation("chatList");
   return (
     <div className="flex items-center gap-2 rounded-xl p-2 hover:bg-surface-2">
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+      <NavIconTile>
         <Globe size={17} />
-      </span>
+      </NavIconTile>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-sm font-medium text-fg">
           <span className="truncate">{c.name}</span>

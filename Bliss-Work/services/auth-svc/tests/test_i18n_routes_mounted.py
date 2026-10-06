@@ -1,6 +1,6 @@
 """The i18n routes are mounted on the REAL application, not just on a test app.
 
-test_i18n_service.py builds its own FastAPI app around the router, so it would pass
+test_i18n_proxy.py builds its own FastAPI app around the router, so it would pass
 even if app/main.py never included it. That is exactly the failure users saw when an
 auth-svc image predating the router served the web app: `GET /api/auth/i18n/languages`
 → 404 in the browser console. This asserts against `app.main.app` itself.

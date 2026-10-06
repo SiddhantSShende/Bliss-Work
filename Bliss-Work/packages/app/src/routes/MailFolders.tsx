@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useInboxPeers } from "../lib/useInboxPeers";
-import { ListHeader, rowClass } from "../features/ListPane";
+import { ListHeader, NavIconTile, rowClass } from "../features/ListPane";
 import { MAIL_FOLDERS, type MailFolder, mailSearch, folderOf, peerOf, folderLabel } from "../lib/mailView";
 
 /**
@@ -90,9 +90,9 @@ export function MailFolders() {
               }
               className={rowClass(active)}
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <NavIconTile>
                 <Icon size={15} />
-              </div>
+              </NavIconTile>
               <span
                 className={`min-w-0 flex-1 truncate text-sm font-semibold ${
                   active ? "text-fg" : "text-fg/90"

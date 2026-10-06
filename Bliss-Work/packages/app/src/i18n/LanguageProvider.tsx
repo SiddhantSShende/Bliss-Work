@@ -12,9 +12,10 @@ export interface LocaleOption {
 }
 
 // English is the only locale bundled at build time — never fetched, and
-// available even with no Google credential configured or no session yet.
-// Every other option the switcher lists is fetched live from auth-svc (see
-// the languages effect below) — this app never hardcodes a language list.
+// available even when the translation backend is unconfigured, down, or there
+// is no session yet. Every other option the switcher lists is whatever
+// GET /i18n/languages returns (see the languages effect below) — this app never
+// hardcodes a language list.
 const BUNDLED_OPTIONS: LocaleOption[] = [{ code: DEFAULT_LOCALE, englishName: "English", nativeName: "English" }];
 
 const LanguageCtx = createContext<{
@@ -29,9 +30,9 @@ const LanguageCtx = createContext<{
 
 const LOCALE_KEY = "tb-locale";
 const CATALOG_CACHE_PREFIX = "tb-i18n-catalog:";
-// Matches auth-svc's own Google-language-list TTL — one deliberate constant
-// for "how long a fetched i18n artifact is trusted without asking again",
-// reused on both sides rather than inventing a second number.
+// How long a fetched catalog is trusted without asking again (the gateway's
+// supported-language list uses the same 24h) — one deliberate constant rather
+// than a second number.
 const CATALOG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -39,7 +40,7 @@ const CATALOG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
  * mode, disabled cookies) — resolves to English.
  *
  * Unlike the old static build, the valid set isn't known synchronously any
- * more — it's whatever auth-svc's live Google Cloud Translation check
+ * more — it's whatever the translation backend's /i18n/languages
  * returns, which needs a network round trip this function can't make. So
  * this only sanity-checks the SHAPE of a stored value (a plausible BCP-47-ish
  * code), not membership in a known set; an invalid or now-unsupported code
@@ -90,7 +91,7 @@ function writeCachedCatalog(locale: string, namespaces: Record<string, object>) 
     localStorage.setItem(CATALOG_CACHE_PREFIX + locale, JSON.stringify(entry));
   } catch {
     // Not fatal — the locale still applies for this session, just refetches
-    // (from auth-svc's own Redis cache, so still cheap) next time.
+    // (from the translation gateway's own cache, so still cheap) next time.
   }
 }
 
@@ -115,7 +116,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   // authenticated (GET /i18n/languages requires it, and the switcher that
   // reads this never renders before then; see TopNavbar). Failure here is
   // silent: the dropdown simply stays English-only, indistinguishable from
-  // no Google credential being configured at all — not a user-facing error,
+  // the translation backend being unconfigured at all — not a user-facing error,
   // since nothing the user did caused it.
   useEffect(() => {
     if (!authed || fetchedLanguages.current) return;
@@ -123,7 +124,12 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     void api
       .i18nLanguages()
       .then((res) => {
-        setExtraLocales(res.languages.map((l) => ({ code: l.code, englishName: l.name, nativeName: l.name })));
+        setExtraLocales(
+          res.languages
+            // English is bundled and already listed first; never show it twice.
+            .filter((l) => l.code !== DEFAULT_LOCALE)
+            .map((l) => ({ code: l.code, englishName: l.name, nativeName: l.name })),
+        );
       })
       .catch(() => {});
   }, [authed, api]);
@@ -155,7 +161,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       .i18nCatalog(locale)
       .then((res) => {
         applyCatalog(locale, res.namespaces);
-        writeCachedCatalog(locale, res.namespaces);
+        if (!res.partial) writeCachedCatalog(locale, res.namespaces);
         void i18n.changeLanguage(locale);
       })
       .catch(() => {});
@@ -186,7 +192,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       .i18nCatalog(next)
       .then((res) => {
         applyCatalog(next, res.namespaces);
-        writeCachedCatalog(next, res.namespaces);
+        // A partial catalog still has English holes; caching it would keep them
+        // for the whole TTL, so let the next visit ask again.
+        if (!res.partial) writeCachedCatalog(next, res.namespaces);
         void i18n.changeLanguage(next);
         persistLocale(next);
         setLocaleState(next);
