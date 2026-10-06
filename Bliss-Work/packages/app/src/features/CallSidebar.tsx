@@ -74,6 +74,7 @@ export function CallSidebar({
   recording,
   onToggleRecording,
   pipSupported,
+  pipAvailable,
   pipActive,
   onTogglePip,
   onMinimize,
@@ -108,6 +109,8 @@ export function CallSidebar({
   recording: boolean;
   onToggleRecording: () => void;
   pipSupported: boolean;
+  /** Supported AND there is a video to float, or PiP is already up. */
+  pipAvailable: boolean;
   pipActive: boolean;
   onTogglePip: () => void;
   onMinimize?: () => void;
@@ -178,7 +181,14 @@ export function CallSidebar({
             label={pipActive ? t("sidebar.exitPip") : t("sidebar.pip")}
             onClick={onTogglePip}
             active={pipActive}
-            title={pipActive ? t("sidebar.exitPictureInPicture") : t("sidebar.pictureInPicture")}
+            disabled={!pipAvailable}
+            title={
+              pipActive
+                ? t("sidebar.exitPictureInPicture")
+                : pipAvailable
+                  ? t("sidebar.pictureInPicture")
+                  : t("sidebar.pictureInPictureNoVideo")
+            }
           />
         )}
         {onMinimize && (

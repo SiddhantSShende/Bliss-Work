@@ -90,6 +90,17 @@ function person(identity: string, over: Partial<RoomParticipant> = {}): RoomPart
 
 const attach = (t: Track | null) => (t as unknown as { attach: ReturnType<typeof vi.fn> }).attach;
 const detach = (t: Track | null) => (t as unknown as { detach: ReturnType<typeof vi.fn> }).detach;
+/** Only the attach() calls that landed on a real tile. useMeetingPiP keeps ONE
+ *  hidden mirror <video> directly under <body> (never in the React tree) that
+ *  follows whichever track Picture-in-Picture would show, including — since PiP
+ *  falls back to anyone with video when nobody is on stage — in a plain grid.
+ *  Tile stability is about the tiles, so the mirror is excluded from the counts
+ *  that assert "mounted exactly once". */
+const tileAttaches = (t: Track | null) =>
+  attach(t).mock.calls.filter((c) => (c[0] as HTMLVideoElement).parentElement !== document.body);
+const tileDetaches = (t: Track | null) =>
+  detach(t).mock.calls.filter((c) => (c[0] as HTMLVideoElement).parentElement !== document.body);
+
 /** The actual <video> element a track's attach() was called with — the most
  *  direct proof available that "the same element" kept showing it. */
 const attachedEl = (t: Track | null) => attach(t).mock.calls.at(-1)?.[0] as HTMLVideoElement | undefined;
@@ -179,7 +190,7 @@ describe("CallRoom — stable video identity across layout transitions", () => {
       const b = person("b", { camOn: true, videoTrack: fakeTrack("vb") });
       const { rerender } = renderRoom([a, b]);
       const rerenderWith = rerenderRoomFn(rerender);
-      expect(attach(a.videoTrack)).toHaveBeenCalledTimes(1);
+      expect(tileAttaches(a.videoTrack)).toHaveLength(1);
       const elInGrid = attachedEl(a.videoTrack);
 
       // A starts speaking. CallRoom's own active-speaker filter promotes
@@ -218,8 +229,8 @@ describe("CallRoom — stable video identity across layout transitions", () => {
     const b = person("b", { camOn: true, videoTrack: fakeTrack("vb") });
     const c = person("c", { camOn: true, videoTrack: fakeTrack("vc") });
     renderRoom([a, b, c]);
-    expect(attach(b.videoTrack)).toHaveBeenCalledTimes(1);
-    const elInGrid = attach(b.videoTrack).mock.calls[0]![0] as HTMLVideoElement;
+    expect(tileAttaches(b.videoTrack)).toHaveLength(1);
+    const elInGrid = tileAttaches(b.videoTrack)[0]![0] as HTMLVideoElement;
 
     await user.click(pinButton("B"));
     expect(screen.getByRole("button", { name: "Unpin the main view" })).toBeInTheDocument();
@@ -240,7 +251,7 @@ describe("CallRoom — stable video identity across layout transitions", () => {
     const b = person("b", { camOn: true, videoTrack: fakeTrack("vb") });
     const { rerender } = renderRoom([a, b]);
     const rerenderWith = rerenderRoomFn(rerender);
-    expect(attach(a.videoTrack)).toHaveBeenCalledTimes(1);
+    expect(tileAttaches(a.videoTrack)).toHaveLength(1);
     const elInGrid = attachedEl(a.videoTrack); // the <video> element A's camera lives in, in the grid
 
     // A starts sharing: A's existing tile moves onto the stage — still the
@@ -262,10 +273,10 @@ describe("CallRoom — stable video identity across layout transitions", () => {
     // The camera legitimately gets detached from THAT tile once (it swapped
     // to the screen) — not a remount signature, the expected side effect of
     // the source change, already true of CallTile before this fix.
-    expect(detach(a.videoTrack)).toHaveBeenCalledTimes(1);
+    expect(tileDetaches(a.videoTrack)).toHaveLength(1);
     // ...and legitimately re-attached once more: the filmstrip's own,
     // separate camera-only copy mounting for the first time.
-    expect(attach(a.videoTrack)).toHaveBeenCalledTimes(2);
+    expect(tileAttaches(a.videoTrack)).toHaveLength(2);
 
     // A stops sharing: the stage tile (same key throughout) goes back to the
     // grid, back to the camera — on the SAME element the grid always used.
@@ -279,17 +290,17 @@ describe("CallRoom — stable video identity across layout transitions", () => {
     const a = person("a", { camOn: true, videoTrack: fakeTrack("va") });
     const { rerender } = renderRoom([a]);
     const rerenderWith = rerenderRoomFn(rerender);
-    expect(attach(a.videoTrack)).toHaveBeenCalledTimes(1);
+    expect(tileAttaches(a.videoTrack)).toHaveLength(1);
     const elSolo = attachedEl(a.videoTrack);
 
     // A second participant joins — CallMembers' own solo/grid ternary flips.
     const b = person("b", { camOn: true, videoTrack: fakeTrack("vb") });
     rerenderWith([a, b]);
 
-    expect(attach(a.videoTrack)).toHaveBeenCalledTimes(1); // A: not re-attached
-    expect(detach(a.videoTrack)).not.toHaveBeenCalled();
+    expect(tileAttaches(a.videoTrack)).toHaveLength(1); // A: not re-attached
+    expect(tileDetaches(a.videoTrack)).toHaveLength(0);
     expect(attachedEl(a.videoTrack)).toBe(elSolo);
-    expect(attach(b.videoTrack)).toHaveBeenCalledTimes(1); // B: a genuine, ordinary first mount
+    expect(tileAttaches(b.videoTrack)).toHaveLength(1); // B: a genuine, ordinary first mount
   });
 
   it("participant join/leave: a newcomer mounts once and a departure actually detaches, without disturbing who's left", async () => {
@@ -297,16 +308,16 @@ describe("CallRoom — stable video identity across layout transitions", () => {
     const b = person("b", { camOn: true, videoTrack: fakeTrack("vb") });
     const { rerender } = renderRoom([a, b]);
     const rerenderWith = rerenderRoomFn(rerender);
-    expect(attach(a.videoTrack)).toHaveBeenCalledTimes(1);
-    expect(attach(b.videoTrack)).toHaveBeenCalledTimes(1);
+    expect(tileAttaches(a.videoTrack)).toHaveLength(1);
+    expect(tileAttaches(b.videoTrack)).toHaveLength(1);
     const elForA = attachedEl(a.videoTrack);
 
     // C joins.
     const c = person("c", { camOn: true, videoTrack: fakeTrack("vc") });
     rerenderWith([a, b, c]);
-    expect(attach(c.videoTrack)).toHaveBeenCalledTimes(1); // a real, fresh mount
-    expect(attach(a.videoTrack)).toHaveBeenCalledTimes(1); // A undisturbed
-    expect(attach(b.videoTrack)).toHaveBeenCalledTimes(1); // B undisturbed
+    expect(tileAttaches(c.videoTrack)).toHaveLength(1); // a real, fresh mount
+    expect(tileAttaches(a.videoTrack)).toHaveLength(1); // A undisturbed
+    expect(tileAttaches(b.videoTrack)).toHaveLength(1); // B undisturbed
 
     // B leaves for real (dropped from the roster, same shape a real
     // ParticipantDisconnected resync produces) — this must still actually
@@ -322,8 +333,8 @@ describe("CallRoom — stable video identity across layout transitions", () => {
     expect(detach(b.videoTrack)).toHaveBeenCalled();
     expect(screen.queryByText("B")).not.toBeInTheDocument();
     // A is untouched by a neighbour leaving.
-    expect(attach(a.videoTrack)).toHaveBeenCalledTimes(1);
-    expect(detach(a.videoTrack)).not.toHaveBeenCalled();
+    expect(tileAttaches(a.videoTrack)).toHaveLength(1);
+    expect(tileDetaches(a.videoTrack)).toHaveLength(0);
     expect(attachedEl(a.videoTrack)).toBe(elForA);
   });
 });

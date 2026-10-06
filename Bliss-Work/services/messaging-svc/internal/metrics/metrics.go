@@ -44,6 +44,18 @@ var (
 		Help: "Outbox rows quarantined as permanently unpublishable. Any increase is silent event loss.",
 	})
 
+	// ConsumerEventsSkippedTotal counts Kafka events a consumer committed past
+	// WITHOUT applying them, because applying them can never succeed (reason
+	// "malformed": unparseable JSON, a bad id; "permanent_db": a Postgres data
+	// or constraint error). There is no dead-letter topic for these consumers,
+	// so this counter plus the ERROR log line is the whole trail. Any increase
+	// is an event that was dropped — a user that never reached user_projection,
+	// a deactivation or org purge never applied — and is worth a page.
+	ConsumerEventsSkippedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "messaging_consumer_events_skipped_total",
+		Help: "Kafka events committed without being applied because they can never succeed. Any increase is a dropped event.",
+	}, []string{"consumer", "reason"})
+
 	// NOTE: the standing backlog — `messaging_outbox_dead_lettered` — is
 	// deliberately NOT here. It is registered as a prometheus.GaugeFunc in
 	// cmd/server, where the store is in scope, so it reads the database at
@@ -54,5 +66,5 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(OutboxPublishedTotal, OutboxDeadLetteredTotal)
+	prometheus.MustRegister(OutboxPublishedTotal, OutboxDeadLetteredTotal, ConsumerEventsSkippedTotal)
 }

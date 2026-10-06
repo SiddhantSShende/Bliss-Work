@@ -115,6 +115,7 @@
     "exitPip": "Exit PiP",
     "pictureInPicture": "Picture-in-picture",
     "exitPictureInPicture": "Exit picture-in-picture",
+    "pictureInPictureNoVideo": "Picture-in-picture needs someone's video — nobody has a camera or screen share on",
     "minimize": "Minimize",
     "minimise": "Minimise",
     "end": "End",

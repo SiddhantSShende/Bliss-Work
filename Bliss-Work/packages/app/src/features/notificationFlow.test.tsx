@@ -121,6 +121,10 @@ function created(n: NotificationDTO) {
       kind: n.kind,
       text: n.text,
       taskId: n.taskId ?? undefined,
+      channelId: n.channelId ?? undefined,
+      conversationId: n.conversationId ?? undefined,
+      messageId: n.messageId ?? undefined,
+      callId: n.callId ?? undefined,
     } as ServerEvent);
   });
 }
@@ -328,6 +332,36 @@ describe("notification flow: bell badge and panel share one source", () => {
     ]);
     expect(isRead("history")).toBe(true);
     expect(isRead("just arrived")).toBe(false);
+  });
+
+  it("chat, channel and meeting notifications arriving live join the open panel without a refresh, each counted and clickable", async () => {
+    const user = userEvent.setup();
+    rows().push(row("Task completed by Piyush", { kind: "TASK_COMPLETED", read: true }));
+    mount();
+    await waitFor(() => expect(api.notificationsUnreadCount).toHaveBeenCalled());
+    await open(user);
+    await screen.findByText("Task completed by Piyush");
+
+    const conversationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+    const channelId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+    const callId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3";
+    created(row("Priya Shah: Lunch at one?", { kind: "DM_MESSAGE", conversationId }));
+    created(row("Priya Shah in #design: Review is ready", { kind: "CHANNEL_MESSAGE", channelId }));
+    created(row("Meeting updated: Sprint planning", { kind: "MEETING_UPDATED", callId }));
+    created(row("Meeting started: Sprint planning", { kind: "MEETING_STARTED", callId }));
+    created(row("Meeting cancelled: Retro", { kind: "MEETING_CANCELLED" }));
+
+    // Newest first, above the history, and all counted — no refresh of the panel.
+    expect(await screen.findByText(/Meeting cancelled/)).toBeInTheDocument();
+    await waitFor(() => expect(badge()).toBe("5"));
+    expect(listed().map((t) => ["cancelled", "started", "updated", "Review is ready", "Lunch at one?", "Piyush"].find((k) => t.includes(k)))).toEqual([
+      "cancelled", "started", "updated", "Review is ready", "Lunch at one?", "Piyush",
+    ]);
+
+    // Opening one marks it read through the existing path and lowers the badge by one.
+    await user.click(screen.getByText(/Meeting started/));
+    await waitFor(() => expect(badge()).toBe("4"));
+    expect(api.markNotificationRead).toHaveBeenCalledTimes(1);
   });
 
   it("the same notification arriving twice (a redelivered frame) is listed once and counted once", async () => {

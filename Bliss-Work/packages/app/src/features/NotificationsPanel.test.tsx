@@ -616,6 +616,7 @@ describe("NotificationsPanel", () => {
       "TASK_ASSIGNED", "TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT", "TASK_WITHDRAWN",
       "CHANNEL_ADDED", "DM_MESSAGE", "CHANNEL_MESSAGE",
       "CHANNEL_CREATED", "MEETING_SCHEDULED", "MEETING_INVITATION",
+      "MEETING_UPDATED", "MEETING_STARTED", "MEETING_CANCELLED",
     ];
     setup(kinds.map((kind, index) => notification(`kind-${index}`, kind, null, null, null, false)), 0, true);
 

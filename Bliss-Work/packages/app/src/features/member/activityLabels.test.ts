@@ -17,8 +17,19 @@ const entry = (over: Partial<TimelineEntry>): TimelineEntry => ({
 });
 
 describe("desktop activity labels", () => {
-  it("names the application an app span was in", () => {
-    expect(actionLabel(entry({}))).toBe("Used chrome.exe");
+  it("names the application an app span was in, by its proper name", () => {
+    expect(actionLabel(entry({}))).toBe("Used Google Chrome");
+    expect(actionLabel(entry({ targetId: "code.exe" }))).toBe("Used Visual Studio Code");
+  });
+
+  it("falls back to a readable name for an application it does not know", () => {
+    expect(actionLabel(entry({ targetId: "WindowsTerminalPreview.exe" }))).toBe("Used Windows Terminal Preview");
+  });
+
+  it("leaves the stored target as the raw executable name", () => {
+    const e = entry({});
+    actionLabel(e);
+    expect(e.targetId).toBe("chrome.exe");
   });
 
   it("does not print 'undefined' for an app span with no target", () => {

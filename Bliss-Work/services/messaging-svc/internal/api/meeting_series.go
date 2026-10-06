@@ -156,7 +156,15 @@ func (s *Server) updateMeetingSeries(w http.ResponseWriter, r *http.Request) {
 		if change.Recipients != nil {
 			s.ringUsers(r.Context(), change.Call, change.Recipients, events.TypeCallScheduled, claims.UserID)
 		} else {
-			s.notifyCall(r.Context(), change.Call, events.TypeCallScheduled, claims.UserID)
+			// Everyone on the meeting hears about an edit; flagged so it reads as
+			// "updated" rather than as a second "scheduled".
+			if err := s.store.EmitCallLifecycle(r.Context(), change.Call, store.CallNotice{
+				Type:    events.TypeCallScheduled,
+				ActorID: claims.UserID,
+				Change:  events.ChangeUpdated,
+			}); err != nil {
+				s.log.Warn("call notify failed", "call", change.Call.ID, "type", events.TypeCallScheduled, "err", err)
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, change.Series)

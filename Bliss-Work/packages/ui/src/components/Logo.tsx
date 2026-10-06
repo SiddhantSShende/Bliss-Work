@@ -34,12 +34,22 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
   );
 }
 
-/** Logo + wordmark lockup. */
-export function Wordmark({ size = 28, className }: { size?: number; className?: string }) {
+/** Logo + wordmark lockup; `showIcon={false}` renders the text alone. */
+export function Wordmark({
+  size = 28,
+  className,
+  textClassName,
+  showIcon = true,
+}: {
+  size?: number;
+  className?: string;
+  textClassName?: string;
+  showIcon?: boolean;
+}) {
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
-      <Logo size={size} />
-      <span className="text-[17px] font-semibold tracking-tight text-fg">
+      {showIcon && <Logo size={size} />}
+      <span className={cn("text-[17px] font-semibold tracking-tight text-fg", textClassName)}>
         Bliss<span className="text-accent">Work</span>
       </span>
     </span>

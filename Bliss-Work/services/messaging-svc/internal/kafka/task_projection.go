@@ -134,8 +134,7 @@ type taskEvent struct {
 func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool {
 	var evt taskEvent
 	if err := json.Unmarshal(value, &evt); err != nil {
-		c.log.Error("task projector bad json", "err", err)
-		return true
+		return skipMalformed(c.log, "task_projector", "task projector bad json", "err", err)
 	}
 	switch evt.Type {
 	case typeTaskAssigned, typeTaskWithdrawn, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft, typeTaskMissed, typeTaskDeleted:
@@ -149,8 +148,7 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 	// genuine write failure indistinguishable from success on redelivery.
 	done, err := c.store.IsConsumedInboxTasks(ctx, evt.EventID)
 	if err != nil {
-		c.log.Error("task projector dedup check failed", "eventId", evt.EventID, "err", err)
-		return false
+		return skipIfPermanent(c.log, "task_projector", "task projector dedup check failed", err, "eventId", evt.EventID)
 	}
 	if done {
 		return true
@@ -186,9 +184,8 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 		werr = c.store.DeleteTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred)
 	}
 	if werr != nil {
-		c.log.Error("task projector write failed",
-			"eventId", evt.EventID, "taskId", evt.TaskID, "type", evt.Type, "err", werr)
-		return false
+		return skipIfPermanent(c.log, "task_projector", "task projector write failed", werr,
+			"eventId", evt.EventID, "taskId", evt.TaskID, "type", evt.Type)
 	}
 
 	// Dedup AFTER the write, not before (separate table from AuthConsumer):
@@ -197,8 +194,7 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 	// fails would make that failure permanent, since the redelivery this fix
 	// exists to enable would just see the event already claimed and skip it.
 	if _, err := c.store.MarkConsumedInboxTasks(ctx, evt.EventID); err != nil {
-		c.log.Error("task projector dedup failed", "eventId", evt.EventID, "err", err)
-		return false
+		return skipIfPermanent(c.log, "task_projector", "task projector dedup failed", err, "eventId", evt.EventID)
 	}
 	return true
 }

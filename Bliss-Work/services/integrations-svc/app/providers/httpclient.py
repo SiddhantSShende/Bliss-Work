@@ -19,9 +19,31 @@ pooling already keeps them from interfering with each other.
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 import httpx
 
 _client: httpx.AsyncClient | None = None
+
+# Has THIS request/task asked for the shared client yet? Every provider call
+# fetches the client through shared() in the same expression that issues the
+# HTTP request, so "never asked" is a precise proof that nothing has been put
+# on the wire — which is what routes/internal.py needs to tell "failed before
+# the provider was contacted" (safe to mark 'failed' and retry) from "may have
+# been accepted" (must stay 'sending'). See reset_request_issued().
+_request_issued: ContextVar[bool] = ContextVar("provider_request_issued", default=False)
+
+
+def reset_request_issued() -> None:
+    """Forget any earlier use of shared() in this task. Call right before the
+    provider call whose outcome needs classifying."""
+    _request_issued.set(False)
+
+
+def request_issued() -> bool:
+    """True if shared() has been used in this task since reset_request_issued()
+    — i.e. a provider request may have left the process."""
+    return _request_issued.get()
 
 
 def shared() -> httpx.AsyncClient:
@@ -39,6 +61,7 @@ def shared() -> httpx.AsyncClient:
     different latency characteristics.
     """
     global _client
+    _request_issued.set(True)
     if _client is None:
         _client = httpx.AsyncClient(
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),

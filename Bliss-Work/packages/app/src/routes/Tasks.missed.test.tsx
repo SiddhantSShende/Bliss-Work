@@ -100,7 +100,7 @@ function mount(view = "allocated") {
 
 /** The sidebar row for a category: its link, whose text is "<label><count>". */
 const category = (name: string) => within(screen.getByRole("navigation", { name: "categories" })).getByRole("link", { name: new RegExp(`^${name}`) });
-const card = (title: string) => screen.getByText(title).closest(".app-drag") as HTMLElement;
+const card = (title: string) => screen.getByText(title).closest("[data-task-card]") as HTMLElement;
 
 function missedEvent(taskId: string, over: Record<string, unknown> = {}) {
   return {
@@ -168,7 +168,7 @@ describe("the Missed category", () => {
     await user.click(category("Missed"));
 
     const missed = await screen.findByText("File the expenses");
-    const el = missed.closest(".app-drag") as HTMLElement;
+    const el = missed.closest("[data-task-card]") as HTMLElement;
     // (the Allocated cards play an exit animation, so they leave a beat later)
     await waitFor(() => expect(screen.queryByText("Write the report")).not.toBeInTheDocument());
     expect(within(el).getByText("missed")).toBeInTheDocument(); // the status badge

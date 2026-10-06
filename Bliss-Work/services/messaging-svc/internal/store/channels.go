@@ -78,10 +78,14 @@ func (s *Store) CreateChannel(ctx context.Context, orgID, creatorID, name string
 		if err != nil {
 			return err
 		}
-		body := fmt.Sprintf("%s created the channel %s", userDisplayName(creatorDisplayName, creatorUsername), name)
+		creatorName := userDisplayName(creatorDisplayName, creatorUsername)
+		body := fmt.Sprintf("%s created channel %s", creatorName, name)
 		clientMsgID := uuid.NewMD5(uuid.Nil, []byte("channel-created:"+chanID)).String()
+		// This message's event is what notification-svc turns into the "you were
+		// added to a new channel" notification for every member, so it carries the
+		// names that notification reads — see channelAppendOpts.channelName.
 		if _, err := s.appendChannelMessageTx(ctx, tx, orgID, chanID, creatorID, body, clientMsgID,
-			channelAppendOpts{kind: MessageKindChannelCreated}); err != nil {
+			channelAppendOpts{kind: MessageKindChannelCreated, channelName: name, senderDisplayName: creatorName}); err != nil {
 			return err
 		}
 
@@ -383,8 +387,8 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 }
 
 // initialMembersBody is the text of the single system message that names every
-// user a channel was created with: "A was added to the channel" for one,
-// "A, B, C were added to the channel" for several. The names follow the request
+// user a channel was created with: "A was added to channel" for one,
+// "A, B, C were added to channel" for several. The names follow the request
 // order and are never truncated. A user with no projection row yet reads as
 // "Someone", the same fallback every other system message uses.
 func initialMembersBody(userIDs []string, names map[string]projectedUserNames) string {
@@ -396,7 +400,7 @@ func initialMembersBody(userIDs []string, names map[string]projectedUserNames) s
 	if len(display) == 1 {
 		verb = "was"
 	}
-	return fmt.Sprintf("%s %s added to the channel", strings.Join(display, ", "), verb)
+	return fmt.Sprintf("%s %s added to channel", strings.Join(display, ", "), verb)
 }
 
 // memberJoinedEvents builds one ChannelMemberJoined per newly-added member.

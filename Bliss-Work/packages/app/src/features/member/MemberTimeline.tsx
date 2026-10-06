@@ -11,13 +11,16 @@ import { Tabs, type TabSpec } from "../Tabs";
 import { actionLabel, dayHeading, formatDuration, sourceLabel } from "./activityLabels";
 import { LoadOlderFooter } from "./LoadOlderFooter";
 
-type Filter = "all" | "auth" | "engagement" | "navigation" | "security";
+type Filter = "all" | "auth" | "engagement" | "navigation" | "outside" | "security";
 
 function filters(t: TFunction): TabSpec<Filter>[] {
   return [
     { key: "all", label: t("members:timeline.filters.all") },
     { key: "engagement", label: t("members:timeline.filters.engagement") },
     { key: "navigation", label: t("members:timeline.filters.navigation") },
+    // Not a stored category: the server answers `outside` from the 'app'
+    // category plus the focus/blur/idle actions (telemetry-svc OUTSIDE_ACTIONS).
+    { key: "outside", label: t("members:timeline.filters.outside") },
     { key: "auth", label: t("members:timeline.filters.auth") },
     // Client-enforced controls the person ran into — today, refused screen
     // captures. Self-reported by definition: a screenshot happens in the

@@ -51,7 +51,19 @@ class ProviderMailUnavailable(Exception):
     """A transient fault — a token mid-refresh, a throttled provider, a restart.
 
     Worth redelivering the event for, unlike "this member has no mailbox".
+
+    `conflict` is True when integrations-svc answered 409: its claim for this
+    mail_id is still 'sending' — either another attempt is genuinely in flight
+    or (far more often, and permanently) a previous attempt's outcome was lost
+    and the row is parked for manual review. Unlike every other cause here it
+    does not clear up by waiting, so the caller must bound its retries tightly
+    (see RelayConsumer._handle_provider_unavailable) — and must NEVER answer it
+    with the SMTP relay, because the provider may already have sent the mail.
     """
+
+    def __init__(self, message: str = "", *, conflict: bool = False) -> None:
+        super().__init__(message)
+        self.conflict = conflict
 
 
 async def send(
@@ -165,4 +177,7 @@ async def send(
         log.warning("provider_mail_breaker_open", org=org_id, author=author_id)
         return False
     except (httpx.HTTPError, OSError) as exc:
-        raise ProviderMailUnavailable(str(exc)) from exc
+        conflict = (
+            isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 409
+        )
+        raise ProviderMailUnavailable(str(exc), conflict=conflict) from exc

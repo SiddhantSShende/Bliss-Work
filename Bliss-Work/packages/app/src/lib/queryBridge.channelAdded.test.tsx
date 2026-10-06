@@ -241,6 +241,32 @@ describe("WsEventBridge — CHANNEL_ADDED notification", () => {
   });
 });
 
+describe("WsEventBridge — CHANNEL_CREATED notification", () => {
+  const CREATED_TEXT = "Priya Shah added you to the new channel design";
+  const created = (over: Record<string, unknown> = {}) => channelAdded({ kind: "CHANNEL_CREATED", text: CREATED_TEXT, ...over });
+
+  it("adds a bell row, bumps the unread count and toasts once, opening the new channel", () => {
+    mount(["/app/settings"]);
+    fire(created());
+    fire(created()); // a redelivered frame
+
+    expect(bell().filter((n) => n.id === NOTIFICATION)).toHaveLength(1);
+    expect(bell().find((n) => n.id === NOTIFICATION)).toMatchObject({ kind: "CHANNEL_CREATED", text: CREATED_TEXT, channelId: CHANNEL, read: false });
+    expect(unread()).toBe(2);
+    expect(toasts.shown).toHaveLength(1);
+    expect(toasts.shown[0]?.message).toBe(CREATED_TEXT);
+
+    act(() => toasts.shown[0]?.options?.action?.onClick());
+    expect(screen.getByTestId("path").textContent).toBe(`/app/channels/${CHANNEL}`);
+  });
+
+  it("does not toast for the reconnect replay", () => {
+    mount();
+    fire(created(), { replayed: true });
+    expect(toasts.shown).toEqual([]);
+  });
+});
+
 describe("WsEventBridge — CHANNEL_ADDED toast navigation", () => {
   const path = () => screen.getByTestId("path").textContent;
   const view = (index = 0) => {

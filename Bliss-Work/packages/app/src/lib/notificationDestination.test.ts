@@ -11,6 +11,8 @@ describe("notificationDestination", () => {
     [{ kind: "CHANNEL_MESSAGE", channelId: A }, `/app/channels/${A}`],
     [{ kind: "DM_MESSAGE", conversationId: A }, `/app/chats/${A}`],
     [{ kind: "MEETING_INVITATION", callId: A }, `/app/meetings/${A}`],
+    [{ kind: "MEETING_UPDATED", callId: A }, `/app/meetings/${A}`],
+    [{ kind: "MEETING_STARTED", callId: A }, `/app/meetings/${A}`],
     [{ kind: "TASK_ASSIGNED", taskId: A }, `/app/mail/task/${A}`],
   ] as const)("%j leads to its own record", (n, path) => {
     expect(notificationDestination(n)).toBe(path);
@@ -20,9 +22,17 @@ describe("notificationDestination", () => {
     [{ kind: "CHANNEL_ADDED", channelId: null }, "/app/channels"],
     [{ kind: "DM_MESSAGE" }, "/app/chats"],
     [{ kind: "MEETING_SCHEDULED", callId: null }, "/app/meetings"],
+    [{ kind: "MEETING_UPDATED", callId: null }, "/app/meetings"],
+    [{ kind: "MEETING_STARTED", callId: null }, "/app/meetings"],
     [{ kind: "TASK_LEFT", taskId: null }, "/app/tasks/allocated"],
   ] as const)("%j falls back to its section", (n, path) => {
     expect(notificationDestination(n)).toBe(path);
+  });
+
+  it("sends a cancelled meeting to the meetings list, even when the record still carries its id", () => {
+    // The meeting's rows are deleted by the cancel: its id opens nothing.
+    expect(notificationDestination({ kind: "MEETING_CANCELLED", callId: A })).toBe("/app/meetings");
+    expect(notificationDestination({ kind: "MEETING_CANCELLED", callId: null })).toBe("/app/meetings");
   });
 
   it("does not trust an id that is not a UUID", () => {
@@ -85,6 +95,9 @@ describe("notificationCategory", () => {
     ["CHANNEL_CREATED", "channel"],
     ["MEETING_SCHEDULED", "meeting"],
     ["MEETING_INVITATION", "meeting"],
+    ["MEETING_UPDATED", "meeting"],
+    ["MEETING_STARTED", "meeting"],
+    ["MEETING_CANCELLED", "meeting"],
   ] as const)("%s is a %s notification", (kind, category) => {
     expect(notificationCategory(kind)).toBe(category);
   });

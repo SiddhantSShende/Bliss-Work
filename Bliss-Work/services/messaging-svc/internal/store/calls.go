@@ -1901,6 +1901,9 @@ type CallNotice struct {
 	// the right answer for everything except call.waiting — that goes to the
 	// people who can start the call and to nobody else.
 	Recipients []string
+	// Change is events.ChangeUpdated when this re-announces an edited meeting;
+	// empty otherwise. Only meaningful on call.scheduled.
+	Change string
 }
 
 // EmitCallLifecycle publishes a call notification through the transactional
@@ -1950,6 +1953,7 @@ func (s *Store) EmitCallLifecycle(ctx context.Context, c *CallDTO, n CallNotice)
 		Status:      c.Status,
 		ActorID:     n.ActorID,
 		ShareSource: n.ShareSource,
+		Change:      n.Change,
 		Members:     recipients,
 	}
 	if c.ChannelID != nil {

@@ -16,6 +16,7 @@
  */
 import { type ActivitySource, type TimelineEntry } from "@taskboard/shared";
 import type { TFunction } from "i18next";
+import { resolveAppName } from "./appNames";
 
 /** "They are back." — the web client's own tab regaining focus. */
 const CAME_BACK = "Came back to BlissWork";
@@ -75,7 +76,8 @@ export function actionLabel(entry: TimelineEntry, t?: TFunction): string {
     : fallback;
   // Navigation and usage rows read as "Opened Tasks" — the verb alone would be
   // meaningless for them.
-  if (entry.action === "app.focus") return entry.targetId ? `${verb} ${entry.targetId}` : verb;
+  // The stored target stays the raw executable name; only the words are friendly.
+  if (entry.action === "app.focus") return entry.targetId ? `${verb} ${resolveAppName(entry.targetId)}` : verb;
   if (entry.action === "route.enter" || entry.action === "route.dwell") {
     const surface = surfaceLabel(entry.surface, t) ?? (t ? t("members:activityLabels.theApp") : "the app");
     return `${verb} ${surface}`;

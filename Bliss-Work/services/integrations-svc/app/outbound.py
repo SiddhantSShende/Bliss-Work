@@ -65,9 +65,15 @@ async def send_via_connection(
     function only talks to the provider.
     """
     provider = row.provider
-    token = await cryptor().decrypt(
-        db, org_id, bytes(row.access_token_enc) if row.access_token_enc else None
-    )
+    try:
+        token = await cryptor().decrypt(
+            db, org_id, bytes(row.access_token_enc) if row.access_token_enc else None
+        )
+    except Exception as exc:  # noqa: BLE001 - KMS/crypto fault, before any provider call
+        # Decryption talks to the KMS over its own HTTP client, so a fault there
+        # would otherwise surface as a raw httpx error indistinguishable from a
+        # lost provider answer. Nothing has been sent: definitive and retryable.
+        raise OutboundError(f"could not decrypt the connection token: {exc}", retryable=True) from exc
     if not token:
         # A connected row with no token means the refresh worker hasn't caught
         # up, or the connection was revoked mid-flight.
@@ -102,7 +108,14 @@ DEFAULT_SUBJECT = "Message from BlissWork"
 
 
 async def _send_gmail(token: str, target: str, text: str, subject: str | None) -> SendResult:
-    raw = gmail.build_mime(to=target, subject=subject or DEFAULT_SUBJECT, body=text)
+    try:
+        raw = gmail.build_mime(to=target, subject=subject or DEFAULT_SUBJECT, body=text)
+    except ValueError as exc:
+        # Header validation (e.g. a CR/LF in the subject or address) fails
+        # before any network I/O and fails identically on every retry: a
+        # definitive, non-retryable refusal — not an unclassified crash that
+        # would leave the send claim stuck 'sending'.
+        raise OutboundError(f"invalid message: {exc}") from exc
     try:
         res = await gmail.send_message(token, raw)
     except gmail.GmailAuthError as exc:

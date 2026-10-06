@@ -12,13 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/segmentio/kafka-go"
-	"go.opentelemetry.io/otel"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/task-board/notification-svc/internal/events"
 	"github.com/task-board/notification-svc/internal/outbox"
-	"github.com/task-board/notification-svc/internal/tracing"
 	"github.com/task-board/shared-kafkaauth"
 )
 
@@ -188,59 +184,13 @@ func (c *Consumer) runBatch(ctx context.Context) {
 		return
 	}
 
-	tx, err := c.pool.Begin(ctx)
+	// One transaction for the whole batch; see projectBatch (poison.go) for how
+	// a message the database permanently rejects is isolated and dead-lettered
+	// instead of being mistaken for a transient failure.
+	poison, err := c.projectBatch(ctx, batch)
 	if err != nil {
-		c.log.Error("begin batch tx failed; batch abandoned, restarting for redelivery", "error", err, "batch", len(batch))
 		c.stop()
 		return
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Poison messages are collected rather than dead-lettered inline: producing
-	// to the DLQ before the transaction commits would announce a decision the
-	// database might still roll back.
-	var poison []kafka.Message
-
-	for _, m := range batch {
-		// CONSUMER span as a child of the producer's injected trace context.
-		// With tracing disabled the extracted context is empty and the span is
-		// a no-op. Per message, not per batch — a batch is an implementation
-		// detail of this consumer and spans belong to the events.
-		hdrs := m.Headers
-		msgCtx := otel.GetTextMapPropagator().Extract(ctx, tracing.NewKafkaHeaderCarrier(&hdrs))
-		msgCtx, span := otel.Tracer("kafka").Start(msgCtx, m.Topic+" process",
-			trace.WithSpanKind(trace.SpanKindConsumer),
-			trace.WithAttributes(
-				semconv.MessagingSystemKafka,
-				semconv.MessagingDestinationName(m.Topic),
-				semconv.MessagingOperationName("process"),
-			),
-		)
-		err := c.handle(msgCtx, tx, m.Value)
-		span.End()
-
-		switch {
-		case err == nil:
-			// Projected onto the batch tx; committed with everything else.
-		case errors.Is(err, errMalformed):
-			poison = append(poison, m)
-		default:
-			// Transient (e.g. the DB went away). Abandon the batch and
-			// restart (see runBatch's doc comment) so it genuinely
-			// redelivers; the dedup makes reprocessing a no-op.
-			c.log.Error("handle message failed; batch abandoned, restarting for redelivery",
-				"error", err, "batch", len(batch))
-			c.stop()
-			return
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		if !errors.Is(err, pgx.ErrTxClosed) {
-			c.log.Error("commit batch tx failed; batch abandoned, restarting for redelivery", "error", err, "batch", len(batch))
-			c.stop()
-			return
-		}
 	}
 
 	// Durable now. Dead-letter the poison, and only then advance offsets — if
@@ -349,11 +299,15 @@ func (c *Consumer) handle(ctx context.Context, tx pgx.Tx, value []byte) error {
 	if ev.Type == events.TypeChannelMessageCreated {
 		return c.channelMessageCreated(ctx, tx, value)
 	}
-	// Only the two call events that ARE an invitation to a person. call.participant_added
-	// is addressed to the whole room as a "refresh who is here" signal and always
-	// accompanies a call.ring for the newcomer: persisting it too gave the newcomer two
-	// identical invitations and told everyone already in the call they were invited to it.
-	if ev.Type == events.TypeCallScheduled || ev.Type == events.TypeCallRing {
+	// The call events that tell a PERSON something about a meeting: scheduled (or
+	// edited), invited, starting, cancelled. call.participant_added is addressed to
+	// the whole room as a "refresh who is here" signal and always accompanies a
+	// call.ring for the newcomer: persisting it too gave the newcomer two identical
+	// invitations and told everyone already in the call they were invited to it.
+	// The other call events (ended, waiting, left, screen shares) are signals for
+	// live clients, not news.
+	switch ev.Type {
+	case events.TypeCallScheduled, events.TypeCallRing, events.TypeCallStarted, events.TypeCallEnded:
 		return c.callNotification(ctx, tx, value)
 	}
 
@@ -532,6 +486,12 @@ func (c *Consumer) channelMessageCreated(ctx context.Context, tx pgx.Tx, value [
 	return nil
 }
 
+// channelCreated notifies every member a channel was created with, other than
+// its creator, once. The event is the "<creator> created channel <name>" system
+// message's, which messaging-svc appends in the same transaction as the members
+// themselves, so it lists exactly the people seeded at creation. Creation emits
+// no channel.member.joined, so nobody is told twice; the people added LATER are
+// told by channelMemberJoined. A redelivered event dedups per (event, member).
 func (c *Consumer) channelCreated(ctx context.Context, tx pgx.Tx, ev events.ChannelMessageCreated) error {
 	if ev.SenderID == "" {
 		return nil
@@ -563,14 +523,17 @@ func (c *Consumer) channelCreated(ctx context.Context, tx pgx.Tx, ev events.Chan
 	return nil
 }
 
+// channelCreatedText is what a member reads in the bell for a channel that was
+// created with them in it. It says they were ADDED to a NEW channel, which is the
+// news; "X created the channel" alone would not tell them it concerns them.
 func channelCreatedText(actor, channel string) string {
 	if actor == "" {
 		actor = "Someone"
 	}
 	if channel == "" {
-		return actor + " created a channel"
+		return actor + " added you to a new channel"
 	}
-	return actor + " created the channel " + channel
+	return actor + " added you to the new channel " + channel
 }
 
 func (c *Consumer) callNotification(ctx context.Context, tx pgx.Tx, value []byte) error {
@@ -579,15 +542,18 @@ func (c *Consumer) callNotification(ctx context.Context, tx pgx.Tx, value []byte
 		c.log.Warn("unparseable call notification event", "error", err)
 		return errMalformed
 	}
+	kind, text, linksCall := callNotice(ev)
+	if kind == "" {
+		return nil // e.g. a call that ended normally: nothing to tell anyone
+	}
 	if ev.CallID == "" || ev.Kind == "" {
 		return errMalformed
 	}
-	kind := events.KindMeetingInvite
-	if ev.Type == events.TypeCallScheduled {
-		kind = events.KindMeetingScheduled
+	var callID *string
+	if linksCall {
+		id := ev.CallID
+		callID = &id
 	}
-	callID := ev.CallID
-	text := callNotificationText(ev.Title, ev.ScheduledAt)
 	for _, recipientID := range ev.Members {
 		if recipientID == "" || recipientID == ev.ActorID {
 			continue
@@ -601,12 +567,56 @@ func (c *Consumer) callNotification(ctx context.Context, tx pgx.Tx, value []byte
 			recipientID:   recipientID,
 			kind:          kind,
 			text:          text,
-			callID:        &callID,
+			callID:        callID,
 		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// callNotice is what a call event says to a person, or "" when it says nothing.
+//
+// linksCall is false for a cancellation: the cancelled meeting's rows are deleted,
+// so a link to its id would open nothing — the notification leads to the meetings
+// list instead.
+func callNotice(ev events.CallLifecycle) (kind, text string, linksCall bool) {
+	switch ev.Type {
+	case events.TypeCallScheduled:
+		if ev.Change == events.CallChangeUpdated {
+			return events.KindMeetingUpdated, callEventText("Meeting updated", ev.Title, ev.ScheduledAt), true
+		}
+		return events.KindMeetingScheduled, callNotificationText(ev.Title, ev.ScheduledAt), true
+	case events.TypeCallRing:
+		return events.KindMeetingInvite, callNotificationText(ev.Title, ev.ScheduledAt), true
+	case events.TypeCallStarted:
+		// Only a call that is actually under way. A started event for anything else
+		// is a stale or reordered signal, not "your meeting is starting".
+		if ev.Status != events.CallStatusLive {
+			return "", "", false
+		}
+		return events.KindMeetingStarted, callEventText("Meeting started", ev.Title, ""), true
+	case events.TypeCallEnded:
+		// CANCELLED is a meeting withdrawn before it happened. An ordinary end (a
+		// meeting that took place) is not something to notify about.
+		if ev.Status != events.CallStatusCancelled {
+			return "", "", false
+		}
+		return events.KindMeetingCancelled, callEventText("Meeting cancelled", ev.Title, ev.ScheduledAt), false
+	}
+	return "", "", false
+}
+
+// callEventText is "<what happened>: <title>[ · <when>]", with the same "Meeting"
+// fallback title callNotificationText uses.
+func callEventText(what, title, scheduledAt string) string {
+	if title == "" {
+		title = "Meeting"
+	}
+	if scheduledAt != "" {
+		return what + ": " + title + " · " + scheduledAt
+	}
+	return what + ": " + title
 }
 
 func callNotificationText(title, scheduledAt string) string {
@@ -639,6 +649,9 @@ func channelMessageText(sender, channel, body string) string {
 }
 
 func messagePreview(body string) string {
+	// Before truncating, so the 140 runes are real content. messaging-svc
+	// accepts a NUL in a body; Postgres text and jsonb cannot hold one.
+	body = sanitizeText(body)
 	if index := strings.IndexByte(body, 0x1f); index >= 0 {
 		body = body[:index]
 	}
@@ -679,6 +692,12 @@ type notification struct {
 // runBatch), which is what keeps the round trips proportional to batches rather
 // than to messages.
 func (c *Consumer) create(ctx context.Context, tx pgx.Tx, n notification) error {
+	// The single choke point every notification passes through: n.text is built
+	// from producer-controlled strings (names, titles, bodies) and is written to
+	// a text column and to the jsonb outbox payload, neither of which can hold a
+	// NUL. See sanitizeText.
+	n.text = sanitizeText(n.text)
+
 	eventID, err := uuid.Parse(n.sourceEventID)
 	if err != nil {
 		// Malformed like any other bad payload — route through the same

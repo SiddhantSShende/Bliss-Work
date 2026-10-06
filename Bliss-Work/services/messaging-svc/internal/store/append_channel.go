@@ -41,6 +41,14 @@ type channelAppendOpts struct {
 	// forwardPlatform mirrors appendOpts.forwardPlatform — set only by
 	// ForwardLinkRecord's channel branch.
 	forwardPlatform string
+	// channelName and senderDisplayName are copied onto the ChannelMessageCreated
+	// event when the caller already has them. The append itself does not look
+	// them up: only the channel-created message needs them (notification-svc
+	// names the channel and its creator in the member notification), and a
+	// lookup per appended message would tax every other caller for it. Empty →
+	// omitted from the event, exactly as before.
+	channelName       string
+	senderDisplayName string
 }
 
 func (o channelAppendOpts) kindArg() string {
@@ -127,6 +135,9 @@ func (s *Store) appendChannelMessageTx(
 		Kind:            opts.kind,
 		IsForward:       opts.isForward,
 		ForwardPlatform: opts.forwardPlatform,
+
+		ChannelName:       opts.channelName,
+		SenderDisplayName: opts.senderDisplayName,
 	}
 	if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
 		return "", err

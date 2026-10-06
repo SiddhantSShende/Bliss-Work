@@ -30,7 +30,7 @@ from crypto import cryptor
 from ..db import session, set_org_context
 from ..events import emit_activity_created
 from ..logging_setup import log
-from ..providers import microsoft as ms
+from ..providers import httpclient, microsoft as ms
 from resilience import CircuitOpenError
 
 router = APIRouter()
@@ -62,6 +62,49 @@ class SendResp(BaseModel):
     # The authoritative provider of the connection, so the caller (messaging-svc)
     # tags the forward edge's platform from the server, not client input.
     provider: str | None = None
+
+
+# Connection never established / never got a pool slot: the far side saw no part
+# of the request, so these are provably "not sent" (same set resilience.py treats
+# as safe to retry for a non-idempotent call).
+_NOT_SENT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _provider_refused_or_never_reached(exc: BaseException) -> bool:
+    """True when a transport-level `exc` proves the provider did NOT act on the
+    send, so the claim can be resolved 'failed' and a later attempt may retry.
+
+      * the provider ANSWERED with an HTTP error status (HTTPStatusError). Slack,
+        Gmail and Graph all surface a 4xx/5xx response this way; it is a verdict,
+        not a lost answer. (providers.microsoft already treats a 503/504
+        response as definitive for the same reason.)
+      * the connection was never established (_NOT_SENT_ERRORS).
+
+    What is left — a read/write timeout, a dropped connection or any other error
+    after the request went out — is the genuinely ambiguous case that must stay
+    'sending'.
+    """
+    return isinstance(exc, (httpx.HTTPStatusError, *_NOT_SENT_ERRORS))
+
+
+def _nothing_sent(exc: BaseException) -> bool:
+    """For an UNCLASSIFIED exception (the catch-all): True only if provably
+    nothing was put on the wire. Every provider call fetches its HTTP client via
+    providers.httpclient.shared() in the same expression that issues the
+    request, so "shared() was never asked for" proves the failure came from our
+    own code (or a dependency such as the KMS) before the provider was
+    contacted. Anything later is unknowable and must stay 'sending'."""
+    return not httpclient.request_issued()
+
+
+def _not_sent_http_status(exc: BaseException) -> int:
+    """HTTP status for a send the provider definitely did not perform: a 4xx
+    answer will repeat, so tell the caller to give up (400); everything else
+    (a 5xx answer, a failed connect, a pre-contact fault) is worth retrying
+    (502)."""
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
+        return status.HTTP_400_BAD_REQUEST
+    return status.HTTP_502_BAD_GATEWAY
 
 
 def _require_internal(token: str | None) -> None:
@@ -261,6 +304,7 @@ async def internal_send(
 
         # Provider dispatch lives in outbound.py so this path and any future
         # caller (an in-app reply to a mention) can never drift apart.
+        httpclient.reset_request_issued()
         try:
             result = await outbound.send_via_connection(
                 db, body.orgId, row, target=body.target, text=body.text, subject=body.subject
@@ -309,6 +353,17 @@ async def internal_send(
                 await _resolve_message_send(db, body.messageId, body.orgId, "failed")
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         except (httpx.HTTPError, OSError) as exc:
+            if _provider_refused_or_never_reached(exc):
+                # The provider answered with an HTTP error status, or the
+                # request never left — definitive. Resolve 'failed' so the
+                # claim does not sit 'sending' (answering 409 to every retry
+                # forever) and a later attempt can proceed.
+                if body.messageId:
+                    await _resolve_message_send(db, body.messageId, body.orgId, "failed")
+                raise HTTPException(
+                    status_code=_not_sent_http_status(exc),
+                    detail="the provider did not accept the message",
+                ) from exc
             # AMBIGUOUS: a network fault on the provider call itself (every
             # provider send here runs idempotent=False — see slack.py/
             # gmail.py/microsoft.py — so a ReadTimeout etc. surfaces as the
@@ -323,6 +378,29 @@ async def internal_send(
                     "message_send_outcome_unknown", message_id=body.messageId, org=body.orgId,
                     error=str(exc),
                 )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="message send outcome unknown; needs manual review",
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 - catch-all: never strand the claim
+            # Anything unclassified (a bug, a KMS fault, a malformed provider
+            # reply). Before: it escaped as a bare 500 with the row left
+            # 'sending', so every retry answered 409 forever. Now: if nothing
+            # was ever put on the wire it is safe to resolve 'failed'; if a
+            # request may have gone out we cannot know, so it stays 'sending'
+            # and answers the same 409 as the ambiguous case above (never a 5xx
+            # a caller's breaker could read as "fall back to something else").
+            log.error(
+                "message_send_unexpected_error", message_id=body.messageId, org=body.orgId,
+                error=repr(exc),
+            )
+            if _nothing_sent(exc):
+                if body.messageId:
+                    await _resolve_message_send(db, body.messageId, body.orgId, "failed")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="message send failed before the provider was contacted",
+                ) from exc
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="message send outcome unknown; needs manual review",
@@ -518,6 +596,7 @@ async def internal_send_mail(
                     detail="this mail is already being sent by another attempt",
                 )
 
+        httpclient.reset_request_issued()
         try:
             await ms.send_mail(
                 token,
@@ -565,6 +644,18 @@ async def internal_send_mail(
                 await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         except (httpx.HTTPError, OSError) as exc:
+            if _provider_refused_or_never_reached(exc):
+                # Graph answered with an HTTP error status (e.g. a plain 500)
+                # or the request never left — definitive. Resolve 'failed' so
+                # the mail_id is not parked 'sending' (409 forever) and the
+                # caller's retry can proceed. 4xx -> 400 (caller relays over
+                # SMTP), else 502 (ask again).
+                if body.mailId:
+                    await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
+                raise HTTPException(
+                    status_code=_not_sent_http_status(exc),
+                    detail="the provider did not accept the mail",
+                ) from exc
             # AMBIGUOUS: a network fault on the sendMail call itself. Graph may
             # have already accepted the message — send_mail's own idempotent=
             # False means this was not silently retried underneath us — so the
@@ -583,6 +674,27 @@ async def internal_send_mail(
             log.error(
                 "mail_send_outcome_unknown", mail_id=body.mailId, org=body.orgId, error=str(exc)
             )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="mail send outcome unknown; needs manual review",
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 - catch-all: never strand the claim
+            # Anything unclassified. Before: a bare 500 with the row left
+            # 'sending' (every retry then 409). Now: resolved 'failed' when
+            # nothing was ever put on the wire, otherwise left 'sending' with
+            # the same 409 as the ambiguous case — never a 5xx that
+            # provider_mail's breaker could count towards a relay fallback.
+            log.error(
+                "mail_send_unexpected_error", mail_id=body.mailId, org=body.orgId,
+                error=repr(exc),
+            )
+            if _nothing_sent(exc):
+                if body.mailId:
+                    await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="mail send failed before the provider was contacted",
+                ) from exc
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="mail send outcome unknown; needs manual review",

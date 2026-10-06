@@ -413,3 +413,89 @@ describe("CallRoom — meeting timer reads the authoritative call, not a frozen 
     expect(screen.getByText("10:00")).toBeInTheDocument();
   });
 });
+
+describe("CallRoom — Picture-in-Picture button", () => {
+  // jsdom has no Picture-in-Picture; install the slice the hook touches.
+  let requestPiP: ReturnType<typeof vi.fn>;
+  let pipElement: Element | null;
+  beforeEach(() => {
+    pipElement = null;
+    requestPiP = vi.fn(async function (this: HTMLVideoElement) {
+      pipElement = this;
+      this.dispatchEvent(new Event("enterpictureinpicture"));
+    });
+    HTMLVideoElement.prototype.requestPictureInPicture = requestPiP as never;
+    Object.defineProperty(HTMLMediaElement.prototype, "readyState", { configurable: true, get: () => 4 });
+    Object.defineProperty(document, "pictureInPictureEnabled", { configurable: true, value: true });
+    Object.defineProperty(document, "pictureInPictureElement", { configurable: true, get: () => pipElement });
+    Object.defineProperty(document, "exitPictureInPicture", {
+      configurable: true,
+      value: vi.fn(async () => {
+        const el = pipElement;
+        pipElement = null;
+        el?.dispatchEvent(new Event("leavepictureinpicture"));
+      }),
+    });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLMediaElement.prototype, "readyState");
+    Reflect.deleteProperty(document, "pictureInPictureEnabled");
+    Reflect.deleteProperty(document, "pictureInPictureElement");
+    Reflect.deleteProperty(document, "exitPictureInPicture");
+  });
+
+  const pipButton = () => screen.getByRole("button", { name: /picture-in-picture/i });
+
+  it("is not offered where the browser has no Picture-in-Picture", () => {
+    Object.defineProperty(document, "pictureInPictureEnabled", { configurable: true, value: false });
+    renderRoom([person("a", { camOn: true, videoTrack: fakeTrack("va") })]);
+    expect(screen.queryByRole("button", { name: /picture-in-picture/i })).toBeNull();
+  });
+
+  it("is disabled, and says why, while nobody has a camera or screen on", async () => {
+    const user = userEvent.setup();
+    renderRoom([person("a"), person("b")]);
+    expect(pipButton()).toBeDisabled();
+    expect(pipButton()).toHaveAttribute("title", expect.stringMatching(/needs someone's video/i));
+    await user.click(pipButton());
+    expect(requestPiP).not.toHaveBeenCalled();
+  });
+
+  it("requests Picture-in-Picture on the element showing the live camera when clicked", async () => {
+    const user = userEvent.setup();
+    const a = person("a", { camOn: true, videoTrack: fakeTrack("va") });
+    renderRoom([a, person("b")]);
+    expect(pipButton()).toBeEnabled();
+
+    await user.click(pipButton());
+    expect(requestPiP).toHaveBeenCalledTimes(1);
+    // The element PiP was requested on is one the stage track was attached to
+    // — not a stale or empty one.
+    const target = requestPiP.mock.contexts[0] as HTMLVideoElement;
+    expect(attached(a.videoTrack).mock.calls.some(([el]) => el === target)).toBe(true);
+  });
+
+  it("still works when the person on stage has no video but someone else does", async () => {
+    const user = userEvent.setup();
+    const talking = person("a", { speaking: true });
+    const camera = person("b", { camOn: true, videoTrack: fakeTrack("vb") });
+    renderRoom([talking, camera]);
+    expect(pipButton()).toBeEnabled();
+
+    await user.click(pipButton());
+    const target = requestPiP.mock.contexts[0] as HTMLVideoElement;
+    expect(attached(camera.videoTrack).mock.calls.some(([el]) => el === target)).toBe(true);
+  });
+
+  it("offers Exit while floating, and leaves Picture-in-Picture when clicked", async () => {
+    const user = userEvent.setup();
+    renderRoom([person("a", { camOn: true, videoTrack: fakeTrack("va") })]);
+    await user.click(pipButton());
+
+    const exit = await screen.findByRole("button", { name: /exit picture-in-picture/i });
+    expect(exit).toBeEnabled();
+    await user.click(exit);
+    expect(document.exitPictureInPicture).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("button", { name: /^picture-in-picture$/i })).toBeInTheDocument();
+  });
+});

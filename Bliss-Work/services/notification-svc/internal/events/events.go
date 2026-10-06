@@ -34,6 +34,8 @@ const (
 	TypeChannelMessageCreated = "channel.message.created"
 	TypeCallScheduled         = "call.scheduled"
 	TypeCallRing              = "call.ring"
+	TypeCallStarted           = "call.started"
+	TypeCallEnded             = "call.ended"
 	TypeCallParticipantAdded  = "call.participant_added"
 )
 
@@ -51,6 +53,9 @@ const (
 	KindChannelMessage   = "CHANNEL_MESSAGE"
 	KindMeetingScheduled = "MEETING_SCHEDULED"
 	KindMeetingInvite    = "MEETING_INVITATION"
+	KindMeetingUpdated   = "MEETING_UPDATED"
+	KindMeetingStarted   = "MEETING_STARTED"
+	KindMeetingCancelled = "MEETING_CANCELLED"
 )
 
 // TaskEvent is the shape consumed off task.events.v1. It is a superset that
@@ -131,7 +136,23 @@ type CallLifecycle struct {
 	ScheduledAt string   `json:"scheduledAt"`
 	ActorID     string   `json:"actorId"`
 	Members     []string `json:"members"`
+	// Status is the call's status when the event was emitted: LIVE on a start,
+	// CANCELLED on the call.ended that withdraws a meeting that never happened
+	// (as opposed to ENDED, a meeting that did).
+	Status string `json:"status"`
+	// Change is "updated" on a call.scheduled that re-announces an edited meeting.
+	Change string `json:"change"`
 }
+
+// CallChangeUpdated is CallLifecycle.Change for an edited meeting (messaging-svc
+// events.ChangeUpdated).
+const CallChangeUpdated = "updated"
+
+// Call statuses this service distinguishes (messaging-svc store.CallLive / CallCancelled).
+const (
+	CallStatusLive      = "LIVE"
+	CallStatusCancelled = "CANCELLED"
+)
 
 // NotificationCreated is the event written to the outbox / produced to
 // notification.events.v1. Field order/names match the canonical contract.

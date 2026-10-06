@@ -30,6 +30,11 @@ import { useNotificationPages } from "../lib/useCursorPagination";
  *  navigation labels — see the width comment on the <aside> below. */
 const ROW_LIST_SECTIONS = new Set<string>(["chats", "channels", "members"]);
 
+/** Width of the secondary-navigation pane from lg up: ONE value for every
+ *  section. Chat's pane was 280px (md:w-[280px] below); 280 × 1.5 = 420px. The
+ *  main pane (flex-1) takes the rest. Literal class so Tailwind can see it. */
+const LIST_PANE_LG_WIDTH = "lg:w-[420px]";
+
 export function AppShell() {
   const { api } = useRuntime();
   const loc = useLocation();
@@ -127,10 +132,11 @@ export function AppShell() {
             // labels + a count and fit 208px. Chats/Channels/Members rows carry
             // an avatar, a name, a timestamp, a preview, an unread badge and a
             // ⋮ menu — below ~280px the name collapses to "J…" — so those get
-            // a wider pane. Both are md+ only; below md the pane is full width.
+            // a wider pane. Both are md+ only; below md the pane is full width,
+            // and from lg up every section shares LIST_PANE_LG_WIDTH.
             className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 ${
               ROW_LIST_SECTIONS.has(section) ? "md:w-[280px]" : "md:w-[208px]"
-            } ${showListOnMobile ? "flex" : "hidden"} md:flex`}
+            } ${LIST_PANE_LG_WIDTH} ${showListOnMobile ? "flex" : "hidden"} md:flex`}
           >
             {section === "mail" && <MailFolders />}
             {section === "chats" && <ChatsList />}

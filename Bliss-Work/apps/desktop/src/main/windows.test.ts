@@ -152,10 +152,10 @@ describe.each<NodeJS.Platform>(["win32", "linux", "darwin"])("main window on %s"
     expect(rec.options.titleBarStyle).toBe("hidden");
   });
 
-  it("cannot be narrower than the top bar can lay out in (480px)", async () => {
+  it("cannot be narrower than the top bar can lay out in (520px)", async () => {
     const rec = await createMain();
 
-    expect(rec.options.minWidth).toBe(480);
+    expect(rec.options.minWidth).toBe(520);
   });
 
   it("keeps the native window controls, sized to the app bar (48px)", async () => {

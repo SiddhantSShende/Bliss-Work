@@ -53,20 +53,23 @@ func TestHandleWithRetry_RetriesInPlaceUntilItSucceeds(t *testing.T) {
 	}
 }
 
-func TestHandleWithRetry_GivesUpOnAPoisonMessageSoThePartitionIsNotStalled(t *testing.T) {
+// B-MSG-3: the helper used to give up after 8 attempts (~90s at production
+// backoff) and report the offset safe to commit, so a database outage longer
+// than that turned user.created / user.deactivated / org.deleted into a logged
+// skip. A failure the handler calls retryable must be retried for as long as it
+// takes, and never committed.
+func TestHandleWithRetry_NeverGivesUpOnARetryableFailure(t *testing.T) {
 	fastBackoff(t)
+	const outage = 200 // far beyond the old 8-attempt cap
 	calls := 0
 
 	ok := handleWithRetry(context.Background(), quietLog(), "test", testMsg, func(context.Context) bool {
 		calls++
-		return false // can never succeed
+		return calls > outage // the database comes back after `outage` failures
 	})
 
-	if !ok {
-		t.Fatal("a message that never succeeds must eventually be reported done, or it blocks its partition")
-	}
-	if calls != maxHandleAttempts {
-		t.Fatalf("attempts = %d, want exactly %d", calls, maxHandleAttempts)
+	if !ok || calls != outage+1 {
+		t.Fatalf("ok=%v calls=%d, want true on attempt %d: it must keep retrying, not commit past an unprocessed message", ok, calls, outage+1)
 	}
 }
 

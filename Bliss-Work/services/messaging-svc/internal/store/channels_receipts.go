@@ -45,12 +45,21 @@ func (s *Store) MarkChannelRead(
 		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `
+		// Clamp to what has been sent (see read_ceiling.go): a cursor past the
+		// channel's newest seq would mark every future message read and make
+		// ChannelReadReceipts report this member as having read messages that
+		// did not exist yet. The outer LEAST also pulls an already-corrupted
+		// cursor back to the ceiling; for a sane one it changes nothing.
+		ceiling, err := channelSeqCeiling(ctx, tx, channelID)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `
 			UPDATE channel_members
-			SET last_read_seq = GREATEST(last_read_seq, $3),
+			SET last_read_seq = LEAST(GREATEST(last_read_seq, $3), $4),
 			    last_read_at  = now()
 			WHERE channel_id = $1 AND user_id = $2`,
-			channelID, callerID, upToSeq)
+			channelID, callerID, upToSeq, ceiling)
 		return err
 	})
 }

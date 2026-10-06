@@ -135,6 +135,7 @@ async def db_app(database_url):
             "provider_activity",
             "provider_identities",
             "mail_send_attempts",
+            "message_send_attempts",
             # Before integration_connections + provider_app_credentials: FK
             # references (oauth_states.app_credential_id, and the connection FK).
             "oauth_states",

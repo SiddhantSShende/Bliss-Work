@@ -4,8 +4,8 @@ package store
 // Postgres with RLS enforcing (opt-in via MESSAGING_TEST_DATABASE_URL — see
 // calls_lifecycle_db_test.go's header for the harness).
 //
-//	creation        "<Creator> created the channel <Name>"            channel_created
-//	                "<A>, <B> were added to the channel" (ONE message)  channel_member_added
+//	creation        "<Creator> created channel <Name>"                  channel_created
+//	                "<A>, <B> were added to channel" (ONE message)      channel_member_added
 //	added later     "<User> joined the channel" (one per new member)    channel_member_added
 //	self-join       "<User> joined the channel"                         channel_member_added
 //
@@ -136,14 +136,14 @@ func TestCreateChannelCreatorOnlyWritesOnlyTheCreationMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID), created("Jordan Doe created the channel solo"))
+	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID), created("Jordan Doe created channel solo"))
 
 	// The creator listing themselves is still "creator only".
 	ch, err = s.CreateChannel(ctx, orgID, u[0], "solo-2", false, []string{u[0]})
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID), created("Jordan Doe created the channel solo-2"))
+	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID), created("Jordan Doe created channel solo-2"))
 }
 
 // B. One extra member: two messages, creation first, singular verb.
@@ -159,12 +159,73 @@ func TestCreateChannelOneMemberWritesCreationThenAddedMessage(t *testing.T) {
 	}
 	msgs := channelSystemMessages(t, s, orgID, ch.ID)
 	requireMessages(t, msgs,
-		created("Jordan Doe created the channel project room"),
-		added("Alex Lee was added to the channel"))
+		created("Jordan Doe created channel project room"),
+		added("Alex Lee was added to channel"))
 	for _, m := range msgs {
 		if m.senderID != u[0] {
 			t.Errorf("%s sender = %s, want the creator %s", m.kind, m.senderID, u[0])
 		}
+	}
+}
+
+// The creation message's event is what notification-svc turns into the "you were
+// added to a new channel" notification, so it must name the channel and the
+// creator's display name and list every member. Creation emits NO
+// channel.member.joined — that event is the later-add path's notification, and
+// emitting both would tell each member twice. The "added" message's event carries
+// a kind, which notification-svc deliberately never notifies on.
+func TestCreateChannelEmitsOneNotifiableCreationEvent(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7()).String()
+	u := newUsers(t, s, orgID, "Jordan Doe", "Alex Lee", "Bea Cho")
+	creator, alex, bea := u[0], u[1], u[2]
+
+	ch, err := s.CreateChannel(ctx, orgID, creator, "project room", false, []string{alex, bea})
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+
+	type creationEvent struct {
+		Kind, ChannelName, SenderDisplayName, SenderID string
+		Members                                        []string
+	}
+	var evs []creationEvent
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT payload->>'kind', COALESCE(payload->>'channelName',''), COALESCE(payload->>'senderDisplayName',''),
+			        payload->>'senderId', ARRAY(SELECT jsonb_array_elements_text(payload->'members'))
+			   FROM outbox WHERE kafka_key = $1 AND payload->>'type' = $2 ORDER BY (payload->>'seq')::bigint`,
+			ch.ID, events.TypeChannelMessageCreated)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var e creationEvent
+			if err := rows.Scan(&e.Kind, &e.ChannelName, &e.SenderDisplayName, &e.SenderID, &e.Members); err != nil {
+				return err
+			}
+			evs = append(evs, e)
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("read creation events: %v", err)
+	}
+	if len(evs) != 2 || evs[0].Kind != MessageKindChannelCreated || evs[1].Kind != MessageKindChannelMemberAdded {
+		t.Fatalf("channel.message.created events = %+v, want exactly [channel_created, channel_member_added]", evs)
+	}
+	c := evs[0]
+	if c.ChannelName != "project room" || c.SenderDisplayName != "Jordan Doe" || c.SenderID != creator {
+		t.Errorf("creation event = %+v, want channel %q, creator %q (%s)", c, "project room", "Jordan Doe", creator)
+	}
+	if len(c.Members) != 3 {
+		t.Errorf("creation event members = %v, want the creator and both added members", c.Members)
+	}
+	if n := countChannelRows(t, s,
+		`SELECT count(*) FROM outbox WHERE kafka_key = $1 AND payload->>'type' = $2`,
+		ch.ID, events.TypeChannelMemberJoined); n != 0 {
+		t.Errorf("creation emitted %d channel.member.joined events, want 0 (the creation event notifies instead)", n)
 	}
 }
 
@@ -185,8 +246,8 @@ func TestCreateChannelManyMembersWritesOneAddedMessageInRequestOrder(t *testing.
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID),
-		created("Jordan Doe created the channel big room"),
-		added("Zed Zimmer, Amy Adams, Bob Brown were added to the channel"))
+		created("Jordan Doe created channel big room"),
+		added("Zed Zimmer, Amy Adams, Bob Brown were added to channel"))
 	if n := countChannelRows(t, s, `SELECT count(*) FROM channel_members WHERE channel_id = $1`, ch.ID); n != 4 {
 		t.Errorf("channel members = %d, want 4", n)
 	}
@@ -231,8 +292,8 @@ func TestCreateChannelUnprojectedMemberReadsAsSomeone(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID),
-		created("Jordan Doe created the channel mixed"),
-		added("Alex Lee, Someone were added to the channel"))
+		created("Jordan Doe created channel mixed"),
+		added("Alex Lee, Someone were added to channel"))
 }
 
 // D, E, F. Members added later: one "joined" message per genuinely new member;
@@ -248,7 +309,7 @@ func TestAddChannelMembersWritesOneJoinedMessagePerNewMember(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	base := created("Jordan Doe created the channel locked room")
+	base := created("Jordan Doe created channel locked room")
 
 	// D. One member.
 	if err := s.AddChannelMembers(ctx, orgID, ch.ID, owner, nil, []string{alex}); err != nil {
@@ -299,7 +360,7 @@ func TestJoinChannelWritesJoinedMessage(t *testing.T) {
 	}
 	msgs := channelSystemMessages(t, s, orgID, ch.ID)
 	requireMessages(t, msgs,
-		created("Jordan Doe created the channel open room"),
+		created("Jordan Doe created channel open room"),
 		added("Alex Lee joined the channel"))
 	if msgs[1].senderID != u[1] {
 		t.Errorf("join message sender = %s, want the joiner %s", msgs[1].senderID, u[1])
@@ -389,7 +450,7 @@ func TestJoinChannelConcurrentDoubleJoinWritesOneMessage(t *testing.T) {
 			t.Fatalf("round %d: memberships = %d, want 1", round, n)
 		}
 		requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID),
-			created("Jordan Doe created the channel race room"),
+			created("Jordan Doe created channel race room"),
 			added("Alex Lee joined the channel"))
 		if n := countChannelRows(t, s,
 			`SELECT count(*) FROM outbox WHERE kafka_key = $1 AND payload->>'type' = $2`,
@@ -426,8 +487,8 @@ func TestSystemMessageSenderIsThePrincipalWhoCausedTheWrite(t *testing.T) {
 	}
 	msgs := channelSystemMessages(t, s, orgID, ch.ID)
 	requireMessages(t, msgs,
-		created("Jordan Doe created the channel attrib room"),
-		added("Alex Lee, Bea Cho were added to the channel"))
+		created("Jordan Doe created channel attrib room"),
+		added("Alex Lee, Bea Cho were added to channel"))
 	for _, m := range msgs {
 		if m.senderID != owner {
 			t.Errorf("%s sender = %s, want the creator %s", m.kind, m.senderID, owner)
@@ -440,8 +501,8 @@ func TestSystemMessageSenderIsThePrincipalWhoCausedTheWrite(t *testing.T) {
 	}
 	msgs = channelSystemMessages(t, s, orgID, ch.ID)
 	requireMessages(t, msgs,
-		created("Jordan Doe created the channel attrib room"),
-		added("Alex Lee, Bea Cho were added to the channel"),
+		created("Jordan Doe created channel attrib room"),
+		added("Alex Lee, Bea Cho were added to channel"),
 		added("Cy Dunn joined the channel"))
 	join := msgs[2]
 	if join.senderID != owner {
@@ -497,7 +558,7 @@ func TestSystemMessageSenderIsThePrincipalWhoCausedTheWrite(t *testing.T) {
 	}
 	got := channelSystemMessages(t, s, orgID, open.ID)
 	requireMessages(t, got,
-		created("Jordan Doe created the channel open attrib room"),
+		created("Jordan Doe created channel open attrib room"),
 		added("Alex Lee joined the channel"))
 	if got[0].senderID != owner || got[1].senderID != alex {
 		t.Errorf("senders = %s/%s, want creator %s / joiner %s", got[0].senderID, got[1].senderID, owner, alex)

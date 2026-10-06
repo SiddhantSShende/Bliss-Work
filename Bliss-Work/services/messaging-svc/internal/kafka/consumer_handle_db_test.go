@@ -157,12 +157,16 @@ func TestHandle_UserCreated_WriteFails_LeavesEventUnconsumed(t *testing.T) {
 	c := &AuthConsumer{store: s, log: testLogger()}
 	eventID := uuid.Must(uuid.NewV7()).String()
 
-	// org_id is NOT a valid uuid, so UpsertUser's INSERT fails at the database
-	// with a genuine Postgres type-cast error — a real, not synthetic, write
-	// failure to prove the contract against.
+	// UpsertUser's INSERT fails at the database with a genuine Postgres
+	// serialization failure (40001) — a real TRANSIENT write failure, raised by
+	// a trigger so it lands after the dedup pre-check, which is the ordering
+	// this test is about. (A bad uuid used to stand in here, but that is a
+	// PERMANENT error, which handle now skips instead of retrying — see
+	// consumer_skip_db_test.go.)
+	failWritesTransiently(t, verify, "user_projection")
 	payload, _ := json.Marshal(events.UserCreated{
 		Type: events.TypeUserCreated, EventID: eventID,
-		UserID: uuid.Must(uuid.NewV7()).String(), OrgID: "not-a-uuid",
+		UserID: uuid.Must(uuid.NewV7()).String(), OrgID: uuid.Must(uuid.NewV7()).String(),
 		Username: "alice", DisplayName: "Alice",
 	})
 
@@ -182,22 +186,19 @@ func TestHandle_UserCreated_RetryAfterFailureSucceeds(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7()).String()
 	orgID := uuid.Must(uuid.NewV7()).String()
 
-	bad, _ := json.Marshal(events.UserCreated{
-		Type: events.TypeUserCreated, EventID: eventID,
-		UserID: userID, OrgID: "not-a-uuid", Username: "alice", DisplayName: "Alice",
-	})
-	if ok := c.handle(context.Background(), bad); ok {
-		t.Fatal("first (bad-org) attempt reported success unexpectedly")
-	}
-
-	// The "redelivery": same event id, now with a fixable payload — this is
-	// exactly what Run's un-committed offset would hand back to handle() on
-	// the next FetchMessage after a restart.
-	good, _ := json.Marshal(events.UserCreated{
+	payload, _ := json.Marshal(events.UserCreated{
 		Type: events.TypeUserCreated, EventID: eventID,
 		UserID: userID, OrgID: orgID, Username: "alice", DisplayName: "Alice",
 	})
-	if ok := c.handle(context.Background(), good); !ok {
+	dropTrigger := failWritesTransiently(t, verify, "user_projection")
+	if ok := c.handle(context.Background(), payload); ok {
+		t.Fatal("first attempt reported success unexpectedly")
+	}
+
+	// The "redelivery": same event, the outage over — exactly what Run's
+	// un-committed offset would hand back to handle() after a restart.
+	dropTrigger()
+	if ok := c.handle(context.Background(), payload); !ok {
 		t.Fatal("retry with valid data still failed — dedup must have blocked it")
 	}
 	if !bypassQueryExists(t, verify, `SELECT EXISTS (SELECT 1 FROM consumed_events WHERE event_id = $1)`, eventID) {
@@ -334,9 +335,10 @@ func TestTaskHandle_WriteFails_LeavesEventUnconsumed(t *testing.T) {
 	c := &TaskProjectionConsumer{store: s, log: testLogger()}
 	eventID := uuid.Must(uuid.NewV7()).String()
 
+	failWritesTransiently(t, verify, "inbox_items")
 	payload, _ := json.Marshal(taskEvent{
 		Type: typeTaskAssigned, EventID: eventID,
-		OrgID: "not-a-uuid", TaskID: uuid.Must(uuid.NewV7()).String(),
+		OrgID: uuid.Must(uuid.NewV7()).String(), TaskID: uuid.Must(uuid.NewV7()).String(),
 		AssigneeID: uuid.Must(uuid.NewV7()).String(), SenderID: uuid.Must(uuid.NewV7()).String(),
 		Title: "t", OccurredAt: time.Now().UTC().Format(time.RFC3339Nano),
 	})

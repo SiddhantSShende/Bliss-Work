@@ -14,6 +14,7 @@ event we failed to deliver.
 from __future__ import annotations
 
 import asyncio
+import enum
 import json
 
 import asyncpg
@@ -58,6 +59,17 @@ _STOP_TIMEOUT = 30.0
 # not hammered. Failures are counted per event and routed to the DLQ past
 # poison_max_failures, so this only ever bounds a transient outage.
 _RETRY_BACKOFF = 2.0
+
+
+class _Claim(enum.Enum):
+    """Outcome of EmailWorker._claim. Three states, not a bool: "already sent"
+    (skip, commit) and "could not tell because the DB failed" (retry, do NOT
+    commit) must never share a value, or a transient blip silently drops the
+    email."""
+
+    CLAIMED = "claimed"      # safe to send now
+    DUPLICATE = "duplicate"  # a 'sent' row exists — genuinely already handled
+    ERROR = "error"          # DB error — outcome unknown, retry later
 
 
 class EmailWorker:
@@ -222,7 +234,17 @@ class EmailWorker:
         # verify email. _claim only refuses when a 'sent' row already
         # exists — see its docstring for why a still-'pending' row is
         # reclaimed and retried rather than deferred forever.
-        if not await self._claim(str(event_id), claim_recipient_id):
+        claim = await self._claim(str(event_id), claim_recipient_id)
+        if claim is _Claim.ERROR:
+            # The DB could not tell us whether this was already sent. That is
+            # NOT a duplicate: returning True here would commit the offset and
+            # lose an invite/reset/verify email for good over a transient blip.
+            # Not counted toward poison_max_failures either — nothing is wrong
+            # with the message, and DLQ-ing it would lose it the same way.
+            # False leaves the offset uncommitted; the consume loop seeks back
+            # and retries after _RETRY_BACKOFF.
+            return False
+        if claim is _Claim.DUPLICATE:
             self._log.info("duplicate_skipped", event_id=event_id)
             return True
 
@@ -453,12 +475,14 @@ class EmailWorker:
 
     # ── durable dedup (reuses email_consumed; recipient_id = inviteId) ───────
 
-    async def _claim(self, event_id: str, recipient_id: str) -> bool:
+    async def _claim(self, event_id: str, recipient_id: str) -> _Claim:
         """Atomically claim (event_id, recipient_id) before sending anything.
 
-        True means it is safe to proceed and send now — either a fresh claim
-        (no row existed) or a RECLAIM of a row still 'pending'. False means a
-        'sent' row already exists: a genuine duplicate, do not send.
+        CLAIMED means it is safe to proceed and send now — either a fresh claim
+        (no row existed) or a RECLAIM of a row still 'pending'. DUPLICATE means
+        a 'sent' row already exists: a genuine duplicate, do not send, safe to
+        commit. ERROR means the database failed so nothing is known: do not
+        send AND do not commit — the caller must retry (see _handle_message).
 
         Reclaiming rather than refusing a still-'pending' row is deliberate:
         this consumer processes one message at a time with no internal
@@ -475,7 +499,7 @@ class EmailWorker:
         window (a rebalance/crash timing coincidence), not "every message
         goes through a plain check-then-act" the way this looked before.
         `state='pending'` in the UPDATE's WHERE is what stops a 'sent' row
-        from ever being reopened, and is why this returns False for those.
+        from ever being reopened, and is why this returns DUPLICATE for those.
 
         owner='email_worker' (matching this table's CHECK constraint) is
         what keeps RelayConsumer's reaper — which otherwise flips any
@@ -485,8 +509,10 @@ class EmailWorker:
         migrations/0004_email_consumed_owner.sql.
         """
         assert self._db is not None
-        async with self._db.acquire() as conn:
-            try:
+        # acquire() is inside the try too: a pool that cannot hand out a
+        # connection (DB down) is the same "outcome unknown" as a failed query.
+        try:
+            async with self._db.acquire() as conn:
                 row = await conn.fetchrow(
                     """
                     INSERT INTO email_consumed (event_id, recipient_id, state, owner)
@@ -498,17 +524,17 @@ class EmailWorker:
                     """,
                     event_id, recipient_id,
                 )
-                # A row comes back for a fresh insert AND for a reclaimed
-                # still-'pending' row. Nothing comes back when the ON
-                # CONFLICT ... WHERE didn't match — the only way that
-                # happens is the existing row is already 'sent'.
-                return row is not None
-            except Exception as exc:  # noqa: BLE001 - a DB hiccup must cost
-                # this event (treated as "claim failed", so the caller does
-                # not send and instead leaves the offset uncommitted for
-                # retry), not the whole process.
-                self._log.error("claim_failed", event_id=event_id, error=str(exc))
-                return False
+            # A row comes back for a fresh insert AND for a reclaimed
+            # still-'pending' row. Nothing comes back when the ON
+            # CONFLICT ... WHERE didn't match — the only way that
+            # happens is the existing row is already 'sent'.
+            return _Claim.CLAIMED if row is not None else _Claim.DUPLICATE
+        except Exception as exc:  # noqa: BLE001 - a DB hiccup must cost
+            # this event (reported as ERROR, so the caller does not send
+            # and leaves the offset uncommitted for retry), not the whole
+            # process.
+            self._log.error("claim_failed", event_id=event_id, error=str(exc))
+            return _Claim.ERROR
 
     async def _mark_sent(self, event_id: str, recipient_key=None) -> bool:
         """Write the durable dedup row. Returns False (logged) on a DB error

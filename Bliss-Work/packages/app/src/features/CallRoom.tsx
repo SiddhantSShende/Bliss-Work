@@ -81,7 +81,7 @@ import {
   type SpeakerState,
 } from "../lib/activeSpeaker";
 import { useMeetingSessionOptional } from "../lib/MeetingSession";
-import { useMeetingPiP } from "../lib/useMeetingPiP";
+import { pickPipTrack, useMeetingPiP } from "../lib/useMeetingPiP";
 import { useMeetingDisplayController } from "../lib/useMeetingDisplayController";
 import { useCallDuration } from "../lib/callTimer";
 import { useCallInviteLink } from "../lib/useCallInviteLink";
@@ -291,21 +291,11 @@ export function CallRoom({
   const stageId = sharer ?? pinned ?? speakers.active;
   const stage = stageId ? participants.find((p) => p.identity === stageId) : undefined;
 
-  // What Picture-in-Picture follows: the same track CallTile would show on
-  // the stage tile — a shared screen over a camera, and nothing at all when
-  // the stage participant has neither on, mirroring CallTile's own showVideo
-  // gate so the PiP button never claims to work for an avatar tile.
-  //
-  // Excludes the local sharer's own screen for the same reason CallTile
-  // replaces it with a placeholder: a floating, always-on-top window showing
-  // your own "Entire screen" capture sits inside the region being captured,
-  // turning PiP into a second, worse copy of the video-feedback mirror.
-  const pipTrack =
-    stage && !(stage.isLocal && stage.sharing) && (stage.camOn || stage.sharing)
-      ? stage.sharing
-        ? stage.screenTrack
-        : stage.videoTrack
-      : null;
+  // What Picture-in-Picture follows: the track CallTile shows on the stage —
+  // and, when the stage is an avatar with no picture, whoever in the room does
+  // have one. See pickPipTrack, including why the local sharer's own screen is
+  // never it.
+  const pipTrack = pickPipTrack(stage, participants);
   const pip = useMeetingPiP(pipTrack, status === "connected" || status === "reconnecting");
   // The single source of truth for NORMAL/MINIMIZED/PICTURE_IN_PICTURE — see
   // lib/useMeetingDisplayController.ts for the whole state machine, including
@@ -1177,6 +1167,7 @@ export function CallRoom({
           recording={localRec.recording}
           onToggleRecording={() => void toggleRecording()}
           pipSupported={pip.supported}
+          pipAvailable={pip.available}
           pipActive={pip.active}
           onTogglePip={pip.toggle}
           onMinimize={session ? display.handleMinimize : undefined}

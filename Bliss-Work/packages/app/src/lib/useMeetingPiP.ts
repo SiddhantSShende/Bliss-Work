@@ -33,6 +33,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Track } from "livekit-client";
+import type { RoomParticipant } from "./useCallRoom";
 
 /** Why an `enter()` attempt did not result in an active PiP session. Not
  *  exposed to meeting participants — this is for logging/diagnostics only,
@@ -43,6 +44,7 @@ export type PiPFailureReason =
   | "NO_VIDEO_TRACK"
   | "ALREADY_IN_PIP"
   | "REQUEST_IN_FLIGHT"
+  | "NOT_READY"
   | "NOT_ALLOWED"
   | "BROWSER_RESTRICTION"
   | "UNKNOWN";
@@ -52,6 +54,9 @@ export interface MeetingPiPApi {
   supported: boolean;
   /** Whether the meeting's video is the current PiP window right now. */
   active: boolean;
+  /** Whether clicking PiP can do anything right now: supported AND there is a
+   *  video to float (or PiP is already up, so the click leaves it). */
+  available: boolean;
   /** Enter PiP if not active, exit if it is. Safe to call from a click. */
   toggle: () => void;
   /**
@@ -79,6 +84,64 @@ export interface MeetingPiPApi {
    * it).
    */
   exit: () => Promise<void>;
+}
+
+/** HTMLMediaElement.HAVE_METADATA — spelled out because jsdom's constant is not
+ *  something a test should have to rely on. */
+const HAVE_METADATA = 1;
+/** How long a click waits for the first frame before giving up. Chromium keeps a
+ *  click's user activation for about five seconds, so this stays well inside it. */
+const METADATA_WAIT_MS = 2_000;
+
+/**
+ * `requestPictureInPicture()` rejects with InvalidStateError until the element
+ * has loaded metadata, i.e. until its first frame has arrived. The element is
+ * attached a moment before that (or, for a paused remote layer, a long moment),
+ * so a click that arrives first has to wait for it rather than be refused.
+ */
+function metadataReady(el: HTMLVideoElement): Promise<boolean> {
+  if (el.readyState >= HAVE_METADATA) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const settle = (ok: boolean) => {
+      clearTimeout(timer);
+      el.removeEventListener("loadedmetadata", onMeta);
+      resolve(ok);
+    };
+    const onMeta = () => settle(true);
+    const timer = setTimeout(() => settle(false), METADATA_WAIT_MS);
+    el.addEventListener("loadedmetadata", onMeta);
+  });
+}
+
+/**
+ * The video Picture-in-Picture should follow.
+ *
+ * The stage participant's own picture first — what CallTile shows on the stage —
+ * so PiP is the same thing the viewer is looking at. But the stage is often an
+ * avatar (cameras start OFF on join, and the active speaker is frequently
+ * someone with no video), and PiP then had nothing to follow while the button
+ * stayed lit. So when the stage has no picture, fall back to whoever does:
+ * a remote screen share, then a remote camera, then the local camera.
+ *
+ * Never the local sharer's own screen: a floating window showing the capture of
+ * the screen it sits on is a video-feedback loop (see CallTile's selfSharePreview).
+ */
+export function pickPipTrack(
+  stage: RoomParticipant | undefined,
+  participants: readonly RoomParticipant[],
+): Track | null {
+  const shown = (p: RoomParticipant): Track | null => {
+    if (p.isLocal && p.sharing) return null;
+    if (p.sharing) return p.screenTrack;
+    return p.camOn ? p.videoTrack : null;
+  };
+  const staged = stage ? shown(stage) : null;
+  if (staged) return staged;
+  const remote = participants.filter((p) => !p.isLocal);
+  const sharer = remote.find((p) => p.sharing && p.screenTrack);
+  if (sharer) return sharer.screenTrack;
+  const camera = [...remote, ...participants.filter((p) => p.isLocal)].find((p) => shown(p));
+  return camera ? shown(camera) : null;
 }
 
 export function useMeetingPiP(track: Track | null, enabled: boolean): MeetingPiPApi {
@@ -129,15 +192,21 @@ export function useMeetingPiP(track: Track | null, enabled: boolean): MeetingPiP
 
   // Follow whatever the stage is currently showing — the same attach/detach
   // pattern CallTile uses for its own tiles, on this one extra element.
+  //
+  // `streamId` is CallTile's own lesson: LiveKit can swap the underlying
+  // MediaStreamTrack (a camera re-acquired after being stopped) under the same
+  // Track wrapper, and an effect keyed on the wrapper alone leaves this element
+  // on the ended one — a blank floating window.
+  const streamId = track?.mediaStreamTrack?.id;
   useEffect(() => {
     const el = videoRef.current;
     if (!el || !track) return;
     track.attach(el);
-    void el.play().catch(() => {});
+    void el.play()?.catch(() => {});
     return () => {
       track.detach(el);
     };
-  }, [track]);
+  }, [track, streamId]);
 
   // Set the instant a request is issued and cleared once it settles — NOT the
   // same thing as `active`, which only flips once the browser has actually
@@ -171,9 +240,14 @@ export function useMeetingPiP(track: Track | null, enabled: boolean): MeetingPiP
     }
     if (pipPendingRef.current) return Promise.resolve(fail("REQUEST_IN_FLIGHT"));
     pipPendingRef.current = true;
-    return el
-      .requestPictureInPicture()
-      .then(() => true)
+    // When the picture is already loaded the request is issued synchronously,
+    // inside the click. Otherwise wait for the first frame (see metadataReady).
+    const request = async (): Promise<boolean> => {
+      if (el.readyState < HAVE_METADATA && !(await metadataReady(el))) return fail("NOT_READY");
+      await el.requestPictureInPicture();
+      return true;
+    };
+    return request()
       .catch((e: unknown) =>
         fail(
           e instanceof DOMException && e.name === "NotAllowedError"
@@ -209,5 +283,5 @@ export function useMeetingPiP(track: Track | null, enabled: boolean): MeetingPiP
     void exit();
   }, [enabled, exit]);
 
-  return { supported, active, toggle, enter, exit };
+  return { supported, active, available: supported && (active || !!track), toggle, enter, exit };
 }

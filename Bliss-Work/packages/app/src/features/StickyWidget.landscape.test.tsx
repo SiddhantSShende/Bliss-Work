@@ -57,7 +57,7 @@ function renderCard(props: Partial<React.ComponentProps<typeof StickyWidget>> = 
       {...props}
     />,
   );
-  const card = view.container.querySelector(".app-drag") as HTMLElement;
+  const card = view.container.querySelector("[data-task-card]") as HTMLElement;
   return { card, onAction, onWithdrawSelf, onAddParticipants };
 }
 

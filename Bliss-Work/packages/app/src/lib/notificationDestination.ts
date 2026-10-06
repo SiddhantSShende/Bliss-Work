@@ -56,10 +56,16 @@ export function notificationDestination(notification: NotificationTarget): strin
       return conversationId ? `/app/chats/${conversationId}${messageQuery(notification.messageId)}` : "/app/chats";
     }
     case "MEETING_SCHEDULED":
-    case "MEETING_INVITATION": {
+    case "MEETING_INVITATION":
+    case "MEETING_UPDATED":
+    case "MEETING_STARTED": {
       const callId = id(notification.callId);
       return callId ? `/app/meetings/${callId}` : "/app/meetings";
     }
+    // The meeting no longer exists, so there is nothing of it to open: the list is
+    // where the person can see what is left. Deliberately ignores any callId.
+    case "MEETING_CANCELLED":
+      return "/app/meetings";
     case "TASK_ACKNOWLEDGED":
     case "TASK_ASSIGNED":
     case "TASK_COMPLETED":
@@ -90,8 +96,9 @@ export type NotificationCategory = "task" | "chat" | "channel" | "meeting" | "ot
 
 /**
  * Task → task, DM / channel message → chat, channel added / created → channel,
- * meeting scheduled / invitation (a ringing call is persisted as an invitation) →
- * meeting. Anything else is "other": shown, with a generic presentation, never dropped.
+ * meeting scheduled / updated / started / cancelled / invitation (a ringing call is
+ * persisted as an invitation) → meeting. Anything else is "other": shown, with a
+ * generic presentation, never dropped.
  * The kind families (TASK_, MEETING_, CHANNEL_) are matched by prefix so a sibling a
  * newer server adds lands in the right family; CHANNEL_MESSAGE is the one exception.
  */

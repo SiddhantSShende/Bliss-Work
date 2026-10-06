@@ -595,6 +595,13 @@ func TestSeriesHTTP_NotificationsAreSentOnceAndOnlyToWhoNeedThem(t *testing.T) {
 		if after != before+1 || strings.Join(last, ",") != strings.Join(sorted(f.host, f.ada, f.rival, f.grace), ",") {
 			t.Errorf("events %d -> %d, recipients %v", before, after, last)
 		}
+		// An edit is flagged so notification-svc reads it as "updated"; the creation
+		// and the "you were added" announcements before it were not.
+		const updatedEvents = `SELECT count(*) FROM outbox
+			WHERE payload->>'type' = 'call.scheduled' AND payload->>'change' = 'updated' AND payload->>'orgId' = $1`
+		if n := f.count(updatedEvents, f.org); n != 1 {
+			t.Errorf("%d call.scheduled events flagged change=updated, want exactly the title edit's", n)
+		}
 	})
 	t.Run("cancelling announces once, and cancelling again nothing", func(t *testing.T) {
 		if c, raw := host("DELETE", "/api/v1/meeting-series/"+sid, nil); c != http.StatusNoContent {
@@ -602,6 +609,12 @@ func TestSeriesHTTP_NotificationsAreSentOnceAndOnlyToWhoNeedThem(t *testing.T) {
 		}
 		if n := len(f.events("call.ended")); n != 1 {
 			t.Fatalf("%d call.ended events after a cancel, want 1", n)
+		}
+		// notification-svc turns this into "Meeting cancelled" only when it says CANCELLED
+		// (an ordinary end says ENDED), so the status is part of the contract.
+		if n := f.count(`SELECT count(*) FROM outbox WHERE payload->>'type' = 'call.ended'
+			AND payload->>'status' = 'CANCELLED' AND payload->>'orgId' = $1`, f.org); n != 1 {
+			t.Errorf("%d call.ended events carry status CANCELLED, want 1", n)
 		}
 		if c, _ := host("DELETE", "/api/v1/meeting-series/"+sid, nil); c != http.StatusNoContent {
 			t.Errorf("cancelling twice = %d, want 204", c)

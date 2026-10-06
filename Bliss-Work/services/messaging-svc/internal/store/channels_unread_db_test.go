@@ -59,7 +59,10 @@ func TestListChannelsUnreadCount(t *testing.T) {
 				return err
 			}
 		}
-		_, err := tx.Exec(ctx, `UPDATE channels SET last_msg_at = now() WHERE id = $1`, channelID)
+		// seq_counter too: every real send advances it with the seq it assigns,
+		// and MarkChannelRead clamps a cursor to it, so seeding rows without it
+		// would describe a channel that cannot exist.
+		_, err := tx.Exec(ctx, `UPDATE channels SET last_msg_at = now(), seq_counter = 3 WHERE id = $1`, channelID)
 		return err
 	}); err != nil {
 		t.Fatalf("seed: %v", err)

@@ -1,7 +1,9 @@
 /**
  * TopNavbar in the desktop app (config.windowControls): the window's single
- * header — draggable, no Invite, native-control theme reported — while the web
- * build keeps its Invite button and is not a drag region.
+ * header — draggable, no Invite, native-control theme reported, search bar
+ * centred on the window — while the web build keeps its Invite button, is not a
+ * drag region and leaves the search bar in the flow. Both show the text-only
+ * wordmark (no logo icon).
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -27,6 +29,20 @@ const renderBar = (onOpenNotifs = vi.fn()) =>
 describe("TopNavbar", () => {
   beforeEach(() => {
     setTheme.mockClear();
+  });
+
+  describe.each([
+    ["desktop", { kind: "electron", windowControls: { side: "right", setTheme } }],
+    ["web", { kind: "web" }],
+  ])("%s wordmark", (_name, config) => {
+    it("is the BlissWork text alone — no logo icon — at the enlarged size", () => {
+      h.config = config;
+      renderBar();
+      const brand = screen.getByTitle("BlissWork");
+      expect(brand.querySelector("svg")).toBeNull();
+      expect(brand).toHaveTextContent("BlissWork");
+      expect(brand.querySelector("span > span")).toHaveClass("text-[22px]");
+    });
   });
 
   describe("desktop", () => {
@@ -55,6 +71,13 @@ describe("TopNavbar", () => {
       expect(screen.getByText("3")).toBeInTheDocument();
     });
 
+    it("takes the search bar out of the flow and centres it on the window", () => {
+      renderBar();
+      const form = screen.getByPlaceholderText(/search people/i).closest("form");
+      expect(form).toHaveClass("absolute", "left-1/2", "-translate-x-1/2");
+      expect(screen.getByRole("banner").style.getPropertyValue("--bw-search-w")).toContain("100vw");
+    });
+
     it("tells the host which colours the native controls should use", () => {
       renderBar();
       expect(setTheme).toHaveBeenCalledWith({
@@ -67,6 +90,13 @@ describe("TopNavbar", () => {
   describe("web", () => {
     beforeEach(() => {
       h.config = { kind: "web" };
+    });
+
+    it("keeps the search bar in the flow, centred between the two clusters", () => {
+      renderBar();
+      const form = screen.getByPlaceholderText(/search people/i).closest("form");
+      expect(form).toHaveClass("flex-1", "justify-center");
+      expect(form).not.toHaveClass("absolute");
     });
 
     it("keeps the Invite button and is not a drag region", () => {

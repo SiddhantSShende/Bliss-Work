@@ -25,6 +25,17 @@ from .subject import require_admin, resolve_subject
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 
+# The timeline's "Outside Activity" filter: what the person's desktop saw them do
+# OUTSIDE BlissWork. It is a view over stored rows, not a stored category — no
+# row carries it, and ingestion is untouched. A single `category` cannot express
+# it: `app.focus` is stored as 'app', but the focus/blur/idle readings are
+# stored as 'engagement', the same category as sending a message. So the filter
+# is the 'app' category plus these stable action verbs (the ones the client's
+# activityLabels names: an application in front, switched away from / came back
+# to BlissWork, and the in-window and OS-level idle spans).
+OUTSIDE_FILTER = "outside"
+OUTSIDE_ACTIONS = frozenset({"app.focus", "blur", "focus", "idle.start", "idle.end", "os.idle"})
+
 
 def iso_z(dt: datetime | None) -> str | None:
     if dt is None:
@@ -100,6 +111,8 @@ async def timeline(
 ) -> TimelinePage:
     """One member's activity, newest first.
 
+    `category` is a stored category, or the `outside` view (see OUTSIDE_FILTER).
+
     Keyset-paginated on (occurred_at DESC, id DESC) — the same tuple the index is
     built on. OFFSET would be wrong here for a reason that shows up immediately
     in use: activity arrives continuously at the head of this list, so every new
@@ -112,6 +125,9 @@ async def timeline(
             before = decode_cursor(cursor)
         except ValueError:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed cursor")
+    outside = category == OUTSIDE_FILTER
+    if outside:
+        category = None
 
     async with session() as db:
         await set_org_context(db, principal.org_id)
@@ -139,6 +155,9 @@ async def timeline(
                        AND (CAST(:cur_at AS timestamptz) IS NULL
                             OR (occurred_at, id) < (CAST(:cur_at AS timestamptz), CAST(:cur_id AS uuid)))
                        AND (CAST(:category AS text) IS NULL OR category = :category)
+                       AND (NOT CAST(:outside AS boolean)
+                            OR category = 'app'
+                            OR action = ANY(CAST(:outside_actions AS text[])))
                      ORDER BY occurred_at DESC, id DESC
                      LIMIT :lim
                     """
@@ -148,6 +167,7 @@ async def timeline(
                     "cur_at": before[0] if before else None,
                     "cur_id": before[1] if before else None,
                     "category": category, "lim": limit + 1,
+                    "outside": outside, "outside_actions": sorted(OUTSIDE_ACTIONS),
                     "floor": _visible_floor(),
                     "hidden": sorted(NON_EVENT_ACTIONS),
                 },

@@ -144,10 +144,10 @@ func TestChannelAddedTextIncludesActorAndChannel(t *testing.T) {
 }
 
 func TestChannelCreatedTextIncludesActorAndChannel(t *testing.T) {
-	if got, want := channelCreatedText("Mayank", "Engineering"), "Mayank created the channel Engineering"; got != want {
+	if got, want := channelCreatedText("Mayank", "Engineering"), "Mayank added you to the new channel Engineering"; got != want {
 		t.Fatalf("channelCreatedText() = %q, want %q", got, want)
 	}
-	if got, want := channelCreatedText("", ""), "Someone created a channel"; got != want {
+	if got, want := channelCreatedText("", ""), "Someone added you to a new channel"; got != want {
 		t.Fatalf("channelCreatedText() without names = %q, want %q", got, want)
 	}
 }
@@ -263,5 +263,84 @@ func TestChannelMessageCreatedIgnoresMemberAddedSystemMessage(t *testing.T) {
 	}
 	if err := c.channelMessageCreated(context.Background(), nil, value); err != nil {
 		t.Fatalf("channelMessageCreated() = %v, want nil (no notification)", err)
+	}
+}
+
+func TestCallNoticeClassifiesEachMeetingEvent(t *testing.T) {
+	const at = "2026-10-06T09:00:00Z"
+	base := events.CallLifecycle{CallID: uuid.NewString(), Kind: "MEETING", Title: "Standup", ScheduledAt: at}
+	with := func(f func(*events.CallLifecycle)) events.CallLifecycle {
+		ev := base
+		f(&ev)
+		return ev
+	}
+	cases := []struct {
+		name      string
+		ev        events.CallLifecycle
+		kind      string
+		text      string
+		linksCall bool
+	}{
+		{"scheduled", with(func(e *events.CallLifecycle) { e.Type = events.TypeCallScheduled }),
+			events.KindMeetingScheduled, "Meeting scheduled: Standup · " + at, true},
+		{"edited", with(func(e *events.CallLifecycle) { e.Type = events.TypeCallScheduled; e.Change = events.CallChangeUpdated }),
+			events.KindMeetingUpdated, "Meeting updated: Standup · " + at, true},
+		{"invited", with(func(e *events.CallLifecycle) { e.Type = events.TypeCallRing; e.ScheduledAt = "" }),
+			events.KindMeetingInvite, "Meeting invitation: Standup", true},
+		{"started", with(func(e *events.CallLifecycle) { e.Type = events.TypeCallStarted; e.Status = events.CallStatusLive }),
+			events.KindMeetingStarted, "Meeting started: Standup", true},
+		{"cancelled", with(func(e *events.CallLifecycle) { e.Type = events.TypeCallEnded; e.Status = events.CallStatusCancelled }),
+			events.KindMeetingCancelled, "Meeting cancelled: Standup · " + at, false},
+		{"untitled", with(func(e *events.CallLifecycle) {
+			e.Type = events.TypeCallStarted
+			e.Status = events.CallStatusLive
+			e.Title = ""
+		}),
+			events.KindMeetingStarted, "Meeting started: Meeting", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			kind, text, linksCall := callNotice(tc.ev)
+			if kind != tc.kind || text != tc.text || linksCall != tc.linksCall {
+				t.Errorf("callNotice() = (%q, %q, %v), want (%q, %q, %v)", kind, text, linksCall, tc.kind, tc.text, tc.linksCall)
+			}
+		})
+	}
+}
+
+func TestCallNoticeStaysQuietForEventsThatAreNotNews(t *testing.T) {
+	cases := []events.CallLifecycle{
+		{Type: events.TypeCallEnded, Status: "ENDED"},           // a meeting that took place
+		{Type: events.TypeCallEnded},                            // no status: an older producer
+		{Type: events.TypeCallStarted, Status: "ENDED"},         // a stale or reordered start
+		{Type: events.TypeCallStarted},                          // no status
+		{Type: events.TypeCallParticipantAdded, Status: "LIVE"}, // a roster refresh, not an invitation
+	}
+	for _, ev := range cases {
+		if kind, _, _ := callNotice(ev); kind != "" {
+			t.Errorf("%s status=%q produced a %s notification", ev.Type, ev.Status, kind)
+		}
+	}
+}
+
+func TestCallNotificationNeverNotifiesTheActorOrDeadLettersAnOrdinaryEnd(t *testing.T) {
+	c := newTestConsumer()
+	actor := uuid.NewString()
+	// Only the person who did it is on the list: nothing to create, so no database is touched.
+	for _, ev := range []events.CallLifecycle{
+		{Type: events.TypeCallStarted, Status: "LIVE", ActorID: actor, Members: []string{actor}},
+		{Type: events.TypeCallEnded, Status: "CANCELLED", ActorID: actor, Members: []string{actor}},
+		{Type: events.TypeCallScheduled, Change: "updated", ActorID: actor, Members: []string{actor}},
+	} {
+		ev.EventID, ev.OrgID, ev.CallID, ev.Kind = uuid.NewString(), uuid.NewString(), uuid.NewString(), "MEETING"
+		value, _ := json.Marshal(ev)
+		if err := c.callNotification(context.Background(), nil, value); err != nil {
+			t.Errorf("%s: callNotification() = %v, want nil", ev.Type, err)
+		}
+	}
+	// An ordinary end with none of the fields a notification needs is ignored, not dead-lettered.
+	value, _ := json.Marshal(events.CallLifecycle{Type: events.TypeCallEnded, Status: "ENDED"})
+	if err := c.callNotification(context.Background(), nil, value); err != nil {
+		t.Errorf("ordinary call.ended = %v, want nil", err)
 	}
 }

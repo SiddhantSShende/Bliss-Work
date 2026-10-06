@@ -292,3 +292,91 @@ func TestGlobalFeedCarriesEveryProducersNotificationsInOneNewestFirstList(t *tes
 		t.Errorf("unread feed = %v", kindsOf(got))
 	}
 }
+
+// The meeting lifecycle, end to end through the real consumer and the real HTTP feed:
+// an edit, a start and a cancellation each reach the people they concern as their own
+// kind, in the same newest-first feed as everything else, without notifying whoever
+// caused them, and an ordinary end of a meeting says nothing.
+func TestMeetingLifecycleNotificationsReachTheFeed(t *testing.T) {
+	env := newFeedEnv(t)
+	ctx := context.Background()
+	me, organiser := uuid.NewString(), uuid.NewString()
+	meeting, cancelledMeeting := uuid.NewString(), uuid.NewString()
+	c := &Consumer{pool: env.pool, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	both := []string{organiser, me}
+
+	call := func(evType, callID, status, change, actor string) events.CallLifecycle {
+		return events.CallLifecycle{Type: evType, EventID: uuid.NewString(), OrgID: env.orgID, CallID: callID,
+			Kind: "MEETING", Title: "Sprint planning", ScheduledAt: "2026-10-06T09:00:00Z",
+			Status: status, Change: change, ActorID: actor, Members: both}
+	}
+	for _, ev := range []events.CallLifecycle{
+		call(events.TypeCallScheduled, meeting, "SCHEDULED", "", organiser),
+		call(events.TypeCallScheduled, meeting, "SCHEDULED", events.CallChangeUpdated, organiser),
+		call(events.TypeCallStarted, meeting, "LIVE", "", ""),       // the clock started it: nobody to exclude
+		call(events.TypeCallEnded, meeting, "ENDED", "", organiser), // it took place: not news
+		call(events.TypeCallEnded, cancelledMeeting, "CANCELLED", "", organiser),
+	} {
+		payload, _ := json.Marshal(ev)
+		tx, err := env.pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.handle(ctx, tx, payload); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("%s: handle: %v", ev.Type, err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	token := env.sign(me)
+	got := env.feed(t, token, "")
+	want := []string{"MEETING_CANCELLED", "MEETING_STARTED", "MEETING_UPDATED", "MEETING_SCHEDULED"} // newest first
+	if !slices.Equal(kindsOf(got), want) {
+		t.Fatalf("feed kinds = %v, want %v (an ordinary end must not appear)", kindsOf(got), want)
+	}
+	byKind := map[string]feedRow{}
+	for _, r := range got {
+		byKind[r.Kind] = r
+	}
+	for _, k := range []string{"MEETING_SCHEDULED", "MEETING_UPDATED", "MEETING_STARTED"} {
+		if r := byKind[k]; r.CallID == nil || *r.CallID != meeting {
+			t.Errorf("%s row = %+v, want it to carry the meeting's id", k, r)
+		}
+	}
+	// The cancelled meeting's rows are gone, so its notification leads to the list, not a dead id.
+	if r := byKind["MEETING_CANCELLED"]; r.CallID != nil || r.Text != "Meeting cancelled: Sprint planning · 2026-10-06T09:00:00Z" {
+		t.Errorf("cancelled row = %+v", r)
+	}
+	if r := byKind["MEETING_UPDATED"]; r.Text != "Meeting updated: Sprint planning · 2026-10-06T09:00:00Z" {
+		t.Errorf("updated row text = %q", r.Text)
+	}
+
+	// The organiser caused the scheduling, the edit and the cancellation: they hear about
+	// none of them. The clock started the meeting, so they are told that it began.
+	if got := kindsOf(env.feed(t, env.sign(organiser), "")); !slices.Equal(got, []string{"MEETING_STARTED"}) {
+		t.Errorf("the organiser's feed = %v, want only the start", got)
+	}
+
+	// Every kind counts toward the bell's badge.
+	if got := env.badge(t, token); got != len(want) {
+		t.Errorf("badge = %d, want %d", got, len(want))
+	}
+
+	// Read state works like any other kind: opening one flips only that row.
+	cancelled := byKind["MEETING_CANCELLED"]
+	if status, raw := env.do(t, token, http.MethodPost, "/api/v1/notifications/"+cancelled.ID+"/read", nil); status != http.StatusOK && status != http.StatusNoContent {
+		t.Fatalf("mark read = %d %s", status, raw)
+	}
+	for _, r := range env.feed(t, token, "") {
+		if wantRead := r.ID == cancelled.ID; r.Read != wantRead {
+			t.Errorf("%s read=%v, want %v", r.Kind, r.Read, wantRead)
+		}
+	}
+	if got := env.badge(t, token); got != len(want)-1 {
+		t.Errorf("badge after opening one = %d, want %d", got, len(want)-1)
+	}
+}

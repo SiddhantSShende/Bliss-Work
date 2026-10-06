@@ -76,7 +76,7 @@ function mount(view: string) {
   );
 }
 
-const cards = () => [...document.querySelectorAll<HTMLElement>(".app-drag")];
+const cards = () => [...document.querySelectorAll<HTMLElement>("[data-task-card]")];
 const titles = () => cards().map((c) => within(c).getByText(/^Task number/).textContent);
 
 beforeEach(() => {

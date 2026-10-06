@@ -128,6 +128,13 @@ _ATTACHMENT_FETCH_CONCURRENCY = 6
 # poison_max_failures, so this only ever bounds a transient outage.
 _RETRY_BACKOFF = 2.0
 
+# Cap on consecutive ProviderMailUnavailable failures (NOT a 409) for one mail
+# before it is dead-lettered — see _handle_provider_unavailable. 30 x the 2s
+# _RETRY_BACKOFF is about a minute of retrying, enough for integrations-svc's
+# 60s refresh sweep to renew a token, yet finite so one author's permanently
+# broken mailbox cannot hold a partition forever.
+_PROVIDER_UNAVAILABLE_MAX_FAILURES = 30
+
 # ── Reaper abandonment window ───────────────────────────────────────────────
 #
 # _reap_once reclaims a 'pending' row once it has gone this long without a
@@ -565,13 +572,9 @@ class RelayConsumer:
                     event, mail_id, parts, subject, text, html
                 )
             except ProviderMailUnavailable as exc:
-                # Transient: do NOT commit, so Kafka redelivers and we try
-                # again. Deliberately not counted as a failure of this
-                # MESSAGE — nothing about the mail is wrong, the mailbox was
-                # momentarily unreachable.
-                _log.warning("relay_mail_provider_unavailable", mail_id=mail_id, error=str(exc))
-                await self._release_claim(event_id, str(mail_id))
-                return False
+                _log.warning("relay_mail_provider_unavailable", mail_id=mail_id,
+                             conflict=exc.conflict, error=str(exc))
+                return await self._handle_provider_unavailable(event_id, event, mail_id, exc)
             # `covered` is the set of envelopes the provider send actually
             # reached (None means an old, pre-migration row with no recorded
             # set — treated as "assume covered", the prior behavior). A local
@@ -630,6 +633,44 @@ class RelayConsumer:
             self._failures.pop(str(event_id), None)
             _log.info("relay_mail_sent", event_id=event_id, mail_id=mail_id)
             return True
+
+    async def _handle_provider_unavailable(
+        self, event_id: str, event: dict, mail_id: str, exc: ProviderMailUnavailable
+    ) -> bool:
+        """Retry a mail whose provider send could not be completed — boundedly.
+
+        This used to release the claim and return False with NO counting, so a
+        mail that could never succeed rewound the whole batch every
+        _RETRY_BACKOFF forever, stalling its partition (and every mail behind
+        it). Both kinds now count against the same per-event `_failures`
+        counter as every other failure, and past the cap go through the SAME
+        poison path (_to_dlq + commit). Neither ever falls back to SMTP: the
+        provider may already have delivered the mail, and a relay copy on top
+        of it is the duplicate this whole idempotency chain exists to prevent.
+
+        * 409 (`exc.conflict`): integrations-svc's claim for this mail is still
+          'sending'. That does not clear by waiting — it is a lost outcome
+          parked for an operator — so it gets the ordinary poison_max_failures
+          cap: a few quick retries (enough to ride out a genuinely concurrent
+          attempt), then the DLQ for manual review.
+        * Anything else (5xx, timeout, connection refused, a token mid-refresh
+          answered 502): a real outage or refresh window, which does clear, and
+          which sustained is already cut short by provider_mail's breaker
+          (-> relay). A per-mail cap still has to exist, because a fault
+          specific to ONE author (an unrefreshable token) never opens a
+          breaker that other authors' successes keep resetting. It is larger
+          than poison_max_failures so a ~60s token-refresh sweep is not
+          mistaken for poison: _PROVIDER_UNAVAILABLE_MAX_FAILURES x
+          _RETRY_BACKOFF.
+        """
+        cap = (
+            self._settings.poison_max_failures
+            if exc.conflict
+            else max(self._settings.poison_max_failures, _PROVIDER_UNAVAILABLE_MAX_FAILURES)
+        )
+        return await self._retry_or_dlq(
+            event_id, str(mail_id), event, f"provider mail unavailable: {exc}", max_failures=cap
+        )
 
     async def _decide_transport(
         self,
@@ -897,7 +938,10 @@ class RelayConsumer:
             parts.append((att.filename, att.mime, data))
         return parts, skipped
 
-    async def _retry_or_dlq(self, event_id: str, recipient_key: str, event: dict, error: str) -> bool:
+    async def _retry_or_dlq(
+        self, event_id: str, recipient_key: str, event: dict, error: str,
+        max_failures: int | None = None,
+    ) -> bool:
         """_on_failure, and when it says "retry", release this attempt's claim.
 
         The redelivery has to be able to claim the event again. Left 'pending',
@@ -906,7 +950,7 @@ class RelayConsumer:
         redelivery without pretending it was sent. The retry can then claim it;
         for mail.outbound there is no in-app copy to make up for it.
         """
-        done = await self._on_failure(event_id, event, error)
+        done = await self._on_failure(event_id, event, error, max_failures)
         if not done and recipient_key:
             await self._release_claim(event_id, recipient_key)
         return done
@@ -959,17 +1003,20 @@ class RelayConsumer:
         except Exception as exc:  # noqa: BLE001
             _log.warning("relay_touch_claim_failed", event_id=event_id, error=str(exc))
 
-    async def _on_failure(self, event_id: str, event: dict, error: str) -> bool:
+    async def _on_failure(
+        self, event_id: str, event: dict, error: str, max_failures: int | None = None
+    ) -> bool:
         """Count consecutive failures; route poison messages to the DLQ.
 
         Returns False below the threshold so the caller leaves the offset
         uncommitted and Kafka redelivers (retry). At/after the threshold we
         publish to the DLQ and return True so the offset commits and the poison
-        message stops looping."""
+        message stops looping. `max_failures` overrides settings.poison_max_failures
+        for a failure class with its own, justified cap."""
         n = self._failures.get(event_id, 0) + 1
         self._failures[event_id] = n
         _log.error("relay_send_failed", event_id=event_id, attempt=n, error=error)
-        if n >= self._settings.poison_max_failures:
+        if n >= (max_failures or self._settings.poison_max_failures):
             await self._to_dlq(event, error)
             self._failures.pop(event_id, None)
             return True

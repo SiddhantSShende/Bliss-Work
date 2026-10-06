@@ -364,9 +364,16 @@ export function StickyWidget({
   // with `app-no-drag` so they remain clickable. Without this the user could
   // only drag from the small ~24px header strip, which they reasonably
   // expected to be a bug.
+  //
+  // Only the floating note (`compact`) is a drag region. On Windows Chromium
+  // reports a drag region to the OS as title bar (HTCAPTION), and the OS does
+  // not deliver Precision Touchpad two-finger scrolling over it, so an in-app
+  // card in the main window's task list marked as one would swallow the gesture
+  // (mouse wheel still worked) — and dragging a card would move the whole window.
   return (
     <div
-      className={`app-drag flex min-w-0 flex-col rounded-2xl border bg-surface ${
+      data-task-card=""
+      className={`${compact ? "app-drag " : ""}flex min-w-0 flex-col rounded-2xl border bg-surface ${
         landscape ? `${TASK_CARD_ROOT} p-3` : "gap-3 p-4"
       } ${
         task.myStatus === "MISSED" ? "border-danger/40" : "border-border"

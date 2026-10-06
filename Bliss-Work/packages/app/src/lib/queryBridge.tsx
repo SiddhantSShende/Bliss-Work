@@ -783,8 +783,10 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
 // ── Notifications + desktop-note repair ──────────────────────────────────
 
 /**
- * The live toast for a CHANNEL_ADDED notification. The text is the one the bell
- * shows ("<Actor> added you to the channel <Name>"), composed by notification-svc.
+ * The live toast for a CHANNEL_ADDED notification — or CHANNEL_CREATED, the same
+ * news for someone a channel was created with. The text is the one the bell shows
+ * ("<Actor> added you to the channel <Name>" / "…to the new channel <Name>"),
+ * composed by notification-svc.
  * Clicking View opens the channel by the same rule as a click on the bell row:
  * the destination is built from the record's own channelId (never from its text),
  * and it goes there even if the user is in another channel or on another page.
@@ -793,7 +795,7 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
  * notification.
  */
 function announceChannelAdded(e: NotificationCreatedEvent, { qc, api, navigate, currentPath }: EventHandlerContext) {
-  const route = notificationRoute({ kind: "CHANNEL_ADDED", channelId: e.channelId });
+  const route = notificationRoute({ kind: e.kind, channelId: e.channelId });
   toast(e.text, {
     id: e.notificationId,
     ...(e.channelId && {
@@ -832,7 +834,7 @@ function handleNotificationEvent(e: ServerEvent, ctx: EventHandlerContext) {
         // Only a notification this call actually inserted is announced, so a
         // redelivered frame (isNew is false) cannot toast twice, and never from
         // the reconnect replay — "added to a channel" hours ago is not news.
-        if (live && isNew && e.kind === "CHANNEL_ADDED") announceChannelAdded(e, ctx);
+        if (live && isNew && (e.kind === "CHANNEL_ADDED" || e.kind === "CHANNEL_CREATED")) announceChannelAdded(e, ctx);
         const active = useActiveThread.getState().thread;
         const isActiveThread =
           (e.kind === "DM_MESSAGE" && active?.kind === "chat" && active.conversationId === e.conversationId) ||

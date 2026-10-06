@@ -43,11 +43,17 @@ func startConsumeSpan(ctx context.Context, m kafka.Message) (context.Context, tr
 // redeliver it" only holds if nothing else commits first. Retrying in place is
 // what makes it hold.
 //
-// The pause starts at handleRetryBackoff and doubles up to maxHandleBackoff, so
-// maxHandleAttempts rides out about a minute and a half of database trouble.
+// The pause starts at handleRetryBackoff and doubles up to maxHandleBackoff and
+// stays there, for as long as it takes. There is deliberately NO attempt limit:
+// a handler reports false only for a failure a retry can cure (the database or
+// the disk is unavailable, a conflict, a timeout), and committing past such an
+// event would lose it silently — a user.created that never reaches
+// user_projection, an org.deleted that never purges — the moment an outage
+// outlasted whatever limit was chosen. A message that can NEVER succeed (bad
+// JSON, a bad id, a constraint violation) is not retried at all: its handler
+// reports true after logging and counting the skip (see skipMalformed /
+// skipIfPermanent), so it cannot stall the partition either.
 // Vars, not consts, only so a test need not wait.
-const maxHandleAttempts = 8
-
 var (
 	handleRetryBackoff = time.Second
 	maxHandleBackoff   = 30 * time.Second
@@ -57,10 +63,10 @@ var (
 // pausing between failures. It returns false ONLY when ctx ends first, and the
 // message must then be left uncommitted so a restart redelivers it.
 //
-// A message that still fails after maxHandleAttempts is logged at error level
-// and reported done: one that can never succeed must not stall its partition —
-// and every organisation's events behind it. That is a loud, bounded loss
-// instead of a silent, permanent stall.
+// It never gives up on its own: see the comment above on why unbounded retry,
+// not a bounded one, is the only way to keep "never commit an unprocessed
+// event" true across a long outage. Shutdown stays responsive because both the
+// handler's context and the pause between attempts end with ctx.
 func handleWithRetry(ctx context.Context, log *slog.Logger, what string, m kafka.Message, handle func(context.Context) bool) bool {
 	backoff := handleRetryBackoff
 	for attempt := 1; ; attempt++ {
@@ -68,11 +74,6 @@ func handleWithRetry(ctx context.Context, log *slog.Logger, what string, m kafka
 		ok := handle(msgCtx)
 		span.End()
 		if ok {
-			return true
-		}
-		if attempt >= maxHandleAttempts {
-			log.Error(what+" gave up on a message after retries",
-				"topic", m.Topic, "partition", m.Partition, "offset", m.Offset, "attempts", attempt)
 			return true
 		}
 		log.Warn(what+" handler failed, retrying",
@@ -186,8 +187,7 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) bool {
 		EventID string `json:"eventId"`
 	}
 	if err := json.Unmarshal(value, &head); err != nil {
-		c.log.Error("auth consumer bad json", "err", err)
-		return true
+		return skipMalformed(c.log, "auth", "auth consumer bad json", "err", err)
 	}
 	// Org deletion is handled before the dedup claim below, deliberately: the
 	// purge empties consumed_events for this org, so a claim would delete
@@ -212,8 +212,7 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) bool {
 	// and skip the retry this fix exists to enable.
 	done, err := c.store.IsConsumed(ctx, head.EventID)
 	if err != nil {
-		c.log.Error("dedup check failed", "eventId", head.EventID, "err", err)
-		return false
+		return skipIfPermanent(c.log, "auth", "dedup check failed", err, "eventId", head.EventID)
 	}
 	if done {
 		return true
@@ -224,17 +223,14 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) bool {
 		// has to render on everything they left behind — only `active` moves.
 		var evt events.MembershipChanged
 		if err := json.Unmarshal(value, &evt); err != nil {
-			c.log.Error("auth consumer decode membership change", "type", head.Type, "err", err)
-			return true
+			return skipMalformed(c.log, "auth", "auth consumer decode membership change", "type", head.Type, "err", err)
 		}
 		active := head.Type == events.TypeUserReactivated
 		if err := c.store.SetUserActive(ctx, evt.UserID, active); err != nil {
-			c.log.Error("user_projection set active failed", "userId", evt.UserID, "err", err)
-			return false
+			return skipIfPermanent(c.log, "auth", "user_projection set active failed", err, "userId", evt.UserID, "eventId", head.EventID)
 		}
 		if _, err := c.store.MarkConsumed(ctx, head.EventID); err != nil {
-			c.log.Error("dedup insert failed", "eventId", head.EventID, "err", err)
-			return false
+			return skipIfPermanent(c.log, "auth", "dedup insert failed", err, "eventId", head.EventID)
 		}
 		c.log.Info("user_projection membership changed", "userId", evt.UserID, "active", active)
 		return true
@@ -242,16 +238,13 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) bool {
 
 	var evt events.UserCreated
 	if err := json.Unmarshal(value, &evt); err != nil {
-		c.log.Error("auth consumer decode user.created", "err", err)
-		return true
+		return skipMalformed(c.log, "auth", "auth consumer decode user.created", "err", err)
 	}
 	if err := c.store.UpsertUser(ctx, evt.UserID, evt.OrgID, evt.Username, evt.DisplayName, evt.Email); err != nil {
-		c.log.Error("upsert user_projection failed", "userId", evt.UserID, "err", err)
-		return false
+		return skipIfPermanent(c.log, "auth", "upsert user_projection failed", err, "userId", evt.UserID, "eventId", head.EventID)
 	}
 	if _, err := c.store.MarkConsumed(ctx, head.EventID); err != nil {
-		c.log.Error("dedup insert failed", "eventId", head.EventID, "err", err)
-		return false
+		return skipIfPermanent(c.log, "auth", "dedup insert failed", err, "eventId", head.EventID)
 	}
 	c.log.Info("user_projection upserted", "userId", evt.UserID, "username", evt.Username)
 	return true
@@ -277,16 +270,18 @@ func (c *AuthConsumer) purgeOrg(ctx context.Context, value []byte) bool {
 		OrgID string `json:"orgId"`
 	}
 	if err := json.Unmarshal(value, &evt); err != nil || evt.OrgID == "" {
-		c.log.Error("auth consumer decode org.deleted", "err", err)
-		return true
+		return skipMalformed(c.log, "auth", "auth consumer decode org.deleted", "err", err)
 	}
 
 	deleted, err := c.store.PurgeOrg(ctx, evt.OrgID)
 	if err != nil {
-		c.log.Error("org purge failed", "orgId", evt.OrgID, "err", err)
-		return false
+		return skipIfPermanent(c.log, "auth", "org purge failed", err, "orgId", evt.OrgID)
 	}
 	if err := c.blobs.RemoveOrg(evt.OrgID); err != nil {
+		if errors.Is(err, blob.ErrBadKey) {
+			// Not a UUID: no retry can make it one.
+			return skipMalformed(c.log, "auth", "org blob purge refused a malformed orgId", "orgId", evt.OrgID, "err", err)
+		}
 		c.log.Error("org blob purge failed", "orgId", evt.OrgID, "err", err)
 		return false
 	}

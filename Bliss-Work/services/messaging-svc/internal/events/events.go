@@ -466,6 +466,9 @@ type ChannelMembershipChanged struct {
 	Members    []string `json:"members"`
 }
 
+// ChangeUpdated is CallLifecycle.Change for an edited meeting.
+const ChangeUpdated = "updated"
+
 // CallLifecycle carries every call notification: scheduled, ring,
 // participant_added, ended, started, waiting, and the two screen-share ones.
 //
@@ -493,6 +496,12 @@ type CallLifecycle struct {
 	Status     string `json:"status,omitempty"`
 	// ScheduledAt is absent for "meet now".
 	ScheduledAt string `json:"scheduledAt,omitempty"`
+	// Change is "updated" on a call.scheduled that re-announces a meeting whose
+	// title or schedule was edited, to everyone on it. Absent on the first
+	// announcement of a meeting, and on the one that tells newly added people
+	// about it. It exists so notification-svc can tell an edit from a creation
+	// without inferring it from what it has already stored.
+	Change string `json:"change,omitempty"`
 	// ActorID is who caused this — the organiser, the person who added someone,
 	// the host who ended or started it, the person who arrived in the lobby, or
 	// the one who started sharing their screen.

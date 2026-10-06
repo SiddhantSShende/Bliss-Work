@@ -205,7 +205,8 @@ func (s *Server) restoreInboxItem(w http.ResponseWriter, r *http.Request) {
 // Marks a unified-inbox row "seen" when the user opens it. THREAD rows have a
 // seq-based read model, so we delegate to MarkReadThread (advances last_read_seq,
 // stamps receipts, emits MessageRead) with an unbounded upToSeq meaning "read
-// everything I can see". TASK rows have no seq — "seen" is a straight
+// everything I can see". MarkReadThread clamps that to the newest seq that
+// exists, so the cursor and the MessageRead event never carry MaxInt64. TASK rows have no seq — "seen" is a straight
 // unread_count reset via MarkInboxItemRead. MAIL rows carry their own read_at
 // on the delivery row, so they go through MarkMailRead. This is the path that finally clears
 // the task-inbox badge, which was seeded unread_count=1 with no way to clear it.

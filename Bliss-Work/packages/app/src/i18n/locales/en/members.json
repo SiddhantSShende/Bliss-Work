@@ -227,6 +227,7 @@
       "all": "Everything",
       "engagement": "Work",
       "navigation": "In-app",
+      "outside": "Outside Activity",
       "auth": "Sign-ins",
       "security": "Security"
     },

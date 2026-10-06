@@ -82,7 +82,7 @@ function mount(view = "allocated") {
   return client;
 }
 
-const card = (title: string) => screen.getByText(title).closest(".app-drag") as HTMLElement;
+const card = (title: string) => screen.getByText(title).closest("[data-task-card]") as HTMLElement;
 
 beforeEach(() => {
   vi.clearAllMocks();

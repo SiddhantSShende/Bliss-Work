@@ -61,7 +61,7 @@ import pytest
 
 from app import relay_consumer, worker
 from app.relay_consumer import RelayConsumer
-from app.worker import EmailWorker
+from app.worker import EmailWorker, _Claim
 
 
 @pytest.fixture(autouse=True)
@@ -203,7 +203,10 @@ async def test_worker_claim_survives_a_db_error():
 
     result = await worker._claim("evt-1", "recipient-1")  # noqa: SLF001
 
-    assert result is False
+    # Not a bare False: that used to be indistinguishable from "already sent"
+    # and made _handle_message commit the offset (B-EW-1). The DB error is its
+    # own outcome so the caller retries.
+    assert result is _Claim.ERROR
 
 
 # ── _mark_sent: retries a DB hiccup, then gives up without raising ──────────

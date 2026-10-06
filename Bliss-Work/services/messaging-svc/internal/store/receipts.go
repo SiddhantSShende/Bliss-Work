@@ -359,10 +359,22 @@ func (s *Store) MarkRead(ctx context.Context, orgID, callerID, convID string, up
 			return err
 		}
 
+		// Never trust the requested seq past what exists (see read_ceiling.go).
+		// The clamp comes before the cursor moves AND before the event below
+		// reads upToSeq, so the peer is never told about seqs that do not exist.
+		// prevReadSeq is clamped too, so a cursor an older build pushed to
+		// MaxInt64 does not leave the receipt window below empty forever.
+		ceiling, err := conversationSeqCeiling(ctx, tx, convID)
+		if err != nil {
+			return err
+		}
+		upToSeq := min(upToSeq, ceiling) // new variable: a retry re-clamps from the caller's value
+		prevReadSeq = min(prevReadSeq, ceiling)
+
 		if _, err = tx.Exec(ctx,
-			`UPDATE conversation_members SET last_read_seq = GREATEST(last_read_seq, $3)
+			`UPDATE conversation_members SET last_read_seq = LEAST(GREATEST(last_read_seq, $3), $4)
 			 WHERE conversation_id = $1 AND user_id = $2`,
-			convID, callerID, upToSeq); err != nil {
+			convID, callerID, upToSeq, ceiling); err != nil {
 			return err
 		}
 
@@ -370,12 +382,12 @@ func (s *Store) MarkRead(ctx context.Context, orgID, callerID, convID string, up
 		// member of in this conversation, where the caller's seen frontier moved.
 		if _, err = tx.Exec(ctx, `
 			UPDATE thread_members tm
-			SET last_read_seq = GREATEST(tm.last_read_seq, $3)
+			SET last_read_seq = LEAST(GREATEST(tm.last_read_seq, $3), $4)
 			FROM threads t
 			WHERE tm.thread_id = t.id
 			  AND tm.user_id = $2
 			  AND t.conversation_id = $1`,
-			convID, callerID, upToSeq); err != nil {
+			convID, callerID, upToSeq, ceiling); err != nil {
 			return err
 		}
 
@@ -494,11 +506,21 @@ func (s *Store) MarkReadThread(ctx context.Context, orgID, callerID, threadID st
 			return err
 		}
 
+		// Clamp to what exists, exactly as MarkRead does (see read_ceiling.go).
+		// The unified inbox's THREAD "read" sends math.MaxInt64 meaning "all of
+		// it"; this is what turns that into "everything sent so far".
+		ceiling, err := conversationSeqCeiling(ctx, tx, convID)
+		if err != nil {
+			return err
+		}
+		upToSeq := min(upToSeq, ceiling) // new variable: a retry re-clamps from the caller's value
+		prevReadSeq = min(prevReadSeq, ceiling)
+
 		if _, err = tx.Exec(ctx, `
 			UPDATE thread_members
-			SET last_read_seq = GREATEST(last_read_seq, $3)
+			SET last_read_seq = LEAST(GREATEST(last_read_seq, $3), $4)
 			WHERE thread_id = $1 AND user_id = $2`,
-			threadID, callerID, upToSeq); err != nil {
+			threadID, callerID, upToSeq, ceiling); err != nil {
 			return err
 		}
 

@@ -43,7 +43,7 @@ function isOnSomeDisplay(b: { x: number; y: number; width: number; height: numbe
 export const MAIN_TITLE_BAR_HEIGHT = 48;
 
 /** Narrowest main window the top bar can lay out in (see minWidth below). */
-export const MAIN_MIN_WIDTH = 480;
+export const MAIN_MIN_WIDTH = 520;
 
 /** Colours the overlay is drawn in until the renderer reports the active
  *  theme's (main/index.ts "window:title-bar-theme") — matches backgroundColor. */
@@ -62,10 +62,11 @@ export function createMainWindow(startHidden = false): BrowserWindow {
     height: usable?.height ?? 900,
     // Lowered from 1280x700 so the window can be shrunk into the app's
     // tablet/mobile responsive layouts too, not just the desktop one. Not below
-    // 480: the single top bar (TopNavbar) must hold its seven controls PLUS the
+    // 520: the single top bar (TopNavbar) must hold its seven controls PLUS the
     // native window controls drawn over it — 138px on Windows — and measured
-    // against the real bar that is ~470px at its most compact. Narrower and the
-    // language/profile buttons would slide under the native controls.
+    // against the real bar (text-only wordmark, 17px at this width) that is
+    // ~510px at its most compact. Narrower and the org/search buttons overlap
+    // and the profile button would slide under the native controls.
     minWidth: MAIN_MIN_WIDTH,
     minHeight: 480,
     show: false,

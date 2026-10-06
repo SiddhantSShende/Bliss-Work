@@ -71,12 +71,12 @@ describe("task card times", () => {
     expect(within(times()).getByText("Missed")).toBeInTheDocument();
     expect(stamps()).toEqual([ASSIGNED, DEADLINE, "2026-09-19T16:00:03.000Z"]);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(document.querySelector(".app-drag")).toHaveClass("border-danger/40");
+    expect(document.querySelector("[data-task-card]")).toHaveClass("border-danger/40");
   });
 
   it("does not tint a task that is not missed", () => {
     render(<StickyWidget task={task("ACKNOWLEDGED", { deadlineAt: DEADLINE })} onAction={vi.fn()} />);
-    expect(document.querySelector(".app-drag")).not.toHaveClass("border-danger/40");
+    expect(document.querySelector("[data-task-card]")).not.toHaveClass("border-danger/40");
     expect(within(times()).queryByText("Missed")).not.toBeInTheDocument();
   });
 

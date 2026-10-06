@@ -130,7 +130,7 @@ func TestCreateChannelPersistsSystemMessage(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("read system message: %v", err)
 	}
-	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Jordan Doe created the channel project room" {
+	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Jordan Doe created channel project room" {
 		t.Errorf("system message = %q", got)
 	}
 	if senderID != creatorID || kind != MessageKindChannelCreated {

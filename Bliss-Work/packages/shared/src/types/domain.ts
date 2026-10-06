@@ -987,6 +987,9 @@ export const NOTIFICATION_KINDS = [
   "CHANNEL_MESSAGE",
   "MEETING_SCHEDULED",
   "MEETING_INVITATION",
+  "MEETING_UPDATED",
+  "MEETING_STARTED",
+  "MEETING_CANCELLED",
 ] as const;
 export type KnownNotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

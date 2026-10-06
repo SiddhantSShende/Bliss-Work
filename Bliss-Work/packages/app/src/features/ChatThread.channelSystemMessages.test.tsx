@@ -1,6 +1,6 @@
 /**
- * The channel's own membership notices — "<Creator> created the channel X",
- * "<A>, <B> were added to the channel", "<User> joined the channel" — arrive as
+ * The channel's own membership notices — "<Creator> created channel X",
+ * "<A>, <B> were added to channel", "<User> joined the channel" — arrive as
  * ordinary channel messages with kind `channel_created` / `channel_member_added`.
  * They must render as centered SystemPills (no bubble, no message-actions menu),
  * in order, and identically whether the viewer is the creator or someone else.
@@ -21,8 +21,8 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 import { ChatThread, type ThreadMessage } from "./ChatThread";
 
 const messages: ThreadMessage[] = [
-  { id: "m1", senderId: "me", body: "Jordan Doe created the channel project room", kind: "channel_created", at: "2026-10-01T09:00:00Z" },
-  { id: "m2", senderId: "me", body: "Zed Zimmer, Amy Adams, Bob Brown were added to the channel", kind: "channel_member_added", at: "2026-10-01T09:00:00Z" },
+  { id: "m1", senderId: "me", body: "Jordan Doe created channel project room", kind: "channel_created", at: "2026-10-01T09:00:00Z" },
+  { id: "m2", senderId: "me", body: "Zed Zimmer, Amy Adams, Bob Brown were added to channel", kind: "channel_member_added", at: "2026-10-01T09:00:00Z" },
   { id: "m3", senderId: "peer", body: "Cy Dunn joined the channel", kind: "channel_member_added", at: "2026-10-01T09:05:00Z" },
 ];
 
