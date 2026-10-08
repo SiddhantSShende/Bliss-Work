@@ -109,7 +109,7 @@ export type AuditPage = z.infer<typeof AuditPage>;
  * and the export mark the difference, because anyone using this screen to make a
  * decision about a person deserves to know which they are looking at.
  */
-export const ActivitySource = z.enum(["server", "web", "desktop", "extension"]);
+export const ActivitySource = z.enum(["server", "web", "desktop", "extension", "mobile"]);
 export type ActivitySource = z.infer<typeof ActivitySource>;
 
 /** Online / idle / offline — three states, where raw presence has only two. */
@@ -781,11 +781,31 @@ export const AssigneeStatus = z.enum([
   "ACKNOWLEDGED",
   "COMPLETED",
   "LEFT",
+  "MISSED",
 ]);
 export type AssigneeStatus = z.infer<typeof AssigneeStatus>;
 
 export const TaskAction = z.enum(["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]);
 export type TaskAction = z.infer<typeof TaskAction>;
+
+/** Deadline rule stored on a recurring schedule and resolved for each occurrence. */
+export const DeadlineRule = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("RELATIVE"),
+    amount: z.number().int().positive(),
+    unit: z.enum(["MINUTES", "HOURS", "DAYS"]),
+    time: z.string().nullable().optional(),
+    timeZone: z.string().min(1).max(64),
+  }),
+  z.object({
+    kind: z.literal("FIXED_TIME"),
+    amount: z.null().optional(),
+    unit: z.null().optional(),
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+    timeZone: z.string().min(1).max(64),
+  }),
+]);
+export type DeadlineRule = z.infer<typeof DeadlineRule>;
 
 export const TaskParticipantDTO = z.object({
   userId: z.string().uuid(),
@@ -817,6 +837,8 @@ export const StickyTaskDTO = z.object({
   completedAt: z.string().nullable().optional(),
   ignoredAt: z.string().nullable().optional(),
   leftAt: z.string().nullable().optional(),
+  deadlineAt: z.string().nullable().optional(),
+  missedAt: z.string().nullable().optional(),
   reviewedAt: z.string().nullable().optional(),
   review: z.string().nullable().optional(),
   reviewRating: ReviewRating,
@@ -831,6 +853,7 @@ export const SentTaskDTO = z.object({
   title: z.string(),
   description: z.string(),
   createdAt: z.string(),
+  deadlineAt: z.string().nullable().optional(),
   assignees: z.array(
     z.object({
       assigneeId: z.string().uuid(),
@@ -841,6 +864,7 @@ export const SentTaskDTO = z.object({
       completedAt: z.string().nullable().optional(),
       ignoredAt: z.string().nullable().optional(),
       leftAt: z.string().nullable().optional(),
+      missedAt: z.string().nullable().optional(),
       reviewedAt: z.string().nullable().optional(),
       review: z.string().nullable().optional(),
       reviewRating: ReviewRating,
@@ -873,6 +897,8 @@ export const ScheduledTaskDTO = z.object({
   occurrenceLimit: z.number().int().nullable().optional(),
   occurrenceCount: z.number().int(),
   assignees: z.array(z.object({ userId: z.string(), username: z.string() })),
+  deadlineAt: z.string().nullable().optional(),
+  deadlineRule: DeadlineRule.nullable().optional(),
 });
 export type ScheduledTaskDTO = z.infer<typeof ScheduledTaskDTO>;
 
@@ -973,6 +999,14 @@ export const NotificationDTO = z.object({
   createdAt: z.string(),
 });
 export type NotificationDTO = z.infer<typeof NotificationDTO>;
+
+/** One target for POST /notifications/read-by-target. */
+export const NotificationReadTarget = z.union([
+  z.object({ conversationId: z.string().uuid() }).strict(),
+  z.object({ channelId: z.string().uuid() }).strict(),
+  z.object({ callId: z.string().uuid() }).strict(),
+]);
+export type NotificationReadTarget = z.infer<typeof NotificationReadTarget>;
 
 export const NotificationPageDTO = z.object({
   items: z.array(NotificationDTO),

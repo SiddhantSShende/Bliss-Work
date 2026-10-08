@@ -36,7 +36,8 @@ import {
   type ChannelRole,
   ChannelMessageDTO,
   ChannelReadReceiptDTO,
-    CustomThemeDTO,
+  CustomThemeDTO,
+  type DeadlineRule,
   ConversationDTO,
   ReactionDTO,
   type Role,
@@ -60,6 +61,7 @@ import {
   type ThreadOrigin,
   NotificationDTO,
   NotificationPageDTO,
+  type NotificationReadTarget,
   OrgMembershipDTO,
   OrgMembershipPageDTO,
   OrgLifecycleDTO,
@@ -1214,6 +1216,14 @@ export class ApiClient {
   mail(mailId: string) {
     return this.req(this.cfg.messagingBase, `/api/v1/mail/${mailId}`, {}, MailDTO);
   }
+  /** Record that the caller initiated a download of one file on this mail. */
+  recordMailAttachmentDownload(mailId: string, attachmentId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/mail/${mailId}/attachments/${attachmentId}/downloaded`,
+      { method: "POST" },
+    );
+  }
   /** Stamps read_at and clears the row's unread badge. Idempotent. */
   readMail(mailId: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/mail/${mailId}/read`, {
@@ -1790,7 +1800,10 @@ export class ApiClient {
       endCondition: "NO_END" | "AFTER_OCCURRENCES" | "ON_DATE";
       endAt?: string;
       occurrenceCount?: number;
+      deadline?: DeadlineRule;
     };
+    /** Absolute deadline for an immediate or one-off scheduled task. */
+    deadlineAt?: string;
   }, idempotencyKey?: string) {
     return this.req(this.cfg.taskBase, "/api/v1/tasks", {
       method: "POST",
@@ -1924,6 +1937,15 @@ export class ApiClient {
    *  resolves from the server instead of 404-ing on a cache miss. */
   taskDetail(taskId: string) {
     return this.req(this.cfg.taskBase, `/api/v1/tasks/${taskId}/detail`, {}, StickyTaskDTO);
+  }
+  /** Reopen the completed assignments for this task; the server chooses recipients. */
+  reassignTask(taskId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/reassign`,
+      { method: "POST" },
+      z.object({ taskId: z.string(), reassignedUserIds: z.array(z.string()) }),
+    );
   }
   /** Tasks I sent, newest first. The server pages by task (default 50, max 100);
    *  pass `limit`/`offset` to walk further back. A task whose assignee ignored it
@@ -2308,6 +2330,24 @@ export class ApiClient {
     return this.req<void>(this.cfg.notificationBase, "/api/v1/notifications/read-all", {
       method: "POST",
     });
+  }
+  /** Mark unread notifications belonging to the supplied tasks as read. */
+  markTaskNotificationsRead(taskIds: string[]) {
+    return this.req(
+      this.cfg.notificationBase,
+      "/api/v1/notifications/read-by-tasks",
+      { method: "POST", body: JSON.stringify({ taskIds }) },
+      z.object({ updated: z.number().int().nonnegative() }),
+    );
+  }
+  /** Mark unread notifications for exactly one conversation, channel, or call as read. */
+  markNotificationsReadByTarget(target: NotificationReadTarget) {
+    return this.req(
+      this.cfg.notificationBase,
+      "/api/v1/notifications/read-by-target",
+      { method: "POST", body: JSON.stringify(target) },
+      z.object({ updated: z.number().int().nonnegative() }),
+    );
   }
 
   // ── Calls ──────────────────────────────────────────────────────────────

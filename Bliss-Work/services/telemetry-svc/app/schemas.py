@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 PresenceState = Literal["online", "idle", "offline"]
-Source = Literal["server", "web", "desktop", "extension"]
+Source = Literal["server", "web", "desktop", "extension", "mobile"]
 
 # Bounds on a client beacon's free-form `detail`. Real clients send a handful of
 # short keys (a filename capped at 255 chars, a couple of ids, a route), so these

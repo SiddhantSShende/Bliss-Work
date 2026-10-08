@@ -39,7 +39,13 @@ export async function markTargetNotificationsRead(
 ): Promise<void> {
   let updated: number;
   try {
-    ({ updated } = await api.markNotificationsReadByTarget({ [field]: id } as NotificationReadTarget));
+    const target: NotificationReadTarget =
+      field === "conversationId"
+        ? { conversationId: id }
+        : field === "channelId"
+          ? { channelId: id }
+          : { callId: id };
+    ({ updated } = await api.markNotificationsReadByTarget(target));
   } catch {
     return; // nothing was marked; the badge is still right (and an older server has no such route)
   }
