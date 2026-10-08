@@ -29,6 +29,12 @@ _BACKOFF_CAP = 30.0  # seconds — max wait between retries after a publish fail
 # After the first failure, only re-log every Nth consecutive one.
 _FAILURE_LOG_EVERY = 10
 
+# One replica drains at a time. Hashed to the bigint advisory-lock key (same
+# technique as MIGRATION_LOCK_KEY in db.py); service-specific so a shared
+# database would show up as contention rather than as two services skipping
+# each other's cycles.
+_DRAIN_LOCK_KEY = "taskboard:task:outbox-drain"
+
 
 class OutboxPoller:
     """In-process transactional-outbox publisher.
@@ -63,9 +69,9 @@ class OutboxPoller:
 
     async def _ensure_producer(self) -> AIOKafkaProducer:
         """Connect on first use. Failures propagate to _run's backoff."""
-        producer = await self._lazy_producer.ensure()
-        log.info("outbox_producer_connected")
-        return producer
+        return await self._lazy_producer.ensure(
+            on_connected=lambda: log.info("outbox_producer_connected")
+        )
 
     async def stop(self) -> None:
         self._stop.set()
@@ -123,6 +129,24 @@ class OutboxPoller:
             # transaction so the poller drains every org's events and stays
             # correct if it ever has to touch an org-scoped table. Set FIRST.
             await set_bypass_rls(db)
+            # Serialise drains across replicas, per-key ordering depends on it.
+            # SKIP LOCKED alone lets replica B claim and publish the NEWER rows
+            # of a key while replica A is still sending (or retrying) that
+            # key's OLDER ones, so a consumer can see e.g. a deactivation before
+            # the creation. A transaction-level advisory lock means only one
+            # replica drains at a time and the other skips this cycle (it polls
+            # again in _POLL_INTERVAL). Released automatically at commit,
+            # rollback, or if this process or its connection dies, and held
+            # no longer than one drain: publishing is bounded by the producer's
+            # request timeout and stops at the first failure. SKIP LOCKED below
+            # stays as a harmless belt-and-braces.
+            if not (
+                await db.execute(
+                    text("SELECT pg_try_advisory_xact_lock(hashtext(:k)::bigint)"),
+                    {"k": _DRAIN_LOCK_KEY},
+                )
+            ).scalar_one():
+                return 0
             rows = (
                 await db.execute(
                     text(
@@ -154,24 +178,16 @@ class OutboxPoller:
             # it travelled in, so an unfiltered row blocks healthy rows too.
             oversize = [r for r in rows if payload_bytes(r.payload) > MAX_PUBLISH_BYTES]
             if oversize:
-                # A SEPARATE session, deliberately: committing THIS one only ends
-                # its own transaction. Committing on `db` here would end the
-                # transaction holding the FOR UPDATE SKIP LOCKED lock on the REST
-                # of this batch too — not just the oversized rows — while they
-                # are still queued to be produced below, letting a second
-                # replica claim and double-publish them.
-                async with session() as db2:
-                    await set_bypass_rls(db2)
-                    await quarantine_oversize(db2, [str(r.id) for r in oversize])
-                    await db2.commit()
-                # ERROR, not warning: these are events a user's action produced
-                # that no consumer will ever see, and nothing else reports it.
-                log.error(
-                    "outbox_dead_lettered_oversize",
-                    count=len(oversize),
-                    limit_bytes=MAX_PUBLISH_BYTES,
-                    detail="events accepted but never published",
-                )
+                # On THIS session, deliberately — not a second one. `db` holds
+                # FOR UPDATE row locks on every row of the batch, so a second
+                # connection UPDATEing the oversized rows would wait on them
+                # until statement_timeout (self-deadlock: the row was never
+                # quarantined and every tick errored). Nor can `db` be
+                # committed here: that would release the locks, and the drain
+                # advisory lock, on the REST of the batch while it is still
+                # queued to be produced below. The UPDATE rides this
+                # transaction and commits with it, after the send loop.
+                await quarantine_oversize(db, [str(r.id) for r in oversize])
             oversize_ids = {r.id for r in oversize}
             rows = [r for r in rows if r.id not in oversize_ids]
 
@@ -214,7 +230,21 @@ class OutboxPoller:
                     text("UPDATE outbox SET published_at = now() WHERE id = ANY(:ids)"),
                     {"ids": published_ids},
                 )
+            # Commit when there is anything to persist — including a batch whose
+            # only outcome was quarantining oversized rows (otherwise the session
+            # closes uncommitted and the quarantine rolls back).
+            if published_ids or oversize:
                 await db.commit()
+            if oversize:
+                # ERROR, not warning: these are events a user's action produced
+                # that no consumer will ever see, and nothing else reports it.
+                log.error(
+                    "outbox_dead_lettered_oversize",
+                    count=len(oversize),
+                    limit_bytes=MAX_PUBLISH_BYTES,
+                    detail="events accepted but never published",
+                )
+            if published_ids:
                 log.info("outbox_published", count=len(published_ids))
 
         if send_failed is None:

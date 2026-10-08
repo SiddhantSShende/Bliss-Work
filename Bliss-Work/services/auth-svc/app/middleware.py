@@ -11,7 +11,7 @@ The actual rate-limit middleware lives in `rate_limit.py` (slowapi).
 from __future__ import annotations
 
 import uuid
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -22,32 +22,73 @@ HEADER_REQUEST_ID = "X-Request-Id"
 
 # Max request body (bytes). Mirrors the Go services' `mw.MaxBytes(1<<20)`. JSON
 # auth payloads are tiny, so this bounds a memory/CPU DoS from an oversized body.
-# Clients always send Content-Length for a JSON body, so the header check is the
-# effective control; chunked bodies with no length are additionally bounded by
-# the reverse-proxy body limit in prod.
 MAX_BODY_BYTES = 1 << 20  # 1 MiB
 
 
-class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    """Reject requests whose declared Content-Length exceeds the cap with 413."""
+class BodySizeLimitMiddleware:
+    """Bound declared and streamed request bodies before application handling."""
 
-    def __init__(self, app, max_bytes: int = MAX_BODY_BYTES) -> None:
-        super().__init__(app)
+    def __init__(self, app: Callable[..., Awaitable[None]], max_bytes: int = MAX_BODY_BYTES) -> None:
+        self.app = app
         self.max_bytes = max_bytes
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        cl = request.headers.get("content-length")
-        if cl is not None:
+    async def __call__(self, scope: dict[str, Any], receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        content_length = headers.get(b"content-length")
+        if content_length is not None:
             try:
-                if int(cl) > self.max_bytes:
-                    return Response("request entity too large", status_code=413)
+                declared_size = int(content_length)
             except ValueError:
-                return Response("invalid content-length", status_code=400)
-        return await call_next(request)
+                await self._reject(send, 400, "invalid content-length")
+                return
+            if declared_size < 0:
+                await self._reject(send, 400, "invalid content-length")
+                return
+            if declared_size > self.max_bytes:
+                await self._reject(send, 413, "request entity too large")
+                return
+
+        messages = []
+        total = 0
+        while True:
+            message = await receive()
+            messages.append(message)
+            if message["type"] == "http.disconnect":
+                break
+            if message["type"] != "http.request":
+                continue
+            total += len(message.get("body", b""))
+            if total > self.max_bytes:
+                await self._reject(send, 413, "request entity too large")
+                return
+            if not message.get("more_body", False):
+                break
+
+        async def replay_receive():
+            if messages:
+                return messages.pop(0)
+            return await receive()
+
+        await self.app(scope, replay_receive, send)
+
+    @staticmethod
+    async def _reject(send, status_code: int, message: str) -> None:
+        body = message.encode("ascii")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status_code,
+                "headers": [
+                    (b"content-type", b"text/plain; charset=utf-8"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
 
 # OWASP-recommended response headers. Identical to the set Go services emit.

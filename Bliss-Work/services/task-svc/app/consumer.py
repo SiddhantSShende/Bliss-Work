@@ -356,11 +356,12 @@ class TaskSvcConsumer:
         event_id = event.get("eventId")
         org_id = event.get("orgId")
         user_id = event.get("userId")
+        occurred_at = event.get("occurredAt")
         # Bound + sanitize before projecting: cap length and strip control
         # chars so a hostile/buggy upstream can't bloat or corrupt the row.
         username = _clean_str(event.get("username", ""))
         display_name = _clean_str(event.get("displayName", ""))
-        if not (event_id and org_id and user_id):
+        if not (event_id and org_id and user_id and occurred_at):
             return
 
         async with session() as db:
@@ -373,13 +374,28 @@ class TaskSvcConsumer:
                 return
             await db.execute(
                 text(
-                    "INSERT INTO user_projection (user_id, org_id, username, display_name) "
-                    "VALUES (:uid, :org, :uname, :dname) "
+                    "INSERT INTO user_projection "
+                    "(user_id, org_id, username, display_name, active, source_occurred_at) "
+                    "VALUES (:uid, :org, :uname, :dname, true, CAST(:occurred_at AS timestamptz)) "
                     "ON CONFLICT (user_id) DO UPDATE SET "
-                    "org_id = EXCLUDED.org_id, username = EXCLUDED.username, "
-                    "display_name = EXCLUDED.display_name"
+                    "org_id = CASE WHEN user_projection.source_occurred_at < EXCLUDED.source_occurred_at "
+                    "THEN EXCLUDED.org_id ELSE user_projection.org_id END, "
+                    "username = CASE WHEN user_projection.source_occurred_at < EXCLUDED.source_occurred_at "
+                    "OR user_projection.username = '' THEN EXCLUDED.username ELSE user_projection.username END, "
+                    "display_name = CASE WHEN user_projection.source_occurred_at < EXCLUDED.source_occurred_at "
+                    "OR user_projection.display_name = '' THEN EXCLUDED.display_name "
+                    "ELSE user_projection.display_name END, "
+                    "active = CASE WHEN user_projection.source_occurred_at < EXCLUDED.source_occurred_at "
+                    "THEN true ELSE user_projection.active END, "
+                    "source_occurred_at = GREATEST(user_projection.source_occurred_at, EXCLUDED.source_occurred_at)"
                 ),
-                {"uid": user_id, "org": org_id, "uname": username, "dname": display_name},
+                {
+                    "uid": user_id,
+                    "org": org_id,
+                    "uname": username,
+                    "dname": display_name,
+                    "occurred_at": occurred_at,
+                },
             )
             await db.commit()
             log.info("user_projection_upserted", user_id=user_id)
@@ -394,8 +410,10 @@ class TaskSvcConsumer:
         longer in the org.
         """
         event_id = event.get("eventId")
+        org_id = event.get("orgId")
         user_id = event.get("userId")
-        if not (event_id and user_id):
+        occurred_at = event.get("occurredAt")
+        if not (event_id and org_id and user_id and occurred_at):
             return
 
         async with session() as db:
@@ -404,8 +422,20 @@ class TaskSvcConsumer:
             if await _claim(db, event_id) is False:
                 return
             await db.execute(
-                text("UPDATE user_projection SET active = :a WHERE user_id = :uid"),
-                {"a": active, "uid": user_id},
+                text(
+                    "INSERT INTO user_projection "
+                    "(user_id, org_id, username, display_name, active, source_occurred_at) "
+                    "VALUES (:uid, :org, '', '', :active, CAST(:occurred_at AS timestamptz)) "
+                    "ON CONFLICT (user_id) DO UPDATE SET "
+                    "active = EXCLUDED.active, source_occurred_at = EXCLUDED.source_occurred_at "
+                    "WHERE user_projection.source_occurred_at < EXCLUDED.source_occurred_at"
+                ),
+                {
+                    "uid": user_id,
+                    "org": org_id,
+                    "active": active,
+                    "occurred_at": occurred_at,
+                },
             )
             await db.commit()
             log.info("user_projection_membership_changed", user_id=user_id, active=active)

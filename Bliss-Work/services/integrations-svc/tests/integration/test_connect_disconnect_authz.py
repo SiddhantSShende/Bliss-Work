@@ -101,3 +101,51 @@ async def test_disconnect_own_connection_does_not_require_org_admin(db_app):
 
     async with await _client(_principal([])) as c:
         assert (await c.delete(f"/api/v1/integrations/{conn_id}")).status_code == 204
+
+
+async def test_provider_revocation_failure_does_not_block_local_cleanup(db_app, monkeypatch):
+    from crypto import cryptor
+    from app.db import session, set_org_context, set_bypass_rls
+    from app.routes import integrations
+
+    conn_id = str(uuid6.uuid7())
+    async with session() as db:
+        await set_org_context(db, ORG)
+        access_enc = await cryptor().encrypt(db, ORG, "google-access-token")
+        await db.execute(
+            text(
+                """
+                INSERT INTO integration_connections
+                    (id, org_id, owner_user_id, created_by, scope_kind, provider,
+                     status, display_label, access_token_enc)
+                VALUES (:id, :o, :u, :u, 'user', 'gmail', 'connected', 'mailbox', :access)
+                """
+            ),
+            {"id": conn_id, "o": ORG, "u": ME, "access": access_enc},
+        )
+        await db.commit()
+
+    revoked: list[str] = []
+
+    async def fail_revocation(token: str) -> None:
+        revoked.append(token)
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(integrations.oauth, "revoke_google_token", fail_revocation)
+    async with await _client(_principal([])) as c:
+        response = await c.delete(f"/api/v1/integrations/{conn_id}")
+    assert response.status_code == 204
+    assert revoked == ["google-access-token"]
+
+    async with session() as db:
+        await set_bypass_rls(db)
+        row = (
+            await db.execute(
+                text(
+                    "SELECT status, access_token_enc FROM integration_connections WHERE id = :id"
+                ),
+                {"id": conn_id},
+            )
+        ).one()
+        assert row.status == "revoked"
+        assert row.access_token_enc is None

@@ -59,6 +59,19 @@ async def auth_test(bot_token: str) -> dict:
     return data
 
 
+async def revoke_token(token: str) -> None:
+    """Revoke a Slack token without treating an API-level refusal as success."""
+    response = await httpclient.shared().post(
+        f"{_SLACK_API}/auth.revoke",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=_TIMEOUT,
+    )
+    _raise_for_status(response)
+    data = response.json()
+    if not data.get("ok"):
+        raise SlackError(data.get("error", "auth.revoke failed"))
+
+
 async def post_message(bot_token: str, channel: str, text: str) -> dict:
     """Send a message via chat.postMessage. Returns the Slack response (with `ts`)."""
 

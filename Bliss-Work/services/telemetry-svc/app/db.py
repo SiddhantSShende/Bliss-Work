@@ -30,6 +30,11 @@ def init_engine() -> AsyncEngine:
             max_overflow=5,
             pool_recycle=1800,  # recycle pooled conns every 30 min (avoid stale)
             connect_args=settings.sqlalchemy_connect_args,
+            # A failing statement raises a DBAPIError whose str() embeds the
+            # bound parameters, which errors/logging then write out (a failed
+            # outbox INSERT would log plaintext payload). SQL text and SQLSTATE
+            # stay. See auth-svc/app/db.py.
+            hide_parameters=True,
         )
         SessionLocal = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
     return _engine
@@ -172,7 +177,7 @@ def session() -> AsyncSession:
 # ── RLS (Row-Level Security) GUC plumbing ─────────────────────────────────────
 # Every org-scoped transaction that touches an RLS-protected table
 # (activity_events and its partitions, user_sessions, activity_daily,
-# beacon_batches, org_keys) MUST set the org context as its FIRST statement,
+# beacon_batches, client_event_claims, org_keys) MUST set the org context as its FIRST statement,
 # or the policy fails closed (0 rows). We use
 # `set_config(..., is_local => true)` so the setting is scoped to the current
 # transaction and auto-resets at commit/rollback — it can never leak across a

@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"sort"
 	"strings"
@@ -23,6 +22,20 @@ import (
 
 // ErrForbidden indicates the caller is not permitted to act on the resource.
 var ErrForbidden = errors.New("forbidden")
+
+func migrationAlreadyApplied(name, checksum string, applied map[string]string) (bool, error) {
+	previous, exists := applied[name]
+	if !exists {
+		return false, nil
+	}
+	if previous != checksum {
+		return false, fmt.Errorf(
+			"migration %s checksum changed after it was applied; add a new numbered migration",
+			name,
+		)
+	}
+	return true, nil
+}
 
 // Store wraps the pgx connection pool and the at-rest column Cryptor.
 type Store struct {
@@ -292,21 +305,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 		}
 		sum := fmt.Sprintf("%x", sha256.Sum256(sqlBytes))
 
-		if prev, seen := applied[name]; seen && prev == sum {
-			continue
+		alreadyApplied, err := migrationAlreadyApplied(name, sum, applied)
+		if err != nil {
+			return err
 		}
-		// An edited migration re-runs, which is exactly what happened before
-		// this ledger existed, so the behaviour is unchanged and the files are
-		// all idempotent. What is new is that it is no longer SILENT: editing
-		// an applied migration is nearly always a mistake (the change does not
-		// reach databases that already ran it), and this is the only place it
-		// can be noticed.
-		if prev, seen := applied[name]; seen && prev != sum {
-			slog.Warn("migration file changed after it was applied; re-running it",
-				"file", name,
-				"detail", "databases that already applied the old version will not "+
-					"receive the difference unless the statements are idempotent — "+
-					"prefer a new migration file")
+		if alreadyApplied {
+			continue
 		}
 
 		if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {

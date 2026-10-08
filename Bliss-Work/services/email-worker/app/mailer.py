@@ -13,6 +13,7 @@ from email.utils import formataddr
 
 import aiosmtplib
 
+from .log_safety import recipient_ref, redact_email_addresses
 from .logging_setup import get_logger
 
 log = get_logger("mailer")
@@ -20,6 +21,48 @@ log = get_logger("mailer")
 _MAX_ATTEMPTS = 5
 _BASE_DELAY = 0.5  # seconds
 _MAX_DELAY = 8.0
+
+
+class PermanentSMTPError(Exception):
+    """An SMTP rejection that will not succeed on an unchanged retry."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(f"permanent SMTP response ({code})")
+        self.code = code
+
+
+def _permanent_smtp_code(exc: BaseException) -> int | None:
+    """Return a permanent SMTP response code, including refused recipients."""
+    code = getattr(exc, "code", None)
+    if not isinstance(code, int):
+        code = getattr(getattr(exc, "response", None), "code", None)
+    if isinstance(code, int) and 500 <= code <= 599:
+        return code
+
+    refused = getattr(exc, "recipients", None)
+    if isinstance(refused, dict):
+        responses = list(refused.values())
+    elif isinstance(refused, (list, tuple)):
+        responses = list(refused)
+    else:
+        responses = []
+    if responses:
+        codes: list[int] = []
+        for response in responses:
+            response_code = (
+                response[0]
+                if isinstance(response, tuple) and response
+                else getattr(response, "code", None)
+            )
+            if isinstance(response_code, int):
+                codes.append(response_code)
+        if (
+            len(codes) == len(responses)
+            and all(500 <= response_code <= 599 for response_code in codes)
+        ):
+            return codes[0]
+    return None
+
 
 # Simple RFC-ish address check: catches the common garbage (empty, missing @,
 # whitespace, no domain dot) before we hand it to SMTP — an invalid recipient
@@ -224,12 +267,35 @@ class Mailer:
                     use_tls=self._use_tls,
                     timeout=20,
                 )
-                log.info("smtp_sent", to=to, host=self._host, port=self._port)
+                log.info(
+                    "smtp_sent", recipient_ref=recipient_ref(to),
+                    host=self._host, port=self._port,
+                )
                 return
             except (aiosmtplib.SMTPException, OSError, asyncio.TimeoutError) as exc:
+                permanent_code = _permanent_smtp_code(exc)
+                if permanent_code is not None:
+                    log.error(
+                        "smtp_permanent_failure",
+                        recipient_ref=recipient_ref(to),
+                        code=permanent_code,
+                        error=redact_email_addresses(exc),
+                    )
+                    raise PermanentSMTPError(permanent_code) from exc
                 if attempt >= _MAX_ATTEMPTS:
-                    log.error("smtp_send_failed", to=to, attempts=attempt, error=str(exc))
+                    log.error(
+                        "smtp_send_failed",
+                        recipient_ref=recipient_ref(to),
+                        attempts=attempt,
+                        error=redact_email_addresses(exc),
+                    )
                     raise
                 delay = min(_BASE_DELAY * (2 ** (attempt - 1)), _MAX_DELAY)
-                log.warning("smtp_send_retry", to=to, attempt=attempt, next_delay_s=delay, error=str(exc))
+                log.warning(
+                    "smtp_send_retry",
+                    recipient_ref=recipient_ref(to),
+                    attempt=attempt,
+                    next_delay_s=delay,
+                    error=redact_email_addresses(exc),
+                )
                 await asyncio.sleep(delay)

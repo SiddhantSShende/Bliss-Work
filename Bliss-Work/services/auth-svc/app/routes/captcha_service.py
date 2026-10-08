@@ -144,6 +144,65 @@ class _CaptchaStore:
                 log.warning("captcha_redis_error", error=str(exc))
         self._local.pop(captcha_id, None)
 
+    async def validate_and_consume(
+        self, captcha_id: str, submitted_hash: bytes, max_attempts: int
+    ) -> bool:
+        """Atomically account for one guess and consume a successful captcha."""
+        if self._redis is not None:
+            script = """
+                local key = KEYS[1]
+                local stored = redis.call('HGET', key, 'h')
+                if not stored then return 0 end
+                local attempts = tonumber(redis.call('HGET', key, 'a') or '0')
+                if attempts >= tonumber(ARGV[2]) then
+                    redis.call('DEL', key)
+                    return 0
+                end
+                local equal = (#stored == #ARGV[1])
+                local diff = 0
+                for i = 1, 32 do
+                    local a = string.byte(stored, i) or 0
+                    local b = string.byte(ARGV[1], i) or 0
+                    if a ~= b then diff = 1 end
+                end
+                if equal and diff == 0 then
+                    redis.call('DEL', key)
+                    return 1
+                end
+                attempts = redis.call('HINCRBY', key, 'a', 1)
+                if attempts >= tonumber(ARGV[2]) then redis.call('DEL', key) end
+                return 0
+            """
+            try:
+                result = await self._redis.eval(
+                    script,
+                    1,
+                    f"captcha:{captcha_id}",
+                    submitted_hash,
+                    max_attempts,
+                )
+                return int(result) == 1
+            except Exception as exc:  # noqa: BLE001 - fail closed on Redis errors
+                log.warning("captcha_redis_error", error=str(exc))
+                return False
+
+        entry = self._local.get(captcha_id)
+        if entry is None:
+            return False
+        value_hash, expires_at, attempts = entry
+        if time.monotonic() > expires_at or attempts >= max_attempts:
+            self._local.pop(captcha_id, None)
+            return False
+        if secrets.compare_digest(submitted_hash, value_hash):
+            self._local.pop(captcha_id, None)
+            return True
+        attempts += 1
+        if attempts >= max_attempts:
+            self._local.pop(captcha_id, None)
+        else:
+            self._local[captcha_id] = (value_hash, expires_at, attempts)
+        return False
+
 
 _store = _CaptchaStore()
 
@@ -199,21 +258,10 @@ async def verify_and_consume(
     if not captcha_id or not captcha_value:
         raise _INVALID_CAPTCHA
 
-    entry = await _store.get(captcha_id)
-    if entry is None:
-        raise _INVALID_CAPTCHA
-    stored_hash, attempts = entry
-    if attempts >= settings.captcha_max_attempts:
-        await _store.invalidate(captcha_id)
-        raise _INVALID_CAPTCHA
-
     submitted_hash = service.sha256_bytes(captcha_value)
-    if not secrets.compare_digest(submitted_hash, stored_hash):
-        new_attempts = await _store.bump_attempts(captcha_id)
-        if new_attempts >= settings.captcha_max_attempts:
-            await _store.invalidate(captcha_id)
+    if not await _store.validate_and_consume(
+        captcha_id,
+        submitted_hash,
+        settings.captcha_max_attempts,
+    ):
         raise _INVALID_CAPTCHA
-
-    # Success: invalidate IMMEDIATELY, before returning control to the caller —
-    # this is what makes the captcha single-use.
-    await _store.invalidate(captcha_id)

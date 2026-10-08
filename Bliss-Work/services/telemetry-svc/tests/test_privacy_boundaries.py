@@ -96,6 +96,10 @@ def test_ipv6_is_coarsened_to_a_48():
     assert sessions.ip_prefix("2001:db8:1234:5678::1") == "2001:db8:1234::/48"
 
 
+def test_compressed_ipv6_is_coarsened_by_address_bits_not_colon_components():
+    assert sessions.ip_prefix("2001:db8::1") == "2001:db8::/48"
+
+
 def test_garbage_addresses_produce_nothing_rather_than_a_wrong_prefix():
     assert sessions.ip_prefix(None) is None
     assert sessions.ip_prefix("") is None

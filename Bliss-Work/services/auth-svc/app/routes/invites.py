@@ -16,6 +16,7 @@ from ..schemas import (
     CreateInviteResponse,
     InviteListItem,
     InviteVerifyResponse,
+    MfaPendingDTO,
     SessionDTO,
 )
 from ..net import request_context
@@ -199,10 +200,12 @@ async def verify_invite(
     return InviteVerifyResponse(email=row.email, orgName=row.org_name, valid=True)
 
 
-@router.post("/accept", response_model=SessionDTO, dependencies=[Depends(enforce_origin)])
+@router.post(
+    "/accept", response_model=SessionDTO | MfaPendingDTO, dependencies=[Depends(enforce_origin)]
+)
 async def accept_invite(
     body: AcceptInviteRequest, request: Request, response: Response
-) -> SessionDTO | RedirectResponse:
+) -> SessionDTO | MfaPendingDTO | RedirectResponse:
     """Redeem an invite, wherever in the world its organisation lives.
 
     The site that serves this request is not necessarily the site that holds the
@@ -213,9 +216,9 @@ async def accept_invite(
     building HTTP is the router's job and not the transaction's.
     """
     try:
-        async with engine.begin() as conn:
+        # record_failed_attempts BEFORE engine.begin(): see service.FailedAttempt.
+        async with service.record_failed_attempts(), engine.begin() as conn:
             session, raw_refresh, user_id = await accept_invite_tx(conn, body, request)
-            org_id = session.user.orgId
     except InviteAtAnotherSite as elsewhere:
         # 307, not 302: the redemption is a POST carrying a password, and a 302
         # would arrive at the far site as a GET with no body.
@@ -229,6 +232,12 @@ async def accept_invite(
         log.info("invite_redirected", home_site=elsewhere.home_site)
         return redirect
 
+    if isinstance(session, MfaPendingDTO):
+        # A second factor is still owed (existing identity): no session, no cookie.
+        log.info("invite_accepted_mfa_pending", user_id=user_id)
+        return session
+
+    assert raw_refresh is not None
     set_refresh_cookie(response, raw_refresh)
-    log.info("invite_accepted", user_id=user_id, org_id=org_id)
+    log.info("invite_accepted", user_id=user_id, org_id=session.user.orgId)
     return session

@@ -33,18 +33,6 @@ from .cookies import set_refresh_cookie
 router = APIRouter(prefix="/auth/mfa", tags=["mfa"])
 
 
-async def _identity_for_user(conn, user_id: str):
-    return (
-        await conn.execute(
-            text(
-                "SELECT i.id, i.failed_login_count, i.locked_until FROM identities i "
-                "JOIN users u ON u.identity_id = i.id WHERE u.id = :uid"
-            ),
-            {"uid": user_id},
-        )
-    ).first()
-
-
 @router.post("/challenge/verify", response_model=SessionDTO, dependencies=[Depends(enforce_origin)])
 async def verify_challenge(body: MfaChallengeRequest, request: Request, response: Response) -> SessionDTO:
     generic = HTTPException(status.HTTP_401_UNAUTHORIZED, "incorrect code")
@@ -63,7 +51,7 @@ async def verify_challenge(body: MfaChallengeRequest, request: Request, response
         user_id, org_id = resolved
         await service.set_org_guc(conn, org_id)
 
-        ident = await _identity_for_user(conn, user_id)
+        ident = await mfa_service.identity_for_user(conn, user_id)
         if ident is None:
             raise generic
         if ident.locked_until is not None and ident.locked_until > now:
@@ -130,7 +118,7 @@ async def disable_mfa(
     request: Request,
     principal: Principal = Depends(get_principal),
 ) -> Response:
-    async with engine.begin() as conn:
+    async with service.record_failed_attempts(), engine.begin() as conn:
         await service.set_org_guc(conn, principal.org_id)
         ok = await mfa_service.verify_step_up(
             conn,

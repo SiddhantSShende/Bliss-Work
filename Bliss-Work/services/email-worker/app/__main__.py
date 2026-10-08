@@ -16,6 +16,7 @@ import asyncio
 import signal
 
 from .config import load_settings
+from .healthcheck import reset_heartbeats
 from .logging_setup import configure_logging, get_logger
 from .relay_consumer import RelayConsumer
 from .tracing import setup_tracing
@@ -29,6 +30,7 @@ async def _amain() -> None:
     # Gated on OTEL_EXPORTER_OTLP_ENDPOINT — no-ops when unset (dev default).
     setup_tracing()
     log = get_logger("entrypoint")
+    reset_heartbeats()
 
     invite_worker = EmailWorker(settings)
     relay_worker = RelayConsumer(settings)

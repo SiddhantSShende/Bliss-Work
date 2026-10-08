@@ -212,6 +212,23 @@ async def test_microsoft_failures_classify_correctly(crypt, monkeypatch, exc, re
     assert ei.value.retryable is retryable
 
 
+async def test_ambiguous_graph_delivery_is_not_represented_as_definite_failure(
+    crypt, monkeypatch
+):
+    crypt()
+
+    async def boom(*_a, **_kw):
+        raise ms.MicrosoftAmbiguousDelivery("504: gateway timeout")
+
+    monkeypatch.setattr(outbound.ms, "send_mail", boom)
+    with pytest.raises(outbound.OutboundError) as ei:
+        await outbound.send_via_connection(
+            None, "org", _Row("outlook"), target="a@b.com", text="x"
+        )
+    assert ei.value.ambiguous is True
+    assert ei.value.retryable is False
+
+
 @pytest.mark.parametrize(
     "provider,exc",
     [

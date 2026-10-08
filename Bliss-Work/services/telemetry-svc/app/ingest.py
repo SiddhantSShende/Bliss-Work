@@ -71,22 +71,28 @@ class InsertedRow:
     row: ActivityRow
 
 
-def clamp_occurred_at(raw: datetime | None, now: datetime | None = None) -> datetime:
+def clamp_occurred_at(
+    raw: datetime | None, now: datetime | None = None, *, source: str | None = None
+) -> datetime:
     """Bound a client-supplied timestamp to a plausible window.
 
     A device with a wrong clock is common and mostly harmless — but unbounded it
     can write into a partition that was dropped last month or does not exist for
     another year, and it can bury today's real activity in 1970. Clamping keeps
     every row landing somewhere real; `received_at` is stored alongside so the
-    original discrepancy is still visible during an investigation.
+    original discrepancy is still visible during an investigation. Server
+    events retain their authoritative event time even when Kafka delivers them
+    late; only their future skew is bounded.
     """
     now = now or datetime.now(timezone.utc)
     if raw is None:
         return now
     if raw.tzinfo is None:
         raw = raw.replace(tzinfo=timezone.utc)
-    earliest = now - timedelta(seconds=settings.max_clock_backdate_seconds)
     latest = now + timedelta(seconds=settings.max_clock_skew_future_seconds)
+    if source == "server":
+        return min(raw, latest)
+    earliest = now - timedelta(seconds=settings.max_clock_backdate_seconds)
     return min(max(raw, earliest), latest)
 
 
@@ -132,6 +138,9 @@ async def insert_events(db: AsyncSession, rows: list[ActivityRow]) -> list[Inser
     rows = [r for r in rows if r.action not in NON_EVENT_ACTIONS]
     if not rows:
         return []
+    rows = await _claim_client_events(db, rows)
+    if not rows:
+        return []
     params = [await _params(db, r) for r in rows]
     try:
         # SAVEPOINT, not a plain execute. A failed statement poisons the whole
@@ -161,6 +170,31 @@ async def insert_events(db: AsyncSession, rows: list[ActivityRow]) -> list[Inser
         for p, r in zip(params, rows)
         if p["id"] in written_ids
     ]
+
+
+async def _claim_client_events(db: AsyncSession, rows: list[ActivityRow]) -> list[ActivityRow]:
+    """Atomically claim client event IDs before writing partitioned event rows.
+
+    The separate claim table makes identity independent of occurred_at, which
+    can change between retries when a missing or implausible client timestamp
+    is replaced/clamped. The unique key also serializes concurrent replays.
+    """
+    claimed_rows: list[ActivityRow] = []
+    for row in rows:
+        if not row.client_event_id:
+            claimed_rows.append(row)
+            continue
+        result = await db.execute(
+            text(
+                "INSERT INTO client_event_claims (org_id, user_id, client_event_id) "
+                "VALUES (:org, :uid, :event_id) "
+                "ON CONFLICT DO NOTHING RETURNING client_event_id"
+            ),
+            {"org": row.org_id, "uid": row.user_id, "event_id": row.client_event_id},
+        )
+        if result.scalar_one_or_none() is not None:
+            claimed_rows.append(row)
+    return claimed_rows
 
 
 async def _execute_insert(db: AsyncSession, params: list[dict[str, object]]) -> set[str]:

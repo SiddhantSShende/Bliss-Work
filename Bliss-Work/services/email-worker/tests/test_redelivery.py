@@ -173,13 +173,17 @@ async def test_a_retryable_failure_releases_the_claim_so_the_redelivery_can_send
     assert "state = 'pending'" in sql and "owner = 'relay'" in sql
 
 
-async def test_a_message_routed_to_the_dlq_keeps_its_claim():
+async def test_a_message_routed_to_the_dlq_settles_its_claim_as_terminal():
     c, conn = _relay_with_db(poison_max_failures=1)
 
     done = await c._retry_or_dlq("evt-2", "user-2", {"eventId": "evt-2"}, "smtp down")
 
     assert done is True, "at the threshold it goes to the DLQ and the offset moves on"
-    assert conn.executed == [], "nothing to retry, so nothing to release"
+    # B-EW-3: never DELETEd (a redelivery would re-claim and re-fail it) and never left
+    # 'pending' (it would stall behind the reaper): it is marked handled.
+    assert len(conn.executed) == 1
+    sql, args = conn.executed[0]
+    assert sql.startswith("UPDATE email_consumed SET state = 'sent'") and args == ("evt-2", "user-2")
 
 
 async def test_no_claim_is_released_when_there_is_no_recipient_key():

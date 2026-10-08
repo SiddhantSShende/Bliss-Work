@@ -31,7 +31,7 @@ async def set_org_guc(conn: AsyncConnection, org_id: str) -> None:
     ROLLBACK and never leaks across pooled connections.
     """
     await conn.execute(
-        text("SELECT set_config('app.org_id', :o, true)"), {"o": str(org_id)}
+    text("SELECT set_config('app.org_id', :o, true)"), {"o": str(org_id)}
     )
 
 
@@ -460,11 +460,11 @@ async def presence_memberships(conn: AsyncConnection, user_id: str) -> list[dict
     falls back to single-org presence. Presence is not worth failing a login for.
     """
     try:
-        prev = (
-            await conn.execute(text("SELECT current_setting('app.bypass_rls', true)"))
-        ).scalar()
-        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
-        try:
+        async with conn.begin_nested():
+            prev = (
+                await conn.execute(text("SELECT current_setting('app.bypass_rls', true)"))
+            ).scalar()
+            await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
             iid = await identity_id_for_user(conn, user_id)
             if iid is None:
                 return []
@@ -478,7 +478,6 @@ async def presence_memberships(conn: AsyncConnection, user_id: str) -> list[dict
                     {"iid": iid},
                 )
             ).all()
-        finally:
             # Empty string, not 'off': current_setting(..., true) answers '' for
             # an unset GUC, and writing that back leaves it unset rather than
             # explicitly disabled — which is the state we found it in.
@@ -502,6 +501,11 @@ async def build_session(
     dto = await user_dto(conn, user_id)
     if dto is None:
         raise RuntimeError("user not found while building session")
+    if await org_pending_deletion(conn, user_id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "organization is pending deletion",
+        )
     # Minted before the token so it can ride in the access token's `sid` claim
     # (mint_access_token) — ws-gateway needs it there to associate a live
     # WebSocket with the session that opened it. See that function's docstring.
@@ -653,6 +657,18 @@ async def rotate_refresh_token(
         raise RefreshError(
             "deactivated",
             "membership is no longer active",
+            user_id=user_id,
+            family_id=family_id,
+        )
+
+    if await org_pending_deletion(conn, user_id):
+        await conn.execute(
+            text("UPDATE refresh_tokens SET revoked = true WHERE family_id = :fam"),
+            {"fam": family_id},
+        )
+        raise RefreshError(
+            "deactivated",
+            "organization is pending deletion",
             user_id=user_id,
             family_id=family_id,
         )
@@ -1036,9 +1052,8 @@ async def resolve_or_create_identity(
     email_verified` is set True unconditionally regardless of the identity's
     own state.
 
-    Raises `already_registered_error` — a caller-specific 409 or 401, since
-    the two callers word this differently — when an existing identity's
-    password does not match.
+    Raises `already_registered_error` when an existing identity's password
+    does not match.
     """
     existing_ident = (
         await conn.execute(
@@ -1107,6 +1122,26 @@ async def resolve_or_create_identity(
         raise already_registered_error
 
     return str(existing_ident.id), existing_ident.password_hash, False, bool(existing_ident.email_verified)
+
+
+async def org_pending_deletion(conn: AsyncConnection, user_id: str) -> bool:
+    """Fail closed when a membership's organization is being deleted."""
+    row = (
+        await conn.execute(
+            text(
+                """
+                SELECT o.delete_requested_at, o.purge_after, o.deleted_at
+                FROM users u JOIN orgs o ON o.id = u.org_id
+                WHERE u.id = :uid
+                """
+            ),
+            {"uid": user_id},
+        )
+    ).first()
+    return row is None or any(
+        value is not None
+        for value in (row.delete_requested_at, row.purge_after, row.deleted_at)
+    )
 
 
 async def reset_identity_lockout(conn: AsyncConnection, identity_id: str) -> None:

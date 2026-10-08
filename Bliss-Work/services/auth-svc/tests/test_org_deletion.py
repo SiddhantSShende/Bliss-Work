@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+ValidationError = pytest.importorskip("pydantic").ValidationError
 purge_orgs = pytest.importorskip(
     "app.jobs.purge_orgs",
     reason="auth-svc deps (fastapi/pydantic) not installed locally; CI installs requirements.txt.",
@@ -57,7 +58,7 @@ def test_delete_requires_a_slug_not_a_flag():
 
 
 def test_a_missing_slug_is_rejected_by_the_schema():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         schemas.DeleteOrgRequest()
 
 

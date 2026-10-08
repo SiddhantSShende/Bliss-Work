@@ -9,11 +9,13 @@ rollup, because the prune job refuses to drop a day that was never rolled up.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import text
 
 from ..auth import Principal, require_principal
+from ..config import settings
 from ..db import session, set_org_context
 from ..rate_limit import limiter
 from ..schemas import DayBucket, ExportRow, NamedCount, OrgSummaryDTO, SummaryDTO
@@ -25,6 +27,36 @@ router = APIRouter(prefix="/telemetry", tags=["analytics"])
 # years for a 30-person org, which is far past what a spreadsheet is useful for.
 MAX_EXPORT_ROWS = 20_000
 MAX_RANGE_DAYS = 400
+
+_LIVE_SESSION_TOTALS = text(
+    """
+    WITH spans AS (
+        SELECT user_id, active_ms, idle_ms,
+               GREATEST(
+                   EXTRACT(EPOCH FROM (
+                       LEAST(COALESCE(ended_at, now()), :end)
+                       - GREATEST(started_at, :start)
+                   )) * 1000,
+                   0
+               ) AS day_online_ms,
+               GREATEST(
+                   EXTRACT(EPOCH FROM (COALESCE(ended_at, now()) - started_at)) * 1000,
+                   1
+               ) AS total_online_ms
+          FROM user_sessions
+         WHERE org_id = :org AND user_id = ANY(:uids)
+           AND started_at < :end
+           AND COALESCE(ended_at, now()) >= :start
+    )
+    SELECT user_id,
+           COALESCE(SUM(active_ms * day_online_ms / total_online_ms), 0)::bigint AS a,
+           COALESCE(SUM(idle_ms * day_online_ms / total_online_ms), 0)::bigint AS i,
+           COUNT(*) AS n,
+           COALESCE(SUM(day_online_ms), 0)::bigint AS o
+      FROM spans
+     GROUP BY user_id
+    """
+)
 
 
 @router.get("/members/{user_id}/summary", response_model=SummaryDTO)
@@ -73,11 +105,12 @@ async def org_summary(
         if start <= today <= end:
             sql += (
                 " UNION SELECT DISTINCT user_id FROM user_sessions"
-                " WHERE org_id = :org AND started_at >= :today_start"
+                " WHERE org_id = :org AND started_at < :today_end"
+                " AND COALESCE(ended_at, now()) >= :today_start"
                 " UNION SELECT DISTINCT user_id FROM activity_events"
                 " WHERE org_id = :org AND occurred_at >= :today_start"
             )
-            params["today_start"] = datetime.combine(today, time.min, tzinfo=timezone.utc)
+            params["today_start"], params["today_end"] = _day_bounds(today)
         user_ids = [str(r.user_id) for r in (await db.execute(text(sql), params)).all()]
 
         # Batched, not one _summary_for call per member: that was up to 3
@@ -282,28 +315,22 @@ async def _today_live_batch(
     """
     if not user_ids:
         return {}
-    start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    start, end = _day_bounds(today)
     session_rows = (
         await db.execute(
-            text(
-                "SELECT user_id, COALESCE(SUM(active_ms),0) a, COALESCE(SUM(idle_ms),0) i, "
-                "COUNT(*) n, "
-                "COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(ended_at, now()) - started_at)) * 1000), 0) o "
-                "FROM user_sessions "
-                "WHERE org_id = :org AND user_id = ANY(:uids) AND started_at >= :s "
-                "GROUP BY user_id"
-            ),
-            {"org": org_id, "uids": user_ids, "s": start},
+            _LIVE_SESSION_TOTALS,
+            {"org": org_id, "uids": user_ids, "start": start, "end": end},
         )
     ).all()
     event_rows = (
         await db.execute(
             text(
                 "SELECT user_id, COUNT(*) n FROM activity_events "
-                "WHERE org_id = :org AND user_id = ANY(:uids) AND occurred_at >= :s "
+                "WHERE org_id = :org AND user_id = ANY(:uids) "
+                "AND occurred_at >= :s AND occurred_at < :e "
                 "GROUP BY user_id"
             ),
-            {"org": org_id, "uids": user_ids, "s": start},
+            {"org": org_id, "uids": user_ids, "s": start, "e": end},
         )
     ).all()
 
@@ -323,24 +350,22 @@ async def _today_live_batch(
 
 async def _today_live(db, org_id: str, user_id: str, today: date) -> DayBucket | None:
     """Today's totals straight from the live tables (no rollup exists yet)."""
-    start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
-    s = (
+    start, end = _day_bounds(today)
+    session_rows = (
         await db.execute(
-            text(
-                "SELECT COALESCE(SUM(active_ms),0) a, COALESCE(SUM(idle_ms),0) i, COUNT(*) n, "
-                "COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(ended_at, now()) - started_at)) * 1000), 0) o "
-                "FROM user_sessions WHERE org_id = :org AND user_id = :uid AND started_at >= :s"
-            ),
-            {"org": org_id, "uid": user_id, "s": start},
+            _LIVE_SESSION_TOTALS,
+            {"org": org_id, "uids": [user_id], "start": start, "end": end},
         )
-    ).first()
+    ).all()
+    s = session_rows[0] if session_rows else None
     e = (
         await db.execute(
             text(
                 "SELECT COUNT(*) n FROM activity_events "
-                "WHERE org_id = :org AND user_id = :uid AND occurred_at >= :s"
+                "WHERE org_id = :org AND user_id = :uid "
+                "AND occurred_at >= :s AND occurred_at < :e"
             ),
-            {"org": org_id, "uid": user_id, "s": start},
+            {"org": org_id, "uid": user_id, "s": start, "e": end},
         )
     ).first()
     if s is None or (not s.n and not (e and e.n)):
@@ -388,7 +413,17 @@ def _iso(dt: datetime | None) -> str | None:
 
 
 def _today() -> date:
-    return datetime.now(timezone.utc).date()
+    return datetime.now(ZoneInfo(settings.rollup_timezone)).date()
+
+
+def _day_bounds(day: date) -> tuple[datetime, datetime]:
+    """Return the configured local calendar day's UTC half-open interval."""
+    zone = ZoneInfo(settings.rollup_timezone)
+    start = datetime.combine(day, time.min, tzinfo=zone).astimezone(timezone.utc)
+    end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=zone).astimezone(
+        timezone.utc
+    )
+    return start, end
 
 
 def _range(from_: str | None, to: str | None) -> tuple[date, date]:
@@ -414,4 +449,3 @@ def _parse_day(value: str | None) -> date | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
     except ValueError:
         return None
-

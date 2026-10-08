@@ -107,13 +107,76 @@ async def test_fetch_uses_the_mail_budget_as_the_ceiling_when_size_is_unknown():
         client,
         base_url="http://messaging-svc:8004",
         token="test-token",
-        org_id="org-1",
-        mail_id="mail-1",
-        attachment=att,
+        org_id="018f0000-0000-7000-8000-0000000000cc",
+        mail_id="018f0000-0000-7000-8000-0000000000aa",
+        attachment=Attachment(
+            id="018f0000-0000-7000-8000-0000000000bb",
+            filename=att.filename,
+            mime=att.mime,
+            size_bytes=att.size_bytes,
+        ),
         budget_bytes=10 * MB,
     )
 
     assert data == body
+
+
+async def test_malformed_attachment_ids_never_receive_internal_credentials():
+    requests = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=b"file")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    valid = "018f0000-0000-7000-8000-0000000000aa"
+    invalid = Attachment(
+        id="../admin", filename="x.pdf", mime="application/pdf", size_bytes=4
+    )
+
+    result = await fetch(
+        client,
+        base_url="http://messaging-svc:8004",
+        token="internal-secret",
+        org_id=valid,
+        mail_id=valid,
+        attachment=invalid,
+        budget_bytes=10 * MB,
+    )
+
+    assert result is None
+    assert requests == []
+
+
+async def test_valid_attachment_ids_construct_the_expected_internal_path():
+    requests = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=b"file")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    org_id = "018f0000-0000-7000-8000-0000000000cc"
+    mail_id = "018f0000-0000-7000-8000-0000000000aa"
+    attachment_id = "018f0000-0000-7000-8000-0000000000bb"
+
+    result = await fetch(
+        client,
+        base_url="http://messaging-svc:8004",
+        token="internal-secret",
+        org_id=org_id,
+        mail_id=mail_id,
+        attachment=Attachment(
+            id=attachment_id, filename="x.pdf", mime="application/pdf", size_bytes=4
+        ),
+        budget_bytes=10 * MB,
+    )
+
+    assert result == b"file"
+    assert requests[0].url.path.endswith(
+        f"/internal/mail/{mail_id}/attachments/{attachment_id}"
+    )
+    assert requests[0].headers["X-Internal-Token"] == "internal-secret"
 
 
 # ── event parsing, which reads whatever crossed the topic ────────────────────

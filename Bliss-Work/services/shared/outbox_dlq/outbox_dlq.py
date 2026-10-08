@@ -49,12 +49,17 @@ MAX_PUBLISH_ATTEMPTS = 600
 # reads, and a broker error can carry a very long message.
 _MAX_REASON = 500
 
+# `:limit` is CAST to bigint: in `text || $n || text` Postgres infers $n as
+# text (even through CAST(... AS text)), and asyncpg refuses to bind a Python
+# int to a text parameter — so the bare form raised on every call and an
+# oversized row blocked the outbox. A bigint parameter binds the int natively
+# and `text || bigint` concatenates fine.
 _QUARANTINE_OVERSIZE = text(
     """
     UPDATE outbox
        SET dead_lettered_at = now(),
            publish_error = 'payload ' || octet_length(payload::text) ||
-                           ' bytes exceeds the ' || :limit || ' byte publish limit'
+                           ' bytes exceeds the ' || CAST(:limit AS bigint) || ' byte publish limit'
      WHERE id = ANY(:ids)
     """
 )

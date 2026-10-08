@@ -21,7 +21,11 @@ import types
 
 import pytest
 
+from app import relay_consumer
 from app.worker import EmailWorker
+
+OUTBOX_ID = "018f0000-0000-7000-8000-000000000001"
+USER_ID = "018f0000-0000-7000-8000-000000000002"
 
 
 def _settings() -> types.SimpleNamespace:
@@ -58,7 +62,9 @@ class _FakeHttpClient:
         self._response = response
         self.calls: list[tuple[str, dict]] = []
 
-    async def get(self, url: str, headers: dict | None = None) -> _FakeResponse:
+    async def get(
+        self, url: str, headers: dict | None = None, **_kwargs
+    ) -> _FakeResponse:
         self.calls.append((url, headers or {}))
         return self._response
 
@@ -81,18 +87,18 @@ def _worker_with_http(response: _FakeResponse) -> tuple[EmailWorker, _FakeHttpCl
 async def test_fetch_outbox_event_returns_payload_on_200() -> None:
     payload = {
         "type": "password.reset.requested",
-        "userId": "u1",
+        "userId": USER_ID,
         "email": "a@b.test",
         "resetUrl": "https://app.test/reset?token=SUPER-SECRET",
         "expiresAt": "2026-01-01T00:00:00.000Z",
     }
     worker, fake_http = _worker_with_http(_FakeResponse(200, payload))
 
-    result = await worker._fetch_outbox_event("outbox-id-1")
+    result = await worker._fetch_outbox_event(OUTBOX_ID)
 
     assert result == payload
     url, headers = fake_http.calls[0]
-    assert url == "http://auth-svc:8001/internal/outbox-events/outbox-id-1"
+    assert url == f"http://auth-svc:8001/internal/outbox-events/{OUTBOX_ID}"
     assert headers["X-Internal-Token"] == "test-internal-token"
 
 
@@ -100,7 +106,7 @@ async def test_fetch_outbox_event_returns_none_on_404() -> None:
     """404 is PERMANENT — the caller marks the event handled, never retries."""
     worker, _fake_http = _worker_with_http(_FakeResponse(404))
 
-    result = await worker._fetch_outbox_event("gone")
+    result = await worker._fetch_outbox_event(OUTBOX_ID)
 
     assert result is None
 
@@ -110,7 +116,62 @@ async def test_fetch_outbox_event_raises_on_5xx() -> None:
     worker, _fake_http = _worker_with_http(_FakeResponse(500))
 
     with pytest.raises(RuntimeError):
-        await worker._fetch_outbox_event("broker-down")
+        await worker._fetch_outbox_event(OUTBOX_ID)
+
+
+async def test_malformed_outbox_id_never_reaches_credentialed_http_client() -> None:
+    worker, fake_http = _worker_with_http(_FakeResponse(200))
+
+    with pytest.raises(ValueError, match="outbox_id must be a UUID"):
+        await worker._fetch_outbox_event("../../admin")
+
+    assert fake_http.calls == []
+
+
+async def test_lookup_rejects_malformed_user_id_before_attaching_token() -> None:
+    relay = relay_consumer.RelayConsumer(
+        types.SimpleNamespace(
+            smtp_host="mailpit",
+            smtp_port=1025,
+            smtp_from="no-reply@test.local",
+            smtp_username="",
+            smtp_password="",
+            smtp_starttls=False,
+            relay_max_concurrency=4,
+            auth_internal_base="http://auth-svc:8001",
+            auth_internal_token="test-internal-token",
+        )
+    )
+    fake_http = _FakeHttpClient(_FakeResponse(404))
+    relay._http = fake_http  # type: ignore[assignment]
+    with pytest.raises(ValueError, match="user_id must be a UUID"):
+        await relay._lookup_user("../admin")
+    assert fake_http.calls == []
+
+
+async def test_valid_user_id_is_canonicalized_before_credentialed_lookup() -> None:
+    relay = relay_consumer.RelayConsumer(
+        types.SimpleNamespace(
+            smtp_host="mailpit",
+            smtp_port=1025,
+            smtp_from="no-reply@test.local",
+            smtp_username="",
+            smtp_password="",
+            smtp_starttls=False,
+            relay_max_concurrency=4,
+            auth_internal_base="http://auth-svc:8001",
+            auth_internal_token="test-internal-token",
+        )
+    )
+    fake_http = _FakeHttpClient(_FakeResponse(404))
+    relay._http = fake_http  # type: ignore[assignment]
+    user_id = "018F0000-0000-7000-8000-000000000002"
+
+    await relay._lookup_user(user_id)
+
+    url, headers = fake_http.calls[0]
+    assert url.endswith(f"/internal/users/{USER_ID}")
+    assert headers["X-Internal-Token"] == "test-internal-token"
 
 
 async def test_dlq_never_carries_the_raw_secret_url() -> None:
@@ -124,7 +185,7 @@ async def test_dlq_never_carries_the_raw_secret_url() -> None:
     fetched_event = {
         "eventId": "evt-1",
         "type": "password.reset.requested",
-        "userId": "u1",
+        "userId": USER_ID,
         "email": "a@b.test",
         "resetUrl": "https://app.test/reset?token=SUPER-SECRET",
         "expiresAt": "2026-01-01T00:00:00.000Z",
@@ -138,5 +199,5 @@ async def test_dlq_never_carries_the_raw_secret_url() -> None:
     assert "resetUrl" not in envelope["event"]
     assert "SUPER-SECRET" not in raw_value.decode("utf-8")
     # Everything else survives — only the secret fields are stripped.
-    assert envelope["event"]["userId"] == "u1"
+    assert envelope["event"]["userId"] == USER_ID
     assert envelope["event"]["email"] == "a@b.test"

@@ -29,6 +29,7 @@ fan-in infinitely if relayed — see NO_RELAY_TYPES below.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -44,7 +45,11 @@ from kafka_security import kafka_security_kwargs
 
 from .attachments import Attachment, fetch as fetch_attachment, within_budget
 from .config import Settings
-from .mailer import Mailer, is_valid_email
+from .healthcheck import record_heartbeat
+from .internal_ids import uuid_path_segment
+from .log_safety import recipient_ref, redact_email_addresses
+from .mailer import Mailer, PermanentSMTPError, is_valid_email
+from .migrations import run_migrations
 from .presence import Presence
 from .provider_mail import ProviderMailUnavailable, send as provider_send
 from resilience import CircuitBreaker, CircuitOpenError, retry_async
@@ -70,14 +75,50 @@ TASK_ASSIGNED = "task.assigned"
 # no auth-svc lookup, and a template that does not dress it up.
 MAIL_OUTBOUND = "mail.outbound"
 
-# mail.outbound's own content/recipient fields — never forwarded to the DLQ
-# topic (see _to_dlq), which has the same no-ACL exposure as every other
-# topic. Same reasoning as worker.py's _SECRET_URL_FIELDS, for a user's
-# actual message body and real recipient addresses instead of a secret URL.
-# A no-op for message.created/task.assigned, neither of which has these keys.
-_MAIL_CONTENT_FIELDS = (
-    "bodyText", "bodyHtml", "fromAddress", "to", "providerTo", "providerCc", "providerBcc",
+# What a DLQ record may say about the event that failed — an ALLOW-list.
+#
+# The DLQ topic has the same no-ACL exposure as every other topic, and a relayed
+# event carries user content and addresses: message.created's `body`,
+# task.assigned's `title`/`description`, mail.outbound's `envelope`, `to`/`cc`,
+# `subject`, `bodyText`/`bodyHtml`, `fromName`/`fromAddress`, `attachments` and
+# the provider recipient lists. A deny-list of those fields (what this used to
+# be) leaks every field it does not know about — it already missed most of the
+# above — so only opaque identifiers and the event's type/time are kept: enough
+# to find the event in its source topic, none of it content.
+_DLQ_EVENT_FIELDS = (
+    "eventId", "type", "orgId", "occurredAt",
+    "mailId", "messageId", "conversationId", "taskId",
+    "recipientId", "assigneeId", "senderId", "authorId", "providerCopy",
 )
+_DLQ_VALUE_MAX = 128
+# `reason` is an exception string. SMTP/provider errors routinely quote the
+# rejected address ("550 5.1.1 <jane@x.com>: Recipient address rejected").
+_DLQ_REASON_MAX = 300
+
+
+def _dlq_event(event: dict) -> dict:
+    """The allow-listed, content-free view of `event` that may reach the DLQ.
+
+    The outbound recipient is replaced by a short hash so two DLQ records for
+    the same address can still be correlated without publishing the address.
+    """
+    safe: dict = {}
+    for key in _DLQ_EVENT_FIELDS:
+        value = event.get(key)
+        # Scalars only: a nested object under an allow-listed name is not an id.
+        if isinstance(value, str):
+            safe[key] = value[:_DLQ_VALUE_MAX]
+        elif isinstance(value, (bool, int, float)):
+            safe[key] = value
+    envelope = event.get("envelope")
+    if isinstance(envelope, str) and envelope:
+        safe["envelopeHash"] = hashlib.sha256(envelope.strip().lower().encode("utf-8")).hexdigest()[:16]
+    return safe
+
+
+def _dlq_reason(error: str) -> str:
+    return redact_email_addresses(error)[:_DLQ_REASON_MAX]
+
 
 # How one mail left the deployment. Persisted in mail_transport — see the
 # migration and _decide_transport for why the copies of one mail have to agree.
@@ -213,7 +254,7 @@ class RelayConsumer:
         self._http = httpx.AsyncClient(timeout=5.0)
         await self._connect_db()
 
-        # Apply migration 0001 once on startup (idempotent).
+        # All replicas use the same transaction-scoped lock and migration ledger.
         await self._apply_migrations()
 
         consumer = AIOKafkaConsumer(
@@ -316,6 +357,7 @@ class RelayConsumer:
                 for tp, messages in batch.items():
                     consumer.seek(tp, messages[0].offset)
                 await self._sleep_or_stop(_RETRY_BACKOFF)
+            record_heartbeat("relay")
             if self._stop.is_set():
                 break
 
@@ -476,7 +518,13 @@ class RelayConsumer:
                 self._failures.pop(str(event_id), None)
                 return True
             except Exception as exc:  # noqa: BLE001 - poison-message handling below
-                return await self._retry_or_dlq(str(event_id), str(recipient_id), event, str(exc))
+                return await self._retry_or_dlq(
+                    str(event_id),
+                    str(recipient_id),
+                    event,
+                    str(exc),
+                    max_failures=1 if isinstance(exc, PermanentSMTPError) else None,
+                )
 
             # Offset advances only AFTER _mark_sent completes.
             await self._mark_sent(event_id, recipient_id)
@@ -512,7 +560,11 @@ class RelayConsumer:
             return await self._do_handle_outbound_mail(event, event_id)
         except Exception as exc:  # noqa: BLE001 - poison-message handling below
             return await self._retry_or_dlq(
-                str(event_id), str(event.get("mailId") or ""), event, str(exc)
+                str(event_id),
+                str(event.get("mailId") or ""),
+                event,
+                str(exc),
+                max_failures=1 if isinstance(exc, PermanentSMTPError) else None,
             )
 
     async def _do_handle_outbound_mail(self, event: dict, event_id: str) -> bool:
@@ -525,7 +577,11 @@ class RelayConsumer:
             # Rejected by SMTP and retried forever otherwise. messaging-svc
             # validates on the way in, so reaching here means a malformed
             # producer, not a user typo — log loudly and drop the copy.
-            _log.warning("relay_mail_invalid_envelope", event_id=event_id, to=envelope)
+            _log.warning(
+                "relay_mail_invalid_envelope",
+                event_id=event_id,
+                recipient_ref=recipient_ref(envelope),
+            )
             return True
 
         claimed = await self._claim(event_id, mail_id)
@@ -572,8 +628,12 @@ class RelayConsumer:
                     event, mail_id, parts, subject, text, html
                 )
             except ProviderMailUnavailable as exc:
-                _log.warning("relay_mail_provider_unavailable", mail_id=mail_id,
-                             conflict=exc.conflict, error=str(exc))
+                _log.warning(
+                    "relay_mail_provider_unavailable",
+                    mail_id=mail_id,
+                    conflict=exc.conflict,
+                    error=redact_email_addresses(exc),
+                )
                 return await self._handle_provider_unavailable(event_id, event, mail_id, exc)
             # `covered` is the set of envelopes the provider send actually
             # reached (None means an old, pre-migration row with no recorded
@@ -592,8 +652,9 @@ class RelayConsumer:
                 # FIRST on this partition, so this normally cannot happen;
                 # bounded retries then the DLQ is the right answer to a state
                 # that should not exist, rather than a copy that spins forever.
-                return await self._on_failure(
-                    str(event_id), event, "provider transport not decided for this mail"
+                return await self._retry_or_dlq(
+                    str(event_id), str(mail_id), event,
+                    "provider transport not decided for this mail",
                 )
 
             # TRANSPORT_RELAY, or a PROVIDER decision that didn't cover THIS
@@ -627,7 +688,13 @@ class RelayConsumer:
                     attachments=parts,
                 )
             except Exception as exc:  # noqa: BLE001 - poison-message handling below
-                return await self._on_failure(str(event_id), event, str(exc))
+                return await self._retry_or_dlq(
+                    str(event_id),
+                    str(mail_id),
+                    event,
+                    str(exc),
+                    max_failures=1 if isinstance(exc, PermanentSMTPError) else None,
+                )
 
             await self._mark_sent(event_id, mail_id)
             self._failures.pop(str(event_id), None)
@@ -942,17 +1009,31 @@ class RelayConsumer:
         self, event_id: str, recipient_key: str, event: dict, error: str,
         max_failures: int | None = None,
     ) -> bool:
-        """_on_failure, and when it says "retry", release this attempt's claim.
+        """_on_failure, and settle this attempt's claim either way.
 
-        The redelivery has to be able to claim the event again. Left 'pending',
-        it finds this attempt's own row, answers False without counting it, and
-        waits for the reaper — which releases a stale 'pending' row for Kafka
-        redelivery without pretending it was sent. The retry can then claim it;
-        for mail.outbound there is no in-app copy to make up for it.
+        Every failure path that returns after claiming MUST come through here,
+        or the claim stays 'pending' and wedges the partition:
+
+        * Retry (below the threshold): release the claim. The redelivery has to
+          be able to claim the event again. Left 'pending', it finds this
+          attempt's own row, answers False without counting it, and waits for
+          the reaper (>= _REAP_SEND_BUDGET_SECONDS) — which releases a stale
+          'pending' row for Kafka redelivery without pretending it was sent.
+          That stalled the partition for minutes per attempt, and for
+          mail.outbound there is no in-app copy to make up for it.
+        * DLQ (at the threshold): the event is finished for good, so the claim
+          becomes terminal ('sent' = handled, same as every other deliberate
+          skip in this module). Left 'pending', the next rewind of a batch that
+          still contains this event would find it, stall until the reaper
+          deleted it, and then re-claim and re-fail the event — publishing it
+          to the DLQ again.
         """
         done = await self._on_failure(event_id, event, error, max_failures)
-        if not done and recipient_key:
-            await self._release_claim(event_id, recipient_key)
+        if recipient_key:
+            if done:
+                await self._mark_sent(event_id, recipient_key)
+            else:
+                await self._release_claim(event_id, recipient_key)
         return done
 
     async def _release_claim(self, event_id: str, recipient_key: str) -> None:
@@ -1015,6 +1096,7 @@ class RelayConsumer:
         for a failure class with its own, justified cap."""
         n = self._failures.get(event_id, 0) + 1
         self._failures[event_id] = n
+        error = redact_email_addresses(error)
         _log.error("relay_send_failed", event_id=event_id, attempt=n, error=error)
         if n >= (max_failures or self._settings.poison_max_failures):
             await self._to_dlq(event, error)
@@ -1027,12 +1109,8 @@ class RelayConsumer:
         if self._producer is None:
             _log.error("relay_dlq_producer_unavailable", event_id=event.get("eventId"))
             return
-        # Strip mail.outbound's content/recipient fields before this ever
-        # reaches Kafka — see _MAIL_CONTENT_FIELDS above. worker.py's
-        # _to_dlq already does the equivalent for secret URLs; this was the
-        # one DLQ path in this service without any scrubbing.
-        safe_event = {k: v for k, v in event.items() if k not in _MAIL_CONTENT_FIELDS}
-        envelope = {"reason": error, "source": "relay", "event": safe_event}
+        # Only the allow-listed identifiers reach Kafka — see _DLQ_EVENT_FIELDS.
+        envelope = {"reason": _dlq_reason(error), "source": "relay", "event": _dlq_event(event)}
         try:
             # PRODUCER span: inject traceparent so the DLQ message stays linked
             # to this trace. No-op when tracing is disabled.
@@ -1092,7 +1170,8 @@ class RelayConsumer:
         SKIP the email (mark sent) rather than block — see _send_for_event.
         """
         assert self._http is not None
-        url = f"{self._settings.auth_internal_base}/internal/users/{user_id}"
+        safe_user_id = uuid_path_segment(user_id, "user_id")
+        url = f"{self._settings.auth_internal_base}/internal/users/{safe_user_id}"
         headers = {"X-Internal-Token": self._settings.auth_internal_token}
         # Best-effort: propagate the originating event id as the request id so
         # the lookup can be correlated in auth-svc's logs.
@@ -1148,7 +1227,11 @@ class RelayConsumer:
         # Invalid recipients are rejected by SMTP and would retry forever; log
         # + skip (the caller marks sent) instead.
         if not is_valid_email(to_addr):
-            _log.warning("relay_invalid_email_skipped", recipient=recipient_id, to=to_addr)
+            _log.warning(
+                "relay_invalid_email_skipped",
+                recipient=recipient_id,
+                recipient_ref=recipient_ref(to_addr),
+            )
             return
         sender_username = ""
         sid = event.get("senderId")
@@ -1184,7 +1267,12 @@ class RelayConsumer:
         await self._mailer.send(
             to=to_addr, subject=subject, text_body=text, html_body=html,
         )
-        _log.info("relay_email_sent", to=to_addr, type=etype, recipient=recipient_id)
+        _log.info(
+            "relay_email_sent",
+            recipient_ref=recipient_ref(to_addr),
+            type=etype,
+            recipient=recipient_id,
+        )
 
     # ── two-phase dedup ──────────────────────────────────────────────────
 
@@ -1396,20 +1484,4 @@ class RelayConsumer:
 
     async def _apply_migrations(self) -> None:
         assert self._db is not None
-        # Path is relative to the worker's working dir inside the container.
-        # In dev, the file is mounted; in prod the migrations folder is
-        # bundled alongside app/. Resilient to either by importing-relative.
-        from pathlib import Path
-        here = Path(__file__).resolve().parent.parent
-        migrations = sorted((here / "migrations").glob("*.sql"))
-        async with self._db.acquire() as conn:
-            for f in migrations:
-                sql = f.read_text(encoding="utf-8")
-                try:
-                    await conn.execute(sql)
-                    _log.info("relay_migration_applied", file=f.name)
-                except Exception as exc:  # noqa: BLE001
-                    _log.error("relay_migration_failed", file=f.name, error=str(exc))
-                    raise
-
-
+        await run_migrations(self._db)

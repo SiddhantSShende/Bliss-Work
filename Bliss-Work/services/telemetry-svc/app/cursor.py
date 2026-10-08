@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import binascii
 from datetime import datetime
+import uuid
 
 
 def encode_cursor(occurred_at: datetime, row_id: str) -> str:
@@ -31,14 +32,25 @@ def encode_cursor(occurred_at: datetime, row_id: str) -> str:
 def decode_cursor(raw: str) -> tuple[datetime, str]:
     """Inverse of encode_cursor. Raises ValueError on anything malformed so the
     route can answer 400 rather than 500."""
+    if not raw or len(raw) > 128 or any(ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for ch in raw):
+        raise ValueError("malformed cursor")
     try:
         padded = raw + "=" * (-len(raw) % 4)
-        decoded = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        decoded_bytes = base64.b64decode(padded.encode("ascii"), altchars=b"-_", validate=True)
+        decoded = decoded_bytes.decode("utf-8")
     except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
         raise ValueError("malformed cursor") from exc
 
-    ts_str, sep, row_id = decoded.partition("|")
-    if not sep or not row_id:
+    if base64.urlsafe_b64encode(decoded_bytes).decode("ascii").rstrip("=") != raw:
         raise ValueError("malformed cursor")
-    # fromisoformat raises ValueError itself, which is exactly what we promise.
-    return datetime.fromisoformat(ts_str), row_id
+    ts_str, sep, row_id = decoded.partition("|")
+    if not sep or not row_id or "|" in row_id:
+        raise ValueError("malformed cursor")
+    try:
+        occurred_at = datetime.fromisoformat(ts_str)
+        if occurred_at.tzinfo is None or occurred_at.utcoffset() is None:
+            raise ValueError("cursor timestamp must include a timezone")
+        normalized_id = str(uuid.UUID(row_id))
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("malformed cursor") from exc
+    return occurred_at, normalized_id

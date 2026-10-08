@@ -759,9 +759,13 @@ export class ApiClient {
    * Refused (409, with a message written for the user) when the caller is the
    * org's last admin or when it is their only organization.
    */
-  leaveOrg(orgId: string) {
+  leaveOrg(
+    orgId: string,
+    stepUp?: { password: string; totpCode?: string; backupCode?: string },
+  ) {
     return this.req<void>(this.cfg.authBase, `/auth/orgs/${orgId}/leave`, {
       method: "POST",
+      ...(stepUp ? { body: JSON.stringify(stepUp) } : {}),
     });
   }
 

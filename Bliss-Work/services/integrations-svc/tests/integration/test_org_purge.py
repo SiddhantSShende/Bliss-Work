@@ -38,6 +38,24 @@ async def _seed_connection(db_app) -> None:
             ),
             {"o": ORG, "u": USER, "a": access_enc},
         )
+        await db.execute(
+            text(
+                """
+                INSERT INTO mail_send_attempts (mail_id, org_id, status)
+                VALUES (gen_random_uuid(), :o, 'sending')
+                """
+            ),
+            {"o": ORG},
+        )
+        await db.execute(
+            text(
+                """
+                INSERT INTO message_send_attempts (message_id, org_id, status)
+                VALUES (gen_random_uuid(), :o, 'sending')
+                """
+            ),
+            {"o": ORG},
+        )
         await db.commit()
 
 
@@ -58,6 +76,20 @@ async def test_purge_org_does_not_raise_and_removes_the_connection(db_app):
             )
         ).one()
         assert remaining.n == 0
+        mail_attempts = (
+            await db.execute(
+                text("SELECT count(*) AS n FROM mail_send_attempts WHERE org_id = :o"),
+                {"o": ORG},
+            )
+        ).one()
+        message_attempts = (
+            await db.execute(
+                text("SELECT count(*) AS n FROM message_send_attempts WHERE org_id = :o"),
+                {"o": ORG},
+            )
+        ).one()
+        assert mail_attempts.n == 0
+        assert message_attempts.n == 0
 
 
 async def test_purge_org_is_idempotent_on_an_org_with_nothing_to_delete(db_app):

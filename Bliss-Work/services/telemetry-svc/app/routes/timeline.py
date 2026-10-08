@@ -120,11 +120,13 @@ async def timeline(
     """
     subject = resolve_subject(principal, user_id)
     before: tuple[datetime, str] | None = None
-    if cursor:
+    if cursor is not None:
         try:
             before = decode_cursor(cursor)
         except ValueError:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed cursor")
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "malformed cursor"
+            ) from None
     outside = category == OUTSIDE_FILTER
     if outside:
         category = None
@@ -209,7 +211,7 @@ async def sessions_for(
 ) -> SessionPage:
     subject = resolve_subject(principal, user_id)
     before: tuple[datetime, str] | None = None
-    if cursor:
+    if cursor is not None:
         try:
             before = decode_cursor(cursor)
         except ValueError:

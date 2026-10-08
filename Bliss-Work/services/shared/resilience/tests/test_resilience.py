@@ -14,6 +14,8 @@ non-retryable real-world sends (email, chat messages).
 """
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 
@@ -110,6 +112,8 @@ class TestCircuitBreaker:
         clock["t"] += 2.0  # total 31s >= 30s
         cb.before()  # must NOT raise
         assert cb.state == "half_open"
+        with pytest.raises(CircuitOpenError):
+            cb.before()
 
     def test_half_open_success_closes(self, monkeypatch):
         clock = {"t": 0.0}
@@ -159,6 +163,22 @@ class TestRetryAsync:
 
         assert await retry_async(fn, attempts=3) == "ok"
         assert calls["n"] == 1  # no retries on success
+
+    async def test_cancellation_does_not_count_as_breaker_success_or_failure(self, monkeypatch):
+        clock = {"t": 0.0}
+        monkeypatch.setattr(resilience.time, "monotonic", lambda: clock["t"])
+        cb = CircuitBreaker(fail_max=1, reset_timeout=10.0)
+        cb.on_failure()
+        failures_before = cb._failures
+        clock["t"] += 11.0
+
+        async def cancelled():
+            raise asyncio.CancelledError
+
+        with pytest.raises(asyncio.CancelledError):
+            await retry_async(cancelled, breaker=cb)
+        assert cb.state == "open"
+        assert cb._failures == failures_before
 
     async def test_retries_transient_then_succeeds(self):
         calls = {"n": 0}

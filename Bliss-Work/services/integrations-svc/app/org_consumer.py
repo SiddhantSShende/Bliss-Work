@@ -13,14 +13,16 @@ whether this consumer ever runs. This handles the rest: the connection rows,
 identities, activity history and the pending-OAuth state.
 
 The reader is deliberately minimal. A single topic, a consumer group, no
-dead-letter and no dedup table: the only handler is idempotent, so a redelivery
-costs a no-op DELETE and a poison message is skipped rather than retried.
+dead-letter and no dedup table: unrelated or malformed events are skipped;
+valid org.deleted events are idempotent, so a transient purge failure is
+retried by leaving the fetched batch uncommitted.
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import json
+import uuid
 
 from aiokafka import AIOKafkaConsumer
 from kafka_security import kafka_security_kwargs
@@ -59,6 +61,8 @@ _TABLES = (
     "oauth_states",
     "integration_connections",
     "provider_app_credentials",
+    "mail_send_attempts",
+    "message_send_attempts",
     # Last: see services/telemetry-svc/app/org_purge.py.
     "org_keys",
 )
@@ -154,8 +158,12 @@ class OrgLifecycleConsumer:
         if not isinstance(event, dict) or event.get("type") != "org.deleted":
             return
         org_id = event.get("orgId")
-        if org_id:
-            await purge_org(str(org_id))
+        try:
+            normalized_org_id = str(uuid.UUID(str(org_id)))
+        except (ValueError, TypeError, AttributeError):
+            log.error("org_purge_event_invalid_org_id")
+            return
+        await purge_org(normalized_org_id)
 
 
 consumer = OrgLifecycleConsumer()

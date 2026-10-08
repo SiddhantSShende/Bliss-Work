@@ -207,6 +207,41 @@ async def test_accepting_an_invite_for_an_active_member_is_a_clean_conflict(sa_c
     assert exc_info.value.status_code == 409
 
 
+async def test_username_unique_race_returns_conflict_and_preserves_transaction(sa_conn):
+    org_id = await _seed_org(sa_conn, uuid.uuid4().hex[:8])
+    conflicting_email = f"existing-{uuid.uuid4().hex[:8]}@example.com"
+    await sa_conn.execute(text("SELECT set_config('app.org_id', :o, true)"), {"o": org_id})
+    await sa_conn.execute(
+        text(
+            """
+            INSERT INTO users (id, org_id, email_enc, email_bidx, username, password_hash,
+                               display_name_enc, email_verified, status)
+            VALUES (:id, :org, :enc, :bidx, 'taken-name', 'x', :dn, true, 'active')
+            """
+        ),
+        {
+            "id": str(uuid.uuid4()),
+            "org": org_id,
+            "enc": await cryptor().encrypt(sa_conn, org_id, conflicting_email),
+            "bidx": cryptor().blind_index(conflicting_email),
+            "dn": await cryptor().encrypt(sa_conn, org_id, "Existing"),
+        },
+    )
+    email = f"invite-{uuid.uuid4().hex[:8]}@example.com"
+    token = service.new_refresh_secret()
+    await _seed_pending_invite(sa_conn, org_id, email, "member", token)
+    await sa_conn.commit()
+
+    body = AcceptInviteRequest(
+        token=token, password="Valid-Password-123!", username="taken-name", displayName="Invited"
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await accept_invite_tx(sa_conn, body, _FakeRequest())
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "username is already in use in this organization"
+    assert (await sa_conn.execute(text("SELECT 1"))).scalar_one() == 1
+
+
 # ── #1: invite create/revoke must re-verify admin status against the DB ─────
 
 

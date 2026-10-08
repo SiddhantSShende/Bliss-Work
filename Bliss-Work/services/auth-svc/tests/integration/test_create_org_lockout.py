@@ -130,7 +130,10 @@ async def test_repeated_wrong_password_locks_the_identity(real_engine):
             await auth_routes.create_org(
                 await _fresh_captcha_body(email, "Wr0ng-Password!"), Response()
             )
-        assert exc_info.value.status_code == 409, f"attempt {attempt}: want 409 (not yet locked)"
+        assert exc_info.value.status_code == 401, (
+            f"attempt {attempt}: want generic invalid-credentials response"
+        )
+        assert exc_info.value.detail == "invalid credentials"
 
     # The attempt that crosses the threshold.
     with pytest.raises(HTTPException) as exc_info:
@@ -158,3 +161,26 @@ async def test_locked_identity_refuses_even_the_correct_password(real_engine):
         "a locked identity must refuse the CORRECT password too — reaching org "
         "creation at all here means the lockout was bypassed"
     )
+
+
+async def test_duplicate_slug_insert_race_returns_conflict(real_engine, monkeypatch):
+    slug = f"taken-{uuid.uuid4().hex[:8]}"
+    async with real_engine.begin() as conn:
+        await service.set_bypass_rls(conn)
+        await conn.execute(
+            text("INSERT INTO orgs (id, name, slug) VALUES (:id, 'Existing', :slug)"),
+            {"id": str(uuid.uuid4()), "slug": slug},
+        )
+
+    async def _same_slug(_conn, _name):
+        return slug
+
+    monkeypatch.setattr(service, "unique_slug", _same_slug)
+    email = f"new-{uuid.uuid4().hex[:8]}@example.com"
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_routes.create_org(
+            await _fresh_captcha_body(email, "Correct-Horse-9-Battery!"),
+            Response(),
+        )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "organization name is unavailable; try another name"

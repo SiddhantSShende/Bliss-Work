@@ -6,6 +6,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { ApiError, type OrgMembershipDTO } from "@taskboard/shared";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { LeaveOrgStepUpModal, type LeaveStepUp } from "./LeaveOrgStepUpModal";
 import { useSwitchOrg } from "./OrgSwitcher";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -44,6 +45,8 @@ export function LeaveOrgButton({
   const user = useSession((s) => s.user);
   const switchOrg = useSwitchOrg();
   const [open, setOpen] = useState(false);
+  // Opened when the server wants re-authentication (MFA enrolled) — see leave().
+  const [stepUpOpen, setStepUpOpen] = useState(false);
   const [busy, setBusyState] = useState(false);
   const setBusy = (value: boolean) => {
     setBusyState(value);
@@ -56,11 +59,31 @@ export function LeaveOrgButton({
   const isActive = org.orgId === user?.orgId;
   const next = orgs.find((o) => o.orgId !== org.orgId);
 
-  const leave = async () => {
+  const leave = async (stepUp?: LeaveStepUp) => {
     setBusy(true);
     try {
-      await api.leaveOrg(org.orgId);
+      await api.leaveOrg(org.orgId, stepUp);
     } catch (err) {
+      // 403 "re-authentication required": MFA is enrolled, so leaving needs the
+      // password + a current second factor. Ask once, then retry with it.
+      if (!stepUp && err instanceof ApiError && err.status === 403 && /re-?authentication/i.test(err.message)) {
+        setOpen(false);
+        setStepUpOpen(true);
+        setBusy(false);
+        return;
+      }
+      // Wrong credential (401) or a locked identity (429): the prompt stays open
+      // for another try; same wording as the MFA step-up in Settings.
+      if (stepUp && err instanceof ApiError && (err.status === 401 || err.status === 429)) {
+        toast.error(
+          err.status === 429
+            ? t("account:mfaSettings.stepUp.toasts.tooManyAttemptsTitle")
+            : t("account:mfaSettings.stepUp.toasts.verificationFailedTitle"),
+          { description: t("account:mfaSettings.stepUp.toasts.verificationFailedDescription") },
+        );
+        setBusy(false);
+        return;
+      }
       toast.error(t("org:leaveOrgButton.toasts.failedTitle"), {
         description:
           err instanceof ApiError && err.message ? err.message : t("org:leaveOrgButton.toasts.failedDescriptionFallback"),
@@ -70,6 +93,7 @@ export function LeaveOrgButton({
     }
     toast.success(t("org:leaveOrgButton.toasts.left", { orgName: org.orgName }));
     setOpen(false);
+    setStepUpOpen(false);
 
     if (!isActive) {
       await qc.invalidateQueries({ queryKey: qk.myOrgs });
@@ -139,7 +163,13 @@ export function LeaveOrgButton({
         confirmLabel={t("org:leaveOrgButton.confirmDialog.confirmLabel")}
         danger
         busy={busy}
-        onConfirm={leave}
+        onConfirm={() => void leave()}
+      />
+      <LeaveOrgStepUpModal
+        open={stepUpOpen}
+        busy={busy}
+        onClose={() => setStepUpOpen(false)}
+        onSubmit={(stepUp) => void leave(stepUp)}
       />
     </>
   );

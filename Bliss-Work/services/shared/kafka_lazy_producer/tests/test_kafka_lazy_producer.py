@@ -57,6 +57,21 @@ async def test_ensure_reuses_the_same_producer(monkeypatch):
     assert len(_FakeProducer.instances) == 1  # only ever constructed once
 
 
+async def test_connected_callback_runs_once_per_producer_creation(monkeypatch):
+    monkeypatch.setattr(kafka_lazy_producer, "AIOKafkaProducer", _FakeProducer)
+    lazy = LazyKafkaProducer(bootstrap_servers="kafka:9092", security_kwargs={})
+    connections: list[object] = []
+
+    first = await lazy.ensure(on_connected=lambda: connections.append("connected"))
+    second = await lazy.ensure(on_connected=lambda: connections.append("connected"))
+    await lazy.stop()
+    third = await lazy.ensure(on_connected=lambda: connections.append("connected"))
+
+    assert first is second
+    assert third is not first
+    assert connections == ["connected", "connected"]
+
+
 async def test_failed_start_discards_the_producer_and_propagates(monkeypatch):
     monkeypatch.setattr(kafka_lazy_producer, "AIOKafkaProducer", _FailingStartProducer)
     lazy = LazyKafkaProducer(bootstrap_servers="kafka:9092", security_kwargs={})

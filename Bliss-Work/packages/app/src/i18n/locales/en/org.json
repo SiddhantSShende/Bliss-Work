@@ -153,6 +153,10 @@
   },
   "leaveOrgButton": {
     "leaveButton": "Leave",
+    "stepUp": {
+      "title": "Confirm it's you",
+      "description": "Enter your password and an authentication code or backup code to leave this organization."
+    },
     "toasts": {
       "failedTitle": "Couldn't leave organization",
       "failedDescriptionFallback": "Please try again.",

@@ -16,6 +16,8 @@ import asyncio
 import json
 
 from aiokafka import AIOKafkaConsumer
+from prometheus_client import Counter
+from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 
 from kafka_security import kafka_security_kwargs
 
@@ -30,6 +32,40 @@ from .events import TOPIC_ROUTING, CapacityReport, DirectoryUpsert, parse
 # consumer that exited on a connection failure would leave this site's directory
 # frozen at whatever it knew an hour ago.
 _RETRY_SECONDS = 5.0
+
+# Backoff while ONE event cannot be written (database down, pool exhausted,
+# statement timeout). The consumer stays on that event — committing past it
+# would lose the directory row for good — so this bounds how hard it pushes on a
+# struggling database, not how long it is willing to wait.
+_APPLY_RETRY_BASE_SECONDS = 1.0
+_APPLY_RETRY_MAX_SECONDS = 30.0
+
+SKIPPED = Counter(
+    "auth_routing_events_skipped_total",
+    "Routing events dropped as permanently unprocessable, by reason.",
+    ["reason"],
+)
+APPLY_RETRIES = Counter(
+    "auth_routing_apply_retries_total",
+    "Routing event writes retried after a transient failure.",
+)
+
+
+def _is_permanent_db_error(exc: Exception) -> bool:
+    """True when Postgres rejected the event's VALUES, so no retry can succeed.
+
+    With the asyncpg driver a bad uuid or `invalid input syntax` surfaces as a
+    bare `DBAPIError`, not SQLAlchemy's `DataError`, so the SQLSTATE class is
+    checked too: 22 = data exception, 23 = integrity constraint violation.
+    Connection loss (08), resources (53), timeouts (57) and deadlocks (40)
+    stay transient.
+    """
+    if isinstance(exc, (DataError, IntegrityError)):
+        return True
+    if isinstance(exc, DBAPIError):
+        state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+        return isinstance(state, str) and state[:2] in ("22", "23")
+    return False
 
 
 class RoutingConsumer:
@@ -89,22 +125,74 @@ class RoutingConsumer:
         async for message in consumer:
             if self._stop.is_set():
                 return
-            try:
-                await self._apply(json.loads(message.value))
-            except Exception as err:  # noqa: BLE001
-                # Skip and carry on. A single unparseable event must not stop the
-                # directory converging — the cost of dropping one is a stale key
-                # that answers "retry"; the cost of stopping is every key at this
-                # site going stale at once.
-                log.warning("routing_event_skipped", err=str(err), offset=message.offset)
-            # Committed AFTER the write. A crash between the two replays the
-            # event, which the version check makes a no-op.
+            if not await self._process(message):
+                # Shutting down mid-retry: the event is NOT applied, so it must
+                # not be committed — the next start redelivers it.
+                return
+            # Committed AFTER the write (or a deliberate skip). A crash between
+            # the two replays the event, which the version check makes a no-op.
             await consumer.commit()
 
-    async def _apply(self, payload: dict) -> None:
-        decoded = parse(payload)
+    async def _process(self, message) -> bool:
+        """Apply one message. True when it is safe to commit past it — written,
+        or permanently unprocessable and skipped; False if told to stop first.
+
+        Two very different failures live here, and only one may be skipped:
+
+          * PERMANENT — the event itself is bad (not JSON, not an object, or the
+            database rejects its values outright). Retrying cannot change the
+            outcome, and blocking on it would freeze every key at this site, so it
+            is logged, counted and dropped. The cost is one stale key that
+            answers "retry".
+          * TRANSIENT — the event is fine and the database is not (connection
+            lost, pool timeout, statement timeout). Skipping it would drop a
+            routing row for good — an invite redemption then answers 503 until the
+            invite expires — so it is retried, with backoff, until it is written.
+        """
+        try:
+            payload = json.loads(message.value)
+            if not isinstance(payload, dict):
+                raise ValueError("routing event is not a JSON object")
+            decoded = parse(payload)
+        except Exception as err:  # noqa: BLE001 — anything undecodable is a bad event
+            self._skip("malformed", err, message)
+            return True
         if decoded is None:
-            return
+            return True  # an event type this site does not act on
+
+        attempt = 0
+        while True:
+            try:
+                await self._apply(decoded)
+                return True
+            except Exception as err:  # noqa: BLE001 — classified below
+                if _is_permanent_db_error(err):
+                    self._skip("rejected_by_db", err, message)
+                    return True
+                attempt += 1
+                delay = min(
+                    _APPLY_RETRY_MAX_SECONDS, _APPLY_RETRY_BASE_SECONDS * 2 ** (attempt - 1)
+                )
+                APPLY_RETRIES.inc()
+                log.warning(
+                    "routing_event_apply_retry",
+                    err=str(err),
+                    offset=message.offset,
+                    attempt=attempt,
+                    retry_in=delay,
+                )
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=delay)
+                    return False  # stop was set while waiting
+                except asyncio.TimeoutError:
+                    pass
+
+    @staticmethod
+    def _skip(reason: str, err: Exception, message) -> None:
+        SKIPPED.labels(reason=reason).inc()
+        log.error("routing_event_skipped", reason=reason, err=str(err), offset=message.offset)
+
+    async def _apply(self, decoded: DirectoryUpsert | CapacityReport) -> None:
         async with engine.begin() as conn:
             # routing_directory and site_capacity carry no org policy (see
             # migration 0012) but the connection is fresh, so the bypass is set

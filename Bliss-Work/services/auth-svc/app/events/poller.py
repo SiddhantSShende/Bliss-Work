@@ -29,6 +29,10 @@ _tracer = trace.get_tracer(__name__)
 
 POLL_INTERVAL_SECONDS = 0.5
 BATCH_LIMIT = 100
+# One replica drains at a time. Hashed to the bigint advisory-lock key; see
+# `_drain_once`. Service-specific so a shared database would show up as
+# contention rather than as two services skipping each other's cycles.
+DRAIN_LOCK_KEY = "taskboard:auth:outbox-drain"
 
 # Raw secret URL fields stripped from SECRET_EVENT_TYPES payloads before
 # Kafka publish — email-worker pulls the secret back via an authenticated
@@ -81,9 +85,9 @@ class OutboxPoller:
 
     async def _ensure_producer(self) -> AIOKafkaProducer:
         """Connect on first use. Failures propagate to _run's backoff."""
-        producer = await self._lazy_producer.ensure()
-        log.info("outbox_producer_connected")
-        return producer
+        return await self._lazy_producer.ensure(
+            on_connected=lambda: log.info("outbox_producer_connected")
+        )
 
     async def stop(self) -> None:
         self._stop.set()
@@ -147,6 +151,24 @@ class OutboxPoller:
             # shared `outbox`. outbox itself has no RLS, but set bypass so this
             # poller is never silently fenced if an RLS table is ever read here.
             await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
+            # Serialise drains across replicas, per-key ordering depends on it.
+            # SKIP LOCKED alone lets replica B claim and publish the NEWER rows
+            # of a key while replica A is still sending (or retrying) that
+            # key's OLDER ones, so a consumer can see user.removed before
+            # user.created. A transaction-level advisory lock means only one
+            # replica drains at a time and the other skips this cycle (it polls
+            # again in POLL_INTERVAL_SECONDS). Released automatically at
+            # commit, rollback, or if this process or its connection dies, and
+            # held no longer than one drain: publishing is bounded by the
+            # producer's request timeout and stops at the first failure. SKIP
+            # LOCKED below stays as a harmless belt-and-braces.
+            if not (
+                await conn.execute(
+                    text("SELECT pg_try_advisory_xact_lock(hashtext(:k)::bigint)"),
+                    {"k": DRAIN_LOCK_KEY},
+                )
+            ).scalar_one():
+                return
             rows = (
                 await conn.execute(
                     text(

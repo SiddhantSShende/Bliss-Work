@@ -211,6 +211,7 @@ async def reset_password_tx(
     iid = await service.identity_id_for_user(conn, user_id)
     if iid is not None:
         await service.set_identity_password(conn, iid, new_hash)
+        await service.reset_identity_lockout(conn, iid)
         await service.revoke_all_identity_tokens(conn, iid)
     else:
         await service.update_password(conn, user_id, new_hash)  # legacy fallback

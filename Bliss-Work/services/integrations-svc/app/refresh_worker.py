@@ -25,6 +25,10 @@ from .providers import oauth
 _INTERVAL = 60.0  # seconds between sweeps
 _WINDOW_MINUTES = 10  # refresh when the token expires within this window
 _BATCH = 50
+_CONCURRENCY = 5
+# Phase C (storing refreshed tokens) is retried: see _refresh_one.
+_PERSIST_ATTEMPTS = 3
+_PERSIST_BACKOFF = 0.5  # seconds, doubled per retry
 _OAUTH_PROVIDERS = ("gmail", "outlook", "teams")
 
 
@@ -73,6 +77,7 @@ class RefreshWorker:
                            AND refresh_token_enc IS NOT NULL
                            AND token_expires_at IS NOT NULL
                            AND token_expires_at < now() + make_interval(mins => :win)
+                           AND (refresh_next_attempt_at IS NULL OR refresh_next_attempt_at <= now())
                          ORDER BY token_expires_at ASC
                          LIMIT :lim
                         """
@@ -86,19 +91,45 @@ class RefreshWorker:
             return
         log.info("refresh_worker_due", count=len(due))
 
-        # 2) Process each in its own transaction (failure isolation).
-        for conn_id, org_id, provider, rt_enc in due:
-            try:
-                await self._refresh_one(conn_id, org_id, provider, rt_enc)
-            except Exception:  # noqa: BLE001 — one connection must not block the rest of the batch
-                # _refresh_one's own try/except only covers the token-exchange
-                # call; an error in what follows (encrypt, the UPDATE, commit)
-                # would otherwise escape this loop entirely and skip every
-                # connection queued after this one — which, sorted soonest-
-                # expiring-first, would then sort first again next sweep (its
-                # token_expires_at never advanced) and block in the same place
-                # every time.
-                log.exception("refresh_one_unexpected_error", connection_id=conn_id)
+        # 2) Process each in its own transaction with a bounded number of
+        # provider requests in flight. A failing row is deferred independently.
+        semaphore = asyncio.Semaphore(_CONCURRENCY)
+
+        async def refresh_one(row: tuple[str, str, str, bytes]) -> None:
+            conn_id, org_id, provider, rt_enc = row
+            async with semaphore:
+                try:
+                    await self._refresh_one(conn_id, org_id, provider, rt_enc)
+                except Exception:  # noqa: BLE001 — one connection must not block the batch
+                    log.exception("refresh_one_unexpected_error", connection_id=conn_id)
+                    try:
+                        await self._schedule_retry(conn_id)
+                    except Exception:  # noqa: BLE001 — keep processing other rows
+                        log.exception("refresh_retry_schedule_failed", connection_id=conn_id)
+
+        await asyncio.gather(*(refresh_one(row) for row in due))
+
+    async def _schedule_retry(self, conn_id: str) -> None:
+        async with session() as db:
+            await set_bypass_rls(db)
+            await db.execute(
+                text(
+                    """
+                    UPDATE integration_connections
+                       SET refresh_failure_count = refresh_failure_count + 1,
+                           refresh_next_attempt_at = now() + make_interval(
+                               secs => LEAST(
+                                   3600.0, 30.0 * power(2.0, LEAST(refresh_failure_count, 7))
+                               )::double precision
+                           ),
+                           refresh_claimed_at = NULL,
+                           updated_at = now()
+                     WHERE id = :id AND status = 'connected'
+                    """
+                ),
+                {"id": conn_id},
+            )
+            await db.commit()
 
     async def _refresh_one(self, conn_id: str, org_id: str, provider: str, rt_enc: bytes) -> None:
         # Phase A — claim the row and gather what the refresh call needs, in
@@ -135,6 +166,7 @@ class RefreshWorker:
             # The 2-minute staleness clause is only a backstop for a replica
             # that crashes between claiming and recording an outcome — every
             # normal exit path below clears refresh_claimed_at explicitly.
+
             claimed = (
                 await db.execute(
                     text(
@@ -144,6 +176,7 @@ class RefreshWorker:
                          WHERE id = :id
                            AND status = 'connected'
                            AND refresh_token_enc IS NOT NULL
+                           AND (refresh_next_attempt_at IS NULL OR refresh_next_attempt_at <= now())
                            AND (refresh_claimed_at IS NULL
                                 OR refresh_claimed_at < now() - interval '2 minutes')
                         RETURNING refresh_token_enc
@@ -179,7 +212,9 @@ class RefreshWorker:
                 await db.execute(
                     text(
                         "UPDATE integration_connections SET status='error', "
-                        "last_error=:e, refresh_claimed_at=NULL, updated_at=now() WHERE id=:id"
+                        "refresh_failure_count=0, "
+                        "last_error=:e, refresh_claimed_at=NULL, refresh_next_attempt_at=NULL, "
+                        "updated_at=now() WHERE id=:id"
                     ),
                     {
                         "e": "OAuth app credentials are no longer configured for this provider",
@@ -202,31 +237,55 @@ class RefreshWorker:
             # Terminal (revoked/invalid) — mark so the UI prompts a reconnect.
             async with session() as db:
                 await set_bypass_rls(db)
+                # Guarded like Phase C below: a connection the user disconnected
+                # (status 'revoked') or reconnected (new refresh token) while
+                # this call was in flight must not be flipped to 'error' by the
+                # outcome of the OLD credentials.
                 await db.execute(
                     text(
-                        "UPDATE integration_connections SET status='error', last_error=:e, "
-                        "refresh_claimed_at=NULL, updated_at=now() WHERE id=:id"
+                        "UPDATE integration_connections SET status='error', "
+                        "refresh_failure_count=0, last_error=:e, "
+                        "refresh_claimed_at=NULL, refresh_next_attempt_at=NULL, "
+                        "updated_at=now() "
+                        "WHERE id=:id AND status='connected' AND refresh_token_enc = :rt"
                     ),
-                    {"e": f"token refresh failed: {exc}"[:500], "id": conn_id},
+                    {"e": f"token refresh failed: {exc}"[:500], "id": conn_id, "rt": rt_enc},
                 )
                 await db.commit()
             log.warning("refresh_failed_terminal", connection_id=conn_id, provider=provider)
             return
         except Exception as exc:  # noqa: BLE001 — transient; retry next sweep
-            # Clears the claim so the very next sweep can retry immediately,
-            # same cadence the pre-claim design had — only a crash here
-            # (never reaching this line) falls back to the staleness window.
-            async with session() as db:
-                await set_bypass_rls(db)
-                await db.execute(
-                    text("UPDATE integration_connections SET refresh_claimed_at = NULL WHERE id = :id"),
-                    {"id": conn_id},
-                )
-                await db.commit()
+            await self._schedule_retry(conn_id)
             log.warning("refresh_failed_transient", connection_id=conn_id, error=str(exc))
             return
 
         # Phase C — record the refreshed tokens, in a fresh short transaction.
+        #
+        # By now the provider may already have ROTATED the refresh token
+        # (Microsoft does, on every use): if this write is lost, the only valid
+        # token is gone and the next sweep's retry gets invalid_grant. So a
+        # transient DB failure here is retried a few times before giving up.
+        # refresh_claimed_at stays set on failure (it is cleared by the same
+        # UPDATE that stores the tokens), so no other replica races in.
+        for attempt in range(_PERSIST_ATTEMPTS):
+            try:
+                await self._persist_tokens(conn_id, org_id, provider, rt_enc, tokens)
+                return
+            except Exception:  # noqa: BLE001 — retried, then surfaced below
+                if attempt == _PERSIST_ATTEMPTS - 1:
+                    log.error(
+                        "refresh_persist_failed",
+                        connection_id=conn_id,
+                        provider=provider,
+                        detail="refreshed tokens could not be stored; a rotated "
+                        "refresh token is lost and the connection will need a reconnect",
+                    )
+                    raise
+                await asyncio.sleep(_PERSIST_BACKOFF * (2**attempt))
+
+    async def _persist_tokens(
+        self, conn_id: str, org_id: str, provider: str, rt_enc: bytes, tokens: dict
+    ) -> None:
         async with session() as db:
             await set_bypass_rls(db)
             access_enc = await cryptor().encrypt(db, org_id, tokens.get("access_token", ""))
@@ -235,7 +294,17 @@ class RefreshWorker:
                 await cryptor().encrypt(db, org_id, new_refresh) if new_refresh else None
             )
             expires_in = int(tokens.get("expires_in") or 0)
-            await db.execute(
+            # `status = 'connected' AND refresh_token_enc = :rt`: the row must
+            # still be the connection this refresh started from. Phase B ran
+            # outside any transaction, so the user may have disconnected it
+            # meanwhile (status 'revoked', tokens NULLed) — an unguarded UPDATE
+            # here set it back to 'connected' with fresh tokens, resurrecting a
+            # connection the user explicitly removed — or reconnected it, in
+            # which case these tokens derive from the OLD grant and must not
+            # overwrite the new ones. The claim row's refresh_token_enc is
+            # the identity of the credential generation (ciphertext is rewritten
+            # only by a reconnect or by this very UPDATE).
+            res = await db.execute(
                 text(
                     """
                     UPDATE integration_connections SET
@@ -245,14 +314,30 @@ class RefreshWorker:
                             THEN now() + (:exp * interval '1 second') ELSE token_expires_at END,
                         status = 'connected',
                         last_error = NULL,
+                        refresh_failure_count = 0,
+                        refresh_next_attempt_at = NULL,
                         refresh_claimed_at = NULL,
                         updated_at = now()
                      WHERE id = :id
+                       AND status = 'connected'
+                       AND refresh_token_enc = :rt
                     """
                 ),
-                {"a": access_enc, "rf": new_refresh_enc, "exp": expires_in, "id": conn_id},
+                {
+                    "a": access_enc,
+                    "rf": new_refresh_enc,
+                    "exp": expires_in,
+                    "id": conn_id,
+                    "rt": rt_enc,
+                },
             )
             await db.commit()
+            if res.rowcount == 0:
+                log.info(
+                    "refresh_result_discarded_connection_changed",
+                    connection_id=conn_id,
+                    provider=provider,
+                )
 
 
 worker = RefreshWorker()

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 
+HTTPException = pytest.importorskip("fastapi").HTTPException
 members_service = pytest.importorskip(
     "app.routes.members_service",
     reason="auth-svc deps (fastapi/pydantic) not installed locally; CI installs requirements.txt.",
@@ -100,7 +101,7 @@ async def test_an_admin_can_leave_while_another_admin_remains(leaving):
 
 
 async def test_the_last_admin_cannot_leave(leaving):
-    with pytest.raises(Exception) as exc:
+    with pytest.raises(HTTPException) as exc:
         await leaving(
             [
                 _membership(ORG_A, ME_IN_A, "org_admin"),
@@ -115,14 +116,14 @@ async def test_the_last_admin_cannot_leave(leaving):
 async def test_the_only_membership_cannot_be_left(leaving):
     # Refused even though this member is not an admin and orphans nothing: the
     # identity would have nowhere left to sign in and nobody able to re-invite it.
-    with pytest.raises(Exception) as exc:
+    with pytest.raises(HTTPException) as exc:
         await leaving([_membership(ORG_A, ME_IN_A, "member")], admins={COLLEAGUE})
     assert getattr(exc.value, "status_code", None) == 409
     assert "only organization" in str(exc.value.detail)
 
 
 async def test_leaving_an_org_you_do_not_belong_to_is_a_404(leaving):
-    with pytest.raises(Exception) as exc:
+    with pytest.raises(HTTPException) as exc:
         await leaving(
             [_membership(ORG_B, ME_IN_B, "member")], admins=set(), org_id=ORG_A
         )
@@ -130,7 +131,7 @@ async def test_leaving_an_org_you_do_not_belong_to_is_a_404(leaving):
 
 
 async def test_a_refused_leave_writes_nothing(leaving):
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException):
         await leaving([_membership(ORG_A, ME_IN_A, "member")], admins={COLLEAGUE})
     # Every guard runs before the first write, so a refusal is a no-op rather
     # than a half-applied removal that only the caller's rollback undoes.

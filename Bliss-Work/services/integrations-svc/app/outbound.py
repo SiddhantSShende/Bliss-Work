@@ -31,10 +31,18 @@ class OutboundError(Exception):
     waiting out the token's original (now-wrong) expiry — see send_via_connection.
     """
 
-    def __init__(self, message: str, *, retryable: bool = False, is_auth_error: bool = False) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        is_auth_error: bool = False,
+        ambiguous: bool = False,
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.is_auth_error = is_auth_error
+        self.ambiguous = ambiguous
 
 
 class OutboundUnsupported(OutboundError):
@@ -134,6 +142,8 @@ async def _send_outlook(token: str, target: str, text: str, subject: str | None)
         await ms.send_mail(token, to=target, subject=subject or DEFAULT_SUBJECT, body=text)
     except ms.MicrosoftAuthError as exc:
         raise OutboundError(str(exc), retryable=True, is_auth_error=True) from exc
+    except ms.MicrosoftAmbiguousDelivery as exc:
+        raise OutboundError(str(exc), ambiguous=True) from exc
     except ms.MicrosoftRateLimited as exc:
         raise OutboundError(str(exc), retryable=True) from exc
     except ms.MicrosoftError as exc:
@@ -147,6 +157,8 @@ async def _send_teams(token: str, target: str, text: str) -> SendResult:
         res = await ms.send_chat_message(token, target, text)
     except ms.MicrosoftAuthError as exc:
         raise OutboundError(str(exc), retryable=True, is_auth_error=True) from exc
+    except ms.MicrosoftAmbiguousDelivery as exc:
+        raise OutboundError(str(exc), ambiguous=True) from exc
     except ms.MicrosoftRateLimited as exc:
         raise OutboundError(str(exc), retryable=True) from exc
     except ms.MicrosoftError as exc:

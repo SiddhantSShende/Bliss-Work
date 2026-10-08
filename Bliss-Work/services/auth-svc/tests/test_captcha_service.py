@@ -151,6 +151,44 @@ async def test_successful_validation_immediately_invalidates_the_captcha() -> No
     assert await cs._store.get(captcha_id) is None
 
 
+async def test_concurrent_correct_validation_only_consumes_once() -> None:
+    import asyncio
+
+    captcha_id = await _mint("AbCdEf12")
+    results = await asyncio.gather(
+        cs._store.validate_and_consume(
+            captcha_id,
+            cs.service.sha256_bytes("AbCdEf12"),
+            cs.settings.captcha_max_attempts,
+        ),
+        cs._store.validate_and_consume(
+            captcha_id,
+            cs.service.sha256_bytes("AbCdEf12"),
+            cs.settings.captcha_max_attempts,
+        ),
+    )
+    assert sorted(results) == [False, True]
+
+
+async def test_attempt_counting_is_atomic_and_exhausts_captcha() -> None:
+    import asyncio
+
+    captcha_id = await _mint("AbCdEf12")
+    attempts = cs.settings.captcha_max_attempts
+    results = await asyncio.gather(
+        *(
+            cs._store.validate_and_consume(
+                captcha_id,
+                cs.service.sha256_bytes("wrong"),
+                attempts,
+            )
+            for _ in range(attempts + 4)
+        )
+    )
+    assert not any(results)
+    assert await cs._store.get(captcha_id) is None
+
+
 async def test_repeated_wrong_guesses_exhaust_and_lock_out_even_the_correct_value() -> None:
     captcha_id = await _mint("AbCdEf12")
     for _ in range(cs.settings.captcha_max_attempts):

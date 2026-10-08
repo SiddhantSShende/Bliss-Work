@@ -2,11 +2,17 @@
 
 _drain_once claims a batch with `FOR UPDATE SKIP LOCKED` specifically so a
 second replica claims a different batch rather than racing this one (see the
-comment at the SELECT). Committing that same session to quarantine an
-oversized row releases the lock on EVERY row in the batch, not just the
-oversized one — including rows still queued to be published below, letting a
-second replica double-publish them. The fix commits the quarantine on a
-separate session instead.
+comment at the SELECT). Two ways to get the quarantine wrong:
+
+  * Committing the claiming session to quarantine an oversized row releases the
+    lock on EVERY row in the batch (and the drain advisory lock), letting a
+    second replica double-publish rows still queued below.
+  * Quarantining on a SECOND session self-deadlocks: that session's UPDATE waits
+    on the row locks the claiming session holds, until statement_timeout, so the
+    row is never quarantined and every tick errors.
+
+The fix quarantines on the claiming session itself and commits once, after the
+send loop.
 """
 from __future__ import annotations
 
@@ -22,6 +28,9 @@ class _FakeResult:
 
     def all(self):
         return self._rows
+
+    def scalar_one(self):
+        return self._rows[0]
 
 
 class _Row:
@@ -41,6 +50,8 @@ class _FakeDb:
     async def execute(self, stmt, params=None):
         sql = str(stmt)
         self.executed.append((sql, params))
+        if "pg_try_advisory_xact_lock" in sql:
+            return _FakeResult([True])  # the drain lock is free
         if sql.strip().upper().startswith("SELECT"):
             return _FakeResult(self._select_rows)
         return _FakeResult([])
@@ -80,37 +91,70 @@ def _bypass_rls(monkeypatch):
     monkeypatch.setattr(outbox_module, "set_bypass_rls", _noop)
 
 
-async def test_oversize_quarantine_commits_on_a_separate_session(monkeypatch):
+async def test_oversize_quarantine_rides_the_claiming_session_and_commits_after_sends(monkeypatch):
     good = _Row("good-1", "topic.a", "k1", {"small": True})
     bad = _Row("bad-1", "topic.a", "k2", {"huge": True})
-    rows = [bad, good]
 
-    main_db = _FakeDb(select_rows=rows)
+    main_db = _FakeDb(select_rows=[bad, good])
     sessions_created: list[_FakeDb] = []
+    events: list[str] = []
 
     def _session_factory():
-        # First call (the batch SELECT) is main_db; every later call (the
-        # oversize quarantine) gets a fresh, separate one.
         db = main_db if not sessions_created else _FakeDb()
         sessions_created.append(db)
         return _FakeSessionCtx(db)
 
+    async def _quarantine(conn, ids):
+        assert conn is main_db  # the connection that holds the row locks
+        events.append(f"quarantine:{ids}")
+
+    async def _commit() -> None:
+        events.append("commit")
+        main_db.committed = True
+
+    main_db.commit = _commit
+    producer = _FakeProducer()
+    orig_send = producer.send_and_wait
+
+    async def _send(*a, **kw):
+        events.append("send")
+        await orig_send(*a, **kw)
+
+    producer.send_and_wait = _send
     monkeypatch.setattr(outbox_module, "session", _session_factory)
     monkeypatch.setattr(outbox_module, "payload_bytes", lambda p: 10**9 if p.get("huge") else 10)
-    monkeypatch.setattr(outbox_module, "quarantine_oversize", _noop)
+    monkeypatch.setattr(outbox_module, "quarantine_oversize", _quarantine)
 
     poller = OutboxPoller()
-    poller._lazy_producer._producer = _FakeProducer()  # noqa: SLF001 — skip real Kafka connect
+    poller._lazy_producer._producer = producer  # noqa: SLF001 — skip real Kafka connect
 
     published = await poller._drain_once()  # noqa: SLF001
 
     assert published == 1  # only the non-oversized row
-    assert len(sessions_created) == 2  # the batch session + a separate quarantine session
-    quarantine_db = sessions_created[1]
-    assert quarantine_db.committed is True
-    assert quarantine_db is not main_db
-    # The batch session's own commit (publishing "good-1") must be a SEPARATE,
-    # LATER event from the quarantine session's — never the same commit that
-    # released the SKIP LOCKED lock on "good-1" before it was actually published.
+    assert len(sessions_created) == 1  # no second session: it would wait on our row locks
+    # Exactly one commit, AFTER the healthy row was sent: committing earlier
+    # would release the SKIP LOCKED / advisory locks on rows still to be sent.
+    assert events == ["quarantine:['bad-1']", "send", "commit"]
+    assert producer.sent == ["k1"]
+
+
+async def test_a_batch_that_is_only_oversize_still_commits_the_quarantine(monkeypatch):
+    bad = _Row("bad-1", "topic.a", "k2", {"huge": True})
+    main_db = _FakeDb(select_rows=[bad])
+    quarantined: list = []
+
+    async def _quarantine(conn, ids):
+        quarantined.append((conn, ids))
+
+    monkeypatch.setattr(outbox_module, "session", lambda: _FakeSessionCtx(main_db))
+    monkeypatch.setattr(outbox_module, "payload_bytes", lambda p: 10**9)
+    monkeypatch.setattr(outbox_module, "quarantine_oversize", _quarantine)
+
+    poller = OutboxPoller()
+    poller._lazy_producer._producer = _FakeProducer()  # noqa: SLF001
+
+    assert await poller._drain_once() == 0  # noqa: SLF001
+    assert quarantined == [(main_db, ["bad-1"])]
+    # Nothing was published, but the session must still commit or it rolls the
+    # quarantine back on close and the row blocks the queue forever.
     assert main_db.committed is True
-    assert poller._lazy_producer._producer.sent == ["k1"]  # noqa: SLF001

@@ -7,7 +7,7 @@ OBJECT ID, not an address, so registering only the mailbox would silently never
 match a Teams mention.
 """
 
-from dataclasses import dataclass
+from dataclasses import FrozenInstanceError, dataclass
 
 import pytest
 
@@ -57,7 +57,7 @@ def test_unconfigured_provider_has_no_config():
 
 def test_identity_is_immutable():
     ident = oauth.Identity(account_id="a", label="b", handles=(("email", "x@y.z"),))
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         ident.account_id = "c"  # type: ignore[misc]
 
 

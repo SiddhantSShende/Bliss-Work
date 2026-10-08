@@ -44,6 +44,8 @@ _TABLES = (
     "app_usage_daily",
     "site_usage_daily",
     "ingest_tokens",
+    "beacon_batches",
+    "client_event_claims",
     # Last. Once this row is gone the org's encrypted columns are unreadable,
     # so deleting it before the rows above would only make a partial failure
     # harder to reason about.

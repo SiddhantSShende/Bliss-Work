@@ -29,3 +29,8 @@ def test_unconfigured_expected_token_fails_closed() -> None:
     assert internal_token_matches("anything", "") is False
     assert internal_token_matches("", "") is False
     assert internal_token_matches(None, "") is False
+
+
+def test_non_ascii_tokens_are_compared_without_raising() -> None:
+    assert internal_token_matches("sëcret🔑", "sëcret🔑") is True
+    assert internal_token_matches("sëcret🔑", "sëcret🔒") is False

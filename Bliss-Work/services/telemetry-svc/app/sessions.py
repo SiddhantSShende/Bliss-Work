@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 from datetime import datetime, timezone
 
 import uuid6
@@ -76,13 +77,12 @@ def ip_prefix(ip: str | None) -> str | None:
     """
     if not ip:
         return None
-    if ":" in ip:
-        parts = [p for p in ip.split(":") if p != ""][:3]
-        return ":".join(parts) + "::/48" if parts else None
-    octets = ip.split(".")
-    if len(octets) != 4:
+    try:
+        address = ipaddress.ip_address(ip.strip())
+    except ValueError:
         return None
-    return ".".join(octets[:3]) + ".0/24"
+    prefix_length = 24 if address.version == 4 else 48
+    return f"{ipaddress.ip_network(f'{address}/{prefix_length}', strict=False).network_address}/{prefix_length}"
 
 
 async def open_or_touch(
@@ -153,8 +153,21 @@ _TOUCH_SESSION = text(
     """
     UPDATE user_sessions
        SET last_seen_at = GREATEST(last_seen_at, :at),
-           active_ms    = active_ms + :active,
-           idle_ms      = idle_ms + :idle
+           active_ms    = active_ms + LEAST(
+               GREATEST(CAST(:active AS bigint), 0),
+               GREATEST(FLOOR(EXTRACT(EPOCH FROM (:at - last_seen_at)) * 1000), 0)::bigint
+           ),
+           idle_ms      = idle_ms + LEAST(
+               GREATEST(CAST(:idle AS bigint), 0),
+               GREATEST(
+                   FLOOR(EXTRACT(EPOCH FROM (:at - last_seen_at)) * 1000)::bigint
+                   - LEAST(
+                       GREATEST(CAST(:active AS bigint), 0),
+                       GREATEST(FLOOR(EXTRACT(EPOCH FROM (:at - last_seen_at)) * 1000), 0)::bigint
+                   ),
+                   0
+               )
+           )
      WHERE id = :id AND org_id = :org AND user_id = :uid AND ended_at IS NULL
     """
 )

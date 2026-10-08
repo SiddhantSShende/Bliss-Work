@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from .. import service
 from ..config import settings
@@ -19,6 +20,7 @@ from ..routing.placement import NoCapacityError, no_capacity_message, place_org
 from ..schemas import (
     CreateOrgRequest,
     LoginRequest,
+    MfaStepUpRequest,
     MfaPendingDTO,
     OrgMembershipDTO,
     OrgMembershipPageDTO,
@@ -106,15 +108,25 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
                 "we can't create new organisations right now — our team has been notified",
             ) from exhausted
 
-        await conn.execute(
-            text(
-                """
-                INSERT INTO orgs (id, name, slug, created_by)
-                VALUES (:id, :name, :slug, :by)
-                """
-            ),
-            {"id": org_id, "name": body.orgName, "slug": slug, "by": user_id},
-        )
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        """
+                        INSERT INTO orgs (id, name, slug, created_by)
+                        VALUES (:id, :name, :slug, :by)
+                        """
+                    ),
+                    {"id": org_id, "name": body.orgName, "slug": slug, "by": user_id},
+                )
+        except IntegrityError as exc:
+            constraint = getattr(exc.orig, "constraint_name", None)
+            if constraint == "orgs_slug_key":
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "organization name is unavailable; try another name",
+                ) from exc
+            raise
         c = cryptor()
         email_enc = await c.encrypt(conn, org_id, str(body.email))
         email_bidx = c.blind_index(str(body.email))
@@ -128,7 +140,7 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
             body.password,
             new_identity_email_verified=False,
             already_registered_error=HTTPException(
-                status.HTTP_409_CONFLICT, "that email is already registered"
+                status.HTTP_401_UNAUTHORIZED, "invalid credentials"
             ),
         )
         await conn.execute(
@@ -573,6 +585,11 @@ async def switch_org(
         target_user = await service.membership_in_org(conn, iid, org_id)
         if target_user is None:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "not a member of that organization")
+        if await service.org_pending_deletion(conn, target_user):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "organization is pending deletion",
+            )
 
         target_roles = await service.roles_for_user(conn, target_user)
         mfa_required_now, must_enroll_first = await mfa_service.mfa_gate(
@@ -617,7 +634,10 @@ async def switch_org(
     dependencies=[Depends(enforce_origin)],
 )
 async def leave_org(
-    request: Request, org_id: str, principal: Principal = Depends(get_principal)
+    request: Request,
+    org_id: str,
+    body: MfaStepUpRequest | None = None,
+    principal: Principal = Depends(get_principal),
 ) -> Response:
     """Leave one of the caller's own organizations — the counterpart to
     `/orgs/{org_id}/switch`, and like it, valid for any org the identity belongs
@@ -630,7 +650,7 @@ async def leave_org(
     ACTIVE org signs this client out of it — the caller is expected to switch to
     one of their remaining orgs, which `leave_org_tx` guarantees exists.
     """
-    async with engine.begin() as conn:
+    async with service.record_failed_attempts(), engine.begin() as conn:
         # Cross-org throughout: the target membership, and the other memberships
         # that decide whether it may be given up, are in orgs this request was
         # never scoped to. Same trusted path /orgs/{id}/switch takes.
@@ -640,6 +660,7 @@ async def leave_org(
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, "cannot leave organizations"
             )
+        await mfa_service.require_identity_step_up(conn, iid, body)
         ip, user_agent, request_id = request_context(request)
         left_user_id = await leave_org_tx(
             conn, iid, org_id, ip=ip, user_agent=user_agent, request_id=request_id

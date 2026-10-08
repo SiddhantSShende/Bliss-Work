@@ -66,7 +66,9 @@ async def enroll_confirm(
     rather than forcing a second round trip through challenge-verify."""
     session: SessionDTO | None = None
     raw_refresh: str | None = None
-    async with engine.begin() as conn:
+    # record_failed_attempts BEFORE engine.begin(): a failed step-up is counted
+    # once this transaction has rolled back (see service.FailedAttempt).
+    async with service.record_failed_attempts(), engine.begin() as conn:
         user_id, org_id = await mfa_service.resolve_actor_for_enrollment(
             conn, authorization=authorization, pending_token=body.pendingToken
         )
@@ -144,7 +146,7 @@ async def regenerate_backup_codes(
     as MFA-disable. Invalidates every existing unused code BEFORE inserting
     the new batch — otherwise old codes stay valid indefinitely alongside the
     new ones."""
-    async with engine.begin() as conn:
+    async with service.record_failed_attempts(), engine.begin() as conn:
         await service.set_org_guc(conn, principal.org_id)
         ok = await mfa_service.verify_step_up(
             conn,

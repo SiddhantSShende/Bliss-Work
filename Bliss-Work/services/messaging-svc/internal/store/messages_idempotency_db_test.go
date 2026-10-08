@@ -174,3 +174,81 @@ func TestSendMessage_ConcurrentTopLevelDuplicate_CreatesExactlyOneThread(t *test
 		t.Errorf("threads rooted at message %s = %d, want exactly 1", first.res.MessageID, threadCount)
 	}
 }
+
+// ── B-MSG-5: two concurrent REPLIES with the same clientMsgId must resolve to
+// one message, not a 23505 on the second INSERT ─────────────────────────────
+func TestReplyToThread_ConcurrentDuplicate_ReturnsSameMessage(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7()).String()
+	alice, bob := seedMessageUsers(t, s, orgID)
+
+	root, err := s.SendMessage(ctx, orgID, alice, bob, "root", uuid.Must(uuid.NewV7()).String(), SendOptions{})
+	if err != nil {
+		t.Fatalf("send root: %v", err)
+	}
+	dupClientID := uuid.Must(uuid.NewV7()).String()
+
+	type outcome struct {
+		res *SendResult
+		err error
+	}
+	// The first reply holds the conversation row open (as an in-flight send of
+	// the same reply would), so the second request overlaps it for real.
+	lockHeld := make(chan struct{})
+	proceed := make(chan struct{})
+	firstDone := make(chan outcome, 1)
+	go func() {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			firstDone <- outcome{nil, err}
+			return
+		}
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			firstDone <- outcome{nil, err}
+			return
+		}
+		if err := lockConversationForRootSend(ctx, tx, root.ConversationID, orgID); err != nil {
+			firstDone <- outcome{nil, err}
+			return
+		}
+		close(lockHeld)
+		<-proceed
+		res, err := s.appendMessage(ctx, tx, orgID, root.ConversationID, alice, bob, "first reply",
+			dupClientID, root.MessageID, "", appendOpts{})
+		firstDone <- outcome{res, err}
+	}()
+	<-lockHeld
+
+	secondDone := make(chan outcome, 1)
+	go func() {
+		res, err := s.ReplyToThread(ctx, orgID, alice, root.ThreadID, root.MessageID, "second reply", dupClientID, "")
+		secondDone <- outcome{res, err}
+	}()
+
+	waitForBlockedQuery(t, s, "%", proceed)
+
+	first := <-firstDone
+	if first.err != nil {
+		t.Fatalf("first (held) reply: %v", first.err)
+	}
+	second := <-secondDone
+	if second.err != nil {
+		t.Fatalf("second (concurrent duplicate) reply failed instead of resolving to the first: %v", second.err)
+	}
+	if first.res.MessageID != second.res.MessageID {
+		t.Errorf("duplicate replies created two messages: %s vs %s", first.res.MessageID, second.res.MessageID)
+	}
+
+	var n int
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM messages WHERE thread_id = $1 AND client_msg_id = $2`,
+			root.ThreadID, dupClientID).Scan(&n)
+	}); err != nil {
+		t.Fatalf("count replies: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("replies stored for the clientMsgId = %d, want 1", n)
+	}
+}

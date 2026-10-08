@@ -14,6 +14,7 @@ to different recovery paths.
 from __future__ import annotations
 
 import base64
+from urllib.parse import quote
 
 import httpx
 
@@ -42,7 +43,11 @@ class MicrosoftRateLimited(MicrosoftError):
         self.retry_after = retry_after
 
 
-def _raise_for_status(r: httpx.Response) -> None:
+class MicrosoftAmbiguousDelivery(MicrosoftError):
+    """Graph may have accepted a non-idempotent send before returning an error."""
+
+
+def _raise_for_status(r: httpx.Response, *, ambiguous_delivery: bool = False) -> None:
     if r.status_code < 400:
         return
     try:
@@ -56,6 +61,7 @@ def _raise_for_status(r: httpx.Response) -> None:
         raise MicrosoftAuthError(msg)
 
     retry_after = r.headers.get("Retry-After")
+    has_retry_after = retry_after is not None
     delay: float | None = None
     if retry_after:
         try:
@@ -63,7 +69,12 @@ def _raise_for_status(r: httpx.Response) -> None:
         except ValueError:
             delay = None
 
-    # 503/504 with Retry-After is Graph shedding load, not a permanent failure.
+    if ambiguous_delivery and (
+        r.status_code == 504 or (r.status_code == 503 and not has_retry_after)
+    ):
+        raise MicrosoftAmbiguousDelivery(f"{r.status_code}: {msg}")
+
+    # 503 with Retry-After and all 429 responses are explicit throttling.
     if r.status_code in (429, 503, 504):
         raise MicrosoftRateLimited(msg, delay)
 
@@ -93,7 +104,7 @@ async def _request(
 
     async def _attempt() -> dict:
         r = await httpclient.shared().request(method, full, headers=headers, timeout=_TIMEOUT, **kw)
-        _raise_for_status(r)
+        _raise_for_status(r, ambiguous_delivery=not idempotent)
         return r.json() if r.content else {}
 
     return await retry_async(_attempt, attempts=3, breaker=_ms_breaker, idempotent=idempotent)
@@ -191,11 +202,13 @@ async def send_mail(
 
 async def send_chat_message(token: str, chat_id: str, text: str) -> dict:
     """Post to a Teams chat. Returns the created message (with its id)."""
+    if not chat_id or chat_id in {".", ".."}:
+        raise MicrosoftError("invalid Teams chat id")
     # idempotent=False: this creates a new chat message on every execution.
     return await _request(
         token,
         "POST",
-        f"/chats/{chat_id}/messages",
+        f"/chats/{quote(chat_id, safe='')}/messages",
         json={"body": {"contentType": "text", "content": text}},
         idempotent=False,
     )

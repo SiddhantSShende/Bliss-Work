@@ -25,13 +25,15 @@ from datetime import datetime
 from aiokafka import AIOKafkaConsumer
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind
+from prometheus_client import Counter
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from kafka_security import kafka_security_kwargs
 
 from .config import settings
 from .db import session, set_bypass_rls
 from .event_map import MAPPINGS, detail_value_of, preview_of
-from .ingest import ActivityRow, clamp_occurred_at, insert_events
+from .ingest import ActivityRow, _is_missing_partition, clamp_occurred_at, insert_events
 from .logging_setup import log
 from .org_purge import purge_org
 from tracing import extract_context
@@ -82,9 +84,35 @@ _BATCH_LINGER_MS = 250
 # batch that fails instantly would spin at full speed.
 _RETRY_BACKOFF = 1.0
 
+# Events dropped because they can never be written, by reason. Unmapped event
+# types are NOT counted: they are the majority of the traffic, not a fault.
+SKIPPED = Counter(
+    "telemetry_events_skipped_total",
+    "Kafka events dropped as permanently unprocessable, by reason.",
+    ["reason"],
+)
+
 # Events that are NOT timeline rows and keep their own transaction. Both are
 # rare; see `_handle_control` for why each one is special.
 _CONTROL_TYPES = ("org.deleted",)
+
+
+def _is_permanent_db_error(exc: BaseException) -> bool:
+    """True when Postgres rejected the event's VALUES, so no retry can succeed.
+
+    SQLAlchemy's `DataError` class is not usable for this: with the asyncpg
+    driver a bad uuid (client-side encode error, SQLSTATE 22000), an `invalid
+    input syntax` (22P02) or an embedded NUL (22021) all surface as a bare
+    `DBAPIError`, so the SQLSTATE class is read instead — 22 = data exception,
+    23 = integrity constraint violation. Everything else (08 connection, 40
+    deadlock, 53 resources, 57 statement timeout) is transient and keeps being
+    retried. "no partition of relation" is a 23514 too, but it is a missing
+    partition (infrastructure), not a bad event, so it stays transient.
+    """
+    if not isinstance(exc, DBAPIError) or _is_missing_partition(exc):
+        return False
+    state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+    return isinstance(state, str) and state[:2] in ("22", "23")
 
 
 def _deserialize_event(value: bytes) -> dict | list | None:
@@ -242,18 +270,50 @@ class TelemetryConsumer:
                         if not isinstance(event, dict):
                             continue
                         if event.get("type") in _CONTROL_TYPES:
-                            await self._flush(pending)
+                            await self._flush_isolating(pending)
                             pending.clear()
                             await self._handle_control(event)
                             continue
                         claimable = _to_claimable(event)
                         if claimable is not None:
                             pending.append(claimable)
-            await self._flush(pending)
+            await self._flush_isolating(pending)
         except Exception:  # noqa: BLE001 — never kill the consumer loop
             log.exception("event_batch_error", messages=sum(len(m) for m in batches.values()))
             return False
         return True
+
+    async def _flush_isolating(self, pending: list[tuple[ActivityRow, str]]) -> None:
+        """`_flush`, but one row the database rejects cannot fail the batch.
+
+        A permanent rejection (see `_is_permanent_db_error`) rolls back the whole
+        transaction, and redelivering the same batch fails the same way — with
+        no attempt cap that wedged every topic behind a single bad event. So the
+        batch is retried row by row, each in its own transaction, and the row
+        that is rejected is logged, counted and skipped. Rows that were written
+        are claimed in `consumed_events`, so a later redelivery is a no-op.
+
+        Transient errors are NOT isolated: they propagate and the whole batch is
+        retried uncommitted, as before. The row-by-row path only runs after a
+        permanent error, i.e. rarely, so the normal path stays one transaction.
+        """
+        try:
+            await self._flush(pending)
+            return
+        except Exception as exc:  # noqa: BLE001 — classified below
+            if not _is_permanent_db_error(exc):
+                raise
+            log.warning("event_batch_rejected_isolating", rows=len(pending),
+                        sqlstate=_sqlstate(exc))
+        for item in pending:
+            try:
+                await self._flush([item])
+            except Exception as exc:  # noqa: BLE001 — classified below
+                if not _is_permanent_db_error(exc):
+                    raise
+                SKIPPED.labels(reason="rejected_by_db").inc()
+                log.error("event_skipped", reason="rejected_by_db",
+                          sqlstate=_sqlstate(exc), event_id=item[1])
 
     async def _flush(self, pending: list[tuple[ActivityRow, str]]) -> None:
         """Write one transaction's worth of activity rows.
@@ -305,7 +365,13 @@ class TelemetryConsumer:
         if event.get("type") == "org.deleted":
             org_id = event.get("orgId")
             if org_id:
-                await purge_org(str(org_id))
+                # A non-UUID orgId makes the purge's `org_id = $1` raise a
+                # DataError on every attempt, which would wedge the consumer.
+                canonical = _uuid_or_none(org_id)
+                if canonical is None:
+                    _skip_invalid("orgId", org_id, event)
+                    return
+                await purge_org(canonical)
 
 
 def to_activity_row(event: object) -> ActivityRow | None:
@@ -319,9 +385,18 @@ def to_activity_row(event: object) -> ActivityRow | None:
     mapping = MAPPINGS.get(str(event.get("type") or ""))
     if mapping is None:
         return None
-    org_id = _bounded(event.get("orgId"))
-    user_id = _bounded(event.get(mapping.actor_field))
-    if not org_id or not user_id:
+    raw_org = _bounded(event.get("orgId"))
+    raw_user = _bounded(event.get(mapping.actor_field))
+    if not raw_org or not raw_user:
+        return None
+    # activity_events.org_id / user_id are `uuid` columns. Length-bounding is
+    # not validation: a non-UUID id used to raise a DataError at insert time,
+    # failing the whole batch on every redelivery. Skip the event instead.
+    org_id = _uuid_or_none(raw_org)
+    user_id = _uuid_or_none(raw_user)
+    if org_id is None or user_id is None:
+        _skip_invalid("orgId" if org_id is None else mapping.actor_field,
+                      raw_org if org_id is None else raw_user, event)
         return None
 
     detail: dict[str, object] = {}
@@ -337,7 +412,7 @@ def to_activity_row(event: object) -> ActivityRow | None:
     return ActivityRow(
         org_id=org_id,
         user_id=user_id,
-        occurred_at=clamp_occurred_at(_parse_ts(event.get("occurredAt"))),
+        occurred_at=clamp_occurred_at(_parse_ts(event.get("occurredAt")), source="server"),
         source="server",
         category=mapping.category,
         action=mapping.action,
@@ -346,6 +421,25 @@ def to_activity_row(event: object) -> ActivityRow | None:
         target_id=_bounded(event.get(mapping.target_field)) if mapping.target_field else None,
         detail=detail,
     )
+
+
+def _uuid_or_none(value: object) -> str | None:
+    """The canonical form of a UUID string, or None if it is not one."""
+    try:
+        return str(uuid.UUID(str(value)))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _skip_invalid(field: str, value: object, event: dict) -> None:
+    SKIPPED.labels(reason="id_not_a_uuid").inc()
+    log.warning("event_id_not_a_uuid", field=field, value=str(value)[:_MAX_ID_LEN],
+                event_id=str(event.get("eventId"))[:_MAX_ID_LEN])
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    orig = getattr(exc, "orig", None)
+    return getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
 
 
 def _bounded(value: object) -> str | None:
@@ -386,6 +480,7 @@ def _to_claimable(event: dict) -> tuple[ActivityRow, str] | None:
     try:
         uuid.UUID(str(event_id))
     except (AttributeError, TypeError, ValueError):
+        SKIPPED.labels(reason="id_not_a_uuid").inc()
         log.warning("event_id_not_a_uuid", event_id=str(event_id)[:_MAX_ID_LEN])
         return None
     row = to_activity_row(event)

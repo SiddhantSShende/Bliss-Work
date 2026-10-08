@@ -98,7 +98,9 @@ async def verify_bearer(authorization: str | None) -> Principal:
     try:
         header = jwt.get_unverified_header(token)
     except jwt.PyJWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="malformed token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="malformed token"
+        ) from None
 
     key = await get_key(header.get("kid"))
 
@@ -113,7 +115,9 @@ async def verify_bearer(authorization: str | None) -> Principal:
         )
     except jwt.PyJWTError as exc:
         log.info("jwt_verify_failed", error=str(exc))
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token"
+        ) from None
 
     sub = claims.get("sub")
     org_id = claims.get("org_id")
@@ -152,4 +156,3 @@ async def require_principal(
 
 
 PrincipalDep = Depends(require_principal)
-

@@ -88,6 +88,7 @@ class CircuitBreaker:
         self._failures = 0
         self._opened_at = 0.0
         self._state = "closed"  # closed | open | half_open
+        self._probe_in_flight = False
 
     @property
     def state(self) -> str:
@@ -99,18 +100,32 @@ class CircuitBreaker:
         if self._state == "open":
             if (time.monotonic() - self._opened_at) >= self._reset_timeout:
                 self._state = "half_open"
+                self._probe_in_flight = True
             else:
                 raise CircuitOpenError(f"{self._name} circuit open")
+        elif self._state == "half_open":
+            if self._probe_in_flight:
+                raise CircuitOpenError(f"{self._name} half-open probe in flight")
+            self._probe_in_flight = True
 
     def on_success(self) -> None:
         self._failures = 0
         self._state = "closed"
+        self._probe_in_flight = False
 
     def on_failure(self) -> None:
         self._failures += 1
         if self._state == "half_open" or self._failures >= self._fail_max:
             self._state = "open"
             self._opened_at = time.monotonic()
+        self._probe_in_flight = False
+
+    def on_cancelled(self) -> None:
+        """Release a cancelled half-open probe without recording a result."""
+        if self._state == "half_open":
+            self._state = "open"
+            self._opened_at = time.monotonic()
+        self._probe_in_flight = False
 
 
 async def retry_async(
@@ -141,7 +156,11 @@ async def retry_async(
             breaker.before()  # may raise CircuitOpenError (fail fast)
         try:
             result = await fn()
-        except BaseException as exc:  # noqa: BLE001 - classified just below
+        except asyncio.CancelledError:
+            if breaker is not None:
+                breaker.on_cancelled()
+            raise
+        except Exception as exc:
             last_exc = exc
             transient = is_transient(exc)
             if breaker is not None:

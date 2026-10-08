@@ -226,6 +226,13 @@ async def run(dry_run: bool = False) -> int:
                 ),
                 {"d": BEACON_BATCH_RETENTION_DAYS},
             )
+            client_event_claims_gone = await db.execute(
+                text(
+                    "DELETE FROM client_event_claims "
+                    "WHERE claimed_at < now() - make_interval(days => :d)"
+                ),
+                {"d": settings.raw_retention_days},
+            )
             # activity_sessions (the correlated app/site record — see
             # migrations/0005_activity_sessions.sql) is a DERIVED, recomputable
             # projection of activity_events, never a rollup input and never
@@ -252,6 +259,7 @@ async def run(dry_run: bool = False) -> int:
                 sessions_deleted=sessions_gone.rowcount,
                 consumed_deleted=consumed_gone.rowcount,
                 beacon_batches_deleted=beacon_batches_gone.rowcount,
+                client_event_claims_deleted=client_event_claims_gone.rowcount,
                 activity_sessions_deleted=activity_sessions_gone.rowcount,
                 retention_days=settings.raw_retention_days,
             )

@@ -17,7 +17,7 @@ import hashlib
 import secrets
 import urllib.parse
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import NoReturn, Protocol
 
 import httpx
 
@@ -80,6 +80,23 @@ def pkce_challenge(verifier: str) -> str:
 def new_pkce() -> tuple[str, str]:
     verifier = base64.urlsafe_b64encode(secrets.token_bytes(64)).rstrip(b"=").decode("ascii")
     return verifier, pkce_challenge(verifier)
+
+
+def browser_session_cookie_name(state: str) -> str:
+    suffix = hashlib.sha256(state.encode("utf-8")).hexdigest()[:32]
+    return f"bw_oauth_{suffix}"
+
+
+def browser_session_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def browser_session_matches(expected_hash: str | None, value: str | None) -> bool:
+    return bool(
+        expected_hash
+        and value
+        and secrets.compare_digest(expected_hash, browser_session_hash(value))
+    )
 
 
 # ── Per-provider config ───────────────────────────────────────────────────────
@@ -164,7 +181,7 @@ def authorize_url(cfg: OAuthConfig, state: str, challenge: str, redirect_uri: st
     return cfg.authorize_endpoint + "?" + urllib.parse.urlencode(params)
 
 
-def _raise_for_token_status(r: httpx.Response) -> None:
+def _raise_for_token_status(r: httpx.Response) -> NoReturn:
     """Classify a non-200 token-endpoint response.
 
     5xx and 429 are the endpoint throttling or unhealthy, not rejecting this
@@ -244,6 +261,16 @@ async def refresh_access_token(cfg: OAuthConfig, refresh_token: str) -> dict:
     # same (now-stale) token — that would fail with invalid_grant and mark a
     # live connection as errored instead of surfacing the original timeout.
     return await retry_async(_attempt, attempts=3, breaker=_oauth_breaker, idempotent=False)
+
+
+async def revoke_google_token(token: str) -> None:
+    """Revoke a Google OAuth grant using its documented token-revocation API."""
+    response = await httpclient.shared().post(
+        "https://oauth2.googleapis.com/revoke",
+        data={"token": token},
+        timeout=_TIMEOUT,
+    )
+    response.raise_for_status()
 
 
 @dataclass(frozen=True)

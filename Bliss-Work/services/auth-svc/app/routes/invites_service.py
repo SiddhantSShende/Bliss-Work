@@ -20,10 +20,10 @@ from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..logging_config import log
 from ..net import request_context
 from ..routing import directory, placement
-from . import session_events
+from . import mfa_service, session_events
 from ..routing.decision import Route, route_for
 from ..routing.events import KEY_INVITE, invite_key
-from ..schemas import AcceptInviteRequest, CreateInviteRequest, SessionDTO
+from ..schemas import AcceptInviteRequest, CreateInviteRequest, MfaPendingDTO, SessionDTO
 from ..security.auth_dep import Principal
 from ..security.passwords import PASSWORD_POLICY_MESSAGE, password_meets_policy
 
@@ -175,11 +175,16 @@ async def accept_invite_tx(
     conn: AsyncConnection,
     body: AcceptInviteRequest,
     request: Request,
-) -> tuple[SessionDTO, str, str]:
+) -> tuple[SessionDTO | MfaPendingDTO, str | None, str]:
     """Accept an invite: create user, emit user.created, build a session.
 
     Returns (session, raw_refresh, user_id). Uses SELECT ... FOR UPDATE so a
     single invite cannot be accepted concurrently.
+
+    When an EXISTING identity (password-only so far) still owes a second factor,
+    no session is built: the first element is the `MfaPendingDTO` /auth/login
+    would have returned and `raw_refresh` is None. The membership and the
+    accepted invite are committed regardless — the password was verified.
     """
     if not password_meets_policy(body.password):
         raise HTTPException(status_code=422, detail=PASSWORD_POLICY_MESSAGE)
@@ -251,7 +256,7 @@ async def accept_invite_tx(
     # existing password; otherwise create a fresh identity. Invited users are
     # email-verified (the invite proves control of the address) regardless of
     # the identity's own state, so that state is not read here.
-    identity_id, ph, _new_identity, _existing_verified = await service.resolve_or_create_identity(
+    identity_id, ph, new_identity, _existing_verified = await service.resolve_or_create_identity(
         conn,
         email_bidx,
         body.password,
@@ -288,46 +293,66 @@ async def accept_invite_tx(
         # authored messages/tasks) points at this id, and the unique index
         # would reject a second row for this (org, email) regardless.
         user_id = str(existing_user.id)
-        await conn.execute(
-            text(
-                """
-                UPDATE users
-                SET identity_id = :iid, email_enc = :email_enc, email_bidx = :email_bidx,
-                    username = :username, password_hash = :ph, display_name_enc = :dn_enc,
-                    email_verified = true, status = 'active', removed_at = NULL
-                WHERE id = :id
-                """
-            ),
-            {
-                "id": user_id,
-                "iid": identity_id,
-                "email_enc": email_enc,
-                "email_bidx": email_bidx,
-                "username": body.username,
-                "ph": ph,
-                "dn_enc": dn_enc,
-            },
-        )
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        """
+                        UPDATE users
+                        SET identity_id = :iid, email_enc = :email_enc, email_bidx = :email_bidx,
+                            username = :username, password_hash = :ph, display_name_enc = :dn_enc,
+                            email_verified = true, status = 'active', removed_at = NULL
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "id": user_id,
+                        "iid": identity_id,
+                        "email_enc": email_enc,
+                        "email_bidx": email_bidx,
+                        "username": body.username,
+                        "ph": ph,
+                        "dn_enc": dn_enc,
+                    },
+                )
+        except IntegrityError as exc:
+            constraint = getattr(exc.orig, "constraint_name", None)
+            if constraint == "users_org_id_username_key":
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "username is already in use in this organization",
+                ) from exc
+            raise
     else:
         user_id = service.new_uuid()
-        await conn.execute(
-            text(
-                """
-                INSERT INTO users (id, org_id, identity_id, email_enc, email_bidx, username, password_hash, display_name_enc, email_verified)
-                VALUES (:id, :org, :iid, :email_enc, :email_bidx, :username, :ph, :dn_enc, true)
-                """
-            ),
-            {
-                "id": user_id,
-                "org": org_id,
-                "iid": identity_id,
-                "email_enc": email_enc,
-                "email_bidx": email_bidx,
-                "username": body.username,
-                "ph": ph,
-                "dn_enc": dn_enc,
-            },
-        )
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        """
+                        INSERT INTO users (id, org_id, identity_id, email_enc, email_bidx, username, password_hash, display_name_enc, email_verified)
+                        VALUES (:id, :org, :iid, :email_enc, :email_bidx, :username, :ph, :dn_enc, true)
+                        """
+                    ),
+                    {
+                        "id": user_id,
+                        "org": org_id,
+                        "iid": identity_id,
+                        "email_enc": email_enc,
+                        "email_bidx": email_bidx,
+                        "username": body.username,
+                        "ph": ph,
+                        "dn_enc": dn_enc,
+                    },
+                )
+        except IntegrityError as exc:
+            constraint = getattr(exc.orig, "constraint_name", None)
+            if constraint == "users_org_id_username_key":
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "username is already in use in this organization",
+                ) from exc
+            raise
     # Either branch leaves this user with no role row: a fresh insert has
     # never had one, and _apply_status's removal path deletes every role row
     # for a removed user (see its own "clean slate" comment) — so this is
@@ -364,6 +389,28 @@ async def accept_invite_tx(
         email=dto.email,
     )
     await enqueue_event(conn, topic=TOPIC_AUTH, kafka_key=user_id, event=event)
+
+    # An existing identity reached this point on its password alone; if a second
+    # factor is enrolled it is still owed (see mfa_service.pending_for_new_membership).
+    mfa_pending = (
+        None
+        if new_identity
+        else await mfa_service.pending_for_new_membership(
+            conn, identity_id, user_id, org_id, dto.roles
+        )
+    )
+    if mfa_pending is not None:
+        await service.write_audit(
+            conn,
+            org_id=org_id,
+            actor_id=user_id,
+            action="invite.accepted",
+            target=str(invite.id),
+            meta=session_events.context_meta(
+                ip=ip, user_agent=user_agent, request_id=request_id
+            ),
+        )
+        return mfa_pending, None, user_id
 
     # build_session runs BEFORE the audit write (rather than in its usual
     # trailing spot) purely so the family id it mints is available to put in

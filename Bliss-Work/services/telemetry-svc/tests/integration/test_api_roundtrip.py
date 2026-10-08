@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import text
 
 # ONE event loop for the whole module, and the app's lifespan entered exactly
 # once inside it. The SQLAlchemy engine and its connection pool are module-level
@@ -264,6 +265,138 @@ async def test_a_batch_with_no_clientEventId_is_never_deduped(client):
     entries = (await client.get("/telemetry/members/me/timeline")).json()["entries"]
     matching = [e for e in entries if e["targetId"] == "Slack" and e["action"] == "app.focus"]
     assert len(matching) == 2, "two genuinely separate spans, neither deduped against the other"
+
+
+async def test_beacon_replay_with_missing_timestamp_dedupes_independently_of_time(client):
+    as_user(ALICE, "member")
+    event_id = str(uuid.uuid4())
+    batch = {
+        "events": [{
+            "action": "app.focus",
+            "category": "app",
+            "targetId": "Missing Timestamp Replay",
+            "clientEventId": event_id,
+        }]
+    }
+    first = await client.post("/telemetry/beacon", json=batch)
+    replay = await client.post("/telemetry/beacon", json=batch)
+    assert first.status_code == replay.status_code == 200
+    assert first.json()["accepted"] == 1
+    assert replay.json()["accepted"] == 0
+
+
+async def test_concurrent_beacon_replay_claims_event_once(client):
+    import asyncio
+
+    as_user(ALICE, "member")
+    event_id = str(uuid.uuid4())
+    batch = {
+        "events": [{
+            "action": "app.focus",
+            "category": "app",
+            "targetId": "Concurrent Beacon Replay",
+            "clientEventId": event_id,
+        }]
+    }
+    responses = await asyncio.gather(
+        client.post("/telemetry/beacon", json=batch),
+        client.post("/telemetry/beacon", json=batch),
+    )
+    assert all(response.status_code == 200 for response in responses)
+    assert sum(response.json()["accepted"] for response in responses) == 1
+
+    entries = (await client.get("/telemetry/members/me/timeline")).json()["entries"]
+    assert sum(entry["targetId"] == "Concurrent Beacon Replay" for entry in entries) == 1
+
+
+async def test_session_touch_caps_duration_to_elapsed_since_last_seen(client):
+    import asyncio
+
+    as_user(ALICE, "member")
+    created = await client.post(
+        "/telemetry/beacon",
+        json={"source": "web", "activeMs": 0, "idleMs": 0, "events": []},
+    )
+    session_id = created.json()["sessionId"]
+    before = (await client.get("/telemetry/members/me/sessions")).json()["sessions"][0]
+    await asyncio.sleep(0.05)
+
+    updated = await client.post(
+        "/telemetry/beacon",
+        json={
+            "sessionId": session_id,
+            "source": "web",
+            "activeMs": 86_400_000,
+            "idleMs": 86_400_000,
+            "events": [],
+        },
+    )
+    assert updated.status_code == 200
+    after = (await client.get("/telemetry/members/me/sessions")).json()["sessions"][0]
+    elapsed_ms = int(
+        (
+            datetime.fromisoformat(after["lastSeenAt"].replace("Z", "+00:00"))
+            - datetime.fromisoformat(before["lastSeenAt"].replace("Z", "+00:00"))
+        ).total_seconds()
+        * 1000
+    )
+    assert after["activeMs"] + after["idleMs"] <= elapsed_ms
+
+
+async def test_malformed_session_id_and_cursors_are_rejected(client):
+    as_user(ALICE, "member")
+    malformed_session = await client.post(
+        "/telemetry/beacon", json={"sessionId": "not-a-uuid", "events": []}
+    )
+    assert malformed_session.status_code == 422
+
+    for path in (
+        "/telemetry/members/me/timeline?cursor=",
+        "/telemetry/members/me/timeline?cursor=not-valid",
+        "/telemetry/members/me/sessions?cursor=not-valid",
+    ):
+        response = await client.get(path)
+        assert response.status_code == 400
+
+
+async def test_live_bucket_includes_and_clips_session_crossing_day_start(client, monkeypatch):
+    from app.db import session, set_org_context
+    from app.routes import analytics
+
+    as_user(ALICE, "org_admin")
+    monkeypatch.setattr(analytics.settings, "rollup_timezone", "UTC")
+    today = datetime.now(timezone.utc).date()
+    start, _end = analytics._day_bounds(today)
+    session_start = start - timedelta(hours=1)
+    session_end = start + timedelta(hours=1)
+    session_id = str(uuid.uuid4())
+    async with session() as db:
+        await set_org_context(db, ORG)
+        await db.execute(
+            text(
+                """
+                INSERT INTO user_sessions
+                    (id, org_id, user_id, source, started_at, last_seen_at, ended_at,
+                     active_ms, idle_ms)
+                VALUES (:id, :org, :uid, 'web', :started, :ended, :ended, 3600000, 0)
+                """
+            ),
+            {
+                "id": session_id,
+                "org": ORG,
+                "uid": ALICE,
+                "started": session_start,
+                "ended": session_end,
+            },
+        )
+        await db.commit()
+        await set_org_context(db, ORG)
+        live = await analytics._today_live(db, ORG, ALICE, today)
+
+    assert live is not None
+    assert live.sessions == 1
+    assert live.onlineMs == 3_600_000
+    assert live.activeMs == 1_800_000
 
 
 async def test_the_raw_secret_is_never_returned_again(client):

@@ -36,6 +36,11 @@ engine: AsyncEngine = create_async_engine(
     pool_recycle=1800,  # recycle pooled connections every 30 min so a DB restart
     # / maintenance window can't hand back a dead connection.
     connect_args=settings.sqlalchemy_connect_args,
+    # A failing statement raises a DBAPIError whose str() embeds the bound
+    # parameters. Without this a failed `INSERT INTO users/identities` logs the
+    # password hash (and encrypted/blind-indexed email) via errors.py's
+    # log.exception and any Sentry/log shipper. SQL text and SQLSTATE stay.
+    hide_parameters=True,
 )
 
 SessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(

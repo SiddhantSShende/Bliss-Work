@@ -528,14 +528,71 @@ async def test_an_occurrence_born_past_its_deadline_is_missed_by_the_next_sweep(
 
     a = _id()
     await seed_members(ORG, a)
-    schedule_id = await _series({"kind": "RELATIVE", "amount": 1, "unit": "HOURS", "timeZone": NY}, a)
-    long_ago = datetime.now(UTC) - timedelta(hours=5)
+    schedule_id = await _series({"kind": "RELATIVE", "amount": 1, "unit": "MINUTES", "timeZone": NY}, a)
+    long_ago = datetime.now(UTC) - timedelta(minutes=30)
     await _x("UPDATE task_schedules SET start_at = :t, next_run_at = :t WHERE id = :i", t=long_ago, i=schedule_id)
     assert str(await _claim_due_schedule()) == schedule_id
     [task] = await _q("SELECT id, deadline_at FROM tasks WHERE schedule_id = :s", s=schedule_id)
-    assert task.deadline_at == long_ago + timedelta(hours=1)
+    assert task.deadline_at == long_ago + timedelta(minutes=1)
     assert await _sweep() == 1
     assert (await _status(str(task.id), a)).status == "MISSED"
+
+
+async def test_stale_recurring_schedule_skips_occurrences_past_the_grace_window(db_app, seed_members):
+    from app.schedule_worker import _claim_due_schedule
+
+    a = _id()
+    await seed_members(ORG, a)
+    schedule_id = await _series(None, a)
+    stale = datetime.now(UTC) - timedelta(days=4, hours=3)
+    await _x(
+        "UPDATE task_schedules SET start_at = :t, next_run_at = :t WHERE id = :i",
+        t=stale,
+        i=schedule_id,
+    )
+
+    assert await _claim_due_schedule() is None
+    [task_count] = await _q(
+        "SELECT count(*) AS n FROM tasks WHERE schedule_id = :s",
+        s=schedule_id,
+    )
+    assert task_count.n == 0
+    [schedule] = await _q(
+        "SELECT next_run_at, occurrence_count, status FROM task_schedules WHERE id = :s",
+        s=schedule_id,
+    )
+    assert schedule.next_run_at > datetime.now(UTC)
+    assert schedule.occurrence_count == 0
+    assert schedule.status == "ACTIVE"
+
+
+async def test_stale_backlog_within_grace_materializes_once_and_advances_past_now(db_app, seed_members):
+    from app.schedule_worker import _claim_due_schedule
+
+    a = _id()
+    await seed_members(ORG, a)
+    schedule_id = await _series(None, a)
+    latest_due = datetime.now(UTC) - timedelta(minutes=15)
+    stale = latest_due - timedelta(days=3)
+    await _x(
+        "UPDATE task_schedules SET start_at = :start, next_run_at = :next WHERE id = :id",
+        start=stale,
+        next=stale,
+        id=schedule_id,
+    )
+
+    assert str(await _claim_due_schedule()) == schedule_id
+    [schedule] = await _q(
+        "SELECT next_run_at, occurrence_count FROM task_schedules WHERE id = :s",
+        s=schedule_id,
+    )
+    [task] = await _q(
+        "SELECT occurrence_number FROM tasks WHERE schedule_id = :s",
+        s=schedule_id,
+    )
+    assert task.occurrence_number == 1
+    assert schedule.occurrence_count == 1
+    assert schedule.next_run_at > datetime.now(UTC)
 
 
 # ── Schema ─────────────────────────────────────────────────────────────────────

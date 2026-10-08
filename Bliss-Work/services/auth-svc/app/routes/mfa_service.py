@@ -40,6 +40,7 @@ from .. import service
 from ..config import settings
 from crypto import cryptor
 from ..security.auth_dep import verify_bearer
+from ..schemas import MfaPendingDTO, MfaStepUpRequest
 from ..security.passwords import verify_password_async
 from .account_service import consume_token, mint_token, peek_token
 
@@ -192,7 +193,11 @@ def _totp_matching_counter(secret: str, code: str) -> int | None:
     match: int | None = None
     for offset in range(-_TOTP_VALID_WINDOW, _TOTP_VALID_WINDOW + 1):
         counter = now_counter + offset
-        if totp.at(for_time=counter * totp.interval) == code:
+        # Constant-time (bytes, so a non-ASCII `code` is a mismatch rather than
+        # compare_digest's TypeError): the code is a short-lived secret.
+        if secrets.compare_digest(
+            totp.at(for_time=counter * totp.interval).encode(), code.encode()
+        ):
             if match is None or counter > match:
                 match = counter
     return match
@@ -293,6 +298,73 @@ async def verify_and_consume_backup_code(conn: AsyncConnection, user_id: str, co
 
 
 # ── Step-up re-auth (MFA-disable, backup-codes/regenerate) ───────────────────
+async def identity_for_user(conn: AsyncConnection, user_id: str):
+    """The identity row (`id`, `failed_login_count`, `locked_until`) behind a
+    membership — the thing the shared lockout counts against."""
+    return (
+        await conn.execute(
+            text(
+                "SELECT i.id, i.failed_login_count, i.locked_until FROM identities i "
+                "JOIN users u ON u.identity_id = i.id WHERE u.id = :uid"
+            ),
+            {"uid": user_id},
+        )
+    ).first()
+
+
+def _raise_if_locked(ident) -> None:
+    """429 while the identity is locked. Writes nothing, so it is safe to raise
+    from inside the caller's transaction."""
+    now = datetime.now(timezone.utc)
+    if ident.locked_until is not None and ident.locked_until > now:
+        retry = max(1, int((ident.locked_until - now).total_seconds()))
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "account temporarily locked due to failed attempts; try again later",
+            headers={"Retry-After": str(retry)},
+        )
+
+
+_STEP_UP_LOCKED = "account temporarily locked due to failed attempts; try again later"
+
+
+def _step_up_failed(ident) -> service.FailedAttempt:
+    """The 401 for a failed re-auth, carried so `service.record_failed_attempts`
+    counts it against the identity-level lockout `/auth/login` and
+    `/auth/mfa/challenge/verify` share (and turns it into a 429 if it just
+    locked) once the caller's transaction has rolled back.
+
+    Not counted here: the caller's transaction rolls back on this very error, so
+    the counter needs its own connection, and taking a second pooled connection
+    while the request's is held is a self-deadlock under load (see
+    `service.FailedAttempt`). Every caller therefore enters its transaction as
+    `async with service.record_failed_attempts(), engine.begin() as conn:`.
+    """
+    return service.FailedAttempt(
+        ident,
+        HTTPException(status.HTTP_401_UNAUTHORIZED, "re-authentication failed"),
+        locked_detail=_STEP_UP_LOCKED,
+    )
+
+
+async def _second_factor_ok(
+    conn: AsyncConnection,
+    org_id: str,
+    user_id: str,
+    secret_enc: bytes | None,
+    totp_code: str | None,
+    backup_code: str | None,
+) -> bool:
+    if totp_code:
+        if secret_enc is None:
+            return False
+        secret = await cryptor().decrypt(conn, org_id, secret_enc)
+        return await verify_totp_replay_safe(conn, user_id, secret, totp_code)
+    if backup_code:
+        return await verify_and_consume_backup_code(conn, user_id, backup_code)
+    return False
+
+
 async def verify_step_up(
     conn: AsyncConnection,
     org_id: str,
@@ -301,25 +373,139 @@ async def verify_step_up(
     totp_code: str | None,
     backup_code: str | None,
 ) -> bool:
-    """Password + a still-valid current second factor. Used by two
+    """Password + a still-valid current second factor. Used by the
     consequential actions an already-signed-in caller may take (MFA-disable,
-    backup-codes/regenerate) so a stolen access token alone can never perform
-    either.
+    backup-codes/regenerate, overwriting an enrolled TOTP secret) so a stolen
+    access token alone can never perform them.
 
+    A step-up is a password/second-factor guessing surface exactly like
+    `/auth/login`, so it is gated by the SAME identity lockout: a locked
+    identity gets 429 before anything is verified, and every failure is counted
+    (a wrong password or second factor raises `service.FailedAttempt`, which
+    `service.record_failed_attempts` counts after the caller's transaction has
+    rolled back — see `_step_up_failed`). Returns False only when there is no
+    identity to count against.
     """
+    ident = await identity_for_user(conn, user_id)
+    if ident is not None:
+        _raise_if_locked(ident)
     row = (
         await conn.execute(
             text("SELECT password_hash, mfa_totp_secret_enc FROM users WHERE id = :id"),
             {"id": user_id},
         )
     ).first()
-    if row is None or not await verify_password_async(row.password_hash, password):
-        return False
-    if totp_code:
-        if row.mfa_totp_secret_enc is None:
-            return False
-        secret = await cryptor().decrypt(conn, org_id, row.mfa_totp_secret_enc)
-        return await verify_totp_replay_safe(conn, user_id, secret, totp_code)
-    if backup_code:
-        return await verify_and_consume_backup_code(conn, user_id, backup_code)
-    return False
+    ok = (
+        row is not None
+        and await verify_password_async(row.password_hash, password)
+        and await _second_factor_ok(
+            conn, org_id, user_id, row.mfa_totp_secret_enc, totp_code, backup_code
+        )
+    )
+    if not ok and ident is not None:
+        raise _step_up_failed(ident)
+    return ok
+
+
+# ── Identity-wide MFA: new memberships and cross-org actions ─────────────────
+async def _enrolled_memberships(conn: AsyncConnection, identity_id: str):
+    """Active memberships of this identity that have a second factor enrolled.
+    Cross-org: the caller must already hold the trusted RLS bypass."""
+    return (
+        await conn.execute(
+            text(
+                "SELECT id, org_id, mfa_totp_secret_enc FROM users "
+                "WHERE identity_id = :iid AND mfa_enrolled AND status = 'active' "
+                "ORDER BY mfa_enrolled_at DESC NULLS LAST, id"
+            ),
+            {"iid": identity_id},
+        )
+    ).all()
+
+
+async def pending_for_new_membership(
+    conn: AsyncConnection, identity_id: str, user_id: str, org_id: str, roles: list[str]
+) -> MfaPendingDTO | None:
+    """The MFA challenge owed before a session may be minted for a membership
+    just created by `/auth/orgs` or `/auth/invites/accept`, or None if none is.
+
+    Those two endpoints authenticate an EXISTING identity with its password
+    alone and then used to hand back a full session straight away, so a
+    password holder skipped the second factor `/auth/login` demands — and the
+    session they got reaches identity-wide endpoints (`/auth/orgs/mine`,
+    `/auth/orgs/{id}/leave`). Two cases, mirroring login:
+
+      * the identity has MFA enrolled on another (or this) active membership:
+        the factor is enrolled PER MEMBERSHIP, and the new one has none to
+        challenge, so the pending token is minted for the enrolled membership.
+        Completing it signs the person into THAT org; they reach the new one
+        through the ordinary, MFA-gated org switch.
+      * otherwise the new membership's own `mfa_gate` (org mandates MFA for
+        admins and the grace period is over), exactly as at login.
+
+    The caller must hold the trusted RLS bypass or an org context for `org_id`
+    on entry; this function takes the bypass for its cross-org reads and mint,
+    and drops it again before returning.
+    """
+    await service.set_bypass_rls(conn)
+    pending: MfaPendingDTO | None = None
+    enrolled = await _enrolled_memberships(conn, identity_id)
+    if enrolled:
+        target = enrolled[0]
+        raw = await mint_mfa_pending(conn, str(target.org_id), str(target.id))
+        pending = MfaPendingDTO(pendingToken=raw, methods=["totp"], enrollmentRequired=False)
+    else:
+        required, must_enroll_first = await mfa_gate(conn, user_id, org_id, roles)
+        if required:
+            raw = await mint_mfa_pending(conn, org_id, user_id)
+            pending = MfaPendingDTO(
+                pendingToken=raw,
+                methods=[] if must_enroll_first else ["totp"],  # type: ignore[arg-type]
+                enrollmentRequired=must_enroll_first,
+            )
+    # A DB error above aborts the transaction, so there is nothing to restore
+    # on that path; on this one the caller carries on org-scoped.
+    await conn.execute(text("SELECT set_config('app.bypass_rls', 'off', true)"))
+    return pending
+
+
+async def require_identity_step_up(
+    conn: AsyncConnection, identity_id: str, step_up: MfaStepUpRequest | None
+) -> None:
+    """Step-up re-auth for an identity-wide action (leaving an org). A no-op
+    unless the identity has MFA enrolled somewhere; then it needs the password
+    plus a current second factor from any enrolled membership — the caller's
+    own session may belong to a membership with none, which is why this cannot
+    reuse `verify_step_up`'s per-membership check. Same lockout accounting.
+
+    Cross-org: the caller must hold the trusted RLS bypass.
+    """
+    enrolled = await _enrolled_memberships(conn, identity_id)
+    if not enrolled:
+        return
+    if step_up is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "re-authentication required")
+    ident = (
+        await conn.execute(
+            text(
+                "SELECT id, password_hash, failed_login_count, locked_until "
+                "FROM identities WHERE id = :iid"
+            ),
+            {"iid": identity_id},
+        )
+    ).first()
+    if ident is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "re-authentication failed")
+    _raise_if_locked(ident)
+    ok = await verify_password_async(ident.password_hash, step_up.password)
+    if ok:
+        ok = False
+        for m in enrolled:
+            if await _second_factor_ok(
+                conn, str(m.org_id), str(m.id), m.mfa_totp_secret_enc,
+                step_up.totpCode, step_up.backupCode,
+            ):
+                ok = True
+                break
+    if not ok:
+        raise _step_up_failed(ident)

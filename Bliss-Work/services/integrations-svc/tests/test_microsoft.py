@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.providers import microsoft as ms
+from resilience import CircuitBreaker
 
 
 def _resp(status: int, body: dict | None = None, headers: dict | None = None) -> httpx.Response:
@@ -49,6 +50,48 @@ def test_other_errors_are_definitive(status):
 
 def test_success_does_not_raise():
     ms._raise_for_status(_resp(200, {"value": []}))
+
+
+@pytest.mark.parametrize("status,headers", [(503, {}), (504, {}), (504, {"Retry-After": "30"})])
+async def test_send_mail_classifies_ambiguous_graph_status_without_retry(
+    monkeypatch, status, headers
+):
+    class _FakeClient:
+        calls = 0
+
+        async def request(self, *_args, **_kwargs):
+            self.calls += 1
+            return _resp(status, {"error": {"message": "gateway failure"}}, headers)
+
+    client = _FakeClient()
+    monkeypatch.setattr(ms.httpclient, "shared", lambda: client)
+    monkeypatch.setattr(
+        ms, "_ms_breaker", CircuitBreaker(fail_max=5, reset_timeout=30.0, name="microsoft-test")
+    )
+    with pytest.raises(ms.MicrosoftAmbiguousDelivery):
+        await ms.send_mail("tok", to="a@example.com", subject="s", body="b")
+    assert client.calls == 1
+
+
+@pytest.mark.parametrize(
+    "status,headers",
+    [(504, {}), (504, {"Retry-After": "30"}), (503, {})],
+)
+def test_non_idempotent_send_gateway_errors_are_ambiguous(status, headers):
+    with pytest.raises(ms.MicrosoftAmbiguousDelivery):
+        ms._raise_for_status(
+            _resp(status, {"error": {"message": "gateway timeout"}}, headers),
+            ambiguous_delivery=True,
+        )
+
+
+def test_503_with_retry_after_remains_explicitly_retryable_for_send():
+    with pytest.raises(ms.MicrosoftRateLimited) as ei:
+        ms._raise_for_status(
+            _resp(503, {"error": {"message": "busy"}}, {"Retry-After": "30"}),
+            ambiguous_delivery=True,
+        )
+    assert ei.value.retry_after == 30.0
 
 
 # ── sendMail: the shape of a member's own mail ────────────────────────────────
@@ -130,3 +173,31 @@ async def test_a_mail_too_large_to_send_inline_is_refused_not_truncated(monkeypa
             "tok", to="a@outside.test", subject="s", body="b",
             attachments=[("big.bin", "application/octet-stream", oversized)],
         )
+
+
+@pytest.mark.asyncio
+async def test_chat_id_is_encoded_as_one_graph_path_segment(monkeypatch):
+    captured = {}
+
+    async def _fake_request(_token, method, url, **kw):
+        captured["method"], captured["url"] = method, url
+        return {"id": "m1"}
+
+    monkeypatch.setattr(ms, "_request", _fake_request)
+    await ms.send_chat_message("tok", "team/a?x=1#fragment", "hello")
+    assert captured["url"] == "/chats/team%2Fa%3Fx%3D1%23fragment/messages"
+
+
+@pytest.mark.asyncio
+async def test_dot_segment_chat_id_is_rejected_before_request(monkeypatch):
+    request_called = False
+
+    async def _fake_request(*_args, **_kwargs):
+        nonlocal request_called
+        request_called = True
+        return {}
+
+    monkeypatch.setattr(ms, "_request", _fake_request)
+    with pytest.raises(ms.MicrosoftError, match="invalid Teams chat id"):
+        await ms.send_chat_message("tok", "..", "hello")
+    assert request_called is False

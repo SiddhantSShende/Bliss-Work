@@ -26,8 +26,11 @@ from opentelemetry.trace import SpanKind
 from kafka_security import kafka_security_kwargs
 
 from .config import Settings
+from .healthcheck import record_heartbeat
 from .logging_setup import get_logger
-from .mailer import Mailer, is_valid_email
+from .internal_ids import uuid_path_segment
+from .log_safety import recipient_ref, redact_email_addresses
+from .mailer import Mailer, PermanentSMTPError, is_valid_email
 from .templates import (
     render_email_verification_email,
     render_invite_email,
@@ -196,6 +199,7 @@ class EmailWorker:
                 await self._sleep_or_stop(_RETRY_BACKOFF)
             if self._stop.is_set():
                 break
+            record_heartbeat("invite")
 
     async def _handle_message(self, raw: bytes) -> bool:
         """Process one event. Return True if the offset may advance, False if a
@@ -271,7 +275,12 @@ class EmailWorker:
             else:  # EMAIL_VERIFICATION_REQUESTED
                 await self._send_email_verification(event)
         except Exception as exc:  # noqa: BLE001 - poison-message handling below
-            return await self._on_failure(str(event_id), event, str(exc))
+            return await self._on_failure(
+                str(event_id),
+                event,
+                str(exc),
+                max_failures=1 if isinstance(exc, PermanentSMTPError) else None,
+            )
 
         self._failures.pop(str(event_id), None)
         return True
@@ -286,7 +295,11 @@ class EmailWorker:
         NOT commit the Kafka offset in that case so redelivery retries.
         """
         assert self._http is not None
-        url = f"{self._settings.auth_internal_base}/internal/outbox-events/{outbox_id}"
+        safe_outbox_id = uuid_path_segment(outbox_id, "outbox_id")
+        url = (
+            f"{self._settings.auth_internal_base}/internal/outbox-events/"
+            f"{safe_outbox_id}"
+        )
         headers = {"X-Internal-Token": self._settings.auth_internal_token}
         resp = await self._http.get(url, headers=headers)
         if resp.status_code == 404:
@@ -322,7 +335,11 @@ class EmailWorker:
         # Invalid recipients are rejected by SMTP and would retry forever;
         # log + mark sent (skip) instead.
         if not is_valid_email(str(email)):
-            self._log.warning("invite_invalid_email_skipped", event_id=event_id, to=email)
+            self._log.warning(
+                "invite_invalid_email_skipped",
+                event_id=event_id,
+                recipient_ref=recipient_ref(str(email)),
+            )
             await self._mark_sent(str(event_id), invite_id)
             return
 
@@ -348,7 +365,7 @@ class EmailWorker:
             "invite_email_sent",
             event_id=event_id,
             invite_id=invite_id,
-            to=email,
+            recipient_ref=recipient_ref(str(email)),
             org_name=org_name,
         )
 
@@ -371,7 +388,11 @@ class EmailWorker:
             await self._mark_sent(str(event_id), user_id)
             return
         if not is_valid_email(str(email)):
-            self._log.warning("reset_invalid_email_skipped", event_id=event_id, to=email)
+            self._log.warning(
+                "reset_invalid_email_skipped",
+                event_id=event_id,
+                recipient_ref=recipient_ref(str(email)),
+            )
             await self._mark_sent(str(event_id), user_id)
             return
 
@@ -385,7 +406,11 @@ class EmailWorker:
             html_body=html_body,
         )
         await self._mark_sent(str(event_id), user_id)
-        self._log.info("password_reset_email_sent", event_id=event_id, to=email)
+        self._log.info(
+            "password_reset_email_sent",
+            event_id=event_id,
+            recipient_ref=recipient_ref(str(email)),
+        )
 
     async def _send_email_verification(self, event: dict) -> None:
         """Send the email-verification email and write the durable dedup row.
@@ -406,7 +431,11 @@ class EmailWorker:
             await self._mark_sent(str(event_id), user_id)
             return
         if not is_valid_email(str(email)):
-            self._log.warning("verification_invalid_email_skipped", event_id=event_id, to=email)
+            self._log.warning(
+                "verification_invalid_email_skipped",
+                event_id=event_id,
+                recipient_ref=recipient_ref(str(email)),
+            )
             await self._mark_sent(str(event_id), user_id)
             return
 
@@ -420,9 +449,19 @@ class EmailWorker:
             html_body=html_body,
         )
         await self._mark_sent(str(event_id), user_id)
-        self._log.info("verification_email_sent", event_id=event_id, to=email)
+        self._log.info(
+            "verification_email_sent",
+            event_id=event_id,
+            recipient_ref=recipient_ref(str(email)),
+        )
 
-    async def _on_failure(self, event_id: str, event: dict, error: str) -> bool:
+    async def _on_failure(
+        self,
+        event_id: str,
+        event: dict,
+        error: str,
+        max_failures: int | None = None,
+    ) -> bool:
         """Count consecutive failures; route poison messages to the DLQ.
 
         Returns False below the threshold so the caller leaves the offset
@@ -433,9 +472,12 @@ class EmailWorker:
         n = self._failures.get(event_id, 0) + 1
         self._failures[event_id] = n
         self._log.error(
-            "invite_email_failed", event_id=event_id, attempt=n, error=error
+            "invite_email_failed",
+            event_id=event_id,
+            attempt=n,
+            error=redact_email_addresses(error),
         )
-        if n >= self._settings.poison_max_failures:
+        if n >= (max_failures or self._settings.poison_max_failures):
             await self._to_dlq(event, error)
             self._failures.pop(event_id, None)
             return True

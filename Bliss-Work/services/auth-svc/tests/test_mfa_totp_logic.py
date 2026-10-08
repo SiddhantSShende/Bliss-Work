@@ -50,3 +50,24 @@ def test_backup_codes_are_the_right_shape_and_unique() -> None:
     for code in codes:
         assert len(code) == 11  # 5 hex + '-' + 5 hex
         assert code[5] == "-"
+
+
+def test_totp_comparison_is_constant_time_and_tolerates_non_ascii(monkeypatch) -> None:
+    """B-AUTH-9: the code is compared with `secrets.compare_digest`, not `==`.
+    A non-ASCII submission must be a plain mismatch (compare_digest raises
+    TypeError on non-ASCII *str*, which would turn it into a 500)."""
+    from app.routes import mfa_service
+
+    calls: list[tuple[bytes, bytes]] = []
+    real = mfa_service.secrets.compare_digest
+
+    def _spy(a, b):
+        calls.append((a, b))
+        return real(a, b)
+
+    monkeypatch.setattr(mfa_service.secrets, "compare_digest", _spy)
+    secret = pyotp.random_base32()
+
+    assert _totp_matching_counter(secret, pyotp.TOTP(secret).now()) == int(time.time()) // 30
+    assert calls, "TOTP candidates must be compared with secrets.compare_digest"
+    assert _totp_matching_counter(secret, "12345é") is None

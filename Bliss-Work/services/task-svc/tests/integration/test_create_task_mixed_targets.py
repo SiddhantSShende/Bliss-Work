@@ -35,11 +35,11 @@ def _principal():
     return Principal(user_id=SENDER, org_id=ORG, roles=["member"], username="sender")
 
 
-async def _client() -> httpx.AsyncClient:
+async def _client(principal=None) -> httpx.AsyncClient:
     from app.auth import require_principal
     from app.main import app
 
-    app.dependency_overrides[require_principal] = _principal
+    app.dependency_overrides[require_principal] = principal or _principal
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
@@ -288,6 +288,60 @@ async def test_idempotent_replay_of_a_mixed_create_is_the_same_task(db_app, seed
     assert r1.json()["taskId"] == r2.json()["taskId"]
     assert await _task_count() == 1
     assert await _task_channels(r1.json()["taskId"]) == [c]
+
+
+async def test_idempotency_key_is_scoped_to_sender(db_app, seed_members):
+    from app.auth import Principal
+
+    assignee = _id()
+    await seed_members(ORG, assignee)
+    body = {"title": "Actor-owned", "assigneeIds": [assignee]}
+
+    def principal_b():
+        return Principal(
+            user_id="44444444-4444-4444-4444-444444444444",
+            org_id=ORG,
+            roles=["member"],
+            username="sender-b",
+        )
+
+    async with await _client() as client_a:
+        response_a = await client_a.post(
+            "/api/v1/tasks",
+            json=body,
+            headers={"Idempotency-Key": "shared-key"},
+        )
+    async with await _client(principal_b) as client_b:
+        response_b = await client_b.post(
+            "/api/v1/tasks",
+            json=body,
+            headers={"Idempotency-Key": "shared-key"},
+        )
+
+    assert response_a.status_code == response_b.status_code == 201
+    assert response_a.json()["taskId"] != response_b.json()["taskId"]
+    assert await _task_count() == 2
+
+
+async def test_idempotency_key_rejects_different_request_body(db_app, seed_members):
+    assignee = _id()
+    await seed_members(ORG, assignee)
+    async with await _client() as client:
+        first = await client.post(
+            "/api/v1/tasks",
+            json={"title": "Original", "assigneeIds": [assignee]},
+            headers={"Idempotency-Key": "body-bound-key"},
+        )
+        replay = await client.post(
+            "/api/v1/tasks",
+            json={"title": "Different", "assigneeIds": [assignee]},
+            headers={"Idempotency-Key": "body-bound-key"},
+        )
+
+    assert first.status_code == 201
+    assert replay.status_code == 409
+    assert "different request" in replay.json()["error"]["message"]
+    assert await _task_count() == 1
 
 
 # Later joiners ──────────────────────────────────────────────────────────────

@@ -56,6 +56,7 @@ RUN chown -R appuser:appuser /app
 
 USER appuser
 
-# No HEALTHCHECK: email-worker is a pure Kafka consumer with no HTTP server.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+    CMD ["python", "-m", "app.healthcheck"]
 
 CMD ["python", "-m", "app"]

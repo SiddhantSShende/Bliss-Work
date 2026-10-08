@@ -85,7 +85,7 @@ async def run(*, dry_run: bool = False) -> int:
             return n
 
     deleted = 0
-    for batch in range(MAX_BATCHES):
+    for _ in range(MAX_BATCHES):
         # One transaction per batch. The ctid subquery is what bounds it: a plain
         # DELETE with a LIMIT is not valid SQL, and deleting by a key range would
         # need an ordered scan of the very index this is trying to keep small.

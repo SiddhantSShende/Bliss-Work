@@ -67,6 +67,28 @@ def _row_to_out(r) -> ConnectionOut:
     )
 
 
+async def _best_effort_provider_revocation(
+    db, org_id: str, provider: str, access_token_enc: bytes | None, refresh_token_enc: bytes | None
+) -> None:
+    if provider == "gmail":
+        token_enc = refresh_token_enc or access_token_enc
+        revoke = oauth.revoke_google_token
+    elif provider == "slack":
+        token_enc = access_token_enc
+        revoke = slack.revoke_token
+    else:
+        log.info("provider_token_revocation_unsupported", provider=provider)
+        return
+    if not token_enc:
+        return
+    try:
+        token = await cryptor().decrypt(db, org_id, bytes(token_enc))
+        if token:
+            await revoke(token)
+    except Exception as exc:  # noqa: BLE001 — local credential purge must still complete
+        log.warning("provider_token_revocation_failed", provider=provider, error=str(exc))
+
+
 @router.get("/integrations", response_model=list[ConnectionOut])
 async def list_integrations(principal: Principal = PrincipalDep) -> list[ConnectionOut]:
     async with session() as db:
@@ -236,7 +258,10 @@ async def _upsert_connection(
 
 @router.post("/integrations/{provider}/connect/start", response_model=ConnectStartOut)
 async def connect_start(
-    provider: str, request: Request, principal: Principal = PrincipalDep
+    provider: str,
+    request: Request,
+    response: Response,
+    principal: Principal = PrincipalDep,
 ) -> ConnectStartOut:
     spec = get_provider(provider)
     if spec is None:
@@ -271,6 +296,7 @@ async def connect_start(
         vendor = app_credentials.vendor_for(provider)
         verifier, challenge = oauth.new_pkce()
         state = secrets.token_urlsafe(32)
+        browser_session = secrets.token_urlsafe(32)
         redirect_uri = oauth.redirect_uri_for(provider)
         # Where to send the browser once the provider redirects back. NEVER
         # store a client-supplied URL here — that would be an open redirect
@@ -306,8 +332,8 @@ async def connect_start(
                     INSERT INTO oauth_states
                         (state, org_id, owner_user_id, provider, code_verifier_enc,
                          redirect_after, app_credential_id, client_id_enc,
-                         client_secret_enc, tenant, expires_at)
-                    VALUES (:s, :o, :u, :p, :v, :r, :ac, :cid, :csec, :tenant,
+                         client_secret_enc, tenant, browser_session_hash, expires_at)
+                    VALUES (:s, :o, :u, :p, :v, :r, :ac, :cid, :csec, :tenant, :bsh,
                             now() + interval '10 minutes')
                     """
                 ),
@@ -326,9 +352,19 @@ async def connect_start(
                     "cid": client_id_enc,
                     "csec": client_secret_enc,
                     "tenant": creds.tenant if creds else None,
+                    "bsh": oauth.browser_session_hash(browser_session),
                 },
             )
             await db.commit()
+        response.set_cookie(
+            key=oauth.browser_session_cookie_name(state),
+            value=browser_session,
+            max_age=600,
+            httponly=True,
+            secure=redirect_uri.startswith("https://"),
+            samesite="lax",
+            path="/ext",
+        )
         return ConnectStartOut(authorizeUrl=oauth.authorize_url(cfg, state, challenge, redirect_uri))
 
     # Token-paste connections are org-wide (scope_kind "org", owner_user_id
@@ -370,7 +406,7 @@ async def connect_start(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Slack rejected the token: {exc}",
-            )
+            ) from exc
         except Exception as exc:  # network/timeout — not the user's fault
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -428,6 +464,30 @@ async def disconnect(conn_id: str, principal: Principal = PrincipalDep) -> Respo
     is_admin = "org_admin" in principal.roles
     async with session() as db:
         await set_org_context(db, principal.org_id)
+        row = (
+            await db.execute(
+                text(
+                    """
+                    SELECT provider, access_token_enc, refresh_token_enc
+                      FROM integration_connections
+                     WHERE id = :id
+                       AND (owner_user_id = :uid OR (owner_user_id IS NULL AND :is_admin))
+                    """
+                ),
+                {"id": conn_id, "uid": principal.user_id, "is_admin": is_admin},
+            )
+        ).one_or_none()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="connection not found"
+            )
+        await _best_effort_provider_revocation(
+            db,
+            principal.org_id,
+            row.provider,
+            bytes(row.access_token_enc) if row.access_token_enc else None,
+            bytes(row.refresh_token_enc) if row.refresh_token_enc else None,
+        )
         res = await db.execute(
             text(
                 """
@@ -441,9 +501,15 @@ async def disconnect(conn_id: str, principal: Principal = PrincipalDep) -> Respo
                        updated_at = now()
                  WHERE id = :id
                    AND (owner_user_id = :uid OR (owner_user_id IS NULL AND :is_admin))
+                   AND access_token_enc IS NOT DISTINCT FROM :access_enc
                 """
             ),
-            {"id": conn_id, "uid": principal.user_id, "is_admin": is_admin},
+            {
+                "id": conn_id,
+                "uid": principal.user_id,
+                "is_admin": is_admin,
+                "access_enc": row.access_token_enc,
+            },
         )
         await db.commit()
     if res.rowcount == 0:

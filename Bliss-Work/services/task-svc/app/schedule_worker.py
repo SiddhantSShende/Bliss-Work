@@ -4,7 +4,7 @@ import asyncio
 import calendar
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import uuid6
@@ -31,6 +31,7 @@ BATCH_SIZE = 50
 # In memory on purpose: a restart or another replica retries sooner, which is
 # harmless.
 PARK_SECONDS = 60.0
+RECURRENCE_GRACE = timedelta(hours=1)
 _parked_until: dict[str, float] = {}
 _PARKED = object()  # _claim_due_schedule's "this one was parked; carry on" result
 
@@ -141,6 +142,48 @@ def first_occurrence(
     return start_at
 
 
+def _latest_due_occurrence(
+    current: datetime,
+    *,
+    now: datetime,
+    start_at: datetime,
+    frequency: str,
+    interval: int,
+    weekdays: list[int],
+    monthly_rule: str | None,
+    monthly_day: int | None,
+    monthly_ordinal: int | None,
+    monthly_weekday: int | None,
+) -> tuple[datetime, datetime | None]:
+    """Return the latest due occurrence and its successor, skipping backlog."""
+    latest = current
+    following = next_occurrence(
+        latest,
+        start_at=start_at,
+        frequency=frequency,
+        interval=interval,
+        weekdays=weekdays,
+        monthly_rule=monthly_rule,
+        monthly_day=monthly_day,
+        monthly_ordinal=monthly_ordinal,
+        monthly_weekday=monthly_weekday,
+    )
+    while following is not None and following <= now:
+        latest = following
+        following = next_occurrence(
+            latest,
+            start_at=start_at,
+            frequency=frequency,
+            interval=interval,
+            weekdays=weekdays,
+            monthly_rule=monthly_rule,
+            monthly_day=monthly_day,
+            monthly_ordinal=monthly_ordinal,
+            monthly_weekday=monthly_weekday,
+        )
+    return latest, following
+
+
 async def _resolve_targets(row: Any) -> tuple[list[str], list[str]]:
     """Who this occurrence goes to, and which of its channels still exist.
 
@@ -217,20 +260,8 @@ async def _materialize(db: Any, row: Any) -> object | None:
     """Turn one claimed, due schedule into a task occurrence (the transaction is
     the caller's). Returns the schedule id once materialized, None when the run
     only moved a recurring schedule to its real first occurrence, or _PARKED."""
-    # Resolved FIRST and outside any write, so a failure leaves nothing behind.
-    assignee_ids, channel_ids = await _resolve_targets(row)
-    if not assignee_ids:
-        # Nobody left to assign (every channel unresolvable or empty, and no named
-        # people). The schedule is left exactly as it was — ACTIVE, listed, and
-        # cancellable by its sender — and retried after PARK_SECONDS in case a
-        # channel or its members come back. It is just no longer allowed to hold
-        # up the queue while it waits.
-        await db.rollback()
-        log.warning("task_schedule_unassignable", schedule_id=str(row.id))
-        _park(row.id)
-        return _PARKED
-
     run_at = row.next_run_at
+    next_run: datetime | None = None
     if row.kind == "RECURRING" and row.occurrence_count == 0:
         run_at = first_occurrence(
             row.start_at,
@@ -248,6 +279,58 @@ async def _materialize(db: Any, row: Any) -> object | None:
             )
             await db.commit()
             return None
+
+    if row.kind == "RECURRING":
+        now = datetime.now(timezone.utc)
+        run_at, next_run = _latest_due_occurrence(
+            run_at,
+            now=now,
+            start_at=row.start_at,
+            frequency=row.frequency,
+            interval=int(row.frequency_interval),
+            weekdays=[int(day) for day in (row.weekdays or [])],
+            monthly_rule=row.monthly_rule,
+            monthly_day=row.monthly_day,
+            monthly_ordinal=row.monthly_ordinal,
+            monthly_weekday=row.monthly_weekday,
+        )
+        if run_at < now - RECURRENCE_GRACE:
+            should_end = (
+                next_run is None
+                or row.end_condition == "ON_DATE" and next_run > row.end_at
+            )
+            await db.execute(
+                text(
+                    "UPDATE task_schedules SET next_run_at = :next_run, "
+                    "status = CASE WHEN :ended THEN 'COMPLETED' ELSE 'ACTIVE' END, "
+                    "updated_at = now() WHERE id = :id"
+                ),
+                {
+                    "next_run": next_run or row.next_run_at,
+                    "ended": should_end,
+                    "id": row.id,
+                },
+            )
+            await db.commit()
+            log.info(
+                "task_schedule_missed_occurrences_skipped",
+                schedule_id=str(row.id),
+                next_run_at=next_run,
+            )
+            return None
+
+    # Resolve targets only for an occurrence that will actually be created.
+    assignee_ids, channel_ids = await _resolve_targets(row)
+    if not assignee_ids:
+        # Nobody left to assign (every channel unresolvable or empty, and no named
+        # people). The schedule is left exactly as it was — ACTIVE, listed, and
+        # cancellable by its sender — and retried after PARK_SECONDS in case a
+        # channel or its members come back. It is just no longer allowed to hold
+        # up the queue while it waits.
+        await db.rollback()
+        log.warning("task_schedule_unassignable", schedule_id=str(row.id))
+        _park(row.id)
+        return _PARKED
 
     # The concrete deadline of THIS occurrence, resolved against the moment it was
     # due (`run_at`), not the moment a busy or restarted worker got to it. A
@@ -297,17 +380,18 @@ async def _materialize(db: Any, row: Any) -> object | None:
             {"count": occurrence_number, "id": row.id},
         )
     else:
-        next_run = next_occurrence(
-            run_at,
-            start_at=row.start_at,
-            frequency=row.frequency,
-            interval=int(row.frequency_interval),
-            weekdays=[int(day) for day in (row.weekdays or [])],
-            monthly_rule=row.monthly_rule,
-            monthly_day=row.monthly_day,
-            monthly_ordinal=row.monthly_ordinal,
-            monthly_weekday=row.monthly_weekday,
-        )
+        if next_run is None:
+            next_run = next_occurrence(
+                run_at,
+                start_at=row.start_at,
+                frequency=row.frequency,
+                interval=int(row.frequency_interval),
+                weekdays=[int(day) for day in (row.weekdays or [])],
+                monthly_rule=row.monthly_rule,
+                monthly_day=row.monthly_day,
+                monthly_ordinal=row.monthly_ordinal,
+                monthly_weekday=row.monthly_weekday,
+            )
         should_end = (
             next_run is None
             or row.end_condition == "AFTER_OCCURRENCES" and occurrence_number >= int(row.occurrence_limit)

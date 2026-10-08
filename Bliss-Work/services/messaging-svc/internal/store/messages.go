@@ -460,6 +460,16 @@ func (s *Store) appendMessageTx(
 	//     so the (correctly thread_id-aware) UNIQUE constraint never caught
 	//     it either. Locking first serializes them: the loser's check, now
 	//     running after the winner has committed, finds the winner's row.
+	//
+	// The conversation is locked for EVERY kind of send, not just a top-level
+	// one. A reply used to skip the lock, so two concurrent replies with the same
+	// clientMsgId both missed the check below and the second INSERT then hit the
+	// unique constraint (23505 -> HTTP 500) instead of finding the first's row.
+	// No new contention: the seq allocation below takes this same row lock for
+	// the rest of the transaction anyway; this only takes it before the check.
+	if err := lockConversationForRootSend(ctx, tx, convID, orgID); err != nil {
+		return nil, err
+	}
 	var (
 		threadID  string
 		parentArg *string
@@ -481,9 +491,6 @@ func (s *Store) appendMessageTx(
 		// Top-level. threadID stays "" — a genuinely new send creates one
 		// further down, once the idempotency check below confirms this is
 		// not a retry.
-		if err := lockConversationForRootSend(ctx, tx, convID, orgID); err != nil {
-			return nil, err
-		}
 	}
 
 	// Idempotency. threadID is either resolved (a reply) or intentionally

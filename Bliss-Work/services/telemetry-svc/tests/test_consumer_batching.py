@@ -21,6 +21,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy.exc import DBAPIError
 
 consumer = pytest.importorskip(
     "app.consumer",
@@ -332,3 +333,130 @@ async def test_a_redelivered_download_event_is_written_once(monkeypatch):
     await c._process_batch(_batch(evt))
 
     assert sum(len(w) for w in rec.writes) == 1
+
+
+# ── B-TEL-1: ids that are not UUIDs, and rows the database rejects ───────────
+
+
+def _skipped(reason):
+    return consumer.SKIPPED.labels(reason=reason)._value.get()
+
+
+class _PgOrig(Exception):
+    def __init__(self, sqlstate, msg=""):
+        super().__init__(msg or sqlstate)
+        self.sqlstate = sqlstate
+
+
+def _pg_error(sqlstate, msg=""):
+    return DBAPIError("INSERT ...", {}, _PgOrig(sqlstate, msg))
+
+
+@pytest.mark.parametrize("field", ["orgId", "senderId"])
+@pytest.mark.parametrize("bad", ["not-a-uuid", "user-1", "x" * 5000])
+def test_a_non_uuid_org_or_actor_is_not_mapped_to_a_row(field, bad):
+    """`org_id`/`user_id` are uuid columns; length-bounding is not validation."""
+    before = _skipped("id_not_a_uuid")
+
+    assert consumer.to_activity_row(_event(**{field: bad})) is None
+    assert _skipped("id_not_a_uuid") == before + 1
+
+
+def test_uuid_ids_are_mapped_in_canonical_form():
+    row = consumer.to_activity_row(_event(orgId=ORG.upper(), senderId=ALICE.upper()))
+    assert (row.org_id, row.user_id) == (ORG, ALICE)
+
+
+@pytest.mark.asyncio
+async def test_a_non_uuid_org_does_not_take_the_batch_with_it(monkeypatch):
+    rec = _Recorder().install(monkeypatch)
+
+    ok = await consumer.TelemetryConsumer()._process_batch(
+        _batch(_event(), _event(orgId="not-a-uuid"), _event())
+    )
+
+    assert ok is True
+    assert [len(w) for w in rec.writes] == [2]
+
+
+@pytest.mark.asyncio
+async def test_org_deleted_with_a_non_uuid_org_is_not_purged(monkeypatch):
+    rec = _Recorder().install(monkeypatch)
+
+    ok = await consumer.TelemetryConsumer()._process_batch(
+        _batch({"eventId": str(uuid.uuid4()), "orgId": "not-a-uuid", "type": "org.deleted"})
+    )
+
+    assert ok is True
+    assert rec.purged == []
+
+
+def _poison_insert(rec, poison_target):
+    """insert_events fake: a batch containing the poison row is rejected whole
+    (as Postgres would roll the transaction back); others are written."""
+
+    async def _insert(_db, rows):
+        if any(r.target_id == poison_target for r in rows):
+            raise _pg_error("22021", "invalid byte sequence for encoding UTF8")
+        rec.writes.append(list(rows))
+        return len(rows)
+
+    return _insert
+
+
+@pytest.mark.asyncio
+async def test_a_row_the_database_rejects_is_isolated_and_the_rest_written(monkeypatch):
+    rec = _Recorder().install(monkeypatch)
+    monkeypatch.setattr(consumer, "insert_events", _poison_insert(rec, "poison"))
+    before = _skipped("rejected_by_db")
+
+    ok = await consumer.TelemetryConsumer()._process_batch(
+        _batch(_event(), _event(conversationId="poison"), _event())
+    )
+
+    assert ok is True, "a permanent rejection must not rewind the batch"
+    assert [len(w) for w in rec.writes] == [1, 1], "healthy rows land, one per transaction"
+    assert _skipped("rejected_by_db") == before + 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        _pg_error("40P01", "deadlock detected"),
+        _pg_error("57014", "canceling statement due to statement timeout"),
+        _pg_error("08006", "connection failure"),
+        _pg_error("23514", 'no partition of relation "activity_events" found for row'),
+        RuntimeError("database is gone"),
+    ],
+)
+async def test_transient_errors_still_fail_the_batch_for_retry(monkeypatch, error):
+    rec = _Recorder(insert_error=error).install(monkeypatch)
+    before = _skipped("rejected_by_db")
+
+    ok = await consumer.TelemetryConsumer()._process_batch(_batch(_event(), _event()))
+
+    assert ok is False, "a transient error must never let the offsets advance"
+    assert rec.writes == []
+    assert _skipped("rejected_by_db") == before
+
+
+@pytest.mark.asyncio
+async def test_a_transient_error_while_isolating_still_fails_the_batch(monkeypatch):
+    """Permanent error on the batch, then the DB drops during the row-by-row
+    pass: that is a retry, not a skip."""
+    rec = _Recorder().install(monkeypatch)
+    calls = {"n": 0}
+
+    async def _insert(_db, rows):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _pg_error("22P02")
+        raise _pg_error("57P01", "terminating connection")
+
+    monkeypatch.setattr(consumer, "insert_events", _insert)
+
+    ok = await consumer.TelemetryConsumer()._process_batch(_batch(_event(), _event()))
+
+    assert ok is False
+    assert rec.writes == []

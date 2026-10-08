@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 
@@ -25,6 +26,16 @@ router = APIRouter()
 # Cap on candidate rows considered by the unscoped (no username) branch of
 # delete_task_by_title_internal — see its docstring.
 _CANDIDATE_LIMIT = 100
+
+
+def _request_fingerprint(body: CreateTaskRequest) -> str:
+    canonical = json.dumps(
+        body.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 async def _resolve_channel_members(channel_id: str, org_id: str, caller_id: str) -> list[str]:
@@ -279,6 +290,7 @@ async def create_task(
 ) -> CreateTaskResponse:
     org_id = principal.org_id
     sender_id = principal.user_id
+    request_fingerprint = _request_fingerprint(body)
 
     # Allocation surface: explicit people, channels, or both — ONE task either way.
     # Each channel's current members are resolved server-side so the client can't
@@ -321,7 +333,7 @@ async def create_task(
         task_id = str(uuid6.uuid7())
 
         # Idempotency: claim the key FIRST to close the check-then-insert race.
-        # We INSERT the (org, key) → task_id row up front; the unique
+        # We INSERT the (org, sender, key) → task_id row up front; the unique
         # constraint means a concurrent (or replayed) request loses here, and
         # we then resolve + return the WINNING task instead of creating a
         # second one. The whole claim+inserts run in one transaction so a
@@ -330,10 +342,17 @@ async def create_task(
             try:
                 await db.execute(
                     text(
-                        "INSERT INTO idempotency_keys (org_id, key, task_id) "
-                        "VALUES (:org, :key, :tid)"
+                        "INSERT INTO idempotency_keys "
+                        "(org_id, sender_id, key, request_fingerprint, task_id) "
+                        "VALUES (:org, :sender, :key, :fingerprint, :tid)"
                     ),
-                    {"org": org_id, "key": idempotency_key, "tid": task_id},
+                    {
+                        "org": org_id,
+                        "sender": sender_id,
+                        "key": idempotency_key,
+                        "fingerprint": request_fingerprint,
+                        "tid": task_id,
+                    },
                 )
             except IntegrityError:
                 # Duplicate key — return the task the winner created/owns.
@@ -344,14 +363,19 @@ async def create_task(
                 existing = (
                     await db.execute(
                         text(
-                            "SELECT task_id FROM idempotency_keys "
-                            "WHERE org_id = :org AND key = :key"
+                            "SELECT task_id, request_fingerprint FROM idempotency_keys "
+                            "WHERE org_id = :org AND sender_id = :sender AND key = :key"
                         ),
-                        {"org": org_id, "key": idempotency_key},
+                        {"org": org_id, "sender": sender_id, "key": idempotency_key},
                     )
                 ).first()
-                if existing:
+                if existing and existing.request_fingerprint == request_fingerprint:
                     return CreateTaskResponse(taskId=str(existing.task_id))
+                if existing:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="idempotency key was already used for a different request",
+                    )
                 raise
 
         sender_username = await resolve_username(db, org_id, sender_id) or principal.username

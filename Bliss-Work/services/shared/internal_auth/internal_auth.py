@@ -39,4 +39,4 @@ def internal_token_matches(provided: str | None, expected: str) -> bool:
     """
     if not expected or not provided:
         return False
-    return secrets.compare_digest(provided, expected)
+    return secrets.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))

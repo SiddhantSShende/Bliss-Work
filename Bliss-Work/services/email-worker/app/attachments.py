@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from .internal_ids import uuid_path_segment
 from .logging_setup import get_logger
 
 log = get_logger("attachments")
@@ -147,7 +148,17 @@ async def fetch(
     fetched, so an unknown-size attachment fetched earlier in this mail can
     have since spent enough of it that a "fits" declared size no longer does.
     """
-    url = f"{base_url.rstrip('/')}/internal/mail/{mail_id}/attachments/{attachment.id}"
+    try:
+        safe_org_id = uuid_path_segment(org_id, "org_id")
+        safe_mail_id = uuid_path_segment(mail_id, "mail_id")
+        safe_attachment_id = uuid_path_segment(attachment.id, "attachment_id")
+    except ValueError:
+        log.warning("attachment_fetch_invalid_id")
+        return None
+    url = (
+        f"{base_url.rstrip('/')}/internal/mail/{safe_mail_id}/attachments/"
+        f"{safe_attachment_id}"
+    )
     # Streamed with a ceiling rather than read whole. The budget was spent
     # against the size the EVENT declared, and this is where that claim is
     # actually tested: a response longer than declared is abandoned mid-transfer
@@ -174,7 +185,7 @@ async def fetch(
         async with client.stream(
             "GET",
             url,
-            params={"orgId": org_id},
+            params={"orgId": safe_org_id},
             headers={"X-Internal-Token": token},
             timeout=FETCH_TIMEOUT,
         ) as resp:

@@ -7,7 +7,6 @@ import urllib.parse
 
 import httpx
 import pytest
-import uuid6
 from sqlalchemy import text
 
 pytestmark = pytest.mark.integration
@@ -169,3 +168,32 @@ async def test_reconnecting_your_own_mailbox_still_works(db_app, monkeypatch):
     row = await _connection_row(ORG, "gmail")
     assert str(row.owner_user_id) == USER_A
     assert row.status == "connected"
+
+
+async def test_oauth_state_is_bound_to_the_browser_that_started_the_flow(db_app, monkeypatch):
+    client_secret_seen: list[str] = []
+    _install_provider_stubs(
+        monkeypatch, client_secret_seen=client_secret_seen, ext_id="browser-bound@x.test"
+    )
+
+    async with await _client(_principal(USER_A)) as browser_a:
+        await browser_a.put(
+            "/api/v1/integrations/app-credentials/google",
+            json={"clientId": "id-1", "clientSecret": "secret-1"},
+        )
+        start = await browser_a.post("/api/v1/integrations/gmail/connect/start", json={})
+        state = _extract_state(start.json()["authorizeUrl"])
+        assert "bw_oauth_" in start.headers["set-cookie"]
+
+        async with await _client(_principal(USER_B)) as browser_b:
+            rejected = await browser_b.get(
+                f"/ext/gmail/oauth/callback?code=attacker-code&state={state}"
+            )
+        assert rejected.status_code == 400
+
+        accepted = await browser_a.get(
+            f"/ext/gmail/oauth/callback?code=legitimate-code&state={state}"
+        )
+
+    assert accepted.status_code in (200, 302)
+    assert client_secret_seen == ["secret-1"]

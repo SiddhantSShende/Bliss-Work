@@ -46,8 +46,10 @@ class LazyKafkaProducer:
         self._key_serializer = key_serializer
         self._producer: AIOKafkaProducer | None = None
 
-    async def ensure(self) -> AIOKafkaProducer:
-        """Return the connected producer, connecting on first call."""
+    async def ensure(
+        self, *, on_connected: Callable[[], None] | None = None
+    ) -> AIOKafkaProducer:
+        """Return the connected producer, notifying only when a connection is created."""
         if self._producer is not None:
             return self._producer
         kwargs: dict[str, Any] = dict(
@@ -69,6 +71,8 @@ class LazyKafkaProducer:
                 await producer.stop()
             raise
         self._producer = producer
+        if on_connected is not None:
+            on_connected()
         return producer
 
     async def stop(self) -> None:

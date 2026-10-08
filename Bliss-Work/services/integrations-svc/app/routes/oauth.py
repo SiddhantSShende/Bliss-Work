@@ -36,7 +36,7 @@ def _app_url(suffix: str) -> str:
     return settings.web_origin.rstrip("/") + "/app/integrations" + suffix
 
 
-def _finish(redirect_after: str | None, params: str) -> Response:
+def _finish(redirect_after: str | None, params: str, state: str | None = None) -> Response:
     """Send the browser back to whichever client started the flow.
 
     Web gets a plain 302 into the SPA. Desktop gets an HTML interstitial rather
@@ -46,12 +46,12 @@ def _finish(redirect_after: str | None, params: str) -> Response:
     back to BlissWork.
     """
     if redirect_after != _DESKTOP_RETURN:
-        return RedirectResponse(_app_url(params), status_code=302)
-
-    target = f"{_DESKTOP_RETURN}{params}"
-    escaped = html.escape(target, quote=True)
-    return HTMLResponse(
-        f"""<!doctype html>
+        response: Response = RedirectResponse(_app_url(params), status_code=302)
+    else:
+        target = f"{_DESKTOP_RETURN}{params}"
+        escaped = html.escape(target, quote=True)
+        response = HTMLResponse(
+            f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="0;url={escaped}">
 <title>Returning to BlissWork…</title>
@@ -67,8 +67,13 @@ def _finish(redirect_after: str | None, params: str) -> Response:
   <p><a href="{escaped}">Open BlissWork</a></p>
   <p style="color:#6b6580;font-size:14px">You can close this tab.</p>
 </main></body></html>""",
-        status_code=200,
-    )
+            status_code=200,
+        )
+    if state:
+        response.delete_cookie(
+            key=oauth.browser_session_cookie_name(state), path="/ext", httponly=True, samesite="lax"
+        )
+    return response
 
 
 @router.get("/{provider}/oauth/callback")
@@ -81,6 +86,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
         # and lands in a Location header the SPA reads back out of its own URL.
         error_param = urllib.parse.quote(q.get("error", ""), safe="")
         error_state = q.get("state")
+        redirect_after = None
         if error_state:
             # A routine decline (the user clicks "Cancel" on the provider's
             # consent screen) is the common case here, not an edge case — and
@@ -92,11 +98,32 @@ async def oauth_callback(provider: str, request: Request) -> Response:
             # error-handling path and must not gain a new failure mode.
             async with session() as db:
                 await set_bypass_rls(db)
-                await db.execute(
-                    text("DELETE FROM oauth_states WHERE state = :s"), {"s": error_state}
-                )
-                await db.commit()
-        return RedirectResponse(_app_url(f"?error={error_param}"), status_code=302)
+                state_row = (
+                    await db.execute(
+                        text(
+                            "SELECT provider, redirect_after, browser_session_hash "
+                            "FROM oauth_states WHERE state = :s"
+                        ),
+                        {"s": error_state},
+                    )
+                ).one_or_none()
+                if (
+                    state_row is not None
+                    and state_row.provider == provider
+                    and oauth.browser_session_matches(
+                        state_row.browser_session_hash,
+                        request.cookies.get(oauth.browser_session_cookie_name(error_state)),
+                    )
+                ):
+                    redirect_after = state_row.redirect_after
+                    await db.execute(
+                        text("DELETE FROM oauth_states WHERE state = :s"), {"s": error_state}
+                    )
+                    await db.commit()
+                else:
+                    await db.rollback()
+                    error_state = None
+        return _finish(redirect_after, f"?error={error_param}", error_state)
     code = q.get("code")
     state = q.get("state")
     if not code or not state:
@@ -110,7 +137,8 @@ async def oauth_callback(provider: str, request: Request) -> Response:
                 text(
                     """
                     SELECT org_id, owner_user_id, provider, code_verifier_enc, expires_at,
-                           redirect_after, client_id_enc, client_secret_enc, tenant
+                           redirect_after, client_id_enc, client_secret_enc, tenant,
+                           browser_session_hash
                       FROM oauth_states WHERE state = :s
                     """
                 ),
@@ -118,6 +146,10 @@ async def oauth_callback(provider: str, request: Request) -> Response:
             )
         ).one_or_none()
         if st is None or st.provider != provider:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid state")
+        if not oauth.browser_session_matches(
+            st.browser_session_hash, request.cookies.get(oauth.browser_session_cookie_name(state))
+        ):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid state")
         # Single-use: consume the state now, whatever happens next.
         await db.execute(text("DELETE FROM oauth_states WHERE state = :s"), {"s": state})
@@ -150,7 +182,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
         if cfg is None:
             # The credentials were deleted mid-flow. State is already consumed.
             await db.commit()
-            return _finish(redirect_after, "?error=not_configured")
+            return _finish(redirect_after, "?error=not_configured", state)
 
         verifier = await cryptor().decrypt(
             db, org, bytes(st.code_verifier_enc) if st.code_verifier_enc else None
@@ -163,7 +195,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
         except Exception as exc:  # noqa: BLE001 — surface as a friendly redirect
             log.warning("oauth_callback_failed", provider=provider, error=str(exc))
             await db.commit()  # state already consumed
-            return _finish(redirect_after, "?error=oauth_failed")
+            return _finish(redirect_after, "?error=oauth_failed", state)
 
         access_enc = await cryptor().encrypt(db, org, tokens.get("access_token", ""))
         refresh_enc = (
@@ -232,7 +264,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
             # this exact external account is already connected under a
             # DIFFERENT owner. The original owner must disconnect it first.
             await db.commit()
-            return _finish(redirect_after, "?error=already_connected_by_teammate")
+            return _finish(redirect_after, "?error=already_connected_by_teammate", state)
 
         # Auto-derive this account's mention handles, in the SAME transaction as
         # the connection itself — so a user who connects Gmail is immediately
@@ -251,4 +283,4 @@ async def oauth_callback(provider: str, request: Request) -> Response:
 
         await db.commit()
 
-    return _finish(redirect_after, f"?connected={provider}")
+    return _finish(redirect_after, f"?connected={provider}", state)

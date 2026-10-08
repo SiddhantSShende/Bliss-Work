@@ -8,6 +8,7 @@ status='error' rather than silently staying 'connected' forever.
 """
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -21,6 +22,8 @@ async def _noop(*_a, **_kw) -> None:
 
 
 class _FakeResult:
+    rowcount = 1
+
     def __init__(self, rows: list) -> None:
         self._rows = rows
 
@@ -104,6 +107,52 @@ async def test_refresh_due_does_not_stop_at_the_first_failing_connection(monkeyp
     # conn-1 failing must not have prevented conn-2/conn-3 from being tried —
     # before the fix, the exception escaped the loop and only conn-1 ran.
     assert attempted == ["conn-1", "conn-2", "conn-3"]
+
+
+async def test_refresh_due_limits_concurrent_provider_calls(monkeypatch):
+    rows = [
+        _FakeRow(f"conn-{i}", f"org-{i}", "gmail", b"rt")
+        for i in range(rw_module._CONCURRENCY + 3)
+    ]
+    fake_db = _FakeDb(rows)
+    monkeypatch.setattr(rw_module, "session", lambda: _FakeSession(fake_db))
+    active = 0
+    peak = 0
+
+    async def fake_refresh_one(_self, *_args):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0)
+        active -= 1
+
+    monkeypatch.setattr(RefreshWorker, "_refresh_one", fake_refresh_one)
+    await RefreshWorker()._refresh_due()
+    assert peak == rw_module._CONCURRENCY
+    select_sql = next(sql for sql, _ in fake_db.executed if sql.strip().upper().startswith("SELECT"))
+    assert "refresh_next_attempt_at" in select_sql
+
+
+async def test_refresh_due_schedules_independent_retry_after_row_failure(monkeypatch):
+    rows = [
+        _FakeRow("conn-1", "org-1", "gmail", b"rt"),
+        _FakeRow("conn-2", "org-2", "gmail", b"rt"),
+    ]
+    fake_db = _FakeDb(rows)
+    monkeypatch.setattr(rw_module, "session", lambda: _FakeSession(fake_db))
+    attempted: list[str] = []
+
+    async def fake_refresh_one(_self, conn_id, *_args):
+        attempted.append(conn_id)
+        if conn_id == "conn-1":
+            raise RuntimeError("temporary provider failure")
+
+    monkeypatch.setattr(RefreshWorker, "_refresh_one", fake_refresh_one)
+    await RefreshWorker()._refresh_due()
+    assert attempted == ["conn-1", "conn-2"]
+    retry_update = next(sql for sql, _ in fake_db.executed if "refresh_failure_count" in sql)
+    assert "refresh_next_attempt_at" in retry_update
+    assert "refresh_claimed_at = NULL" in retry_update
 
 
 # ── #4: deleted/rotated-out app credentials must surface as status='error' ──

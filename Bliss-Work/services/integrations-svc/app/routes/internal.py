@@ -317,6 +317,18 @@ async def internal_send(
                 await _resolve_message_send(db, body.messageId, body.orgId, "failed")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except outbound.OutboundError as exc:
+            if exc.ambiguous:
+                if body.messageId:
+                    log.error(
+                        "message_send_outcome_unknown",
+                        message_id=body.messageId,
+                        org=body.orgId,
+                        error=str(exc),
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="message send outcome unknown; needs manual review",
+                ) from exc
             # Definitive one way or the other before the provider call
             # completed — safe to let a later attempt reclaim and retry.
             if body.messageId:
@@ -609,6 +621,18 @@ async def internal_send_mail(
                 attachments=files,
                 save_to_sent_items=body.saveToSentItems,
             )
+        except ms.MicrosoftAmbiguousDelivery as exc:
+            if body.mailId:
+                log.error(
+                    "mail_send_outcome_unknown",
+                    mail_id=body.mailId,
+                    org=body.orgId,
+                    error=str(exc),
+                )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="mail send outcome unknown; needs manual review",
+            ) from exc
         except (ms.MicrosoftAuthError, ms.MicrosoftRateLimited) as exc:
             # Definitive answers from Graph BEFORE it accepted anything — safe
             # to let a later attempt reclaim and retry this mailId.
