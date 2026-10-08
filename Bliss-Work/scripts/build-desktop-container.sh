@@ -19,6 +19,11 @@ set -Eeuo pipefail
 
 DOWNLOADS="${DOWNLOADS:-/downloads}"
 BACKUP_DIR="${BACKUP_DIR:-/downloads-backup}"
+: "${BACKUP_RETENTION:?set BACKUP_RETENTION to the number of publish backups to retain}"
+[[ "$BACKUP_RETENTION" =~ ^[1-9][0-9]*$ ]] || {
+  echo "BACKUP_RETENTION must be a positive integer" >&2
+  exit 1
+}
 
 VER="$(node scripts/next-desktop-version.mjs "$DOWNLOADS")"
 echo "▶ building desktop $VER (linux + windows/wine)"

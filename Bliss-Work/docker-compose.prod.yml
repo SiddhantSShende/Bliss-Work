@@ -216,6 +216,10 @@ services:
       # see scripts/next-desktop-version.mjs for why package.json can't be the
       # source of truth. Set explicitly for a minor/major bump.
       DESKTOP_VERSION: "${DESKTOP_VERSION:-}"
+      # The publisher prunes old timestamped downloads backups after a successful
+      # publish. Require an explicit operator policy, and pass it into the
+      # builder so the publish cannot silently use an unspecified retention.
+      BACKUP_RETENTION: "${BACKUP_RETENTION:?set BACKUP_RETENTION to the number of publish backups to retain}"
       # Baked into the main bundle so Chromium's network location provider
       # works. OPTIONAL: without it, sharing a location falls back to the
       # server's city-level IP lookup instead of a precise fix. Restrict the key
