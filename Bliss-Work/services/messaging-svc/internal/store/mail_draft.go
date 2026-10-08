@@ -319,21 +319,30 @@ func (s *Store) decryptOrEmpty(ctx context.Context, tx pgx.Tx, orgID string, blo
 	return s.crypto.Decrypt(ctx, tx, orgID, blob)
 }
 
-// RemoveDraftAttachment takes one file off an unsent draft and reports the
-// content hash if nothing in the org points at those bytes any more.
+// RemoveDraftAttachment takes one file off an unsent draft and, if nothing in
+// the org points at those bytes any more, calls unlink(sha) to delete them.
 //
 // Deleting the ROW is what makes the removal real: SendMail commits every
 // attachment still scoped to the mail (`expires_at = NULL`), so a file merely
 // marked as expiring would be resurrected — and sent — by the next Send. The
-// caller unlinks the returned blob, in that order and for the reason
-// ReapExpiredAttachments gives: the reverse order would let a concurrent
-// dedupe hand out a path to a file about to be unlinked.
+// row goes first and the blob after, for the reason ReapExpiredAttachments
+// gives: the reverse order would let a concurrent dedupe hand out a path to a
+// file about to be unlinked.
+//
+// unlink runs INSIDE the transaction, under the per-blob lock CreateAttachment
+// also takes (NewAttachment.BlobPresent). Unlinking after the commit left a
+// window in which a concurrent upload of the same bytes — which dedupes onto the
+// existing blob and records a row for it — could land between this reference
+// check and the unlink, leaving a row that points at a deleted file. unlink must
+// not fail the removal: the row is already gone and a leaked file is only disk.
+// A nil unlink only reports the hash, as before.
 //
 // Author-only and draft-only via requireOwnDraft, and the delete is additionally
 // scoped to this mail — holding one attachment id must not reach files on
 // somebody else's mail.
 func (s *Store) RemoveDraftAttachment(
 	ctx context.Context, orgID, userID, mailID, attachmentID string,
+	unlink func(sha string),
 ) (unreferencedSHA string, err error) {
 	err = s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		if derr := requireOwnDraft(ctx, tx, orgID, userID, mailID); derr != nil {
@@ -358,6 +367,12 @@ func (s *Store) RemoveDraftAttachment(
 			return qerr
 		}
 
+		// Taken after the DELETE, before looking for other references: an upload
+		// that holds the lock has either committed its row (seen below, so the
+		// file stays) or not started (and will find the file gone).
+		if lerr := lockAttachmentBlob(ctx, tx, orgID, sha); lerr != nil {
+			return lerr
+		}
 		var stillReferenced bool
 		if cerr := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM attachments WHERE org_id = $1 AND sha256 = $2)`,
@@ -366,6 +381,9 @@ func (s *Store) RemoveDraftAttachment(
 		}
 		if !stillReferenced {
 			unreferencedSHA = sha
+			if unlink != nil {
+				unlink(sha)
+			}
 		}
 		return nil
 	})

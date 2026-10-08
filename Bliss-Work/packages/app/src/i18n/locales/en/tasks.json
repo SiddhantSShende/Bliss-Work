@@ -133,6 +133,12 @@
       "removePerson": "Remove {{name}}",
       "showFewer": "Show fewer",
       "noPeople": "No people match",
+      "channelsHeading": "Channels",
+      "searchChannels": "Search channels…",
+      "noChannels": "No channels match",
+      "viaChannel": "Selected through a channel",
+      "channelFailed": "Couldn't load the members of {{name}}, so no tasks are shown.",
+      "channelRetry": "Retry",
       "clear": "Clear filters"
     },
     "details": "Details",
@@ -269,7 +275,16 @@
       "peopleCount_one": "{{count}} person",
       "peopleCount_other": "{{count}} people",
       "noTargetYet": "no target chosen yet",
-      "summary": "This task will be assigned to {{who}} on {{when}}."
+      "summary": "This task will be assigned to {{who}} on {{when}}.",
+      "dayOfMonth": "Day of month",
+      "weekdayPattern": "Weekday pattern",
+      "ordinal": {
+        "1": "First",
+        "2": "Second",
+        "3": "Third",
+        "4": "Fourth",
+        "5": "Fifth"
+      }
     }
   },
   "exportTasksDialog": {

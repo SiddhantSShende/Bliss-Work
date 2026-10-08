@@ -269,11 +269,12 @@ export function MailList() {
               that pages in slowly is indistinguishable from an empty one. */}
           {fromFeed && visible.length > 0 && (
             <span className="tabular-nums">
-              {visible.length}
-              {q.hasNextPage ? "+" : ""}{" "}
-              {visible.length === 1 && !q.hasNextPage
-                ? t("list.messageCountSingular")
-                : t("list.messageCountPlural")}
+              {/* "5+" while more pages exist, so a lone row on a paging feed
+                  still reads as plural — `count` picks the form, `shown` is what is printed. */}
+              {t("list.messageCount", {
+                count: q.hasNextPage ? Math.max(visible.length, 2) : visible.length,
+                shown: `${visible.length}${q.hasNextPage ? "+" : ""}`,
+              })}
             </span>
           )}
           {peerId && (

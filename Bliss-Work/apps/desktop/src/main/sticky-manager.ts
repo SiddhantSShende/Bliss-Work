@@ -1,4 +1,5 @@
 import { BrowserWindow, screen } from "electron";
+import { mainT } from "./i18n";
 import {
   actionsFor,
   canFloatTask,
@@ -23,6 +24,7 @@ import {
   saveGeometry,
 } from "./sticky-state";
 import { reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
+import { beginNoteDrag, endNoteDrag, setNoteResizable, type NoteDrag } from "./sticky-resize";
 
 /**
  * Fixed synthetic geometry key for the single carousel container, in the same
@@ -260,7 +262,7 @@ export class StickyManager {
         ...this.tasks,
         {
           taskId,
-          title: "Loading…",
+          title: mainT("windows.loading"),
           description: "",
           senderUsername: "",
           myStatus: "SENT",
@@ -377,7 +379,7 @@ export class StickyManager {
         expandedHeight: b.height,
       });
       w.setMinimumSize(PILL_W, PILL_H);
-      w.setResizable(false);
+      setNoteResizable(w, false);
       w.setBounds({ x: b.x, y: b.y, width: PILL_W, height: PILL_H });
     } else {
       const stored = getGeometry(CONTAINER_ID);
@@ -397,7 +399,7 @@ export class StickyManager {
       });
       w.setBounds({ x: b.x, y: b.y, width: fw, height: fh });
       w.setMinimumSize(FULL_MIN_W, FULL_MIN_H);
-      w.setResizable(true);
+      setNoteResizable(w, true);
     }
   }
 
@@ -479,7 +481,7 @@ export class StickyManager {
         // the canonical pill size — never trust a possibly-full stored size on a
         // collapsed record (which would yield a non-resizable oversized pill).
         w.setMinimumSize(PILL_W, PILL_H);
-        w.setResizable(false);
+        setNoteResizable(w, false);
         w.setBounds({ x: g.x, y: g.y, width: PILL_W, height: PILL_H });
       } else {
         // A height saved before the minimum was raised would be too short to show the
@@ -570,6 +572,25 @@ export class StickyManager {
         index: this.currentIndex - start,
       });
     }
+  }
+
+  /** Start a renderer-driven move or resize (Linux — see ./sticky-resize).
+   *  A collapsed pill has a fixed size, so it can be moved but never resized. */
+  beginDrag(drag: NoteDrag): void {
+    const w = this.win;
+    if (!w || w.isDestroyed()) return;
+    if (drag !== "move" && getGeometry(CONTAINER_ID)?.collapsed) return;
+    beginNoteDrag(w, drag);
+  }
+
+  endDrag(): void {
+    const w = this.win;
+    if (!w || w.isDestroyed()) return;
+    endNoteDrag(w);
+    // Windows/macOS do this on 'moved', which Linux never emits: a note let go
+    // on a secondary monitor returns to the primary display. The move/resize
+    // events persist the corrected bounds.
+    snapBackIfOffPrimary(w);
   }
 
   destroyAll(): void {

@@ -1,0 +1,66 @@
+{
+  "mediaBubble": {
+    "openFile": "{{name}}を開く",
+    "download": "ダウンロード",
+    "downloadFile": "{{name}}をダウンロード",
+    "uploading": "アップロード中… {{percent}}%",
+    "notAvailable": "利用できません",
+    "previewUnavailable": "このファイル形式はプレビューできません"
+  },
+  "fileAttachment": {
+    "downloadsOff": "ファイルのダウンロードはオフになっています。",
+    "decline": "拒否",
+    "cancel": "キャンセル",
+    "retry": "再試行",
+    "directTransfer": "ダイレクト転送(ピアツーピア)です。",
+    "establishingConnection": "ピア接続を確立中…",
+    "transferComplete": "転送が完了しました。",
+    "cancelledByPeer": "相手がキャンセルしました",
+    "couldNotReadFile": "ファイルを読み取れませんでした",
+    "couldNotAnnounceFile": "ファイルを通知できませんでした",
+    "declined": "拒否されました",
+    "couldNotSend": "{{name}}を送信できませんでした",
+    "transferUnavailable": "ダイレクト転送は利用できません",
+    "badAnswer": "不正な応答",
+    "peerUnreachable": "相手に接続できません",
+    "offerCreationFailed": "オファーの作成に失敗しました",
+    "checksumMismatch": "チェックサムが一致しません",
+    "cancelled": "キャンセルしました",
+    "sinkWriteFailed": "書き込みに失敗しました:{{message}}",
+    "answerCreationFailed": "アンサーの作成に失敗しました",
+    "receiverSetupFailed": "受信側のセットアップに失敗しました"
+  },
+  "location": {
+    "sharedLocation": "共有された位置情報",
+    "openInMapsAriaLabel": "{{title}}を地図で開く",
+    "mapAlt": "{{title}}を示す地図",
+    "accuracySuffix": " · ±{{accuracy}} m",
+    "openInMapsTitle": "地図で開く",
+    "open": "開く"
+  },
+  "emojiPicker": {
+    "insertEmoji": "絵文字を挿入"
+  },
+  "attachments": {
+    "tooManyFiles": "一度に送信できるファイルは最大{{max}}件です。",
+    "overSizePeerToPeer": "{{name}}は{{size}}を超えているため、ピアツーピアで送信します。完了するまで双方がオンラインのままにしてください。",
+    "tooLarge": "{{name}}は{{size}}を超えています。",
+    "uploadFailed": "アップロードに失敗しました",
+    "attachFailedSingle": "{{name}}を添付できませんでした:{{message}}",
+    "attachFailedMultiple": "{{count}}件のファイルを添付できませんでした:{{names}}",
+    "attachFailedGeneric": "このファイルを添付できませんでした。もう一度お試しください。"
+  },
+  "shareLocation": {
+    "gettingLocation": "現在地を取得中…",
+    "approximateShared": "おおよその位置情報を共有しました",
+    "reasons": {
+      "desktopAccessOff": "デスクトップアプリの位置情報アクセスがオフのため、ネットワークに基づく位置情報です。",
+      "noPreciseFix": "デバイスで正確な位置を取得できなかったため、ネットワークに基づく位置情報です。",
+      "noProvider": "このビルドには高精度の位置情報プロバイダーがないため、ネットワークに基づく位置情報です。"
+    },
+    "openSettings": "設定を開く",
+    "notAvailable": "このデバイスでは位置情報を共有できません。",
+    "permissionDenied": "位置情報の権限が拒否されました。位置情報を共有するには、サイトの設定で有効にしてください。",
+    "determineFailed": "現在地を特定できませんでした。もう一度お試しいただくか、位置情報サービスがオンになっているか確認してください。"
+  }
+}

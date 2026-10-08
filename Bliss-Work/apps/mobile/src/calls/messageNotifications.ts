@@ -2,6 +2,7 @@ import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { listPreview } from '@taskboard/app/chatEnvelope';
 import { isNewResponse } from './responseDedupe';
+import { isConversationMuted } from '../hooks/useMutedConversations';
 
 /**
  * "New message" notifications — local, scheduled the instant the message
@@ -98,6 +99,7 @@ export interface IncomingMessage {
  *  exact thread right now (foreground + that screen focused). */
 export async function showMessageNotification(m: IncomingMessage): Promise<void> {
   if (isAlreadyViewing(m.ref)) return;
+  if (await isConversationMuted(m.ref.id)) return;
   await initMessageNotifications();
   // Always incoming (the caller never notifies for the viewer's own message),
   // so isOwn is always false here.

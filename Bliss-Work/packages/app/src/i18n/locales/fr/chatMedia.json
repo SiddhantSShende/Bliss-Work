@@ -1,0 +1,66 @@
+{
+  "mediaBubble": {
+    "openFile": "Ouvrir {{name}}",
+    "download": "Télécharger",
+    "downloadFile": "Télécharger {{name}}",
+    "uploading": "Téléversement… {{percent}} %",
+    "notAvailable": "Non disponible pour vous",
+    "previewUnavailable": "L'aperçu n'est pas disponible pour ce type de fichier"
+  },
+  "fileAttachment": {
+    "downloadsOff": "Les téléchargements de fichiers sont désactivés.",
+    "decline": "Refuser",
+    "cancel": "Annuler",
+    "retry": "Réessayer",
+    "directTransfer": "Transfert direct — pair à pair.",
+    "establishingConnection": "Établissement de la connexion pair à pair…",
+    "transferComplete": "Transfert terminé.",
+    "cancelledByPeer": "Annulé par l'autre partie",
+    "couldNotReadFile": "Impossible de lire le fichier",
+    "couldNotAnnounceFile": "Impossible d'annoncer le fichier",
+    "declined": "Refusé",
+    "couldNotSend": "Impossible d'envoyer {{name}}",
+    "transferUnavailable": "Transfert direct indisponible",
+    "badAnswer": "Réponse invalide",
+    "peerUnreachable": "Pair injoignable",
+    "offerCreationFailed": "Échec de la création de l'offre",
+    "checksumMismatch": "Somme de contrôle incorrecte",
+    "cancelled": "Annulé",
+    "sinkWriteFailed": "Échec de l'écriture vers la destination : {{message}}",
+    "answerCreationFailed": "Échec de la création de la réponse",
+    "receiverSetupFailed": "Échec de la configuration du récepteur"
+  },
+  "location": {
+    "sharedLocation": "Position partagée",
+    "openInMapsAriaLabel": "Ouvrir {{title}} dans Plans",
+    "mapAlt": "Carte montrant {{title}}",
+    "accuracySuffix": " · ±{{accuracy}} m",
+    "openInMapsTitle": "Ouvrir dans Plans",
+    "open": "Ouvrir"
+  },
+  "emojiPicker": {
+    "insertEmoji": "Insérer un emoji"
+  },
+  "attachments": {
+    "tooManyFiles": "Vous pouvez envoyer jusqu'à {{max}} fichiers à la fois.",
+    "overSizePeerToPeer": "{{name}} dépasse {{size}} — envoi en pair à pair. Vous devez tous deux rester en ligne jusqu'à la fin du transfert.",
+    "tooLarge": "{{name}} dépasse {{size}}.",
+    "uploadFailed": "Échec du téléversement",
+    "attachFailedSingle": "Impossible de joindre {{name}} : {{message}}",
+    "attachFailedMultiple": "Impossible de joindre {{count}} fichiers : {{names}}",
+    "attachFailedGeneric": "Impossible de joindre ce fichier. Veuillez réessayer."
+  },
+  "shareLocation": {
+    "gettingLocation": "Récupération de votre position…",
+    "approximateShared": "Position approximative partagée",
+    "reasons": {
+      "desktopAccessOff": "L'accès à la position est désactivé pour les applications de bureau ; elle est donc déterminée d'après votre réseau.",
+      "noPreciseFix": "Votre appareil n'a pas pu obtenir de position précise ; elle est donc déterminée d'après votre réseau.",
+      "noProvider": "Cette version ne dispose d'aucun fournisseur de position précise ; elle est donc déterminée d'après votre réseau."
+    },
+    "openSettings": "Ouvrir les paramètres",
+    "notAvailable": "Le partage de position n'est pas disponible sur cet appareil.",
+    "permissionDenied": "Autorisation de localisation refusée. Activez-la dans les paramètres de votre site pour partager votre position.",
+    "determineFailed": "Impossible de déterminer votre position. Réessayez ou vérifiez que les services de localisation sont activés."
+  }
+}

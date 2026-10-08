@@ -41,6 +41,11 @@ type Config struct {
 	// Chat attachments (images, video, files) and the static-map cache.
 	Media MediaConfig
 
+	// The Office Document Sandbox that produces in-app previews. Optional:
+	// without CONVERTER_URL the preview route answers "unavailable" and the
+	// client falls back to Download.
+	Preview PreviewConfig
+
 	// Static map thumbnails for shared locations. Entirely optional.
 	Maps MapsConfig
 
@@ -72,6 +77,26 @@ type LiveKitConfig struct {
 	// through its own filesystem, so this is its mount point and not
 	// necessarily this service's MEDIA_ROOT.
 	EgressRoot string // RECORDINGS_EGRESS_ROOT
+}
+
+// PreviewConfig configures the Office Document Sandbox client.
+//
+// These are safety ceilings, not product limits: none of them hides an Open
+// button, and a document that trips one simply ends in the Download fallback. The
+// defaults come from the measurement run recorded in services/doc-converter/
+// README.md (one conversion took 2–33 s and peaked near 400 MB at worst), with
+// the waits chosen around it: a request waits PREVIEW_WAIT_SECONDS for a result
+// and otherwise answers 202 while the conversion carries on.
+type PreviewConfig struct {
+	ConverterURL   string        // CONVERTER_URL — empty disables previews
+	MaxInputBytes  int64         // PREVIEW_MAX_INPUT_BYTES — defaults to MEDIA_MAX_BYTES, i.e. no NEW limit
+	MaxOutputBytes int64         // PREVIEW_MAX_OUTPUT_BYTES — largest stored artifact
+	MaxSheetsBytes int64         // PREVIEW_MAX_SHEETS_BYTES — largest sheets JSON accepted
+	Wait           time.Duration // PREVIEW_WAIT_SECONDS — a request waits this long, then answers 202
+	RunTimeout     time.Duration // PREVIEW_RUN_TIMEOUT_SECONDS — one whole conversion, above the sandbox's own
+	MaxInFlight    int           // PREVIEW_MAX_INFLIGHT — conversions per replica sent at once
+	FailureTTL     time.Duration // PREVIEW_FAILURE_TTL_SECONDS — a deterministic failure is remembered this long
+	UserPerMinute  int           // PREVIEW_USER_PER_MINUTE — cache-miss conversions one user may start
 }
 
 // MediaConfig configures persisted chat attachments.
@@ -168,6 +193,17 @@ func Load() (*Config, error) {
 				UseSSL:    getenvBool("MEDIA_S3_USE_SSL", true),
 				Prefix:    os.Getenv("MEDIA_S3_PREFIX"),
 			},
+		},
+		Preview: PreviewConfig{
+			ConverterURL:   strings.TrimRight(strings.TrimSpace(os.Getenv("CONVERTER_URL")), "/"),
+			MaxInputBytes:  int64(getenvInt("PREVIEW_MAX_INPUT_BYTES", getenvInt("MEDIA_MAX_BYTES", 100<<20))),
+			MaxOutputBytes: int64(getenvInt("PREVIEW_MAX_OUTPUT_BYTES", 100<<20)),
+			MaxSheetsBytes: int64(getenvInt("PREVIEW_MAX_SHEETS_BYTES", 16<<20)),
+			Wait:           time.Duration(getenvInt("PREVIEW_WAIT_SECONDS", 20)) * time.Second,
+			RunTimeout:     time.Duration(getenvInt("PREVIEW_RUN_TIMEOUT_SECONDS", 150)) * time.Second,
+			MaxInFlight:    getenvInt("PREVIEW_MAX_INFLIGHT", 2),
+			FailureTTL:     time.Duration(getenvInt("PREVIEW_FAILURE_TTL_SECONDS", 300)) * time.Second,
+			UserPerMinute:  getenvInt("PREVIEW_USER_PER_MINUTE", 30),
 		},
 		Maps: MapsConfig{
 			Provider: getenv("MAPS_STATIC_PROVIDER", "geoapify"),

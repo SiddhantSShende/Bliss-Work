@@ -1,0 +1,174 @@
+{
+  "availablePeople": {
+    "searchPlaceholder": "साथी खोजें…",
+    "empty": {
+      "noMatchesTitle": "कोई मिलान नहीं",
+      "allBusyTitle": "सब व्यस्त हैं",
+      "noMatchesHint": "उस खोज से कोई उपलब्ध साथी मेल नहीं खाता।",
+      "allBusyHint": "जिनके पास कोई स्वीकार किया हुआ टास्क नहीं है, वे यहाँ दिखते हैं।"
+    },
+    "toasts": {
+      "hideFailed": "उस व्यक्ति को छिपाया नहीं जा सका",
+      "restoreFailed": "उस व्यक्ति को वापस नहीं लाया जा सका"
+    },
+    "hiddenToggle": "इस सूची से छिपाए गए ({{count}})",
+    "hiddenBusyNote": "सक्रिय टास्क हैं — खाली होने तक दोबारा नहीं दिखेंगे",
+    "restoreTitle": "उपलब्ध में वापस लाएँ",
+    "card": {
+      "selfTitle": "आप खुद को टास्क आवंटित नहीं कर सकते",
+      "assignTitle": "{{name}} को टास्क आवंटित करें",
+      "youSuffix": " (आप)",
+      "pendingBadge": "{{count}} लंबित, स्वीकार नहीं किए",
+      "onCall": "कॉल पर",
+      "hiddenFromOthers": "दूसरों से छिपा",
+      "hideTitle": "उपलब्ध से छिपाएँ"
+    }
+  },
+  "memberPicker": {
+    "searchPlaceholder": "साथी खोजें…",
+    "clearAll": "सब साफ़ करें",
+    "selectAll": "सभी चुनें",
+    "emptyHint": "मेल खाने वाले सभी लोग पहले से यहाँ हैं।",
+    "cancelButton": "रद्द करें",
+    "addButton": "जोड़ें",
+    "sendOrganization": "पूरे संगठन को भेजें"
+  },
+  "inviteePicker": {
+    "searchPlaceholder": "अपना संगठन खोजें…",
+    "searchAriaLabel": "अपना संगठन खोजें",
+    "empty": {
+      "noMatches": "कोई मिलान नहीं।",
+      "noneToInvite": "आमंत्रित करने के लिए कोई और नहीं।"
+    },
+    "loading": "लोग लोड हो रहे हैं…",
+    "you": "(आप)"
+  },
+  "orgPage": {
+    "header": {
+      "title": "संगठन",
+      "subtitle": "जिन वर्कस्पेस के आप सदस्य हैं उनके बीच स्विच करें, या मौजूदा को प्रबंधित करें।"
+    },
+    "toasts": {
+      "switched": "संगठन बदल गया",
+      "switchFailedTitle": "संगठन स्विच नहीं हो सका",
+      "switchFailedDescription": "कृपया फिर से कोशिश करें।"
+    },
+    "yourOrganizations": "आपके संगठन",
+    "loading": "लोड हो रहा है…",
+    "currentBadge": "मौजूदा",
+    "roleLabel": {
+      "admin": "एडमिन",
+      "member": "सदस्य"
+    },
+    "activeLabel": "सक्रिय",
+    "switchButton": "स्विच करें",
+    "switchingLabel": "स्विच हो रहा है…",
+    "manageHeading": "{{name}} को प्रबंधित करें",
+    "manageFallbackName": "इस संगठन",
+    "membersButton": "सदस्य",
+    "invitePeopleButton": "लोगों को आमंत्रित करें"
+  },
+  "orgActivity": {
+    "adminsOnly": {
+      "title": "केवल एडमिन के लिए",
+      "hint": "आपकी अपनी गतिविधि सेटिंग → आपकी गतिविधि में है।"
+    },
+    "backToMembers": "सदस्य",
+    "header": {
+      "title": "वर्कस्पेस गतिविधि",
+      "subtitle": "टीम का समय कैसे बीतता है।"
+    },
+    "exportButton": "एक्सपोर्ट",
+    "empty": {
+      "title": "इस अवधि में कोई गतिविधि नहीं",
+      "hint": "टीम को {{brand}} का उपयोग करते एक दिन हो जाने पर चार्ट दिखेंगे।"
+    },
+    "stats": {
+      "teamActiveTime": "टीम का सक्रिय समय",
+      "peopleActive": "सक्रिय लोग",
+      "perPerson": "प्रति व्यक्ति",
+      "perPersonHint": "अवधि का औसत",
+      "sessions": "सेशन"
+    },
+    "sections": {
+      "teamActiveTimePerDay": "प्रतिदिन टीम का सक्रिय समय",
+      "activeTimeByMember": "सदस्य के अनुसार सक्रिय समय",
+      "allMembers": "सभी सदस्य"
+    },
+    "table": {
+      "member": "सदस्य",
+      "active": "सक्रिय",
+      "idle": "निष्क्रिय",
+      "sessions": "सेशन",
+      "actions": "क्रियाएँ"
+    },
+    "chart": {
+      "active": "सक्रिय",
+      "idle": "निष्क्रिय"
+    }
+  },
+  "orgSwitcher": {
+    "switchTitle": "संगठन स्विच करें",
+    "workspaceFallback": "वर्कस्पेस",
+    "yourOrganizations": "आपके संगठन",
+    "searchPlaceholder": "संगठन खोजें...",
+    "loadMore": "और लोड करें",
+    "loading": "संगठन लोड हो रहे हैं...",
+    "empty": "कोई संगठन नहीं मिला",
+    "loadFailed": "संगठन लोड नहीं हो सके। फिर कोशिश करने के लिए क्लिक करें।",
+    "roleLabel": {
+      "admin": "एडमिन",
+      "member": "सदस्य"
+    },
+    "switchingLabel": "स्विच हो रहा है…",
+    "toasts": {
+      "switchFailedTitle": "संगठन स्विच नहीं हो सका",
+      "switchFailedDescription": "कृपया फिर से कोशिश करें।"
+    }
+  },
+  "deleteOrgSection": {
+    "toasts": {
+      "scheduledTitle": "वर्कस्पेस हटाने के लिए शेड्यूल किया गया",
+      "scheduledDescription": "सभी को साइन आउट कर दिया गया है। समय-सीमा तक आप इसे रद्द कर सकते हैं।",
+      "scheduleFailedTitle": "हटाना शेड्यूल नहीं हो सका",
+      "cancelled": "हटाना रद्द किया गया",
+      "cancelFailedTitle": "हटाना रद्द नहीं हो सका"
+    },
+    "scheduled": {
+      "heading": "यह वर्कस्पेस हटाने के लिए शेड्यूल है",
+      "message": "<bold>{{orgName}}</bold> का सब कुछ — संदेश, फ़ाइलें, टास्क और गतिविधि — <bold>{{when}}</bold> को स्थायी रूप से नष्ट कर दिया जाएगा। तब तक इसे पलटा जा सकता है।",
+      "cancelButton": "हटाना रद्द करें"
+    },
+    "dangerZone": {
+      "heading": "जोखिम क्षेत्र",
+      "description": "इस वर्कस्पेस को हटाने पर उसका हर संदेश, फ़ाइल, टास्क और गतिविधि रिकॉर्ड सबके लिए स्थायी रूप से नष्ट हो जाता है।",
+      "openButton": "यह वर्कस्पेस हटाएँ…"
+    },
+    "confirm": {
+      "instructions": "ग्रेस अवधि समाप्त होने के बाद इसे पूर्ववत नहीं किया जा सकता। सभी को तुरंत साइन आउट कर दिया जाता है। पुष्टि के लिए नीचे वर्कस्पेस पहचानकर्ता <code>{{slug}}</code> टाइप करें।",
+      "ariaLabel": "पुष्टि के लिए वर्कस्पेस पहचानकर्ता टाइप करें",
+      "deleteButton": "वर्कस्पेस हटाएँ",
+      "cancelButton": "रद्द करें"
+    }
+  },
+  "leaveOrgButton": {
+    "leaveButton": "छोड़ें",
+    "toasts": {
+      "failedTitle": "संगठन छोड़ा नहीं जा सका",
+      "failedDescriptionFallback": "कृपया फिर से कोशिश करें।",
+      "left": "आपने {{orgName}} छोड़ दिया",
+      "signedOutTitle": "साइन आउट हो गए",
+      "signedOutDescription": "जारी रखने के लिए कृपया दोबारा साइन इन करें।"
+    },
+    "confirmDialog": {
+      "title": "{{orgName}} छोड़ें?",
+      "message": "<bold>{{orgName}}</bold> के हर चैनल, संदेश और टास्क तक आपकी पहुँच समाप्त हो जाएगी। आपका पोस्ट किया कुछ भी नहीं हटेगा, और वहाँ का कोई एडमिन आपको वापस आमंत्रित कर सकता है।",
+      "movedMessage": " आपको <bold>{{orgName}}</bold> में ले जाया जाएगा।",
+      "confirmLabel": "संगठन छोड़ें"
+    },
+    "stepUp": {
+      "title": "छोड़ने के लिए पुष्टि करें कि यह आप ही हैं",
+      "description": "आपके खाते में टू-फ़ैक्टर ऑथेंटिकेशन चालू है, इसलिए संगठन छोड़ने के लिए आपका पासवर्ड और मौजूदा कोड चाहिए।"
+    }
+  }
+}

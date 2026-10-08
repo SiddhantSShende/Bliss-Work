@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
 import { Quote } from "lucide-react";
 import { Button, Card, Input, Logo } from "@taskboard/ui";
-import { ApiError } from "@taskboard/shared";
+import { ApiError, isMfaPending } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -12,6 +12,7 @@ import { PasswordField } from "../features/PasswordField";
 import { GetAppButton } from "../features/GetAppButton";
 import { checkPassword } from "../lib/password";
 import { CaptchaField, useCaptcha } from "../features/Captcha";
+import { LanguageSwitcher } from "../i18n/LanguageSwitcher";
 
 export function Onboarding() {
   const { t } = useTranslation("auth");
@@ -35,6 +36,12 @@ export function Onboarding() {
         captchaId: captcha.captchaId,
         captchaValue: captcha.value,
       });
+      // An existing identity with MFA enrolled gets the same challenge /login
+      // would: the org is created, and the challenge signs them into it.
+      if (isMfaPending(s)) {
+        nav("/mfa-challenge", { state: { ...s } });
+        return;
+      }
       setSession({ user: s.user, accessToken: s.accessToken, expiresIn: s.expiresIn });
       broadcastSession(s);
       nav("/app");
@@ -173,6 +180,10 @@ export function AuthLayout({
       {/* ── Form side ─────────────────────────────────────────────────────────── */}
       <main className="relative flex flex-1 flex-col items-center justify-center p-4 sm:p-6">
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-surface-2 via-bg to-bg" />
+        {/* Reachable before sign-in, so someone who cannot read the current language can change it. */}
+        <div className="absolute right-3 top-3 z-20 sm:right-5 sm:top-5">
+          <LanguageSwitcher />
+        </div>
 
         <Card className="glass animate-fade-up relative z-10 my-auto w-full max-w-md p-6 shadow-card sm:p-8">
           <div className="mb-7">

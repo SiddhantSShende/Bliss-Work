@@ -380,3 +380,80 @@ describe('Add member to a live room call (web useCallRoom.addPeople)', () => {
     expect(api.addCallParticipant).not.toHaveBeenCalled();
   });
 });
+
+describe('room call: startMuted (joining from a link)', () => {
+  /** A setup whose rooms record every setMic/setCam value ever requested. */
+  function recorded(tokens: (CallJoinDTO | Error)[]) {
+    const calls: string[] = [];
+    const s = setup(tokens, {
+      createRoom: () => {
+        const r = new FakeRoom();
+        const mic = r.setMic.bind(r);
+        const cam = r.setCam.bind(r);
+        r.setMic = async (on) => { calls.push(`mic:${on}`); return mic(on); };
+        r.setCam = async (on) => { calls.push(`cam:${on}`); return cam(on); };
+        s.rooms.push(r);
+        return r;
+      },
+    });
+    return { ...s, calls };
+  }
+
+  it('connects with microphone and camera OFF and never enables either', async () => {
+    const { c, rooms, calls } = recorded([JOINED]);
+    await c.join(CALL, 'video', 'Standup', { startMuted: true });
+    expect(rooms[0]!.connected).toEqual({ url: 'wss://sfu', token: 'T' });
+    expect(calls).not.toContain('mic:true');
+    expect(calls).not.toContain('cam:true');
+    expect(c.getSnapshot()).toMatchObject({ phase: 'connected', micOn: false, camOn: false });
+  });
+
+  it('shows mic/camera off while still joining', async () => {
+    const { c } = setup([JOINED], { ensurePermissions: () => new Promise(() => { /* never resolves */ }) });
+    void c.join(CALL, 'video', undefined, { startMuted: true });
+    expect(c.getSnapshot()).toMatchObject({ phase: 'joining', micOn: false, camOn: false });
+  });
+
+  it('asks only for the microphone permission up front, not the camera', async () => {
+    const { c, deps } = setup([JOINED]);
+    await c.join(CALL, 'video', undefined, { startMuted: true });
+    expect(deps.ensurePermissions).toHaveBeenCalledWith('audio');
+  });
+
+  it('the user can still turn the microphone on afterwards', async () => {
+    const { c, rooms } = setup([JOINED]);
+    await c.join(CALL, 'video', undefined, { startMuted: true });
+    await c.toggleMic();
+    expect(rooms[0]!.mic).toBe(true);
+    expect(c.getSnapshot().micOn).toBe(true);
+  });
+
+  it('stays muted through the waiting room', async () => {
+    const { c, rooms, emit, calls } = recorded([WAITING(false), JOINED]);
+    await c.join(CALL, 'video', undefined, { startMuted: true });
+    expect(c.getSnapshot()).toMatchObject({ phase: 'waiting', micOn: false, camOn: false });
+    emit({ type: 'started', callId: CALL });
+    await tick(5);
+    expect(rooms).toHaveLength(1);
+    expect(calls).not.toContain('mic:true');
+    expect(calls).not.toContain('cam:true');
+  });
+
+  it('retry after a failed muted join is still muted', async () => {
+    const { c, calls } = recorded([new Error('down'), JOINED]);
+    await c.join(CALL, 'video', undefined, { startMuted: true });
+    expect(phase(c)).toBe('failed');
+    c.retry();
+    await tick(5);
+    expect(phase(c)).toBe('connected');
+    expect(calls).not.toContain('mic:true');
+    expect(calls).not.toContain('cam:true');
+  });
+
+  it('a normal join is unchanged: mic and camera go on', async () => {
+    const { c, calls } = recorded([JOINED]);
+    await c.join(CALL, 'video');
+    expect(calls).toEqual(['mic:true', 'cam:true']);
+    expect(c.getSnapshot()).toMatchObject({ micOn: true, camOn: true });
+  });
+});

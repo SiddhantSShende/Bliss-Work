@@ -1,0 +1,209 @@
+{
+  "liveEvents": {
+    "newMailInInbox": "받은 편지함에 새 메일이 도착했어요"
+  },
+  "shared": {
+    "tryAgain": "다시 시도",
+    "noSubject": "(제목 없음)",
+    "restoreMailTitle": "복원 — 이 메일을 원래 있던 폴더로 되돌려요",
+    "deleteMailTitle": "삭제 — 내 사본만 삭제되며 다른 사람의 메일에는 영향이 없어요",
+    "restoreLabel": "복원",
+    "deleteLabel": "삭제",
+    "loading": "불러오는 중…"
+  },
+  "fields": {
+    "to": "받는 사람",
+    "cc": "참조",
+    "bcc": "숨은 참조"
+  },
+  "layout": {
+    "backToList": "목록으로 돌아가기",
+    "welcome": {
+      "title": "열린 메일이 없어요",
+      "hint": "목록에서 메일을 선택해 여기에서 읽거나, 새 메일을 선택해 작성하세요."
+    }
+  },
+  "folders": {
+    "title": "메일",
+    "unreadAriaLabel": "{{folder}}, 읽지 않음 {{count}}개",
+    "box": {
+      "inbox": "받은 편지함",
+      "sent": "보낸 편지함",
+      "drafts": "임시 보관함",
+      "deleted": "지운 편지함",
+      "favorites": "즐겨찾기"
+    }
+  },
+  "list": {
+    "tabs": {
+      "all": "전체",
+      "unread": "읽지 않음"
+    },
+    "newMail": {
+      "title": "새 메일 — 이메일 작성",
+      "label": "새 메일"
+    },
+    "checkForNewMail": "새 메일 확인",
+    "unknownPeer": "이 사람",
+    "emptyStates": {
+      "unreadTitle": "읽지 않은 메일이 없어요",
+      "deletedTitle": "삭제된 메일이 없어요",
+      "favoritesTitle": "아직 즐겨찾기가 없어요",
+      "defaultTitle": "아직 아무것도 없어요",
+      "unreadHint": "이 폴더의 모든 메일을 읽었어요.",
+      "peerHint": "{{folder}}에 {{peer}} 관련 메일이 없어요.",
+      "deletedHint": "삭제한 메일은 90일 동안 여기에 보관되므로 다시 되돌릴 수 있어요.",
+      "favoritesHint": "어느 폴더에서든 메일에 별표를 표시하면 여기에 모여요. 별표는 이 기기에 저장돼요.",
+      "defaultHint": "새 메일을 선택해 작성하세요."
+    },
+    "messageCount_other": "메시지 {{shown}}개",
+    "loadingMore": "더 불러오는 중…",
+    "showAllMailTitle": "모든 사람의 메일 보기",
+    "errors": {
+      "couldNotRemoveItem": "항목을 제거하지 못했어요",
+      "couldNotRestoreItem": "메일을 복원하지 못했어요",
+      "couldNotDeleteMessage": "메시지를 삭제하지 못했어요",
+      "couldNotAcknowledgeTask": "태스크를 확인하지 못했어요",
+      "couldNotCompleteTask": "태스크를 완료하지 못했어요"
+    }
+  },
+  "detail": {
+    "loadingMail": "메일 불러오는 중…",
+    "loadError": "이 메일을 열 수 없어요. 삭제되었을 수 있어요.",
+    "unknownSender": "알 수 없는 발신자",
+    "restoredToast": "메일함으로 복원했어요",
+    "movedToDeletedToast": "지운 편지함으로 이동했어요",
+    "couldNotRestoreToast": "복원하지 못했어요",
+    "couldNotRemoveToast": "제거하지 못했어요",
+    "statusSent": "보낸 메일",
+    "statusInbox": "받은 메일",
+    "noMessageBody": "(본문 없음)",
+    "toolbar": {
+      "reply": "답장",
+      "replyTitle": "보낸 사람에게 답장",
+      "replyAll": "전체 답장",
+      "replyAllTitle": "이 메일의 모든 사람에게 답장",
+      "forward": "전달",
+      "forwardTitle": "이 메일을 다른 사람에게 전달"
+    }
+  },
+  "thread": {
+    "defaultSubject": "스레드",
+    "ignoreTitle": "무시 — 양쪽에서 숨겨요",
+    "messageFailedToast": "메시지를 보내지 못했어요",
+    "couldNotRemoveThreadToast": "이 스레드를 제거하지 못했어요"
+  },
+  "task": {
+    "couldNotUpdateToast": "태스크를 업데이트하지 못했어요",
+    "notFoundTitle": "태스크를 찾을 수 없어요",
+    "notFoundHint": "삭제되었을 수 있어요."
+  },
+  "row": {
+    "externalSender": "외부 발신자",
+    "untitledTask": "(제목 없는 태스크)",
+    "noPreview": "(미리보기 없음)",
+    "taskLabel": "태스크",
+    "threadLabel": "스레드",
+    "newBadge": "새",
+    "favorite": {
+      "add": "즐겨찾기에 추가",
+      "remove": "즐겨찾기에서 제거"
+    },
+    "acknowledgeTitle": "확인 — 이 태스크를 수락해요",
+    "acknowledgeLabel": "확인",
+    "completeTitle": "완료로 표시",
+    "completeLabel": "완료",
+    "ignoreTitleTask": "무시 — 내 메일함에서 제거해요",
+    "ignoreTitleThread": "무시 — 양쪽에서 숨겨요",
+    "ignoreLabel": "무시",
+    "dismissTitle": "내 메일함에서 삭제"
+  },
+  "addressField": {
+    "invalidAddressTitle": "이메일 주소 형식이 아니에요",
+    "removeAddress": "{{address}} 제거"
+  },
+  "attachments": {
+    "heading": "첨부 파일 ({{count}})",
+    "couldNotAttachToast": "{{filename}} 파일을 첨부하지 못했어요",
+    "tooLargeToast": "{{filename}} 파일이 {{maxSize}}보다 커요.",
+    "couldNotRemoveToast": "파일을 제거하지 못했어요",
+    "tray": {
+      "uploading": "업로드 중… {{progress}}%",
+      "remove": "{{filename}} 제거"
+    },
+    "preview": "미리보기",
+    "previewFile": "{{filename}} 미리보기",
+    "open": "열기",
+    "openFile": "{{filename}} 열기",
+    "download": "다운로드",
+    "downloadFile": "{{filename}} 다운로드",
+    "preparing": "준비 중…",
+    "unavailable": "사용할 수 없음"
+  },
+  "draftList": {
+    "discardedToast": "임시 저장본을 삭제했어요",
+    "couldNotDiscardToast": "삭제하지 못했어요",
+    "loading": "임시 보관함 불러오는 중…",
+    "errorTitle": "임시 보관함을 불러오지 못했어요",
+    "errorHint": "연결 상태를 확인하고 위의 새 메일 확인을 선택하세요.",
+    "emptyTitle": "임시 저장본이 없어요",
+    "emptyHint": "작성하다가 보내지 않고 나간 메일은 완성할 때까지 여기에 보관돼요.",
+    "noRecipient": "아직 받는 사람이 없어요",
+    "addressedMore": "{{first}} 외 {{count}}명",
+    "attachments_other": "파일 {{count}}개",
+    "discardTitle": "이 임시 저장본 삭제 — 아직 아무에게도 보내지 않았어요",
+    "discardAriaLabel": "임시 저장본 삭제"
+  },
+  "compose": {
+    "headings": {
+      "draft": "임시 저장본",
+      "forward": "전달",
+      "reply": "답장",
+      "newMail": "새 메일"
+    },
+    "closeTitle": "닫기 — 임시 보관함에 보관돼요",
+    "startErrorBanner": "임시 저장본을 시작하지 못했어요. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "retry": "다시 시도",
+    "openingDraft": "임시 저장본 여는 중…",
+    "loadErrorText": "이 임시 저장본을 열 수 없어요. 이미 보냈거나 삭제되었을 수 있어요.",
+    "ccBccButton": "참조 / 숨은 참조",
+    "toPlaceholder": "name@company.com",
+    "ccPlaceholder": "참조할 사람 추가",
+    "bccPlaceholder": "숨은 참조 — 다른 수신자에게 보이지 않아요",
+    "subjectLabel": "제목",
+    "subjectPlaceholder": "무엇에 관한 메일인가요?",
+    "messageLabel": "본문",
+    "messagePlaceholder": "이메일 내용을 입력하세요…",
+    "attachTitleReady": "파일 첨부",
+    "attachTitlePreparing": "임시 저장본 준비 중…",
+    "attachLabel": "첨부",
+    "removeAll": "모두 제거",
+    "preparing": "준비 중…",
+    "discardButton": "삭제",
+    "discardTitle": "삭제 — 이 임시 저장본을 삭제해요. 아직 아무에게도 보내지 않았어요",
+    "closeButton": "닫기",
+    "sendButton": "보내기",
+    "sendingButton": "보내는 중…",
+    "draftDiscardedToast": "임시 저장본을 삭제했어요",
+    "couldNotDiscardToast": "임시 저장본을 삭제하지 못했어요",
+    "couldNotSendToast": "보내지 못했어요",
+    "errors": {
+      "draftNotReady": "임시 저장본이 준비되지 않았어요",
+      "invalidAddress": "\"{{address}}\" — 이메일 주소 형식이 아니에요.",
+      "subjectTooLong": "제목이 {{length}}자예요. 최대 {{limit}}자까지 입력할 수 있어요."
+    },
+    "sentSummary": {
+      "sent": "보냈어요",
+      "sentToPeople": "{{count}}명에게 보냈어요",
+      "delivering": "보냈어요 — 전달 중",
+      "deliveringToCount": "보냈어요 — {{count}}명에게 전달 중",
+      "sentAndDelivering": "여기 {{inApp}}명에게 보냈고, {{external}}명에게 추가로 전달 중이에요"
+    }
+  },
+  "quote": {
+    "wrote": "{{when}}, {{sender}} 작성:"
+  },
+  "recipients": {
+    "summaryMore": "{{list}} 외 {{count}}명"
+  }
+}

@@ -56,8 +56,8 @@
       "favoritesHint": "Star a mail from any folder and it is collected here. Stars are kept on this device.",
       "defaultHint": "Choose New Mail to write one."
     },
-    "messageCountSingular": "message",
-    "messageCountPlural": "messages",
+    "messageCount_one": "{{shown}} message",
+    "messageCount_other": "{{shown}} messages",
     "loadingMore": "Loading more…",
     "showAllMailTitle": "Show mail from everyone",
     "errors": {
@@ -151,8 +151,8 @@
     "emptyHint": "A mail you start and leave without sending is kept here until you finish it.",
     "noRecipient": "No recipient yet",
     "addressedMore": "{{first}} + {{count}} more",
-    "file": "file",
-    "files": "files",
+    "attachments_one": "{{count}} file",
+    "attachments_other": "{{count}} files",
     "discardTitle": "Discard this draft — it has not been sent to anyone",
     "discardAriaLabel": "Discard draft"
   },
@@ -201,5 +201,11 @@
       "deliveringToCount": "Sent — delivering to {{count}}",
       "sentAndDelivering": "Sent to {{inApp}} here, delivering to {{external}} more"
     }
+  },
+  "quote": {
+    "wrote": "On {{when}}, {{sender}} wrote:"
+  },
+  "recipients": {
+    "summaryMore": "{{list}} + {{count}} more"
   }
 }

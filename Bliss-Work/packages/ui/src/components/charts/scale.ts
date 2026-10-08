@@ -34,10 +34,19 @@ export function rampIndex(value: number, max: number, steps: number): number {
   return Math.min(steps - 1, Math.max(1, idx));
 }
 
-/** Milliseconds → a short human duration for axis ticks and labels. */
-export function formatMs(ms: number): string {
+/** Milliseconds → a short human duration for axis ticks and labels. Units are
+ *  "m"/"h" unless a `locale` is given, in which case they follow that language
+ *  (the app passes its in-app language; this package knows no i18n library). */
+export function formatMs(ms: number, locale?: string): string {
   if (!Number.isFinite(ms) || ms <= 0) return "0";
   const mins = Math.round(ms / 60_000);
+  if (locale) {
+    const unit = (u: "minute" | "hour", digits: number) =>
+      new Intl.NumberFormat(locale, { style: "unit", unit: u, unitDisplay: "narrow", maximumFractionDigits: digits });
+    if (mins < 60) return unit("minute", 0).format(mins);
+    const h = mins / 60;
+    return h < 10 ? unit("hour", 1).format(Number(h.toFixed(1))) : unit("hour", 0).format(Math.round(h));
+  }
   if (mins < 60) return `${mins}m`;
   const hours = mins / 60;
   return hours < 10 ? `${hours.toFixed(1).replace(/\.0$/, "")}h` : `${Math.round(hours)}h`;

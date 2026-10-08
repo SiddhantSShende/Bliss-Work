@@ -1,0 +1,56 @@
+{
+  "menu": {
+    "file": "Archivo",
+    "showApp": "Mostrar BlissWork",
+    "quit": "Salir",
+    "view": "Ver",
+    "aboutItem": "Acerca de BlissWork",
+    "aboutTitle": "Acerca de BlissWork",
+    "aboutMessage": "BlissWork",
+    "aboutDetail": "Versión {{version}}\nElectron {{electron}} · Chromium {{chrome}}\n\nMensajería de equipo y tareas con notas adhesivas siempre visibles.",
+    "ok": "Aceptar",
+    "webHelp": "BlissWork en la web"
+  },
+  "tray": {
+    "tooltipIdle": "BlissWork",
+    "tooltipTasks_one": "BlissWork — {{count}} tarea activa",
+    "tooltipTasks_many": "BlissWork — {{count}} de tareas activas",
+    "tooltipTasks_other": "BlissWork — {{count}} tareas activas",
+    "activeTasks": "Tareas activas: {{count}}",
+    "show": "Mostrar BlissWork",
+    "quit": "Salir"
+  },
+  "notifications": {
+    "brand": "BlissWork",
+    "newMessage": "Mensaje nuevo",
+    "taskUpdate": "Actualización de tarea",
+    "meeting": "Reunión",
+    "channelUpdate": "Actualización del canal",
+    "attachment": "Envió un archivo adjunto",
+    "incomingVideoCall": "📹 Videollamada entrante",
+    "incomingVoiceCall": "📞 Llamada de voz entrante",
+    "accept": "Aceptar",
+    "decline": "Rechazar"
+  },
+  "updater": {
+    "restartNow": "Reiniciar ahora",
+    "later": "Más tarde",
+    "updateReady": "Actualización lista",
+    "readyMessage": "BlissWork {{version}} está listo para instalarse.",
+    "readyDetail": "Reinicia la aplicación para aplicar la actualización. También se instalará automáticamente la próxima vez que salgas.",
+    "devUnsupported": "Las actualizaciones solo se aplican a las versiones instaladas.",
+    "storeManaged": "Microsoft Store administra las actualizaciones de esta aplicación.",
+    "unreachable": "No se pudo conectar con el servidor de actualizaciones."
+  },
+  "attachment": {
+    "notMainWindow": "Rechazado: no es la ventana principal.",
+    "unsafeUrl": "Se rechazó una URL no segura.",
+    "downloadFailed": "Error en la descarga ({{status}}).",
+    "emptyBody": "Cuerpo de respuesta vacío.",
+    "couldNotOpen": "No se pudo abrir el archivo."
+  },
+  "windows": {
+    "meetingTitle": "Reunión · BlissWork",
+    "loading": "Cargando…"
+  }
+}

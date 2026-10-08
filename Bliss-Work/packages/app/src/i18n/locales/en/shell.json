@@ -46,6 +46,12 @@
       "retry": "Try again",
       "partial": "Some notifications couldn't be loaded — try again"
     },
+    "message": {
+      "title": "New message",
+      "body": "You have a new message",
+      "someone": "Someone",
+      "aChannel": "a channel"
+    },
     "row": {
       "markRead": "Mark read"
     },
@@ -130,5 +136,9 @@
       "network": "Network"
     },
     "stillActive": "still active"
+  },
+  "liveEvents": {
+    "channelBlocked": "You were blocked from a channel",
+    "channelRemoved": "You were removed from a channel"
   }
 }

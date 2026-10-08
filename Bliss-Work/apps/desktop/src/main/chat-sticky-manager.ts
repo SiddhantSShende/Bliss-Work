@@ -126,6 +126,13 @@ export class ChatStickyManager {
     if (w && !w.isDestroyed()) w.webContents.send("sticky-chat:message", payload);
   }
 
+  /** A reply sent from this sticky failed — tell its window so the optimistic
+   *  bubble can be shown as unsent instead of sitting there as if delivered. */
+  pushSendFailed(threadId: string, clientMsgId: string): void {
+    const w = this.widgets.get(threadId);
+    if (w && !w.isDestroyed()) w.webContents.send("sticky-chat:send-failed", clientMsgId);
+  }
+
   /** Main window focused: drop chat notes to normal z-order so they don't cover
    *  the app. Called alongside raiseZOrder on blur — see index.ts's wiring,
    *  which is where the two names come from (task-note stickies use the

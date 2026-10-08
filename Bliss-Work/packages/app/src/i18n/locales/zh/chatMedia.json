@@ -1,0 +1,66 @@
+{
+  "mediaBubble": {
+    "openFile": "打开 {{name}}",
+    "download": "下载",
+    "downloadFile": "下载 {{name}}",
+    "uploading": "正在上传… {{percent}}%",
+    "notAvailable": "你无权查看",
+    "previewUnavailable": "此文件类型不支持预览"
+  },
+  "fileAttachment": {
+    "downloadsOff": "文件下载已关闭。",
+    "decline": "拒绝",
+    "cancel": "取消",
+    "retry": "重试",
+    "directTransfer": "直接传输，点对点。",
+    "establishingConnection": "正在建立点对点连接…",
+    "transferComplete": "传输完成。",
+    "cancelledByPeer": "对方已取消",
+    "couldNotReadFile": "无法读取该文件",
+    "couldNotAnnounceFile": "无法发出文件通知",
+    "declined": "已拒绝",
+    "couldNotSend": "无法发送 {{name}}",
+    "transferUnavailable": "无法直接传输",
+    "badAnswer": "应答无效",
+    "peerUnreachable": "无法连接对方",
+    "offerCreationFailed": "创建传输请求失败",
+    "checksumMismatch": "校验和不匹配",
+    "cancelled": "已取消",
+    "sinkWriteFailed": "写入失败：{{message}}",
+    "answerCreationFailed": "创建应答失败",
+    "receiverSetupFailed": "接收端设置失败"
+  },
+  "location": {
+    "sharedLocation": "共享的位置",
+    "openInMapsAriaLabel": "在地图中打开 {{title}}",
+    "mapAlt": "显示 {{title}} 的地图",
+    "accuracySuffix": " · ±{{accuracy}} 米",
+    "openInMapsTitle": "在地图中打开",
+    "open": "打开"
+  },
+  "emojiPicker": {
+    "insertEmoji": "插入表情"
+  },
+  "attachments": {
+    "tooManyFiles": "一次最多可发送 {{max}} 个文件。",
+    "overSizePeerToPeer": "{{name}} 超过 {{size}}，将通过点对点方式发送。传输完成前，双方都需保持在线。",
+    "tooLarge": "{{name}} 超过 {{size}}。",
+    "uploadFailed": "上传失败",
+    "attachFailedSingle": "无法添加 {{name}}：{{message}}",
+    "attachFailedMultiple": "无法添加 {{count}} 个文件：{{names}}",
+    "attachFailedGeneric": "无法添加该文件，请重试。"
+  },
+  "shareLocation": {
+    "gettingLocation": "正在获取你的位置…",
+    "approximateShared": "共享了大致位置",
+    "reasons": {
+      "desktopAccessOff": "桌面应用的位置权限已关闭，因此位置根据你的网络估算。",
+      "noPreciseFix": "你的设备无法获取精确定位，因此位置根据你的网络估算。",
+      "noProvider": "此版本没有精确定位服务，因此位置根据你的网络估算。"
+    },
+    "openSettings": "打开设置",
+    "notAvailable": "此设备不支持位置共享。",
+    "permissionDenied": "位置权限被拒绝。请在网站设置中开启后再共享位置。",
+    "determineFailed": "无法确定你的位置。请重试，或检查是否已开启定位服务。"
+  }
+}

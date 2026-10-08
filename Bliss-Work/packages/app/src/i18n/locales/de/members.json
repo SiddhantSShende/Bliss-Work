@@ -1,0 +1,311 @@
+{
+  "list": {
+    "title": "Mitglieder",
+    "workspaceActivity": "Aktivität im Arbeitsbereich",
+    "searchPlaceholder": "Teammitglieder suchen…",
+    "selfRow": {
+      "name": "{{name}} (Sie)",
+      "subtitle": "Ihre Aktivität und Sitzungen"
+    },
+    "empty": {
+      "title": "Keine Teammitglieder gefunden"
+    },
+    "status": {
+      "online": "Online",
+      "idle": "Inaktiv",
+      "lastSeen": "Zuletzt gesehen {{time}}"
+    },
+    "messageButton": "Nachricht an {{name}}"
+  },
+  "detail": {
+    "notFound": {
+      "title": "Mitglied nicht gefunden",
+      "hint": "Wählen Sie links ein anderes Teammitglied."
+    },
+    "backButton": "Zurück zu Mitgliedern",
+    "tabs": {
+      "overview": "Übersicht",
+      "activity": "Aktivität",
+      "analytics": "Analysen",
+      "sessions": "Sitzungen",
+      "admin": "Admin",
+      "security": "Sicherheit"
+    },
+    "roleLabel": {
+      "admin": "Admin",
+      "member": "Mitglied"
+    },
+    "fields": {
+      "email": "E-Mail",
+      "username": "Benutzername",
+      "role": "Rolle",
+      "status": "Status",
+      "lastSeen": "Zuletzt gesehen",
+      "emailVerified": "E-Mail bestätigt",
+      "joined": "Beigetreten",
+      "removed": "Entfernt"
+    },
+    "emailVerified": {
+      "yes": "Ja",
+      "no": "Noch nicht"
+    },
+    "lastSeen": {
+      "now": "Jetzt",
+      "noRecentActivity": "Keine aktuelle Aktivität"
+    },
+    "exportButton": "Exportieren",
+    "exportTooltip": "Aktivität dieses Mitglieds exportieren",
+    "messageButton": "Nachricht",
+    "selfActivityBanner": "Dies ist Ihr eigenes Aktivitätsprotokoll. Auch die Admins Ihres Arbeitsbereichs können es sehen."
+  },
+  "status": {
+    "active": "Aktiv",
+    "suspended": "Deaktiviert",
+    "removed": "Entfernt"
+  },
+  "admin": {
+    "toasts": {
+      "actionFailed": "Aktion fehlgeschlagen",
+      "nowAdmin": "{{name}} ist jetzt Admin",
+      "nowMember": "{{name}} ist jetzt Mitglied",
+      "reactivated": "{{name}} kann sich wieder anmelden",
+      "suspended": "{{name}} ist deaktiviert",
+      "removed": "{{name}} wurde aus dem Arbeitsbereich entfernt"
+    },
+    "selfGuard": "Sie können Ihre eigene Rolle oder Mitgliedschaft nicht ändern. Bitten Sie einen anderen Admin – diese Regel verhindert, dass der letzte Admin alle, auch sich selbst, aus dem Arbeitsbereich aussperrt.",
+    "sections": {
+      "role": {
+        "title": "Rolle",
+        "hint": "Admins können Personen einladen, Mitglieder verwalten und das Audit-Protokoll einsehen. Beim Ändern einer Rolle wird das Mitglied auf allen Geräten abgemeldet, damit die neuen Berechtigungen sofort gelten."
+      },
+      "access": {
+        "title": "Zugriff",
+        "hint": "Beim Deaktivieren bleibt alles erhalten, und es lässt sich jederzeit rückgängig machen. Beim Entfernen wird die Mitgliedschaft aufgehoben – Nachrichten, Aufgaben und Verlauf bleiben genau dort, wo sie sind, und die Person kann später erneut eingeladen werden."
+      },
+      "activeSessions": {
+        "title": "Aktive Sitzungen",
+        "hint": "Beim Abmelden einer Sitzung wird sie sofort beendet – das Gerät muss sich erneut anmelden."
+      }
+    },
+    "actions": {
+      "demote": "Zum Mitglied herabstufen",
+      "makeAdmin": "Zum Admin machen",
+      "suspend": "Deaktivieren",
+      "remove": "Entfernen",
+      "reactivate": "Reaktivieren"
+    },
+    "reactivateFirst": "Reaktivieren Sie dieses Mitglied, bevor Sie die Rolle ändern.",
+    "confirmDialog": {
+      "removeTitle": "Aus dem Arbeitsbereich entfernen?",
+      "suspendTitle": "Mitglied deaktivieren?",
+      "removeMessage": "<bold>{{name}}</bold> verliert sofort den Zugriff auf diesen Arbeitsbereich und verschwindet aus dem Verzeichnis. Alles, was die Person geschrieben hat, bleibt erhalten. Sie können die Person jederzeit wieder einladen.",
+      "suspendMessage": "<bold>{{name}}</bold> wird überall abgemeldet und kann sich erst wieder anmelden, wenn Sie das Mitglied reaktivieren. Es wird nichts gelöscht."
+    },
+    "sessions": {
+      "loadError": {
+        "title": "Sitzungen konnten nicht geladen werden",
+        "hint": "Prüfen Sie Ihre Verbindung und versuchen Sie es erneut."
+      },
+      "none": "Keine aktiven Sitzungen.",
+      "signedOutToast": "{{device}} abgemeldet",
+      "revokeFailedToast": {
+        "title": "Diese Sitzung konnte nicht abgemeldet werden",
+        "description": "Bitte versuchen Sie es erneut."
+      },
+      "confirmDialog": {
+        "title": "Diese Sitzung abmelden?",
+        "message": "<bold>{{device}}</bold> wird sofort abgemeldet und muss sich erneut anmelden.",
+        "confirmLabel": "Abmelden"
+      }
+    }
+  },
+  "analytics": {
+    "empty": {
+      "title": "Keine Aktivität in diesem Zeitraum",
+      "hint": "Diagramme erscheinen, sobald es einen Tag mit Aktivität gibt."
+    },
+    "summary": {
+      "activeTime": "Aktive Zeit",
+      "acrossDays_one": "an {{count}} Tag",
+      "acrossDays_other": "an {{count}} Tagen",
+      "sessions": "Sitzungen",
+      "sessionsHint": "erfasste Anmeldungen",
+      "events": "Ereignisse",
+      "eventsHint": "erfasste Ereignisse",
+      "lastActive": "Zuletzt aktiv",
+      "lastActiveHint": "letzte erfasste Aktivität",
+      "lastActiveNone": "keine Aktivität erfasst",
+      "vsPrevious": "ggü. vorherigem Zeitraum"
+    },
+    "overview": {
+      "title": "Aktivitätsübersicht",
+      "hint": "Gesamtzeit und Verteilung der Aktivität im gewählten Zeitraum",
+      "activeOfSignedIn": "der angemeldeten Zeit war aktiv",
+      "active": "Aktiv",
+      "idle": "Inaktiv",
+      "idleHint": "angemeldet, keine Eingabe"
+    },
+    "topApps": {
+      "title": "Meistgenutzte Anwendungen",
+      "hint": "Am häufigsten genutzte Anwendungen in diesem Zeitraum",
+      "empty": "Keine Anwendungsdaten für diesen Zeitraum."
+    },
+    "recent": {
+      "title": "Letzte Aktivität",
+      "hint": "Neueste Anwendungs- und Systemaktivität",
+      "empty": "Keine aktuelle Aktivität erfasst.",
+      "viewAll": "Gesamte Aktivität ansehen"
+    },
+    "work": {
+      "title": "Arbeitszeiten",
+      "hint": "Aktivitäts-Heatmap – dunkler bedeutet mehr Aktivität",
+      "less": "Weniger",
+      "more": "Mehr",
+      "outsideHours": "{{time}} mehr aktiv außerhalb dieser Zeiten"
+    },
+    "trend": {
+      "title": "Aktivitätstrend",
+      "hint": "Durchschnittliche aktive und inaktive Zeit pro Wochentag",
+      "active": "Aktiv",
+      "idle": "Inaktiv"
+    }
+  },
+  "auditLog": {
+    "labels": {
+      "org": { "created": "hat den Arbeitsbereich erstellt" },
+      "user": { "profile_updated": "hat das eigene Profil aktualisiert" },
+      "invite": {
+        "created": "hat jemanden eingeladen",
+        "accepted": "hat eine Einladung angenommen",
+        "revoked": "hat eine Einladung zurückgezogen"
+      },
+      "password": {
+        "reset_requested": "hat ein Zurücksetzen des Passworts angefordert",
+        "reset_completed": "hat das Passwort zurückgesetzt"
+      },
+      "email": { "verified": "hat die eigene E-Mail-Adresse bestätigt" },
+      "member": {
+        "role_changed": "hat eine Rolle geändert",
+        "deactivated": "hat ein Mitglied deaktiviert",
+        "reactivated": "hat ein Mitglied reaktiviert",
+        "removed": "hat ein Mitglied entfernt"
+      }
+    },
+    "error": {
+      "title": "Audit-Protokoll konnte nicht geladen werden",
+      "hint": "Prüfen Sie Ihre Verbindung und versuchen Sie es erneut."
+    },
+    "empty": {
+      "title": "Noch nichts erfasst",
+      "hintScoped": "Admin-Aktionen zu diesem Mitglied erscheinen hier.",
+      "hintAll": "Admin-Aktionen im gesamten Arbeitsbereich erscheinen hier."
+    },
+    "systemActor": "System"
+  },
+  "sessions": {
+    "empty": {
+      "title": "Keine Sitzungen erfasst",
+      "hint": "Sitzungen erscheinen hier, sobald sich jemand von einem Gerät aus anmeldet."
+    },
+    "activeNow": "Jetzt aktiv",
+    "endReason": {
+      "disconnect": "App geschlossen",
+      "timeout": "Keine Aktivität mehr"
+    },
+    "durations": {
+      "total": "{{duration}} insgesamt",
+      "active": "{{duration}} aktiv",
+      "idle": "{{duration}} inaktiv"
+    },
+    "approximateNetworkTooltip": "Ungefähres Netzwerk",
+    "retentionNote": "Angezeigt werden die letzten 7 Tage. Ältere Sitzungen werden aufbewahrt, sind hier aber nicht durchsuchbar."
+  },
+  "timeline": {
+    "filters": {
+      "all": "Alles",
+      "engagement": "Arbeit",
+      "navigation": "In der App",
+      "outside": "Außerhalb der App",
+      "auth": "Anmeldungen",
+      "security": "Sicherheit"
+    },
+    "empty": {
+      "title": "Noch keine Aktivität erfasst",
+      "hint": "Aktivität erscheint hier, sobald {{brand}} genutzt wird."
+    },
+    "error": {
+      "title": "Aktivität konnte nicht geladen werden",
+      "hint": "Prüfen Sie Ihre Verbindung und versuchen Sie es erneut."
+    },
+    "verifiedTooltip": "Von {{brand}} selbst erfasst – nicht selbst gemeldet",
+    "retentionNote": "Angezeigt werden die letzten 7 Tage. Ältere Aktivität wird aufbewahrt, ist hier aber nicht durchsuchbar."
+  },
+  "loadOlder": {
+    "button": "Ältere laden"
+  },
+  "activityLabels": {
+    "actions": {
+      "login": "Angemeldet",
+      "logout": "Abgemeldet",
+      "org": { "switched": "Arbeitsbereich gewechselt" },
+      "message": { "sent": "Nachricht gesendet" },
+      "mail": { "attachment": { "downloaded": "Mail-Anhang heruntergeladen" } },
+      "attachment": { "opened": "Datei geöffnet", "downloaded": "Datei heruntergeladen" },
+      "channel": { "message": { "sent": "In einem Kanal gepostet" } },
+      "conversation": { "ignored": "Unterhaltung ignoriert" },
+      "user": { "blocked": "Jemanden gesperrt", "unblocked": "Jemanden entsperrt" },
+      "task": {
+        "allocated": "Aufgabe zugewiesen",
+        "acknowledged": "Aufgabe bestätigt",
+        "completed": "Aufgabe abgeschlossen",
+        "ignored": "Aufgabe ignoriert",
+        "left": "Aufgabe verlassen",
+        "reviewed": "Aufgabe bewertet"
+      },
+      "route": { "enter": "Geöffnet:", "dwell": "Verweildauer:" },
+      "focus": "Zu {{brand}} zurückgekehrt",
+      "blur": "Von {{brand}} weggewechselt",
+      "idle": { "start": "Inaktiv geworden", "end": "Wieder aktiv geworden" },
+      "screenshot": { "attempted": "Screenshot-Versuch blockiert" },
+      "app": { "focus": "Genutzt:" },
+      "os": { "idle": "Nicht an der Tastatur" }
+    },
+    "surfaces": {
+      "mail": "Mail",
+      "inbox": "Posteingang",
+      "chats": "Chats",
+      "channels": "Kanäle",
+      "tasks": "Aufgaben",
+      "members": "Mitglieder",
+      "integrations": "Integrationen",
+      "search": "Suche",
+      "settings": "Einstellungen",
+      "profile": "Profil",
+      "org": "Organisation"
+    },
+    "theApp": "App",
+    "source": {
+      "verified": "Verifiziert",
+      "desktop": "Desktop-App",
+      "extension": "Browser-Erweiterung",
+      "web": "Web-App"
+    }
+  },
+  "myActivity": {
+    "settingsBack": "Einstellungen",
+    "title": "Ihre Aktivität",
+    "subtitle": "Alles, was {{brand}} über Ihre Arbeitsweise erfasst.",
+    "whatsRecorded": "Was erfasst wird und wer es sehen kann",
+    "bullets": {
+      "signInOut": "Wann Sie sich an- und abmelden und wann Sie online, inaktiv oder offline sind.",
+      "appUsage": "Welche Bereiche von {{brand}} Sie nutzen und wie lange.",
+      "messagesAndTasks": "Nachrichten, die Sie senden, und Aufgaben, die Sie bearbeiten – die erste Zeile einer Nachricht, nie die ganze Unterhaltung.",
+      "deviceAndLocation": "Der Browser und das Gerät, mit denen Sie sich anmelden, sowie ein grober Standort anhand Ihrer IP-Adresse."
+    },
+    "retentionNote": "Die Admins Ihres Arbeitsbereichs können diese Daten sehen. Hier werden die letzten 7 Tage angezeigt. Detaillierte Aktivitäten werden 90 Tage lang aufbewahrt, Tagessummen länger – beides wird für Berichte genutzt und ist auf Anfrage verfügbar, in der App aber nicht durchsuchbar."
+  },
+  "membersEmpty": {
+    "title": "Mitglieder",
+    "hint": "Wählen Sie links ein Teammitglied, um das Profil zu sehen, oder tippen Sie auf das Chat-Symbol, um eine Nachricht zu senden."
+  }
+}

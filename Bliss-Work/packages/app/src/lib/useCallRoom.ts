@@ -244,6 +244,10 @@ export function useCallRoom(callId: string | null) {
    *  completed normally, landing the user back in the call. Reset at the
    *  start of every join attempt. */
   const leaveRequestedWhileConnecting = useRef(false);
+  /** The component is gone. A join() still awaiting its token must not build a
+   *  Room afterwards: nothing would ever disconnect it, leaving this user on the
+   *  roster and the room (and any device) held with no UI attached. */
+  const unmountedRef = useRef(false);
   const callIdRef = useRef(callId);
   callIdRef.current = callId;
   const apiRef = useRef(api);
@@ -458,7 +462,13 @@ export function useCallRoom(callId: string | null) {
       // the same disconnect+report `leave()` itself does below, just for a
       // call this hook is no longer being asked to represent rather than
       // the one a person clicked Leave on.
-      await stale.room.disconnect();
+      try {
+        await stale.room.disconnect();
+      } catch {
+        // Going ahead regardless. This runs after `joining` was claimed but
+        // before the try/finally below, so a throw here used to leave `joining`
+        // stuck true and every later join() a silent no-op.
+      }
       if (!leftRef.current) {
         leftRef.current = true;
         api.leaveCall(stale.id).catch(() => {});
@@ -482,10 +492,12 @@ export function useCallRoom(callId: string | null) {
       console.debug("[CALL ROOM] Requesting meeting token");
       const grant = await api.callToken(callId, opts?.switchHere ? "SWITCH" : "JOIN");
       console.debug("[CALL ROOM] Token received");
-      if (leaveRequestedWhileConnecting.current) {
+      if (leaveRequestedWhileConnecting.current || unmountedRef.current) {
         // leave() ran while this request was in flight — there was no room
         // yet for it to disconnect (see the ref's own comment), so it just
-        // recorded the request. Honor it now, before entering the waiting
+        // recorded the request. (Unmounting is the same request, made by the
+        // component going away; its cleanup had no room to disconnect either.)
+        // Honor it now, before entering the waiting
         // room or connecting to the SFU either one: settling into either
         // would silently land the user back in the call they just tried to
         // leave. Same departure report leave()'s own waiting-room branch
@@ -841,16 +853,15 @@ export function useCallRoom(callId: string | null) {
     try {
       await room.localParticipant.setMicrophoneEnabled(true);
     } catch (e) {
-      toast(isGetUserMediaDenied(e) ? "Microphone blocked" : "Microphone unavailable", {
-        description: isGetUserMediaDenied(e)
-          ? "Check this app's microphone permission."
-          : "Check that a microphone is connected and not already in use.",
+      const denied = isGetUserMediaDenied(e);
+      toast(tr(denied ? "notify.micBlocked" : "notify.micUnavailable"), {
+        description: tr(denied ? "notify.micBlockedHint" : "notify.micUnavailableHint"),
       });
       return;
     }
     setMicOn(true);
     sync(room);
-  }, [micOn, sync]);
+  }, [micOn, sync, tr]);
 
   const toggleCam = useCallback(async () => {
     const room = roomRef.current;
@@ -864,16 +875,15 @@ export function useCallRoom(callId: string | null) {
     try {
       await room.localParticipant.setCameraEnabled(true);
     } catch (e) {
-      toast(isGetUserMediaDenied(e) ? "Camera blocked" : "Camera unavailable", {
-        description: isGetUserMediaDenied(e)
-          ? "Check this app's camera permission."
-          : "Check that a camera is connected and not already in use.",
+      const denied = isGetUserMediaDenied(e);
+      toast(tr(denied ? "notify.cameraBlocked" : "notify.cameraUnavailable"), {
+        description: tr(denied ? "notify.cameraBlockedHint" : "notify.cameraUnavailableHint"),
       });
       return;
     }
     setCamOn(true);
     sync(room);
-  }, [camOn, sync]);
+  }, [camOn, sync, tr]);
 
   /**
    * Start or stop sharing this screen.
@@ -958,7 +968,9 @@ export function useCallRoom(callId: string | null) {
   // Disconnect on unmount. Without this, navigating away leaves the camera on
   // and the participant still in the room for everyone else.
   useEffect(() => {
+    unmountedRef.current = false; // StrictMode re-mounts after a simulated unmount
     return () => {
+      unmountedRef.current = true;
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
       // Without these the lobby outlives the component and keeps asking to be
       // let into a call nobody is looking at any more — the timer by polling,

@@ -1,0 +1,199 @@
+{
+  "notify": {
+    "incomingVideo": "Videollamada entrante",
+    "incomingVoice": "Llamada de voz entrante",
+    "incomingBody": "{{caller}} te está llamando",
+    "missedTitle": "Llamada perdida",
+    "missedBody": "Perdiste una llamada de {{caller}}",
+    "cameraUnavailable": "Cámara no disponible",
+    "cameraUnavailableDescription": "Revisa el permiso de cámara de esta aplicación.",
+    "couldNotShareScreen": "No se pudo compartir tu pantalla",
+    "ringtoneMuted": "Tu navegador silenció el tono de llamada",
+    "ringtoneMutedDescription": "Haz clic en cualquier lugar para permitir los sonidos de las llamadas.",
+    "unknownCaller": "Alguien"
+  },
+  "endedReasons": {
+    "noAnswer": "Sin respuesta",
+    "mediaBlocked": "Cámara o micrófono bloqueados",
+    "declined": "Llamada rechazada",
+    "callEnded": "Llamada finalizada",
+    "userUnavailable": "Usuario no disponible",
+    "connectionFailed": "falló la conexión"
+  },
+  "window": {
+    "tabTitle": "{{title}} · {{brand}}",
+    "untitledMeeting": "Reunión",
+    "loading": "Cargando la reunión…",
+    "loadError": {
+      "title": "No se pudo cargar esta reunión.",
+      "hint": "Revisa tu conexión e inténtalo de nuevo.",
+      "returnToMeetings": "Volver a Reuniones",
+      "retrying": "Reintentando…",
+      "retry": "Reintentar"
+    },
+    "unavailable": {
+      "title": "Esta reunión no está disponible",
+      "hint": "Puede que haya terminado o que ya no estés en su lista de participantes.",
+      "close": "Cerrar"
+    }
+  },
+  "join": {
+    "signIn": {
+      "title": "Inicia sesión para unirte",
+      "hint": "Este enlace de reunión funciona con cualquier cuenta de {{brand}}, incluso una de otra organización."
+    },
+    "joining": "Uniéndose…",
+    "invalid": {
+      "title": "Este enlace de invitación ya no es válido",
+      "hint": "Puede que haya caducado, que se haya revocado o que la reunión ya haya terminado. Pide un enlace nuevo al organizador.",
+      "backToApp": "Volver a {{brand}}"
+    },
+    "timeout": {
+      "title": "Esto está tardando más de lo esperado",
+      "hint": "Normalmente se soluciona recargando la página.",
+      "reload": "Recargar"
+    },
+    "handoff": {
+      "joining": "Uniéndose a la reunión…"
+    }
+  },
+  "chat": {
+    "disclaimer": "Los mensajes aquí los ven todos los miembros de la reunión; elige un nombre abajo para enviar uno en privado.",
+    "empty": "Aún no hay mensajes. Lo que se envíe aquí dura lo que dure la reunión; descárgalo desde el encabezado si necesitas conservarlo.",
+    "toLabel": "Para:",
+    "toAriaLabel": "A quién va este mensaje",
+    "everyone": "Todos",
+    "privateOption": "{{name}} (privado)",
+    "attachmentsUnsupported": "Los archivos adjuntos no son compatibles con el chat de la reunión",
+    "privatePlaceholder": "Mensaje privado para {{name}}…",
+    "everyonePlaceholder": "Escribe a todos…",
+    "privateAriaLabel": "Mensaje privado para {{name}}",
+    "everyoneAriaLabel": "Escribir a todos",
+    "send": "Enviar",
+    "onlyWillSee": "Solo {{name}} lo verá",
+    "you": "Tú",
+    "privateToName": "Privado para {{name}}",
+    "privateToYou": "Privado para ti"
+  },
+  "members": {
+    "pagesAriaLabel": "Páginas de miembros",
+    "previous": "Miembros anteriores",
+    "pageAriaLabel": "Página {{page}} de {{pages}} de miembros",
+    "more": "Más miembros"
+  },
+  "menu": {
+    "call": "Llamar",
+    "voiceCall": "Llamada de voz",
+    "videoCall": "Videollamada",
+    "sendCallLink": "Enviar enlace de llamada",
+    "scheduleCall": "Programar llamada"
+  },
+  "notes": {
+    "empty": "Aún no hay puntos. Todo lo que se escriba aquí se comparte con todos en la reunión.",
+    "placeholder": "Escribe un punto importante…",
+    "ariaLabel": "Escribir un punto importante",
+    "enterToAdd": "Enter para agregar",
+    "addPoint": "Agregar punto"
+  },
+  "sidebar": {
+    "controlsAriaLabel": "Controles de la reunión",
+    "mute": "Silenciar",
+    "muted": "Silenciado",
+    "camera": "Cámara",
+    "share": "Compartir",
+    "raise": "Levantar",
+    "people": "Personas",
+    "add": "Agregar",
+    "addPeople": "Agregar personas",
+    "chats": "Chats",
+    "notes": "Notas",
+    "record": "Grabar",
+    "recordUnsupported": "Este navegador no puede grabar reuniones",
+    "copyLink": "Copiar enlace",
+    "copyInviteLink": "Copiar enlace de invitación",
+    "pip": "PiP",
+    "exitPip": "Salir de PiP",
+    "pictureInPicture": "Imagen en imagen",
+    "exitPictureInPicture": "Salir de imagen en imagen",
+    "pictureInPictureNoVideo": "La imagen en imagen necesita el video de alguien: nadie tiene la cámara ni la pantalla compartida activadas",
+    "minimize": "Minimizar",
+    "minimise": "Minimizar",
+    "end": "Finalizar",
+    "endCall": "Finalizar llamada"
+  },
+  "sidePanel": {
+    "tabNames": {
+      "chat": "chat",
+      "notes": "notas",
+      "participants": "participantes"
+    },
+    "regionAriaLabel": "{{tab}} de la reunión",
+    "tablistAriaLabel": "Chat, notas o participantes",
+    "chatTab": "Chat",
+    "notesTab": "Notas",
+    "peopleTab": "Personas",
+    "saveAsFile": "Guardar {{tab}} como archivo",
+    "closeTab": "Cerrar {{tab}}"
+  },
+  "filmstrip": {
+    "ariaLabel": "Otros participantes",
+    "moreMembers": "+{{count}} miembros más"
+  },
+  "roomLazy": {
+    "connecting": "Conectando…",
+    "error": {
+      "title": "Algo salió mal al abrir la sala de la reunión.",
+      "hint": "Normalmente se soluciona recargando la página.",
+      "reload": "Recargar"
+    }
+  },
+  "incomingNotice": {
+    "untitledMeeting": "Reunión",
+    "ariaLabel": "Reunión entrante: {{title}}",
+    "hostedBy": "Organiza {{organizer}}",
+    "video": "Video",
+    "joinWithCamera": "Unirse con la cámara encendida",
+    "voice": "Voz",
+    "joinVoiceOnly": "Unirse solo con voz",
+    "leave": "Salir"
+  },
+  "scheduledNotice": {
+    "untitledMeeting": "Reunión",
+    "ariaLabel": "Reunión programada: {{title}}",
+    "heading": "Reunión programada",
+    "hostedBy": "Organiza {{organizer}}",
+    "join": "Unirse a la reunión",
+    "dismiss": "Descartar"
+  },
+  "miniMeeting": {
+    "ariaLabel": "{{title}}: reunión en curso",
+    "reconnecting": "Reconectando…",
+    "connecting": "Conectando…",
+    "backToMeeting": "Volver a la reunión",
+    "nobodySpeaking": "Nadie está hablando",
+    "mute": "Silenciar",
+    "unmute": "Activar micrófono",
+    "turnCameraOff": "Apagar cámara",
+    "turnCameraOn": "Encender cámara",
+    "newChatMessages_one": "{{count}} mensaje nuevo en el chat",
+    "newChatMessages_many": "{{count}} de mensajes nuevos en el chat",
+    "newChatMessages_other": "{{count}} mensajes nuevos en el chat",
+    "leaveMeeting": "Salir de la reunión"
+  },
+  "sendLinkDialog": {
+    "title": "Enviar un enlace de llamada",
+    "description": "El enlace se publica en tu chat con {{peerName}}. Quien agregues aquí lo recibe como mensaje directo y tiene un lugar en la llamada en Reuniones.",
+    "alsoSendTo": "Enviar también a",
+    "selectedCount": "— {{count}} seleccionados",
+    "optional": "— opcional",
+    "cancel": "Cancelar",
+    "sendLink": "Enviar enlace"
+  },
+  "screenShare": {
+    "showControls": "Mostrar controles para compartir pantalla",
+    "sharingYourScreen": "Estás compartiendo tu pantalla",
+    "stopSharingTitle": "Dejar de compartir",
+    "stop": "Detener",
+    "slideOutOfTheWay": "Deslizar a un lado"
+  }
+}

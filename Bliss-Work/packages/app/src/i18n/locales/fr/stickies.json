@@ -1,0 +1,70 @@
+{
+  "card": {
+    "from": "de {{name}}",
+    "assigned": "Attribuée",
+    "deadline": "Échéance",
+    "missedOn": "Manquée",
+    "collapseToPill": "Réduire en pastille",
+    "unpinNoteTitle": "Désépingler (la tâche reste)",
+    "unpin": "Désépingler",
+    "dismissIgnore": "Fermer (ignorer)",
+    "acknowledge": "Prendre en compte",
+    "ignore": "Ignorer",
+    "complete": "Terminer",
+    "leave": "Abandonner",
+    "untitledTask": "Tâche sans titre",
+    "expand": "Développer",
+    "expandLabel": "Développer la note adhésive",
+    "dismiss": "Fermer",
+    "dismissLabel": "Fermer la note adhésive",
+    "collapse": "Réduire",
+    "collapseLabel": "Réduire la note adhésive",
+    "ignoreTitle": "Ignorer — l'expéditeur sera averti",
+    "acknowledgeTitle": "Prendre en compte — garder cette note à l'écran jusqu'à ce que vous la terminiez",
+    "unpinFromDesktopTitle": "Désépingler du bureau — la tâche reste dans votre liste de tâches",
+    "navPrevious": "Tâche épinglée précédente",
+    "navNext": "Tâche épinglée suivante"
+  },
+  "overlay": {
+    "ariaLabel": "Notes adhésives flottantes"
+  },
+  "toasts": {
+    "acknowledgeFailed": "Impossible de prendre en compte",
+    "ignoreFailed": "Impossible d'ignorer",
+    "taskIgnored": "Tâche ignorée — l'expéditeur a été averti.",
+    "noteUnpinned": "Note désépinglée",
+    "noteUnpinnedDescription": "Elle figure toujours dans votre liste de tâches — terminez-la depuis là.",
+    "unpinFailed": "Impossible de désépingler la note",
+    "desktopFull": "Impossible d'épingler cette tâche au bureau."
+  },
+  "window": {
+    "loading": "Chargement…",
+    "expand": "Développer",
+    "previousTask": "Tâche épinglée précédente",
+    "nextTask": "Tâche épinglée suivante",
+    "chat": {
+      "loadingThread": "Chargement de la conversation…",
+      "pinnedChat": "Discussion épinglée",
+      "unpin": "Désépingler",
+      "unpinTitle": "Désépingler du bureau",
+      "noMessages": "Aucun message récent pour l'instant.",
+      "replyPlaceholder": "Répondre…",
+      "send": "Envoyer"
+    },
+    "invite": {
+      "meetingFallback": "Réunion",
+      "hostedBy": "Organisée par {{name}}",
+      "video": "Vidéo",
+      "videoTitle": "Rejoindre avec la caméra activée",
+      "voice": "Audio",
+      "voiceTitle": "Rejoindre en audio uniquement",
+      "leave": "Quitter",
+      "dismiss": "Ignorer"
+    },
+    "titles": {
+      "task": "Tâche",
+      "chat": "Discussion",
+      "invite": "Invitation à une réunion"
+    }
+  }
+}

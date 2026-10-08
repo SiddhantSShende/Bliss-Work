@@ -1,0 +1,199 @@
+{
+  "profile": {
+    "header": {
+      "title": "我的资料",
+      "subtitle": "管理你在团队中的显示方式。"
+    },
+    "photo": {
+      "changePhoto": "更换头像",
+      "addPhoto": "添加头像",
+      "changePhotoAria": "更换个人头像",
+      "addPhotoAria": "添加个人头像"
+    },
+    "form": {
+      "displayNameLabel": "显示名称",
+      "displayNamePlaceholder": "你的姓名",
+      "emailLabel": "邮箱",
+      "usernameLabel": "用户名",
+      "cancel": "取消",
+      "saveChanges": "保存更改"
+    },
+    "toasts": {
+      "profileUpdated": "资料已更新",
+      "updateFailed": "无法更新资料",
+      "photoUpdated": "头像已更新",
+      "photoUpdateFailed": "无法更新头像",
+      "unsupportedFileType": {
+        "title": "不支持的文件类型",
+        "description": "请选择 JPG、PNG 或 WebP 图片。"
+      },
+      "processFailed": {
+        "title": "无法处理该图片",
+        "description": "请换一张照片试试。"
+      }
+    }
+  },
+  "activeSessions": {
+    "header": {
+      "title": "活跃登录",
+      "subtitle": "你已登录的设备。请退出任何你不认识的设备。"
+    },
+    "empty": {
+      "title": "没有活跃登录",
+      "hint": "所有已登录的设备都会显示在这里。"
+    },
+    "signOutAllOthers": "退出所有其他登录",
+    "confirmOne": {
+      "title": "退出此登录？",
+      "message": "<bold>{{device}}</bold> 将立即退出登录，需要重新登录。",
+      "confirmLabel": "退出登录"
+    },
+    "confirmAllOthers": {
+      "title": "退出所有其他登录？",
+      "message_other": "此设备保持登录，其他 {{count}} 个登录将立即退出。",
+      "confirmLabel": "退出其他登录"
+    },
+    "toasts": {
+      "signedOutOf": "已退出 {{device}}",
+      "revokeFailed": {
+        "title": "无法退出该登录",
+        "description": "请重试。"
+      },
+      "noOtherSessions": "没有其他可退出的登录",
+      "signedOutOfOthers_other": "已退出其他 {{count}} 个登录",
+      "revokeOthersFailed": {
+        "title": "无法退出其他登录",
+        "description": "请重试。"
+      }
+    }
+  },
+  "activeSessionsList": {
+    "thisDevice": "此设备",
+    "active": "活跃于 {{time}}",
+    "signedIn": "登录于 {{time}}",
+    "approximateNetwork": "大致网络位置",
+    "signOut": "退出登录"
+  },
+  "mfaSettings": {
+    "header": {
+      "title": "双重验证",
+      "subtitle": "使用验证器应用，为登录增加第二道验证。"
+    },
+    "enrolled": {
+      "status": {
+        "title": "双重验证已开启",
+        "description": "登录时需要提供第二重验证。"
+      },
+      "backupCodes": {
+        "title": "备用码",
+        "description": "重新生成会替换所有未使用的备用码，旧备用码立即失效。",
+        "action": "重新生成"
+      },
+      "disable": {
+        "title": "关闭双重验证",
+        "description": "将移除你的验证器应用和备用码。",
+        "action": "关闭"
+      }
+    },
+    "notEnrolled": {
+      "totp": {
+        "title": "验证器应用",
+        "description": "Google Authenticator、1Password、Authy 或任何 TOTP 应用。"
+      },
+      "setUp": "设置"
+    },
+    "backupCodesModal": {
+      "title": "保存你的备用码"
+    },
+    "stepUp": {
+      "titles": {
+        "disable": "确认是你本人操作",
+        "regenerate": "确认是你本人操作，以重新生成备用码"
+      },
+      "passwordPlaceholder": "你的密码",
+      "backupCodePlaceholder": "备用码",
+      "authCodePlaceholder": "验证码",
+      "useAuthCodeInstead": "改用验证码",
+      "useBackupCodeInstead": "改用备用码",
+      "submitLabels": {
+        "regenerate": "重新生成备用码"
+      },
+      "toasts": {
+        "tooManyAttemptsTitle": "尝试次数过多",
+        "verificationFailedTitle": "验证失败",
+        "verificationFailedDescription": "请检查密码和验证码后重试。"
+      }
+    },
+    "toasts": {
+      "refreshFailed": {
+        "title": "无法刷新你的账号",
+        "description": "此页面上的双重验证状态可能已过期，请刷新以查看最新状态。"
+      },
+      "mfaTurnedOff": "双重验证已关闭"
+    }
+  },
+  "passwordField": {
+    "hidePassword": "隐藏密码",
+    "showPassword": "显示密码",
+    "strength": {
+      "veryWeak": "非常弱",
+      "weak": "弱",
+      "fair": "一般",
+      "good": "良好",
+      "strong": "强"
+    },
+    "requirements": {
+      "minLength": "至少 10 个字符",
+      "letter": "一个字母",
+      "digit": "一个数字",
+      "special": "一个特殊字符（!@#$…）"
+    }
+  },
+  "backupCodesView": {
+    "description": "请将这些备用码保存在安全的地方。如果你无法使用验证器，每个备用码可用于登录一次，且不会再次显示。",
+    "copied": "已复制",
+    "copyFailed": "无法复制备用码，请手动选中并复制。",
+    "copyAll": "全部复制",
+    "acknowledgeLabel": "我已将这些备用码保存在安全的地方。",
+    "done": "完成"
+  },
+  "totpEnroll": {
+    "toasts": {
+      "startFailed": {
+        "title": "无法开始设置",
+        "description": "请重试。"
+      },
+      "tooManyAttempts": {
+        "title": "尝试次数过多",
+        "description": "请等待一分钟后再试。"
+      },
+      "incorrectCode": {
+        "title": "验证码不正确",
+        "description": "请检查设备时间后重试。"
+      }
+    },
+    "startError": {
+      "message": "无法开始设置。",
+      "retry": "重试"
+    },
+    "preparing": "正在准备设置…",
+    "instructions": "使用验证器应用（Google Authenticator、1Password、Authy 等）扫描此二维码，或手动输入设置密钥。",
+    "qrAlt": "使用验证器应用扫描",
+    "setupKeyLabel": "设置密钥",
+    "codeLabel": "输入 6 位验证码",
+    "verifying": "正在验证…",
+    "confirmAndEnable": "确认并启用"
+  },
+  "mfaPolicy": {
+    "title": "要求管理员使用双重验证",
+    "descriptionWithDeadline": "未设置双重验证的管理员会收到提醒，直到 {{deadline}}；之后在设置完成前将无法登录。",
+    "descriptionNoDeadline": "由管理员自行选择是否启用。",
+    "turnOff": "关闭",
+    "turnOn": "开启",
+    "toasts": {
+      "enabled": "现已要求管理员使用双重验证",
+      "disabled": "不再要求使用双重验证",
+      "updateFailed": "无法更新策略"
+    }
+  }
+}

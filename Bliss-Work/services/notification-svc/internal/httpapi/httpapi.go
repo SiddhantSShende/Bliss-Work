@@ -74,6 +74,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/notifications/unread-count", s.handleUnreadCount)
 		r.Post("/notifications/read-all", s.handleReadAll)
 		r.Post("/notifications/read-by-tasks", s.handleReadByTasks)
+		r.Post("/notifications/read-by-target", s.handleReadByTarget)
 		r.Post("/notifications/{id}/read", s.handleRead)
 	})
 
@@ -568,12 +569,35 @@ func (s *Server) handleReadByTasks(w http.ResponseWriter, r *http.Request) {
 // a task-scoped change. Recipient-owned, like markRead, so it holds after an org
 // switch.
 func (s *Server) markReadByTasks(ctx context.Context, tx pgx.Tx, userID, orgID string, taskIDs []string) (int, error) {
-	rows, err := tx.Query(ctx,
-		`UPDATE notifications
+	return s.markReadReturning(ctx, tx, userID, orgID, markReadByTasksSQL, userID, taskIDs)
+}
+
+// The scoped mark-read statements. Each names its column literally: the scope is
+// chosen from a closed set in handleReadByTarget, never assembled from input.
+const (
+	markReadByTasksSQL = `UPDATE notifications
 		    SET read_at = now()
 		  WHERE recipient_id = $1 AND read_at IS NULL AND task_id = ANY($2::uuid[])
-		  RETURNING id`,
-		userID, taskIDs)
+		  RETURNING id`
+	markReadByConversationSQL = `UPDATE notifications
+		    SET read_at = now()
+		  WHERE recipient_id = $1 AND read_at IS NULL AND conversation_id = $2::uuid
+		  RETURNING id`
+	markReadByChannelSQL = `UPDATE notifications
+		    SET read_at = now()
+		  WHERE recipient_id = $1 AND read_at IS NULL AND channel_id = $2::uuid
+		  RETURNING id`
+	markReadByCallSQL = `UPDATE notifications
+		    SET read_at = now()
+		  WHERE recipient_id = $1 AND read_at IS NULL AND call_id = $2::uuid
+		  RETURNING id`
+)
+
+// markReadReturning runs one of the scoped UPDATE ... RETURNING id statements
+// above and enqueues a NotificationRead event for each row it flipped. Shared by
+// every scoped mark-read so they all announce their change the same way.
+func (s *Server) markReadReturning(ctx context.Context, tx pgx.Tx, userID, orgID, query string, args ...any) (int, error) {
+	rows, err := tx.Query(ctx, query, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -596,6 +620,79 @@ func (s *Server) markReadByTasks(ctx context.Context, tx pgx.Tx, userID, orgID s
 		}
 	}
 	return len(flipped), nil
+}
+
+// handleReadByTarget serves POST /api/v1/notifications/read-by-target with
+// exactly ONE of {"conversationId"}, {"channelId"} or {"callId"}. It marks the
+// caller's unread notifications that point at that one chat, channel or meeting
+// as read — and only those: a notification for any other conversation, channel or
+// meeting, or for a task, is untouched. It is the chat/channel/meeting twin of
+// read-by-tasks: "opening it reads its notifications", recorded where the
+// notification lives so the bell, the panel and every other session agree.
+// Answers {"updated": n}; idempotent. There is deliberately no way to name more
+// than one target or none, so this can never become a read-all.
+func (s *Server) handleReadByTarget(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var body struct {
+		ConversationID *string `json:"conversationId"`
+		ChannelID      *string `json:"channelId"`
+		CallID         *string `json:"callId"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var query string
+	var raw *string
+	named := 0
+	if body.ConversationID != nil {
+		query, raw = markReadByConversationSQL, body.ConversationID
+		named++
+	}
+	if body.ChannelID != nil {
+		query, raw = markReadByChannelSQL, body.ChannelID
+		named++
+	}
+	if body.CallID != nil {
+		query, raw = markReadByCallSQL, body.CallID
+		named++
+	}
+	if named != 1 {
+		writeError(w, http.StatusBadRequest, "exactly one of conversationId, channelId or callId is required")
+		return
+	}
+	target, err := uuid.Parse(*raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid target id")
+		return
+	}
+
+	tx, err := s.pool.Begin(r.Context())
+	if err != nil {
+		s.log.Error("begin tx failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	updated, err := s.markReadReturning(r.Context(), tx, claims.UserID, claims.OrgID, query, claims.UserID, target.String())
+	if err != nil {
+		s.log.Error("mark read by target failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		s.log.Error("commit failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"updated": updated})
 }
 
 // publishNotificationRead enqueues a NotificationRead outbox row on the

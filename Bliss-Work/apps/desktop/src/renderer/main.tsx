@@ -31,6 +31,7 @@ declare global {
       onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
       windowControlsSide: "left" | "right";
       setTitleBarTheme: (theme: { color: string; symbolColor: string }) => void;
+      syncTitleBarZoom: () => void;
       openExternal: (url: string) => void;
       openAttachment: (url: string, fileName: string) => Promise<{ ok: boolean; error?: string }>;
       hasPreciseLocation: () => Promise<boolean>;
@@ -58,6 +59,9 @@ declare global {
         message?: string;
       }>;
       onUpdateCheckFailed: (cb: (message: string) => void) => () => void;
+      locale: {
+        setLocale: (locale: string) => Promise<void>;
+      };
       notifications: {
         getDesktopEnabled: () => Promise<boolean>;
         setDesktopEnabled: (enabled: boolean) => Promise<void>;
@@ -87,7 +91,21 @@ const bridge = window.taskboard;
 // The main window has no OS title bar (the app's own top bar replaces it); the
 // meeting window keeps its frame. Lets the shared stylesheet inset full-height
 // overlays below the bar — see --titlebar-inset in @taskboard/ui/styles.css.
-if (!bridge.isMeetingWindow) document.documentElement.dataset.titlebar = "";
+if (!bridge.isMeetingWindow) {
+  document.documentElement.dataset.titlebar = "";
+  // Page zoom (View > Zoom) scales the bar but not the native window controls
+  // drawn over it, so tell main whenever it changes — and once at start, since
+  // the last session's zoom is restored before this runs. devicePixelRatio is
+  // what zoom moves; plain window resizes leave it alone and are not forwarded.
+  let lastDpr = 0;
+  const syncZoom = () => {
+    if (window.devicePixelRatio === lastDpr) return;
+    lastDpr = window.devicePixelRatio;
+    bridge.syncTitleBarZoom();
+  };
+  window.addEventListener("resize", syncZoom);
+  syncZoom();
+}
 
 // The meeting window is loaded with ?w=meeting&callId=… (a real query string,
 // not a hash) rather than a pre-built hash: composing loadFile's `search` and
@@ -193,6 +211,7 @@ const config: PlatformConfig = {
   checkForUpdates: () => bridge.checkForUpdates(),
   onUpdateCheckFailed: (cb) => bridge.onUpdateCheckFailed(cb),
   notificationPrefs: bridge.notifications,
+  localePrefs: bridge.locale,
   // Omitted entirely for the meeting window: its events do not need to ride
   // the shared utilityProcess socket (there is nothing there for it — no
   // sticky notes, no tray) and useCallRoom's own subscribeToEvents already

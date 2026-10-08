@@ -16,7 +16,7 @@ import { Check, Filter } from "lucide-react";
 import type { CallDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import {
-  MEETING_KIND_LABEL,
+  meetingKindLabel,
   NO_MEETING_FILTER,
   isFiltering,
   type MeetingFilter,
@@ -76,7 +76,7 @@ export function MeetingFilterMenu({
           {KINDS.map((kind) => (
             <MenuCheck
               key={kind}
-              label={MEETING_KIND_LABEL[kind]}
+              label={meetingKindLabel(kind)}
               // An empty selection means every kind, so every box reads as
               // ticked until one is deliberately chosen.
               checked={value.kinds.length === 0 || value.kinds.includes(kind)}

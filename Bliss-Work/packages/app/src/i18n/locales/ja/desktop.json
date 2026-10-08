@@ -1,0 +1,54 @@
+{
+  "menu": {
+    "file": "ファイル",
+    "showApp": "BlissWorkを表示",
+    "quit": "終了",
+    "view": "表示",
+    "aboutItem": "BlissWorkについて",
+    "aboutTitle": "BlissWorkについて",
+    "aboutMessage": "BlissWork",
+    "aboutDetail": "バージョン {{version}}\nElectron {{electron}} · Chromium {{chrome}}\n\n常に最前面に表示できる付箋を備えた、チームメッセージとタスクのアプリです。",
+    "ok": "OK",
+    "webHelp": "Web版BlissWork"
+  },
+  "tray": {
+    "tooltipIdle": "BlissWork",
+    "tooltipTasks_other": "BlissWork — 進行中のタスク{{count}}件",
+    "activeTasks": "進行中のタスク:{{count}}件",
+    "show": "BlissWorkを表示",
+    "quit": "終了"
+  },
+  "notifications": {
+    "brand": "BlissWork",
+    "newMessage": "新着メッセージ",
+    "taskUpdate": "タスクの更新",
+    "meeting": "ミーティング",
+    "channelUpdate": "チャンネルの更新",
+    "attachment": "添付ファイルを送信しました",
+    "incomingVideoCall": "📹 ビデオ通話の着信",
+    "incomingVoiceCall": "📞 音声通話の着信",
+    "accept": "応答",
+    "decline": "拒否"
+  },
+  "updater": {
+    "restartNow": "今すぐ再起動",
+    "later": "後で",
+    "updateReady": "アップデートの準備ができました",
+    "readyMessage": "BlissWork {{version}}をインストールする準備ができました。",
+    "readyDetail": "アプリを再起動するとアップデートが適用されます。次回終了時にも自動的にインストールされます。",
+    "devUnsupported": "アップデートはインストール済みのビルドにのみ適用されます。",
+    "storeManaged": "このアプリのアップデートはMicrosoft Storeが管理しています。",
+    "unreachable": "アップデートサーバーに接続できませんでした。"
+  },
+  "attachment": {
+    "notMainWindow": "拒否しました:メインウィンドウではありません。",
+    "unsafeUrl": "安全でないURLを拒否しました。",
+    "downloadFailed": "ダウンロードに失敗しました({{status}})。",
+    "emptyBody": "レスポンスの本文が空です。",
+    "couldNotOpen": "ファイルを開けませんでした。"
+  },
+  "windows": {
+    "meetingTitle": "ミーティング · BlissWork",
+    "loading": "読み込み中…"
+  }
+}

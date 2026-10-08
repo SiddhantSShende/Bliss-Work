@@ -138,6 +138,27 @@ jobs:
         # No database and no npm install beyond what this job already did: it
         # only reads filenames and file contents.
         run: node scripts/check-migrations.mjs
+      - name: Check UI locale catalogs against English
+        # Every locale under packages/app/src/i18n/locales must mirror locales/en:
+        # same files and keys, same {{placeholders}}/markup/URLs, and the plural
+        # forms its language needs. Reads JSON only — no install needed beyond
+        # this job's. See docs/I18N.md.
+        run: node scripts/check-locales.mjs
+      - name: Check no Office reader exists outside the Office Document Sandbox
+        # DOC/DOCX/XLS/XLSX/PPT/PPTX are hostile input and may only be opened inside
+        # services/doc-converter (an isolated LibreOffice container). Fails on any
+        # Office-reading dependency, import or call anywhere else. Reads the tree only.
+        run: node scripts/check-no-office-readers.mjs
+      - name: Check Jenkinsfile image list against Dockerfiles and compose
+        # Every image compose pulls must be built by the Jenkinsfile (else a
+        # registry deploy's `compose pull` fails), and every Dockerfile COPY
+        # source must be in that image's change-detection paths (else edits to
+        # shared code ship a stale :latest). Reads files only.
+        run: node scripts/check-jenkins-images.mjs
+      - name: Check prod Alertmanager is not the dev sink
+        # Prod must mount alertmanager.prod.yml and read its receiver URL from a
+        # fail-closed secret file. Reads files only.
+        run: node scripts/check-alertmanager-prod.mjs
 
   # ───────────────────────────────────────────────────────────────────────────
   # MIGRATION BACKWARD-COMPATIBILITY — flags breaking schema changes in newly
@@ -443,6 +464,59 @@ jobs:
         if: always()
         run: docker rm -f minio
 
+  # The Office Document Sandbox (Bliss-Work/services/doc-converter): the only
+  # place an Office file is opened. Hostile input is EXPECTED, so this runs the
+  # whole hostile suite against the real LibreOffice in the real image:
+  # macro/link canaries with positive controls, renamed executables, corrupt and
+  # truncated files, zip bombs, oversize input and output, timeouts, temp-file
+  # destruction after every outcome, and the production container's isolation
+  # (non-root, read-only, no capabilities, no route out of its internal network).
+  test-doc-converter:
+    name: Test (doc-converter · Office Document Sandbox)
+    runs-on: ubuntu-latest
+    env:
+      FIXTURE_DIR: ${{ github.workspace }}/fixtures
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: The sandbox supports exactly the shared preview-extension list
+        working-directory: Bliss-Work/services/doc-converter
+        run: python3 -m unittest tests.test_spec -v
+      - name: Build the image
+        run: docker build -f Bliss-Work/services/doc-converter/Dockerfile -t doc-converter:dev Bliss-Work
+      - name: Generate fixtures with LibreOffice itself
+        run: |
+          mkdir -p "$FIXTURE_DIR" && chmod 777 "$FIXTURE_DIR"
+          docker run --rm --tmpfs /tmp -v "$PWD/Bliss-Work/services/doc-converter/tests:/tests:ro" \
+            -v "$FIXTURE_DIR:/fx" doc-converter:dev python /tests/make_fixtures.py /fx
+      - name: In-image hostile-document tests (macros, links, hygiene)
+        run: |
+          docker run --rm --tmpfs /tmp:size=512m \
+            -v "$PWD/Bliss-Work/services/doc-converter/tests:/app/tests:ro" -v "$FIXTURE_DIR:/fx:ro" \
+            doc-converter:dev python -W ignore -m unittest tests.test_inimage -v
+      - name: HTTP-level hostile-input tests against production-flag containers
+        working-directory: Bliss-Work/services/doc-converter
+        run: |
+          run() { docker run -d --name "$1" --read-only --tmpfs /tmp:size=512m --cap-drop ALL \
+                    --pids-limit 256 --memory 1g --cpus 1 -p "127.0.0.1:$2:9000" "${@:3}" doc-converter:dev; }
+          run dc-test 19000
+          run dc-tiny 19001 -e CONVERT_MAX_OUTPUT_BYTES=200
+          run dc-short 19002 -e CONVERT_TIMEOUT_SECONDS=1
+          run dc-one 19003 -e CONVERT_CONCURRENCY=1
+          sleep 6
+          CONVERTER_URL=http://127.0.0.1:19000 \
+          CONVERTER_TINY_OUTPUT_URL=http://127.0.0.1:19001 \
+          CONVERTER_SHORT_TIMEOUT_URL=http://127.0.0.1:19002 \
+          CONVERTER_ONE_SLOT_URL=http://127.0.0.1:19003 \
+            python3 -m unittest tests.test_server -v
+      - name: Container isolation (identity, filesystem, network, limits)
+        working-directory: Bliss-Work/services/doc-converter
+        env:
+          DOCKER: docker
+        run: tests/security_check.sh
+      - name: Cleanup
+        if: always()
+        run: docker rm -f dc-test dc-tiny dc-short dc-one >/dev/null 2>&1 || true
+
   test-js:
     name: Test (JS/TS · vitest)
     runs-on: ubuntu-latest
@@ -516,7 +590,7 @@ jobs:
       fail-fast: false
       matrix:
         service:
-          [auth-svc, task-svc, email-worker, notification-svc, messaging-svc, ws-gateway, integrations-svc]
+          [auth-svc, task-svc, email-worker, notification-svc, messaging-svc, ws-gateway, integrations-svc, doc-converter]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Set up Docker Buildx

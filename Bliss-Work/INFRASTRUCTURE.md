@@ -276,6 +276,20 @@ and this document previously only made the first one.
   weight — it can mint anyone into any room. Meeting invite links are the one
   cross-org door in the product, and the RLS work that makes that safe without
   weakening org isolation globally is described in `0015_calls.sql`.
+- **Office Document Sandbox (`doc-converter`).** In-app previews of DOC/DOCX/XLS/XLSX/
+  PPT/PPTX. Office files are hostile input, so the only thing that ever opens one is
+  an isolated LibreOffice container: its own `internal: true` network (no route to the
+  internet, the host, Postgres or Kafka; only messaging-svc also joins it), no
+  `env_file` and so no secrets, non-root, read-only filesystem, no capabilities, and
+  memory/CPU/pids limits (1280M / 2 CPUs / 256 — measured, see
+  `services/doc-converter/README.md`). messaging-svc streams the stored bytes to it from
+  `GET /media/{id}/preview` and caches the PDF (Word/PowerPoint) or the JSON of a
+  sheet's cell text (Excel) beside the original blob, so org erasure and the attachment
+  reaper take it along. Authorization is re-checked on every request, cached or not.
+  Without `CONVERTER_URL` the route answers 503 and the app falls back to Download.
+  Deploy order: `doc-converter` and messaging-svc before the clients (the route is
+  additive, so older clients are unaffected). `scripts/check-no-office-readers.mjs`
+  fails CI if any other service or client grows an Office reader.
 - **Kafka `min.insync.replicas`.** Every producer already used `acks=all`, which
   on its own still acknowledges against a lone surviving replica. Now derived
   from RF, so RF=3 requires a real quorum.

@@ -1,0 +1,22 @@
+{
+  "topNavbar": {
+    "openMenu": "Menü",
+    "openNavigationMenu": "Navigationsmenü öffnen",
+    "searchPlaceholder": "Personen, Kanäle, Chats, Aufgaben suchen…",
+    "clearSearch": "Suche löschen",
+    "invite": "Einladen",
+    "search": "Suchen",
+    "notifications": "Benachrichtigungen"
+  },
+  "verifyEmail": {
+    "message": "Bestätigen Sie Ihre E-Mail-Adresse, um Ihr Konto vollständig zu schützen.",
+    "resendSent": "Gesendet ✓",
+    "resend": "E-Mail erneut senden",
+    "resentToast": "Bestätigungs-E-Mail gesendet – prüfen Sie Ihren Posteingang."
+  },
+  "mfaRequired": {
+    "messageWithDeadline": "Ihr Arbeitsbereich verlangt für Admins die Zwei-Faktor-Authentifizierung – aktivieren Sie sie bis {{deadline}}.",
+    "messageNoDeadline": "Ihr Arbeitsbereich verlangt für Admins die Zwei-Faktor-Authentifizierung.",
+    "enableNow": "Jetzt aktivieren"
+  }
+}

@@ -78,6 +78,7 @@ vi.mock("../lib/runtime", () => ({
     ws: {
       connect: () => Promise.resolve(),
       close: () => {},
+      onStatus: () => () => {},
       on: (cb: (e: unknown, meta?: WsEventMeta) => void) => {
         svc.emit = cb;
         return () => {};
@@ -354,14 +355,16 @@ describe("notification flow: bell badge and panel share one source", () => {
     // Newest first, above the history, and all counted — no refresh of the panel.
     expect(await screen.findByText(/Meeting cancelled/)).toBeInTheDocument();
     await waitFor(() => expect(badge()).toBe("5"));
-    expect(listed().map((t) => ["cancelled", "started", "updated", "Review is ready", "Lunch at one?", "Piyush"].find((k) => t.includes(k)))).toEqual([
-      "cancelled", "started", "updated", "Review is ready", "Lunch at one?", "Piyush",
+    expect(listed().map((t) => ["cancelled", "started", "updated", "Priya Shah · #design", "Priya Shah", "Piyush"].find((k) => t.includes(k)))).toEqual([
+      "cancelled", "started", "updated", "Priya Shah · #design", "Priya Shah", "Piyush",
     ]);
 
-    // Opening one marks it read through the existing path and lowers the badge by one.
+    // Opening one closes the panel, which reads everything it showed: the five live rows,
+    // each id once (the clicked one is not sent twice), and the badge follows.
     await user.click(screen.getByText(/Meeting started/));
-    await waitFor(() => expect(badge()).toBe("4"));
-    expect(api.markNotificationRead).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(badge()).toBe(""));
+    expect(api.markNotificationRead).toHaveBeenCalledTimes(5);
+    expect(new Set(api.markNotificationRead.mock.calls.map(([id]) => id)).size).toBe(5);
   });
 
   it("the same notification arriving twice (a redelivered frame) is listed once and counted once", async () => {

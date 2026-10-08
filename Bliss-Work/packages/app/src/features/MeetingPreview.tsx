@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { Calendar, Clock, Hash, Repeat, Users, Video } from "lucide-react";
 import { dayLabel, durationLabel, timeLabel } from "../lib/meetingTime";
+import { MEETING_TONES, type MeetingClasses } from "./meetingTone";
+import type { PickerTone } from "./pickerTone";
 
 /**
  * The read-only recap of what "Schedule Meeting" is about to create: title,
@@ -23,6 +25,7 @@ export function MeetingPreview({
   layout = "summary",
   repeat,
   actions,
+  tone = "light",
 }: {
   title: string;
   startAt: Date | null;
@@ -34,8 +37,11 @@ export function MeetingPreview({
   repeat?: string;
   /** Card only: the buttons, pinned below a divider. */
   actions?: React.ReactNode;
+  /** Card only: "theme" paints it with the app's surface tokens (dark mode). */
+  tone?: PickerTone;
 }) {
   const { t, i18n } = useTranslation("meetings");
+  const c = MEETING_TONES[tone];
   const heading = title.trim() || t("newMeeting.preview.untitled");
 
   if (layout === "card") {
@@ -58,37 +64,37 @@ export function MeetingPreview({
     return (
       <section
         aria-label={t("newMeeting.preview.sectionTitle")}
-        className="flex flex-col rounded-xl border border-gray-200 bg-gray-50"
+        className={`flex flex-col rounded-xl border ${c.previewCard}`}
       >
         <div className="flex flex-col gap-1.5 px-3 pb-2.5 pt-3">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className={`text-xs font-semibold uppercase tracking-wide ${c.heading}`}>
             {t("newMeeting.preview.sectionTitle")}
           </span>
-          <p className="truncate text-base font-semibold text-gray-900">{heading}</p>
-          <dl className="flex flex-col gap-1 text-sm text-gray-700">
-            <Row icon={<Calendar size={14} />} label={t("newMeeting.preview.dateLabel")}>
+          <p className={`truncate text-base font-semibold ${c.strong}`}>{heading}</p>
+          <dl className={`flex flex-col gap-1 text-sm ${c.body}`}>
+            <Row tone={c} icon={<Calendar size={14} />} label={t("newMeeting.preview.dateLabel")}>
               {startAt ? dateOf(startAt, true) : t("newMeeting.preview.pickATime")}
             </Row>
-            <Row icon={<Clock size={14} />} label={t("newMeeting.preview.timeLabel")}>
+            <Row tone={c} icon={<Clock size={14} />} label={t("newMeeting.preview.timeLabel")}>
               {range}
-              {duration && <span className="whitespace-nowrap text-gray-500"> · {duration}</span>}
+              {duration && <span className={`whitespace-nowrap ${c.muted}`}> · {duration}</span>}
             </Row>
-            <Row icon={<Repeat size={14} />} label={t("newMeeting.preview.repeatLabel")}>
+            <Row tone={c} icon={<Repeat size={14} />} label={t("newMeeting.preview.repeatLabel")}>
               {repeat ?? t("newMeeting.repeat.none")}
             </Row>
-            <Row icon={<Users size={14} />} label={t("newMeeting.preview.peopleLabel")}>
+            <Row tone={c} icon={<Users size={14} />} label={t("newMeeting.preview.peopleLabel")}>
               {t("newMeeting.preview.members", { count: inviteeNames.length })}
             </Row>
-            <Row icon={<Hash size={14} />} label={t("newMeeting.preview.channelsLabel")}>
+            <Row tone={c} icon={<Hash size={14} />} label={t("newMeeting.preview.channelsLabel")}>
               {t("newMeeting.preview.channels", { count: channelNames.length })}
             </Row>
-            <Row icon={<Video size={14} />} label={t("newMeeting.preview.videoLabel")}>
+            <Row tone={c} icon={<Video size={14} />} label={t("newMeeting.preview.videoLabel")}>
               {t("newMeeting.preview.onlineMeeting")}
             </Row>
           </dl>
         </div>
         {actions && (
-          <div className="grid grid-cols-[1fr_1.4fr] gap-2 border-t border-gray-200 px-3 py-2.5">{actions}</div>
+          <div className={`grid grid-cols-[1fr_1.4fr] gap-2 border-t px-3 py-2.5 ${c.divider}`}>{actions}</div>
         )}
       </section>
     );
@@ -126,14 +132,24 @@ export function MeetingPreview({
 
 /** One labelled fact: icon, a small fixed-width label, then the value. The label is
  *  what a screen reader hears; the icon is decoration. */
-function Row({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+function Row({
+  icon,
+  label,
+  tone,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  tone: MeetingClasses;
+  children: React.ReactNode;
+}) {
   return (
     <div className="grid grid-cols-[1rem_4.25rem_minmax(0,1fr)] items-start gap-x-2">
       <span aria-hidden="true" className="pt-0.5 text-accent">
         {icon}
       </span>
-      <dt className="pt-0.5 text-xs text-gray-500">{label}</dt>
-      <dd className="min-w-0 break-words text-gray-900">{children}</dd>
+      <dt className={`pt-0.5 text-xs ${tone.muted}`}>{label}</dt>
+      <dd className={`min-w-0 break-words ${tone.strong}`}>{children}</dd>
     </div>
   );
 }

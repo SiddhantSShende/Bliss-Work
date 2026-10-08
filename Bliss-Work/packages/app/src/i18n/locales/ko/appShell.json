@@ -1,0 +1,22 @@
+{
+  "topNavbar": {
+    "openMenu": "메뉴",
+    "openNavigationMenu": "탐색 메뉴 열기",
+    "searchPlaceholder": "사람, 채널, 채팅, 태스크 검색…",
+    "clearSearch": "검색어 지우기",
+    "invite": "초대",
+    "search": "검색",
+    "notifications": "알림"
+  },
+  "verifyEmail": {
+    "message": "계정을 안전하게 보호하려면 이메일 주소를 인증하세요.",
+    "resendSent": "전송됨 ✓",
+    "resend": "이메일 다시 보내기",
+    "resentToast": "인증 이메일을 보냈어요. 받은 편지함을 확인해 주세요."
+  },
+  "mfaRequired": {
+    "messageWithDeadline": "워크스페이스에서 관리자에게 2단계 인증을 요구해요. {{deadline}}까지 설정해 주세요.",
+    "messageNoDeadline": "워크스페이스에서 관리자에게 2단계 인증을 요구해요.",
+    "enableNow": "지금 설정"
+  }
+}

@@ -14,13 +14,28 @@ import { afterEach, vi } from "vitest";
 // without ever mounting <App>, so without this i18next stays uninitialized
 // and useTranslation()'s t() falls back to returning the raw key instead of
 // the English string.
-import "../i18n";
+import i18n from "../i18n";
+
+// A key that exists in no language renders as the raw key in the product, and
+// nothing else would ever notice. i18next only reports a miss when the whole
+// fallback chain (active language → English) comes up empty, so this is exactly
+// "someone used a key that is not in locales/en".
+const missingKeys: string[] = [];
+i18n.options.saveMissing = true;
+i18n.options.missingKeyHandler = (_langs, ns, key) => {
+  missingKeys.push(`${ns}:${key}`);
+};
 
 // Unmount between tests. Without this the previous test's tree is still in the
 // document and queries match the wrong element — which shows up as a confusing
 // "found multiple elements" much later, in an unrelated test.
 afterEach(() => {
   cleanup();
+  if (missingKeys.length > 0) {
+    const missing = [...new Set(missingKeys)].join(", ");
+    missingKeys.length = 0;
+    throw new Error(`Translation key(s) missing from locales/en: ${missing}`);
+  }
 });
 
 // framer-motion (Modal, Sheet) and the responsive layout read this. jsdom has

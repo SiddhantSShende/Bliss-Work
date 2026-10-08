@@ -169,6 +169,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		Height:      queryInt(r, "height"),
 		DurationMS:  queryInt(r, "durationMs"),
 		TTL:         s.mediaCfg.UploadTTL,
+		BlobPresent: func() bool { return s.blobPresent(claims.OrgID, sha) },
 	})
 	if err != nil {
 		// The blob is already on disk. Leave it: it is content-addressed, so a
@@ -180,6 +181,16 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, att)
+}
+
+// blobPresent reports whether the blob for (org, sha) can still be opened.
+func (s *Server) blobPresent(orgID, sha string) bool {
+	rd, err := s.blobs.Open(orgID, sha)
+	if err != nil {
+		return false
+	}
+	_ = rd.Close()
+	return true
 }
 
 // mediaBodyError maps upload failures. Size overruns must surface as 413, not

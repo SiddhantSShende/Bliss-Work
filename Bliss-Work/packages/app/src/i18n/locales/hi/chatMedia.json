@@ -1,0 +1,66 @@
+{
+  "mediaBubble": {
+    "openFile": "{{name}} खोलें",
+    "download": "डाउनलोड करें",
+    "downloadFile": "{{name}} डाउनलोड करें",
+    "uploading": "अपलोड हो रहा है… {{percent}}%",
+    "notAvailable": "आपके लिए उपलब्ध नहीं",
+    "previewUnavailable": "इस फ़ाइल प्रकार का प्रीव्यू उपलब्ध नहीं है"
+  },
+  "fileAttachment": {
+    "downloadsOff": "फ़ाइल डाउनलोड बंद हैं।",
+    "decline": "अस्वीकार करें",
+    "cancel": "रद्द करें",
+    "retry": "फिर कोशिश करें",
+    "directTransfer": "सीधा ट्रांसफ़र — पीयर-टू-पीयर।",
+    "establishingConnection": "पीयर कनेक्शन बनाया जा रहा है…",
+    "transferComplete": "ट्रांसफ़र पूरा हुआ।",
+    "cancelledByPeer": "दूसरे पक्ष ने रद्द किया",
+    "couldNotReadFile": "फ़ाइल पढ़ी नहीं जा सकी",
+    "couldNotAnnounceFile": "फ़ाइल की सूचना नहीं दी जा सकी",
+    "declined": "अस्वीकृत",
+    "couldNotSend": "{{name}} भेजी नहीं जा सकी",
+    "transferUnavailable": "सीधा ट्रांसफ़र उपलब्ध नहीं",
+    "badAnswer": "गलत उत्तर",
+    "peerUnreachable": "पीयर तक नहीं पहुँचा जा सका",
+    "offerCreationFailed": "ऑफ़र बनाना विफल रहा",
+    "checksumMismatch": "चेकसम मेल नहीं खाया",
+    "cancelled": "रद्द किया गया",
+    "sinkWriteFailed": "सिंक राइट विफल रहा: {{message}}",
+    "answerCreationFailed": "उत्तर बनाना विफल रहा",
+    "receiverSetupFailed": "रिसीवर सेटअप विफल रहा"
+  },
+  "location": {
+    "sharedLocation": "साझा की गई लोकेशन",
+    "openInMapsAriaLabel": "{{title}} को मैप्स में खोलें",
+    "mapAlt": "{{title}} दिखाने वाला मैप",
+    "accuracySuffix": " · ±{{accuracy}} मी.",
+    "openInMapsTitle": "मैप्स में खोलें",
+    "open": "खोलें"
+  },
+  "emojiPicker": {
+    "insertEmoji": "इमोजी डालें"
+  },
+  "attachments": {
+    "tooManyFiles": "आप एक बार में अधिकतम {{max}} फ़ाइलें भेज सकते हैं।",
+    "overSizePeerToPeer": "{{name}} {{size}} से बड़ी है — पीयर-टू-पीयर भेजी जा रही है। पूरा होने तक आप दोनों का ऑनलाइन रहना ज़रूरी है।",
+    "tooLarge": "{{name}} {{size}} से बड़ी है।",
+    "uploadFailed": "अपलोड विफल रहा",
+    "attachFailedSingle": "{{name}} जोड़ी नहीं जा सकी: {{message}}",
+    "attachFailedMultiple": "{{count}} फ़ाइलें जोड़ी नहीं जा सकीं: {{names}}",
+    "attachFailedGeneric": "वह फ़ाइल जोड़ी नहीं जा सकी। कृपया फिर से कोशिश करें।"
+  },
+  "shareLocation": {
+    "gettingLocation": "आपकी लोकेशन ली जा रही है…",
+    "approximateShared": "अनुमानित लोकेशन साझा की",
+    "reasons": {
+      "desktopAccessOff": "डेस्कटॉप ऐप्स के लिए लोकेशन एक्सेस बंद है, इसलिए यह आपके नेटवर्क पर आधारित है।",
+      "noPreciseFix": "आपका डिवाइस सटीक लोकेशन नहीं पा सका, इसलिए यह आपके नेटवर्क पर आधारित है।",
+      "noProvider": "इस बिल्ड में सटीक लोकेशन प्रदाता नहीं है, इसलिए यह आपके नेटवर्क पर आधारित है।"
+    },
+    "openSettings": "सेटिंग खोलें",
+    "notAvailable": "इस डिवाइस पर लोकेशन साझा करना उपलब्ध नहीं है।",
+    "permissionDenied": "लोकेशन की अनुमति अस्वीकृत है। अपनी लोकेशन साझा करने के लिए इसे साइट सेटिंग में चालू करें।",
+    "determineFailed": "आपकी लोकेशन का पता नहीं लगाया जा सका। फिर कोशिश करें, या जाँचें कि लोकेशन सेवाएँ चालू हैं।"
+  }
+}

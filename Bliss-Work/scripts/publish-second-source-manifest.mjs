@@ -33,6 +33,8 @@
  *                           cloning fresh into a temp dir. Must be a clean
  *                           checkout of MANIFEST_REPO_GIT_URL on its default
  *                           branch — this script does not create one.
+ *   Git commit identity     uses the caller's configured git identity (or
+ *                           GIT_AUTHOR_* / GIT_COMMITTER_* environment vars).
  *
  * Every platform's `latest*.yml` in <dir> is merged into ONE manifest.json
  * (checkSecondSource looks artifacts up by filename, not by platform), and
@@ -127,8 +129,7 @@ function git(args, cwd) {
 try {
   if (reuseDir) {
     if (!existsSync(join(reuseDir, ".git"))) {
-      console.error(`✗ MANIFEST_REPO_DIR=${reuseDir} is not a git checkout.`);
-      process.exit(1);
+      throw new Error(`MANIFEST_REPO_DIR=${reuseDir} is not a git checkout.`);
     }
     git(["fetch", "origin"], workDir);
     git(["reset", "--hard", "origin/HEAD"], workDir);
@@ -142,21 +143,20 @@ try {
   const after = JSON.stringify(manifest, null, 2) + "\n";
   if (before === after) {
     console.log("\nmanifest.json already up to date — nothing to publish.");
-    process.exit(0);
-  }
-  writeFileSync(manifestPath, after);
+  } else {
+    writeFileSync(manifestPath, after);
 
-  git(["add", "manifest.json"], workDir);
-  git(
-    [
-      "-c", "user.name=BlissWork Release",
-      "-c", "user.email=noreply@anthropic.com",
-      "commit", "-m", `Publish update manifest for ${version}`,
-    ],
-    workDir,
-  );
-  git(["push", "origin", "HEAD"], workDir);
-  console.log(`\n✓ published manifest.json for version ${version}`);
+    git(["add", "manifest.json"], workDir);
+    git(
+      ["commit", "-m", `Publish update manifest for ${version}`],
+      workDir,
+    );
+    git(["push", "origin", "HEAD"], workDir);
+    console.log(`\n✓ published manifest.json for version ${version}`);
+  }
+} catch (error) {
+  console.error(`✗ failed to publish update manifest: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
 } finally {
   if (cleanupOnExit) rmSync(workDir, { recursive: true, force: true });
 }

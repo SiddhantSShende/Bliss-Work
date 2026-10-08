@@ -1,0 +1,348 @@
+{
+  "list": {
+    "title": "成员",
+    "workspaceActivity": "工作区活动",
+    "searchPlaceholder": "搜索团队成员…",
+    "selfRow": {
+      "name": "{{name}}（你）",
+      "subtitle": "你的活动和会话"
+    },
+    "empty": {
+      "title": "未找到成员"
+    },
+    "status": {
+      "online": "在线",
+      "idle": "空闲",
+      "lastSeen": "最近在线 {{time}}"
+    },
+    "messageButton": "给 {{name}} 发消息"
+  },
+  "detail": {
+    "notFound": {
+      "title": "未找到成员",
+      "hint": "请在左侧选择其他成员。"
+    },
+    "backButton": "返回成员",
+    "tabs": {
+      "overview": "概览",
+      "activity": "活动",
+      "analytics": "分析",
+      "sessions": "会话",
+      "admin": "管理",
+      "security": "安全"
+    },
+    "roleLabel": {
+      "admin": "管理员",
+      "member": "成员"
+    },
+    "fields": {
+      "email": "邮箱",
+      "username": "用户名",
+      "role": "角色",
+      "status": "状态",
+      "lastSeen": "最近在线",
+      "emailVerified": "邮箱已验证",
+      "joined": "加入时间",
+      "removed": "移除时间"
+    },
+    "emailVerified": {
+      "yes": "是",
+      "no": "尚未验证"
+    },
+    "lastSeen": {
+      "now": "刚刚",
+      "noRecentActivity": "近期无活动"
+    },
+    "exportButton": "导出",
+    "exportTooltip": "导出此成员的活动",
+    "messageButton": "发消息",
+    "selfActivityBanner": "这是你自己的活动记录，工作区管理员也能看到。"
+  },
+  "status": {
+    "active": "正常",
+    "suspended": "已停用",
+    "removed": "已移除"
+  },
+  "admin": {
+    "toasts": {
+      "actionFailed": "操作失败",
+      "nowAdmin": "{{name}} 现在是管理员",
+      "nowMember": "{{name}} 现在是普通成员",
+      "reactivated": "{{name}} 可以重新登录了",
+      "suspended": "{{name}} 已被停用",
+      "removed": "{{name}} 已被移出工作区"
+    },
+    "selfGuard": "你不能更改自己的角色或成员资格，请联系其他管理员。这条规则可以防止最后一位管理员把包括自己在内的所有人锁在工作区之外。",
+    "sections": {
+      "role": {
+        "title": "角色",
+        "hint": "管理员可以邀请成员、管理成员并查看审计记录。更改角色会让该成员在所有设备上退出登录，以便新权限立即生效。"
+      },
+      "access": {
+        "title": "访问权限",
+        "hint": "停用会保留所有内容，并可随时撤销。移除会撤销成员资格，其消息、任务和历史记录原样保留，之后仍可重新邀请。"
+      },
+      "activeSessions": {
+        "title": "活跃会话",
+        "hint": "退出某个会话会立即将其结束，该设备需要重新登录。"
+      }
+    },
+    "actions": {
+      "demote": "降为普通成员",
+      "makeAdmin": "设为管理员",
+      "suspend": "停用",
+      "remove": "移除",
+      "reactivate": "重新启用"
+    },
+    "reactivateFirst": "请先重新启用该成员，再更改其角色。",
+    "confirmDialog": {
+      "removeTitle": "移出工作区？",
+      "suspendTitle": "停用该成员？",
+      "removeMessage": "<bold>{{name}}</bold> 将立即失去对此工作区的访问权限，并从通讯录中消失。其发布的所有内容都会保留，你随时可以重新邀请。",
+      "suspendMessage": "<bold>{{name}}</bold> 将在所有设备上退出登录，在你重新启用之前无法再次登录。不会删除任何内容。"
+    },
+    "sessions": {
+      "loadError": {
+        "title": "无法加载会话",
+        "hint": "请检查网络后重试。"
+      },
+      "none": "没有活跃会话。",
+      "signedOutToast": "已退出 {{device}}",
+      "revokeFailedToast": {
+        "title": "无法退出该会话",
+        "description": "请重试。"
+      },
+      "confirmDialog": {
+        "title": "退出此会话？",
+        "message": "<bold>{{device}}</bold> 将立即退出登录，需要重新登录。",
+        "confirmLabel": "退出登录"
+      }
+    }
+  },
+  "analytics": {
+    "empty": {
+      "title": "此时间段内没有活动",
+      "hint": "有一天的活动数据后才会显示图表。"
+    },
+    "summary": {
+      "activeTime": "活跃时长",
+      "acrossDays_other": "共 {{count}} 天",
+      "sessions": "会话",
+      "sessionsHint": "已记录的登录",
+      "events": "事件",
+      "eventsHint": "已记录的事件",
+      "lastActive": "最近活跃",
+      "lastActiveHint": "最近一次记录的活动",
+      "lastActiveNone": "没有活动记录",
+      "vsPrevious": "与上一时段相比"
+    },
+    "overview": {
+      "title": "活动概览",
+      "hint": "所选时间段内的活动总时长和分布",
+      "activeOfSignedIn": "的在线时间处于活跃状态",
+      "active": "活跃",
+      "idle": "空闲",
+      "idleHint": "已登录，但无操作"
+    },
+    "topApps": {
+      "title": "常用应用",
+      "hint": "此时间段内使用最多的应用",
+      "empty": "此时间段内没有应用数据。"
+    },
+    "recent": {
+      "title": "近期活动",
+      "hint": "最近的应用和系统活动",
+      "empty": "没有近期活动记录。",
+      "viewAll": "查看全部活动"
+    },
+    "work": {
+      "title": "工作时段",
+      "hint": "活动热力图，颜色越深表示活动越多",
+      "less": "较少",
+      "more": "较多",
+      "outsideHours": "在这些时段之外多活跃 {{time}}"
+    },
+    "trend": {
+      "title": "活动趋势",
+      "hint": "每个工作日的平均活跃与空闲时长",
+      "active": "活跃",
+      "idle": "空闲"
+    }
+  },
+  "auditLog": {
+    "labels": {
+      "org": {
+        "created": "创建了工作区"
+      },
+      "user": {
+        "profile_updated": "更新了个人资料"
+      },
+      "invite": {
+        "created": "邀请了成员",
+        "accepted": "接受了邀请",
+        "revoked": "撤销了邀请"
+      },
+      "password": {
+        "reset_requested": "申请了密码重置",
+        "reset_completed": "完成了密码重置"
+      },
+      "email": {
+        "verified": "验证了邮箱"
+      },
+      "member": {
+        "role_changed": "更改了角色",
+        "deactivated": "停用了成员",
+        "reactivated": "重新启用了成员",
+        "removed": "移除了成员"
+      }
+    },
+    "error": {
+      "title": "无法加载审计日志",
+      "hint": "请检查网络后重试。"
+    },
+    "empty": {
+      "title": "暂无记录",
+      "hintScoped": "针对此成员的管理操作会显示在这里。",
+      "hintAll": "工作区内的管理操作会显示在这里。"
+    },
+    "systemActor": "系统"
+  },
+  "sessions": {
+    "empty": {
+      "title": "没有会话记录",
+      "hint": "成员从设备登录后，会话会显示在这里。"
+    },
+    "activeNow": "当前活跃",
+    "endReason": {
+      "disconnect": "关闭了应用",
+      "timeout": "长时间无操作"
+    },
+    "durations": {
+      "total": "共 {{duration}}",
+      "active": "活跃 {{duration}}",
+      "idle": "空闲 {{duration}}"
+    },
+    "approximateNetworkTooltip": "大致网络位置",
+    "retentionNote": "显示最近 7 天。更早的会话仍会保留，但无法在此浏览。"
+  },
+  "timeline": {
+    "filters": {
+      "all": "全部",
+      "engagement": "工作",
+      "navigation": "应用内",
+      "outside": "应用外活动",
+      "auth": "登录",
+      "security": "安全"
+    },
+    "empty": {
+      "title": "暂无活动记录",
+      "hint": "对方使用 {{brand}} 后，活动会显示在这里。"
+    },
+    "error": {
+      "title": "无法加载活动",
+      "hint": "请检查网络后重试。"
+    },
+    "verifiedTooltip": "由 {{brand}} 自行记录，非自行申报",
+    "retentionNote": "显示最近 7 天。更早的活动仍会保留，但无法在此浏览。"
+  },
+  "loadOlder": {
+    "button": "加载更早的"
+  },
+  "activityLabels": {
+    "actions": {
+      "login": "登录",
+      "logout": "退出登录",
+      "org": {
+        "switched": "切换了工作区"
+      },
+      "message": {
+        "sent": "发送了消息"
+      },
+      "mail": {
+        "attachment": {
+          "downloaded": "下载了邮件附件"
+        }
+      },
+      "attachment": {
+        "opened": "打开了文件",
+        "downloaded": "下载了文件"
+      },
+      "channel": {
+        "message": {
+          "sent": "在频道中发了消息"
+        }
+      },
+      "conversation": {
+        "ignored": "忽略了对话"
+      },
+      "user": {
+        "blocked": "屏蔽了某人",
+        "unblocked": "取消屏蔽了某人"
+      },
+      "task": {
+        "allocated": "分配了任务",
+        "acknowledged": "知悉了任务",
+        "completed": "完成了任务",
+        "ignored": "忽略了任务",
+        "left": "退出了任务",
+        "reviewed": "评价了任务"
+      },
+      "route": {
+        "enter": "打开了",
+        "dwell": "停留于"
+      },
+      "focus": "回到了 {{brand}}",
+      "blur": "离开了 {{brand}}",
+      "idle": {
+        "start": "进入空闲",
+        "end": "恢复活跃"
+      },
+      "screenshot": {
+        "attempted": "已拦截截图尝试"
+      },
+      "app": {
+        "focus": "使用了"
+      },
+      "os": {
+        "idle": "离开键盘"
+      }
+    },
+    "surfaces": {
+      "mail": "邮件",
+      "inbox": "收件箱",
+      "chats": "聊天",
+      "channels": "频道",
+      "tasks": "任务",
+      "members": "成员",
+      "integrations": "集成",
+      "search": "搜索",
+      "settings": "设置",
+      "profile": "个人资料",
+      "org": "组织"
+    },
+    "theApp": "应用",
+    "source": {
+      "verified": "已验证",
+      "desktop": "桌面应用",
+      "extension": "浏览器扩展",
+      "web": "网页应用"
+    }
+  },
+  "myActivity": {
+    "settingsBack": "设置",
+    "title": "你的活动",
+    "subtitle": "{{brand}} 记录的你的所有工作情况。",
+    "whatsRecorded": "记录了什么，谁能查看",
+    "bullets": {
+      "signInOut": "你何时登录和退出，以及你何时在线、空闲或离线。",
+      "appUsage": "你使用了 {{brand}} 的哪些部分，以及使用时长。",
+      "messagesAndTasks": "你发送的消息和处理的任务，只记录消息的第一行，绝不记录完整对话。",
+      "deviceAndLocation": "你登录时使用的浏览器和设备，以及根据 IP 得出的大致位置。"
+    },
+    "retentionNote": "你的工作区管理员可以查看这份记录。此处显示最近 7 天。详细活动保留 90 天，每日汇总保留更久，二者均用于报告并可按需提供，但无法在应用内浏览。"
+  },
+  "membersEmpty": {
+    "title": "成员",
+    "hint": "在左侧选择一位成员查看其资料，或点击聊天图标给对方发消息。"
+  }
+}

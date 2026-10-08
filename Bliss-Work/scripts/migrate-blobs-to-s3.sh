@@ -4,6 +4,9 @@
 #   bash scripts/migrate-blobs-to-s3.sh              # copy + verify
 #   MIGRATE_DRY_RUN=1 bash scripts/migrate-blobs-to-s3.sh
 #
+# Set MC_IMAGE to an approved immutable minio/mc image reference
+# (minio/mc@sha256:… or quay.io/minio/mc@sha256:…) before running.
+#
 # ── Why this is a copy and not a move ────────────────────────────────────────
 # Nothing is deleted from the volume. The cutover is a config flip
 # (MEDIA_BACKEND=s3) and the rollback is flipping it back — which only works if
@@ -41,12 +44,34 @@ cd "$REPO_DIR"
 MEDIA_S3_USE_SSL="${MEDIA_S3_USE_SSL:-true}"
 MEDIA_S3_PREFIX="${MEDIA_S3_PREFIX:-}"
 MEDIA_VOLUME="${MEDIA_VOLUME:-task-board-prod_media_blobs}"
+MC_IMAGE="${MC_IMAGE:?set MC_IMAGE to an approved minio/mc@sha256:... image reference}"
+[[ "$MC_IMAGE" =~ ^(minio/mc|quay\.io/minio/mc)@sha256:[a-f0-9]{64}$ ]] || {
+  echo "MC_IMAGE must be an immutable minio/mc or quay.io/minio/mc sha256 reference" >&2
+  exit 1
+}
 
 scheme="https"; [ "$MEDIA_S3_USE_SSL" = "false" ] && scheme="http"
 dest="tb/${MEDIA_S3_BUCKET}"
 [ -n "$MEDIA_S3_PREFIX" ] && dest="${dest}/${MEDIA_S3_PREFIX}"
 
 if docker info >/dev/null 2>&1; then SUDO=""; else SUDO="sudo -n"; fi
+
+urlencode() {
+  local input="$1" output="" char hex index
+  local LC_ALL=C
+  for ((index = 0; index < ${#input}; index++)); do
+    char="${input:index:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-]) output+="$char" ;;
+      *) printf -v hex '%%%02X' "'$char"; output+="$hex" ;;
+    esac
+  done
+  printf '%s' "$output"
+}
+
+# mc reads this host config from the container environment rather than from
+# alias-set arguments, keeping the access/secret keys out of docker's argv.
+export MC_HOST_tb="${scheme}://$(urlencode "$MEDIA_S3_ACCESS_KEY"):$(urlencode "$MEDIA_S3_SECRET_KEY")@${MEDIA_S3_ENDPOINT}"
 
 # `mc` in a throwaway container: no host install, and it never touches the repo.
 # The media volume is mounted READ-ONLY — this script must be incapable of
@@ -55,8 +80,18 @@ mc() {
   $SUDO docker run --rm \
     -v "${MEDIA_VOLUME}:/media:ro" \
     --network host \
+    -e MC_HOST_tb \
+    --entrypoint mc \
+    "$MC_IMAGE" "$@"
+}
+
+mc_shell() {
+  $SUDO docker run --rm \
+    -v "${MEDIA_VOLUME}:/media:ro" \
+    --network host \
+    -e MC_HOST_tb \
     --entrypoint /bin/sh \
-    minio/mc:latest -c "mc --quiet alias set tb ${scheme}://${MEDIA_S3_ENDPOINT} '${MEDIA_S3_ACCESS_KEY}' '${MEDIA_S3_SECRET_KEY}' >/dev/null && $*"
+    "$MC_IMAGE" -c "$1"
 }
 
 echo "→ source volume : ${MEDIA_VOLUME} (read-only)"
@@ -64,20 +99,20 @@ echo "→ destination   : ${scheme}://${MEDIA_S3_ENDPOINT}/${dest}"
 
 if [ -n "${MIGRATE_DRY_RUN:-}" ]; then
   echo "→ DRY RUN — nothing will be written"
-  mc "mc mirror --dry-run /media/blobs ${dest}/blobs" | tail -20
+  mc mirror --dry-run /media/blobs "${dest}/blobs" | tail -20
   exit 0
 fi
 
-mc "mc mb --ignore-existing ${dest%%/*}" >/dev/null 2>&1 || true
+mc mb --ignore-existing "${dest%%/*}" >/dev/null 2>&1 || true
 echo "→ copying blobs…"
-mc "mc mirror --overwrite /media/blobs ${dest}/blobs"
+mc mirror --overwrite /media/blobs "${dest}/blobs"
 
 # Verify by count. Not a checksum comparison: mc mirror already verifies each
 # object's ETag on write, and a full re-hash of a large volume would take hours
 # for a weaker guarantee than "every file arrived".
 echo "→ verifying…"
-src_count="$(mc 'find /media/blobs -type f | wc -l' | tr -d '[:space:]')"
-dst_count="$(mc "mc ls --recursive ${dest}/blobs | wc -l" | tr -d '[:space:]')"
+src_count="$(mc_shell 'find /media/blobs -type f | wc -l' | tr -d '[:space:]')"
+dst_count="$(mc ls --recursive "${dest}/blobs" | wc -l | tr -d '[:space:]')"
 echo "   source objects: ${src_count}"
 echo "   bucket objects: ${dst_count}"
 

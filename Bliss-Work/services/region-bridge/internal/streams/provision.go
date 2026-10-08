@@ -42,11 +42,13 @@ import (
 // rather than N copies of the whole stream — the horizontal-scale story.
 func ImportDurable(region string) string { return "bridge-import-" + region }
 
-// maxDeliver bounds JetStream's own redelivery. Set well above the bridge's own
+// MaxDeliver bounds JetStream's own redelivery. Set well above the bridge's own
 // dead-letter threshold on purpose: the bridge decides when an event is poison
 // and records WHY, and a server-side limit that fired first would silently stop
-// delivering with nothing written down anywhere.
-const maxDeliver = 64
+// delivering with nothing written down anywhere. Exported so the importer can
+// terminate a message ITSELF on its last delivery rather than NAK it into that
+// silent server-side drop.
+const MaxDeliver = 64
 
 // Provision creates or updates every stream and consumer this region needs, and
 // returns the inbound consumer the importer pulls from.
@@ -202,7 +204,7 @@ func importConsumerConfig(cfg *config.Config) jetstream.ConsumerConfig {
 		// hands this replica its entire backlog at once, and the memory that
 		// takes is the memory the local Kafka producer needed.
 		MaxAckPending: cfg.MaxAckPending,
-		MaxDeliver:    maxDeliver,
+		MaxDeliver:    MaxDeliver,
 		// Redelivery has to outlast a Kafka leader election, or a batch that
 		// would have succeeded on its own is redelivered on top of itself.
 		AckWait: 2 * time.Minute,

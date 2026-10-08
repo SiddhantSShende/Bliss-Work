@@ -8,6 +8,7 @@ import { clock, groupMessages } from "../lib/chatFormat";
 import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
 import { parseChatEnvelope, readablePrefix, type MediaItem } from "../lib/chatEnvelope";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { isIdSwapOnly, isNearBottom } from "../lib/threadScroll";
 import { useUserLabels } from "../lib/userLabel";
 import { waForwardText, waShareLink } from "../lib/waLink";
 import { useWhatsAppMediaForward } from "../lib/useWhatsAppMediaForward";
@@ -380,8 +381,18 @@ export function ChatThread({
   // fresh one a moment later as two separate renders. Both must land
   // instantly; only scrolls after the thread has visibly settled should
   // animate.
-  const prevRef = useRef<{ threadId?: string; firstId?: string; lastId?: string; height: number }>({ height: 0 });
+  //
+  // An append only pins the reader when they were already at the bottom, or the
+  // message is their own: someone scrolled up to re-read must not be yanked down
+  // by every incoming message. A pending send's `temp:` id being swapped for its
+  // real one changes the last id but moves nothing, so it never scrolls.
+  const prevRef = useRef<{ threadId?: string; firstId?: string; lastId?: string; count: number; height: number }>({
+    count: 0,
+    height: 0,
+  });
   const settledRef = useRef(false);
+  // Kept current by handleScroll; true until the reader scrolls away.
+  const nearBottomRef = useRef(true);
   useLayoutEffect(() => {
     const el = listRef.current;
     if (!el) return;
@@ -389,19 +400,26 @@ export function ChatThread({
     const lastId = messages[messages.length - 1]?.id;
     const prev = prevRef.current;
     const isNewThread = prev.threadId !== threadId;
-    if (isNewThread) settledRef.current = false;
+    if (isNewThread) {
+      settledRef.current = false;
+      nearBottomRef.current = true;
+    }
     const prepended = !isNewThread && !!prev.firstId && firstId !== prev.firstId && lastId === prev.lastId;
+    const idSwapped = isIdSwapOnly(prev, { firstId, lastId, count: messages.length });
 
     if (prepended) {
       el.scrollTop += el.scrollHeight - prev.height;
-    } else if (isNewThread || lastId !== prev.lastId) {
+    } else if (isNewThread || (lastId !== prev.lastId && !idSwapped)) {
+      const lastIsMine = messages[messages.length - 1]?.senderId === meId;
       // No smooth scroll while a thread is still settling into view — it
       // should already be at the bottom when it appears, not animate there.
-      el.scrollTo({ top: el.scrollHeight, behavior: settledRef.current ? "smooth" : "auto" });
+      if (isNewThread || !settledRef.current || nearBottomRef.current || lastIsMine) {
+        el.scrollTo({ top: el.scrollHeight, behavior: settledRef.current ? "smooth" : "auto" });
+      }
     }
     if (messages.length > 0) settledRef.current = true;
-    prevRef.current = { threadId, firstId, lastId, height: el.scrollHeight };
-  }, [threadId, messages]);
+    prevRef.current = { threadId, firstId, lastId, count: messages.length, height: el.scrollHeight };
+  }, [threadId, messages, meId]);
 
   // Landing on a notification's message. Runs after the scroll effect above so its
   // position wins over "pin to the bottom" on the thread's first paint. The target
@@ -447,6 +465,7 @@ export function ChatThread({
 
   const handleScroll = () => {
     const el = listRef.current;
+    if (el) nearBottomRef.current = isNearBottom(el);
     if (!el || !onLoadOlder || !hasOlder || loadingOlder) return;
     if (el.scrollTop < 120) onLoadOlder();
   };

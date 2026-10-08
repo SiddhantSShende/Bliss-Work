@@ -1,0 +1,201 @@
+{
+  "profile": {
+    "header": {
+      "title": "Mein Profil",
+      "subtitle": "Legen Sie fest, wie Sie für Ihr Team erscheinen."
+    },
+    "photo": {
+      "changePhoto": "Foto ändern",
+      "addPhoto": "Foto hinzufügen",
+      "changePhotoAria": "Profilfoto ändern",
+      "addPhotoAria": "Profilfoto hinzufügen"
+    },
+    "form": {
+      "displayNameLabel": "Anzeigename",
+      "displayNamePlaceholder": "Ihr Name",
+      "emailLabel": "E-Mail",
+      "usernameLabel": "Benutzername",
+      "cancel": "Abbrechen",
+      "saveChanges": "Änderungen speichern"
+    },
+    "toasts": {
+      "profileUpdated": "Profil aktualisiert",
+      "updateFailed": "Das Profil konnte nicht aktualisiert werden",
+      "photoUpdated": "Profilfoto aktualisiert",
+      "photoUpdateFailed": "Ihr Foto konnte nicht aktualisiert werden",
+      "unsupportedFileType": {
+        "title": "Nicht unterstützter Dateityp",
+        "description": "Bitte wählen Sie ein JPG-, PNG- oder WebP-Bild."
+      },
+      "processFailed": {
+        "title": "Dieses Bild konnte nicht verarbeitet werden",
+        "description": "Bitte versuchen Sie es mit einem anderen Foto."
+      }
+    }
+  },
+  "activeSessions": {
+    "header": {
+      "title": "Aktive Sitzungen",
+      "subtitle": "Hier sind Sie angemeldet. Melden Sie jedes Gerät ab, das Sie nicht kennen."
+    },
+    "empty": {
+      "title": "Keine aktiven Sitzungen",
+      "hint": "Hier sehen Sie jedes angemeldete Gerät."
+    },
+    "signOutAllOthers": "Von allen anderen Sitzungen abmelden",
+    "confirmOne": {
+      "title": "Diese Sitzung abmelden?",
+      "message": "<bold>{{device}}</bold> wird sofort abgemeldet und muss sich erneut anmelden.",
+      "confirmLabel": "Abmelden"
+    },
+    "confirmAllOthers": {
+      "title": "Von allen anderen Sitzungen abmelden?",
+      "message_one": "Dieses Gerät bleibt angemeldet. {{count}} weitere Sitzung wird sofort abgemeldet.",
+      "message_other": "Dieses Gerät bleibt angemeldet. {{count}} weitere Sitzungen werden sofort abgemeldet.",
+      "confirmLabel": "Andere abmelden"
+    },
+    "toasts": {
+      "signedOutOf": "Von {{device}} abgemeldet",
+      "revokeFailed": {
+        "title": "Diese Sitzung konnte nicht abgemeldet werden",
+        "description": "Bitte versuchen Sie es erneut."
+      },
+      "noOtherSessions": "Keine weiteren Sitzungen zum Abmelden",
+      "signedOutOfOthers_one": "Von {{count}} weiteren Sitzung abgemeldet",
+      "signedOutOfOthers_other": "Von {{count}} weiteren Sitzungen abgemeldet",
+      "revokeOthersFailed": {
+        "title": "Die anderen Sitzungen konnten nicht abgemeldet werden",
+        "description": "Bitte versuchen Sie es erneut."
+      }
+    }
+  },
+  "activeSessionsList": {
+    "thisDevice": "Dieses Gerät",
+    "active": "Aktiv {{time}}",
+    "signedIn": "Angemeldet {{time}}",
+    "approximateNetwork": "Ungefähres Netzwerk",
+    "signOut": "Abmelden"
+  },
+  "mfaSettings": {
+    "header": {
+      "title": "Zwei-Faktor-Authentifizierung",
+      "subtitle": "Fügen Sie der Anmeldung mit einer Authenticator-App einen zweiten Schritt hinzu."
+    },
+    "enrolled": {
+      "status": {
+        "title": "Die Zwei-Faktor-Authentifizierung ist aktiv",
+        "description": "Bei der Anmeldung werden Sie nach einem zweiten Faktor gefragt."
+      },
+      "backupCodes": {
+        "title": "Backup-Codes",
+        "description": "Beim Neuerstellen werden alle unbenutzten Codes ersetzt – alte Codes funktionieren sofort nicht mehr.",
+        "action": "Neu erstellen"
+      },
+      "disable": {
+        "title": "Zwei-Faktor-Authentifizierung ausschalten",
+        "description": "Entfernt Ihre Authenticator-App und die Backup-Codes.",
+        "action": "Ausschalten"
+      }
+    },
+    "notEnrolled": {
+      "totp": {
+        "title": "Authenticator-App",
+        "description": "Google Authenticator, 1Password, Authy oder jede andere TOTP-App."
+      },
+      "setUp": "Einrichten"
+    },
+    "backupCodesModal": {
+      "title": "Backup-Codes speichern"
+    },
+    "stepUp": {
+      "titles": {
+        "disable": "Bestätigen Sie, dass Sie es sind",
+        "regenerate": "Bestätigen Sie Ihre Identität, um Codes neu zu erstellen"
+      },
+      "passwordPlaceholder": "Ihr Passwort",
+      "backupCodePlaceholder": "Backup-Code",
+      "authCodePlaceholder": "Authentifizierungscode",
+      "useAuthCodeInstead": "Stattdessen einen Authentifizierungscode verwenden",
+      "useBackupCodeInstead": "Stattdessen einen Backup-Code verwenden",
+      "submitLabels": {
+        "regenerate": "Backup-Codes neu erstellen"
+      },
+      "toasts": {
+        "tooManyAttemptsTitle": "Zu viele Versuche",
+        "verificationFailedTitle": "Überprüfung fehlgeschlagen",
+        "verificationFailedDescription": "Prüfen Sie Passwort und Code und versuchen Sie es erneut."
+      }
+    },
+    "toasts": {
+      "refreshFailed": {
+        "title": "Ihr Konto konnte nicht aktualisiert werden",
+        "description": "Der Status Ihrer Zwei-Faktor-Authentifizierung auf dieser Seite ist möglicherweise veraltet – laden Sie die Seite neu."
+      },
+      "mfaTurnedOff": "Zwei-Faktor-Authentifizierung ausgeschaltet"
+    }
+  },
+  "passwordField": {
+    "hidePassword": "Passwort verbergen",
+    "showPassword": "Passwort anzeigen",
+    "strength": {
+      "veryWeak": "Sehr schwach",
+      "weak": "Schwach",
+      "fair": "Mittel",
+      "good": "Gut",
+      "strong": "Stark"
+    },
+    "requirements": {
+      "minLength": "Mindestens 10 Zeichen",
+      "letter": "Ein Buchstabe",
+      "digit": "Eine Ziffer",
+      "special": "Ein Sonderzeichen (!@#$…)"
+    }
+  },
+  "backupCodesView": {
+    "description": "Bewahren Sie diese Backup-Codes sicher auf. Mit jedem Code können Sie sich EINMAL anmelden, falls Sie den Zugriff auf Ihre Authenticator-App verlieren – sie werden nicht noch einmal angezeigt.",
+    "copied": "Kopiert",
+    "copyFailed": "Die Backup-Codes konnten nicht kopiert werden. Bitte markieren und kopieren Sie sie manuell.",
+    "copyAll": "Alle kopieren",
+    "acknowledgeLabel": "Ich habe diese Codes sicher gespeichert.",
+    "done": "Fertig"
+  },
+  "totpEnroll": {
+    "toasts": {
+      "startFailed": {
+        "title": "Die Einrichtung konnte nicht gestartet werden",
+        "description": "Bitte versuchen Sie es erneut."
+      },
+      "tooManyAttempts": {
+        "title": "Zu viele Versuche",
+        "description": "Warten Sie eine Minute, bevor Sie es erneut versuchen."
+      },
+      "incorrectCode": {
+        "title": "Falscher Code",
+        "description": "Prüfen Sie die Uhrzeit auf Ihrem Gerät und versuchen Sie es erneut."
+      }
+    },
+    "startError": {
+      "message": "Die Einrichtung konnte nicht gestartet werden.",
+      "retry": "Erneut versuchen"
+    },
+    "preparing": "Einrichtung wird vorbereitet…",
+    "instructions": "Scannen Sie dies mit einer Authenticator-App (Google Authenticator, 1Password, Authy, …) oder geben Sie den Einrichtungsschlüssel manuell ein.",
+    "qrAlt": "Mit Ihrer Authenticator-App scannen",
+    "setupKeyLabel": "Einrichtungsschlüssel",
+    "codeLabel": "6-stelligen Code eingeben",
+    "verifying": "Wird überprüft…",
+    "confirmAndEnable": "Bestätigen und aktivieren"
+  },
+  "mfaPolicy": {
+    "title": "Zwei-Faktor-Authentifizierung für Admins verlangen",
+    "descriptionWithDeadline": "Admins ohne Einrichtung werden bis {{deadline}} gewarnt und danach bei der Anmeldung gesperrt, bis sie die Einrichtung abschließen.",
+    "descriptionNoDeadline": "Admins entscheiden selbst, ob sie sie aktivieren.",
+    "turnOff": "Ausschalten",
+    "turnOn": "Einschalten",
+    "toasts": {
+      "enabled": "Für Admins ist die Zwei-Faktor-Authentifizierung jetzt Pflicht",
+      "disabled": "Die Zwei-Faktor-Authentifizierung ist nicht mehr verpflichtend",
+      "updateFailed": "Die Richtlinie konnte nicht aktualisiert werden"
+    }
+  }
+}

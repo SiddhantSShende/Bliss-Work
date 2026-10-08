@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -10,6 +11,23 @@ import (
 	"github.com/task-board/messaging-svc/internal/auth"
 	mw "github.com/task-board/messaging-svc/internal/middleware"
 	"github.com/task-board/messaging-svc/internal/store"
+)
+
+// Per-request ceilings on memberIds, enforced as a 400 before any work is done.
+//
+// Adding is the expensive one: each newly-added member gets their own
+// ChannelMessageCreated system message, and every one of those events carries
+// the channel's whole roster (up to store.maxChannelFanout ids) so ws-gateway
+// can route it. K added to an M-member channel therefore costs K x M ids in one
+// transaction. 500 is the "add a whole department" case the store was built for
+// (see AddChannelMembers) and keeps that product bounded; a larger group is
+// added in several requests.
+//
+// Creating is cheaper — the initial members share ONE system message naming them
+// all — so it takes more, bounded mainly by that message's body.
+const (
+	maxAddChannelMembersPerRequest = 500
+	maxCreateChannelMembers        = 2000
 )
 
 type createChannelReq struct {
@@ -31,6 +49,10 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" {
 		writeErr(w, http.StatusBadRequest, "name required")
+		return
+	}
+	if len(req.MemberIDs) > maxCreateChannelMembers {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("memberIds: at most %d per request", maxCreateChannelMembers))
 		return
 	}
 	for _, id := range req.MemberIDs {
@@ -281,6 +303,10 @@ func (s *Server) addChannelMembers(w http.ResponseWriter, r *http.Request) {
 	var req addMembersReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if len(req.MemberIDs) > maxAddChannelMembersPerRequest {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("memberIds: at most %d per request", maxAddChannelMembersPerRequest))
 		return
 	}
 	for _, id := range req.MemberIDs {

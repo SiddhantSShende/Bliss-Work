@@ -1,0 +1,199 @@
+{
+  "profile": {
+    "header": {
+      "title": "マイプロフィール",
+      "subtitle": "チームへの表示のされ方を管理します。"
+    },
+    "photo": {
+      "changePhoto": "写真を変更",
+      "addPhoto": "写真を追加",
+      "changePhotoAria": "プロフィール写真を変更",
+      "addPhotoAria": "プロフィール写真を追加"
+    },
+    "form": {
+      "displayNameLabel": "表示名",
+      "displayNamePlaceholder": "あなたの名前",
+      "emailLabel": "メール",
+      "usernameLabel": "ユーザー名",
+      "cancel": "キャンセル",
+      "saveChanges": "変更を保存"
+    },
+    "toasts": {
+      "profileUpdated": "プロフィールを更新しました",
+      "updateFailed": "プロフィールを更新できませんでした",
+      "photoUpdated": "プロフィール写真を更新しました",
+      "photoUpdateFailed": "写真を更新できませんでした",
+      "unsupportedFileType": {
+        "title": "サポートされていないファイル形式です",
+        "description": "JPG、PNG、WebPのいずれかの画像を選択してください。"
+      },
+      "processFailed": {
+        "title": "この画像を処理できませんでした",
+        "description": "別の写真をお試しください。"
+      }
+    }
+  },
+  "activeSessions": {
+    "header": {
+      "title": "アクティブなセッション",
+      "subtitle": "ログイン中のデバイスです。見覚えのないデバイスはログアウトしてください。"
+    },
+    "empty": {
+      "title": "アクティブなセッションはありません",
+      "hint": "ログイン中のデバイスがここにすべて表示されます。"
+    },
+    "signOutAllOthers": "他のセッションをすべてログアウト",
+    "confirmOne": {
+      "title": "このセッションをログアウトしますか?",
+      "message": "<bold>{{device}}</bold>は直ちにログアウトされ、再度ログインが必要になります。",
+      "confirmLabel": "ログアウト"
+    },
+    "confirmAllOthers": {
+      "title": "他のセッションをすべてログアウトしますか?",
+      "message_other": "このデバイスはログインしたままです。他の{{count}}件のセッションは直ちにログアウトされます。",
+      "confirmLabel": "他をログアウト"
+    },
+    "toasts": {
+      "signedOutOf": "{{device}}からログアウトしました",
+      "revokeFailed": {
+        "title": "このセッションをログアウトできませんでした",
+        "description": "もう一度お試しください。"
+      },
+      "noOtherSessions": "ログアウトする他のセッションはありません",
+      "signedOutOfOthers_other": "他の{{count}}件のセッションをログアウトしました",
+      "revokeOthersFailed": {
+        "title": "他のセッションをログアウトできませんでした",
+        "description": "もう一度お試しください。"
+      }
+    }
+  },
+  "activeSessionsList": {
+    "thisDevice": "このデバイス",
+    "active": "最終アクティブ:{{time}}",
+    "signedIn": "ログイン:{{time}}",
+    "approximateNetwork": "おおよそのネットワーク",
+    "signOut": "ログアウト"
+  },
+  "mfaSettings": {
+    "header": {
+      "title": "二要素認証",
+      "subtitle": "認証アプリを使って、ログインに第2段階を追加します。"
+    },
+    "enrolled": {
+      "status": {
+        "title": "二要素認証はオンです",
+        "description": "ログイン時に第2の認証要素を求められます。"
+      },
+      "backupCodes": {
+        "title": "バックアップコード",
+        "description": "再生成すると未使用のコードがすべて置き換えられ、古いコードは直ちに使えなくなります。",
+        "action": "再生成"
+      },
+      "disable": {
+        "title": "二要素認証をオフにする",
+        "description": "認証アプリとバックアップコードが削除されます。",
+        "action": "オフにする"
+      }
+    },
+    "notEnrolled": {
+      "totp": {
+        "title": "認証アプリ",
+        "description": "Google Authenticator、1Password、Authy、またはその他のTOTPアプリ。"
+      },
+      "setUp": "設定する"
+    },
+    "backupCodesModal": {
+      "title": "バックアップコードを保存してください"
+    },
+    "stepUp": {
+      "titles": {
+        "disable": "本人確認",
+        "regenerate": "コードを再生成するには本人確認が必要です"
+      },
+      "passwordPlaceholder": "パスワード",
+      "backupCodePlaceholder": "バックアップコード",
+      "authCodePlaceholder": "認証コード",
+      "useAuthCodeInstead": "認証コードを使用する",
+      "useBackupCodeInstead": "バックアップコードを使用する",
+      "submitLabels": {
+        "regenerate": "バックアップコードを再生成"
+      },
+      "toasts": {
+        "tooManyAttemptsTitle": "試行回数が多すぎます",
+        "verificationFailedTitle": "認証に失敗しました",
+        "verificationFailedDescription": "パスワードとコードを確認して、もう一度お試しください。"
+      }
+    },
+    "toasts": {
+      "refreshFailed": {
+        "title": "アカウント情報を更新できませんでした",
+        "description": "このページの二要素認証の状態が古い可能性があります。ページを更新して最新の状態を確認してください。"
+      },
+      "mfaTurnedOff": "二要素認証をオフにしました"
+    }
+  },
+  "passwordField": {
+    "hidePassword": "パスワードを非表示",
+    "showPassword": "パスワードを表示",
+    "strength": {
+      "veryWeak": "非常に弱い",
+      "weak": "弱い",
+      "fair": "普通",
+      "good": "良い",
+      "strong": "強い"
+    },
+    "requirements": {
+      "minLength": "10文字以上",
+      "letter": "英字を1文字以上",
+      "digit": "数字を1文字以上",
+      "special": "記号を1文字以上(!@#$…)"
+    }
+  },
+  "backupCodesView": {
+    "description": "このバックアップコードを安全な場所に保存してください。認証アプリを使えなくなった場合、各コードで1回だけログインできます。再表示はされません。",
+    "copied": "コピーしました",
+    "copyFailed": "バックアップコードをコピーできませんでした。手動で選択してコピーしてください。",
+    "copyAll": "すべてコピー",
+    "acknowledgeLabel": "コードを安全な場所に保存しました。",
+    "done": "完了"
+  },
+  "totpEnroll": {
+    "toasts": {
+      "startFailed": {
+        "title": "登録を開始できませんでした",
+        "description": "もう一度お試しください。"
+      },
+      "tooManyAttempts": {
+        "title": "試行回数が多すぎます",
+        "description": "1分ほど待ってからもう一度お試しください。"
+      },
+      "incorrectCode": {
+        "title": "コードが正しくありません",
+        "description": "デバイスの時刻を確認して、もう一度お試しください。"
+      }
+    },
+    "startError": {
+      "message": "登録を開始できませんでした。",
+      "retry": "再試行"
+    },
+    "preparing": "登録を準備中…",
+    "instructions": "認証アプリ(Google Authenticator、1Password、Authyなど)でスキャンするか、セットアップキーを手動で入力してください。",
+    "qrAlt": "認証アプリでスキャン",
+    "setupKeyLabel": "セットアップキー",
+    "codeLabel": "6桁のコードを入力",
+    "verifying": "確認中…",
+    "confirmAndEnable": "確認して有効にする"
+  },
+  "mfaPolicy": {
+    "title": "管理者に二要素認証を必須にする",
+    "descriptionWithDeadline": "未登録の管理者には{{deadline}}まで警告が表示され、その後は登録するまでログインできなくなります。",
+    "descriptionNoDeadline": "有効にするかどうかは、管理者が各自で選択します。",
+    "turnOff": "オフにする",
+    "turnOn": "オンにする",
+    "toasts": {
+      "enabled": "管理者に二要素認証が必須になりました",
+      "disabled": "二要素認証は必須ではなくなりました",
+      "updateFailed": "ポリシーを更新できませんでした"
+    }
+  }
+}

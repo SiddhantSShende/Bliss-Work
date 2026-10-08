@@ -34,6 +34,9 @@ const HEIGHT = 720;
  *  once compositing, once encoding — while they are also in the call. */
 const FPS = 24;
 
+/** How often the canvas is redrawn: once per encoder frame. */
+export const DRAW_INTERVAL_MS = Math.round(1000 / FPS);
+
 /** ~2.5 Mbps at 720p. Comfortably above the point where a screen share of text
  *  stays readable, and an hour still fits in about a gigabyte. */
 const VIDEO_BITS_PER_SECOND = 2_500_000;
@@ -102,7 +105,7 @@ export function extensionFor(mime: string): string {
  * A recording in progress.
  *
  * Built by `startLocalRecording`, ended by `stop()`. Everything it owns — the
- * hidden video elements, the AudioContext, the animation frame — is released in
+ * hidden video elements, the AudioContext, the draw timer — is released in
  * `stop()`, including when the recorder errors, because these are camera and
  * audio resources on someone's laptop.
  */
@@ -196,10 +199,7 @@ export function startLocalRecording(options: {
   void audioCtx.resume().catch(() => {});
 
   // ── Drawing ────────────────────────────────────────────────────────────────
-  let frame = 0;
-
   const draw = () => {
-    frame = requestAnimationFrame(draw);
     ctx.fillStyle = "#0b0f19";
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
@@ -215,7 +215,12 @@ export function startLocalRecording(options: {
       drawTile(ctx, tile, x, y, cellW, cellH, tile.video ? videoFor(tile.video) : null);
     });
   };
-  frame = requestAnimationFrame(draw);
+  // A timer, NOT requestAnimationFrame: rAF stops completely while the tab is
+  // hidden or minimised, which froze the recording the moment the organiser
+  // switched to another tab (the meeting itself carries on in the background).
+  // Timers are throttled there too, but only down to ~1/s — and not at all
+  // while the page is playing the meeting's audio — so the picture keeps moving.
+  const drawTimer = setInterval(draw, DRAW_INTERVAL_MS);
 
   // ── The encoder ────────────────────────────────────────────────────────────
   const stream = new MediaStream([
@@ -249,7 +254,7 @@ export function startLocalRecording(options: {
   recorder.start(CHUNK_MS);
 
   const release = () => {
-    cancelAnimationFrame(frame);
+    clearInterval(drawTimer);
     sources.forEach((node) => node.disconnect());
     sources.clear();
     videos.forEach((el) => {

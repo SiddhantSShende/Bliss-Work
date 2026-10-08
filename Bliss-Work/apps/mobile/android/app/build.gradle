@@ -4,6 +4,9 @@ apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
+// A release-signing setting: gradle property first, then the environment.
+def releaseSigning = { String name -> findProperty(name) ?: System.getenv(name) }
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -104,15 +107,27 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Release signing comes from the environment (or ~/.gradle/gradle.properties),
+        // never from the repo. Declared only when a keystore is supplied; a release
+        // build without one fails in the taskGraph check below rather than falling
+        // back to the public debug key.
+        if (releaseSigning('BLISSWORK_UPLOAD_STORE_FILE')) {
+            release {
+                storeFile file(releaseSigning('BLISSWORK_UPLOAD_STORE_FILE'))
+                storePassword releaseSigning('BLISSWORK_UPLOAD_STORE_PASSWORD')
+                keyAlias releaseSigning('BLISSWORK_UPLOAD_KEY_ALIAS')
+                keyPassword releaseSigning('BLISSWORK_UPLOAD_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // NEVER the debug keystore: it is public, so anyone could re-sign the APK.
+            // See BLISSWORK_UPLOAD_* above; EAS Build injects its own release config.
+            signingConfig signingConfigs.findByName('release')
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
@@ -178,5 +193,26 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
+    }
+}
+
+// Fail a release build LOUDLY when it has no release keystore, instead of letting
+// it ship signed with the public debug key. Checked only once the task graph is
+// known, so debug builds, `./gradlew help`, and EAS Build (which injects its own
+// release signing config) are unaffected.
+gradle.taskGraph.whenReady { graph ->
+    def releaseTask = graph.allTasks.find {
+        it.project == project && it.name ==~ /^(assemble|bundle|package|install)\w*Release$/
+    }
+    if (releaseTask == null) return
+
+    def signing = android.buildTypes.release.signingConfig
+    if (signing == null || signing.storeFile == null || !signing.storeFile.exists()
+            || !signing.storePassword || !signing.keyAlias || !signing.keyPassword) {
+        throw new GradleException(
+            "Cannot run ${releaseTask.path}: the release signing keystore is not configured " +
+            "(or its file is missing). Set BLISSWORK_UPLOAD_STORE_FILE, BLISSWORK_UPLOAD_STORE_PASSWORD, " +
+            "BLISSWORK_UPLOAD_KEY_ALIAS and BLISSWORK_UPLOAD_KEY_PASSWORD as environment variables or " +
+            "Gradle properties. Release builds are never signed with the debug keystore.")
     }
 }

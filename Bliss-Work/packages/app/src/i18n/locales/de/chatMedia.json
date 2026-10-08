@@ -1,0 +1,66 @@
+{
+  "mediaBubble": {
+    "openFile": "{{name}} öffnen",
+    "download": "Herunterladen",
+    "downloadFile": "{{name}} herunterladen",
+    "uploading": "Wird hochgeladen… {{percent}} %",
+    "notAvailable": "Für Sie nicht verfügbar",
+    "previewUnavailable": "Für diesen Dateityp ist keine Vorschau verfügbar"
+  },
+  "fileAttachment": {
+    "downloadsOff": "Datei-Downloads sind ausgeschaltet.",
+    "decline": "Ablehnen",
+    "cancel": "Abbrechen",
+    "retry": "Erneut versuchen",
+    "directTransfer": "Direkte Übertragung – Peer-to-Peer.",
+    "establishingConnection": "Peer-Verbindung wird aufgebaut…",
+    "transferComplete": "Übertragung abgeschlossen.",
+    "cancelledByPeer": "Von der Gegenseite abgebrochen",
+    "couldNotReadFile": "Die Datei konnte nicht gelesen werden",
+    "couldNotAnnounceFile": "Die Datei konnte nicht angekündigt werden",
+    "declined": "Abgelehnt",
+    "couldNotSend": "{{name}} konnte nicht gesendet werden",
+    "transferUnavailable": "Direkte Übertragung nicht verfügbar",
+    "badAnswer": "Ungültige Antwort",
+    "peerUnreachable": "Gegenseite nicht erreichbar",
+    "offerCreationFailed": "Angebot konnte nicht erstellt werden",
+    "checksumMismatch": "Prüfsumme stimmt nicht überein",
+    "cancelled": "Abgebrochen",
+    "sinkWriteFailed": "Schreiben fehlgeschlagen: {{message}}",
+    "answerCreationFailed": "Antwort konnte nicht erstellt werden",
+    "receiverSetupFailed": "Empfänger konnte nicht eingerichtet werden"
+  },
+  "location": {
+    "sharedLocation": "Geteilter Standort",
+    "openInMapsAriaLabel": "{{title}} in Karten öffnen",
+    "mapAlt": "Karte mit {{title}}",
+    "accuracySuffix": " · ±{{accuracy}} m",
+    "openInMapsTitle": "In Karten öffnen",
+    "open": "Öffnen"
+  },
+  "emojiPicker": {
+    "insertEmoji": "Emoji einfügen"
+  },
+  "attachments": {
+    "tooManyFiles": "Sie können bis zu {{max}} Dateien auf einmal senden.",
+    "overSizePeerToPeer": "{{name}} ist größer als {{size}} – wird per Peer-to-Peer gesendet. Sie beide müssen online bleiben, bis die Übertragung abgeschlossen ist.",
+    "tooLarge": "{{name}} ist größer als {{size}}.",
+    "uploadFailed": "Hochladen fehlgeschlagen",
+    "attachFailedSingle": "{{name}} konnte nicht angehängt werden: {{message}}",
+    "attachFailedMultiple": "{{count}} Dateien konnten nicht angehängt werden: {{names}}",
+    "attachFailedGeneric": "Diese Datei konnte nicht angehängt werden. Bitte versuchen Sie es erneut."
+  },
+  "shareLocation": {
+    "gettingLocation": "Ihr Standort wird ermittelt…",
+    "approximateShared": "Ungefähren Standort geteilt",
+    "reasons": {
+      "desktopAccessOff": "Der Standortzugriff ist für Desktop-Apps ausgeschaltet, daher basiert dies auf Ihrem Netzwerk.",
+      "noPreciseFix": "Ihr Gerät konnte keinen genauen Standort bestimmen, daher basiert dies auf Ihrem Netzwerk.",
+      "noProvider": "Diese Version hat keinen Anbieter für genaue Standorte, daher basiert dies auf Ihrem Netzwerk."
+    },
+    "openSettings": "Einstellungen öffnen",
+    "notAvailable": "Das Teilen des Standorts ist auf diesem Gerät nicht verfügbar.",
+    "permissionDenied": "Standortberechtigung verweigert. Aktivieren Sie sie in den Einstellungen dieser Website, um Ihren Standort zu teilen.",
+    "determineFailed": "Ihr Standort konnte nicht bestimmt werden. Versuchen Sie es erneut oder prüfen Sie, ob die Ortungsdienste eingeschaltet sind."
+  }
+}

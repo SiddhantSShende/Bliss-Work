@@ -3,9 +3,9 @@
  *
  * The panel is the user's notification HISTORY: every notification, read or not,
  * unread first. Reading one changes how it looks and the badge, never whether it
- * is listed. Opening or closing the panel never changes read state: a notification
- * becomes read only when the user acts on it, and the badge is the server's unread
- * count. "No notifications yet" means there are none — a failed load, or a badge
+ * is listed. Opening the panel never changes read state; closing it reads the unread
+ * rows it had loaded (NotificationsPanel.readOnClose.test.tsx), and the badge is the
+ * server's unread count. "No notifications yet" means there are none — a failed load, or a badge
  * that disagrees with an empty list, is never reported that way.
  */
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -157,19 +157,19 @@ describe("NotificationsPanel", () => {
     expect(badge()).toBe(2);
   });
 
-  it("keeps the badge and unread rows after the bell is opened and closed", async () => {
+  it("never calls read-all when the bell is opened and closed; the loaded row is read, by id", async () => {
     const user = userEvent.setup();
+    api.notificationsUnreadCount.mockResolvedValue({ unreadCount: 86 }); // what the server holds afterwards
     const { badge } = setup([notification("loaded-one")], 87);
     await openBell(user);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByText("Task loaded-one completed")).not.toBeInTheDocument());
-    await openBell(user);
 
     expect(api.readAllNotifications).not.toHaveBeenCalled();
-    expect(api.markNotificationRead).not.toHaveBeenCalled();
-    expect(badge()).toBe(87);
-    expect(screen.getByTestId("unread-count")).toHaveTextContent("87");
-    expect(screen.getByText("Task loaded-one completed")).toBeInTheDocument();
+    expect(api.markNotificationRead).toHaveBeenCalledTimes(1);
+    expect(api.markNotificationRead).toHaveBeenCalledWith("loaded-one");
+    // 86, not 0: the other 86 unread notifications were never loaded, so never read.
+    expect(badge()).toBe(86);
   });
 
   it("lowers the badge by one when a notification is explicitly marked read", async () => {
@@ -256,7 +256,7 @@ describe("NotificationsPanel", () => {
     );
     await openBell(user);
 
-    for (const text of ["hi", "Invited to Standup", "Added to #general", "Task task completed"]) {
+    for (const text of ["Ann", "You have a new message", "Invited to Standup", "Added to #general", "Task task completed"]) {
       expect(screen.getByText(text)).toBeInTheDocument();
     }
     expect(screen.getByText("Task oldtask completed")).toBeInTheDocument();
@@ -380,7 +380,7 @@ describe("NotificationsPanel", () => {
     api.markNotificationRead.mockReset().mockResolvedValue(undefined);
     setup([notification("old-notice", kind, taskId, channelId, null, false)], 1, true);
 
-    await user.click(screen.getByRole("button", { name: /Task old-notice completed/ }));
+    await user.click(screen.getByRole("button", { name: kind === "DM_MESSAGE" ? /You have a new message/ : /Task old-notice completed/ }));
 
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(path));
   });
@@ -391,7 +391,7 @@ describe("NotificationsPanel", () => {
     api.markNotificationRead.mockReset().mockResolvedValue(undefined);
     setup([notification("dm-notice", "DM_MESSAGE", null, null, conversationId, false)], 1, true);
 
-    await user.click(screen.getByRole("button", { name: /Task dm-notice completed/ }));
+    await user.click(screen.getByRole("button", { name: /You have a new message/ }));
 
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(`/app/chats/${conversationId}`));
   });
@@ -408,7 +408,7 @@ describe("NotificationsPanel", () => {
 
   it("requests the first 10 UNREAD notifications, filtered by the server", async () => {
     const user = userEvent.setup();
-    serve([many("n", 10, "DM_MESSAGE", false), []]);
+    serve([many("n", 10, "TASK_COMPLETED", false), []]);
     setup(null, 18);
 
     await openBell(user);
@@ -419,8 +419,8 @@ describe("NotificationsPanel", () => {
 
   it("loads and appends the next unread page without dropping or duplicating IDs", async () => {
     const user = userEvent.setup();
-    const first = many("n", 10, "DM_MESSAGE", false);
-    serve([first, [first[9]!, ...many("m", 9, "CHANNEL_MESSAGE", false)]]);
+    const first = many("n", 10, "TASK_COMPLETED", false);
+    serve([first, [first[9]!, ...many("m", 9, "TASK_COMPLETED", false)]]);
     setup(null, 20);
 
     await openBell(user);
@@ -438,7 +438,7 @@ describe("NotificationsPanel", () => {
     let resolveNext!: (page: NotificationPageDTO) => void;
     api.notificationPage.mockImplementation((cursor, _limit, wantRead) => {
       if (wantRead) return Promise.resolve({ items: [], nextCursor: null });
-      if (!cursor) return Promise.resolve({ items: many("busy", 10, "DM_MESSAGE", false), nextCursor: "u:1" });
+      if (!cursor) return Promise.resolve({ items: many("busy", 10, "TASK_COMPLETED", false), nextCursor: "u:1" });
       return new Promise((resolve) => { resolveNext = resolve; });
     });
     setup(null, 12);
@@ -456,7 +456,7 @@ describe("NotificationsPanel", () => {
     // The unread feed is filtered on the server, so its first page is unread rows
     // only even when the newest rows overall are read — the panel shows both feeds
     // together, unread first, so neither can hide the other.
-    const readNewest = many("r", 10, "DM_MESSAGE", true);
+    const readNewest = many("r", 10, "TASK_COMPLETED", true);
     const unreadOldest = [
       { ...notification("u-task", "TASK_ASSIGNED"), text: "Assigned a task" },
       { ...notification("u-meet", "MEETING_INVITATION", null), text: "Invited to Standup" },
@@ -464,7 +464,7 @@ describe("NotificationsPanel", () => {
 
     it("shows the unread ones and the read history together, unread first", async () => {
       const user = userEvent.setup();
-      serve([unreadOldest], [readNewest, many("older", 10, "DM_MESSAGE", true)]);
+      serve([unreadOldest], [readNewest, many("older", 10, "TASK_COMPLETED", true)]);
       setup(null, 2);
 
       await openBell(user);
@@ -495,7 +495,7 @@ describe("NotificationsPanel", () => {
 
     it("shows locally-read rows still sitting in the unread cache as read history, and reaches the unread ones behind them", async () => {
       const user = userEvent.setup();
-      const stale = many("stale", 10, "DM_MESSAGE", true); // flipped read, still in the unread cache
+      const stale = many("stale", 10, "TASK_COMPLETED", true); // flipped read, still in the unread cache
       serve([stale, unreadOldest]);
       setup(null, 2);
 
@@ -560,7 +560,7 @@ describe("NotificationsPanel", () => {
 
     it("pages the unread feed first, then the read history, with Load more", async () => {
       const user = userEvent.setup();
-      serve([[unreadOldest[0]!], [unreadOldest[1]!]], [readNewest, many("older", 2, "DM_MESSAGE", true)]);
+      serve([[unreadOldest[0]!], [unreadOldest[1]!]], [readNewest, many("older", 2, "TASK_COMPLETED", true)]);
       setup(null, 2);
 
       await openBell(user);
@@ -606,7 +606,7 @@ describe("NotificationsPanel", () => {
     });
 
     expect(badge()).toBe(2);
-    expect(await screen.findByText("ping")).toBeInTheDocument();
+    expect(await screen.findByText("Ann · #dev")).toBeInTheDocument();
     expect(screen.getByText("Task existing completed")).toBeInTheDocument();
   });
 
@@ -621,19 +621,10 @@ describe("NotificationsPanel", () => {
     setup(kinds.map((kind, index) => notification(`kind-${index}`, kind, null, null, null, false)), 0, true);
 
     for (let index = 0; index < kinds.length; index++) {
+      // The two message kinds are drawn as a sender line, not as their text (see messageLabels test).
+      if (kinds[index] === "DM_MESSAGE" || kinds[index] === "CHANNEL_MESSAGE") continue;
       expect(screen.getByText(`Task kind-${index} completed`)).toBeInTheDocument();
     }
-  });
-
-  it("separates message sender and channel attribution from the preview", () => {
-    setup([
-      { ...notification("dm-text", "DM_MESSAGE", null), text: "Mayank: hello" },
-      { ...notification("channel-text", "CHANNEL_MESSAGE", null), text: "Mayank in #Engineering: hello everyone" },
-    ], 0, true);
-
-    expect(screen.getAllByText("Mayank")).toHaveLength(2);
-    expect(screen.getByText("hello")).toBeInTheDocument();
-    expect(screen.getByText("Engineering", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText("hello everyone")).toBeInTheDocument();
+    expect(screen.getAllByText("You have a new message")).toHaveLength(2);
   });
 });

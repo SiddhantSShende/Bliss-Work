@@ -1,6 +1,7 @@
-import { AlertCircle, FileIcon, Loader2, Play } from "lucide-react";
+import { AlertCircle, Download, FileIcon, Loader2, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { canPreviewDocInApp, prettySize, type MediaItem } from "../lib/chatEnvelope";
+import { prettySize, type MediaItem } from "../lib/chatEnvelope";
+import { attachmentCapability } from "../lib/attachmentCapability";
 
 /**
  * Renders the attachments of one media message.
@@ -33,6 +34,7 @@ export function MediaBubble({
   progress,
   opensOutside,
   onOpen,
+  onDownload,
 }: {
   items: MediaItem[];
   mine: boolean;
@@ -45,6 +47,9 @@ export function MediaBubble({
    *  cannot be previewed. */
   opensOutside?: boolean;
   onOpen: (index: number) => void;
+  /** The surface's own audited download. A file the app has no viewer for shows
+   *  only this (no Open), so without it such a card is inert. */
+  onDownload?: (item: MediaItem) => void;
 }) {
   const visuals = items.filter(
     (i) => i.mime.startsWith("image/") || i.mime.startsWith("video/"),
@@ -82,6 +87,7 @@ export function MediaBubble({
           progress={progress?.[item.id]}
           opensOutside={opensOutside}
           onOpen={() => onOpen(items.indexOf(item))}
+          onDownload={onDownload && (() => onDownload(item))}
         />
       ))}
     </div>
@@ -156,26 +162,20 @@ function VisualTile({
 
 /**
  * A non-visual attachment (PDF, spreadsheet, archive, …) inside a message
- * bubble.
+ * bubble. What a click does is `attachmentCapability`'s call — the one decision
+ * shared with Mail and the assets panel:
  *
- * Clicking it OPENS the file and never downloads it: no `download` attribute,
- * no `?dl=1`. The one deliberate download is the message's 3-dot menu →
- * Download (useChatMedia.downloadItem). Every resolved
- * attachment is clickable. A type the app can render itself
- * (`canPreviewDocInApp`) opens in the in-app Lightbox, like the identical
- * file's row in the conversation's "Media, Links & Docs" panel
- * (ChatAssetsSheet).
+ *   native    → a PDF or plain text: opens in the in-app Lightbox, as ever.
+ *   document  → Word, PowerPoint, Excel, CSV, .txt: opens in the in-app document
+ *               viewer.
+ *   external  → audio: leaves the app as it always has (`opensOutside`): the
+ *               OS's own application on desktop, a browser tab on web. A host
+ *               with neither opens the Lightbox, which says it cannot preview it.
+ *   download  → everything else: NO Open. The card shows only a Download button.
  *
- * Anything else — Office documents, archives — leaves the app (`opensOutside`),
- * the way an email attachment's Open does (see lib/openAttachment.ts): on
- * desktop the OS's own application via `config.openAttachment`, on web a
- * browser tab pointed at the signed URL. The app fetches and saves nothing
- * itself; what the browser does with the response follows the server's
- * headers (media.ServeAs / Content-Disposition): a type it can render is
- * shown, and one it cannot — an Office file, an archive — gets the browser's
- * own native handling, which the app neither controls nor claims to preview.
- * A host with neither opens the
- * Lightbox, which explains the file cannot be previewed.
+ * Clicking never downloads: no `download` attribute, no `?dl=1`. The deliberate
+ * download is `onDownload` — this card's Download button, and the message's 3-dot
+ * menu — both useChatMedia.downloadItem, the one audited path.
  */
 function FileCard({
   item,
@@ -185,6 +185,7 @@ function FileCard({
   progress,
   opensOutside,
   onOpen,
+  onDownload,
 }: {
   item: MediaItem;
   mine: boolean;
@@ -193,11 +194,15 @@ function FileCard({
   progress?: UploadProgress;
   opensOutside?: boolean;
   onOpen: () => void;
+  onDownload?: () => void;
 }) {
   const { t } = useTranslation("chatMedia");
+  const kind = attachmentCapability({ name: item.name, mime: item.mime, size: item.size }).kind;
   const clickable = !progress && !!url;
-  const previewable = canPreviewDocInApp(item.mime);
-  const openable = clickable;
+  // A download-only file never opens, whatever the host.
+  const openable = clickable && kind !== "download";
+  // Only audio on a host with no way to take it out of the app is "unavailable".
+  const noView = kind === "external" && !opensOutside;
 
   const bubbleClass = `flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 text-left text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
     mine
@@ -223,7 +228,7 @@ function FileCard({
             t("mediaBubble.uploading", { percent: Math.round(progress.ratio * 100) })
           ) : !url && isResolved ? (
             t("mediaBubble.notAvailable")
-          ) : clickable && !previewable && !opensOutside ? (
+          ) : clickable && noView ? (
             t("mediaBubble.previewUnavailable")
           ) : (
             prettySize(item.size)
@@ -245,7 +250,26 @@ function FileCard({
   );
 
   if (!openable) {
-    return <div className={bubbleClass}>{content}</div>;
+    // A download-only file: the card is not a button, and offers only Download.
+    const canDownload = clickable && kind === "download" && !!onDownload;
+    return (
+      <div className={bubbleClass}>
+        {content}
+        {canDownload && (
+          <button
+            type="button"
+            onClick={onDownload}
+            aria-label={t("mediaBubble.downloadFile", { name: item.name })}
+            title={t("mediaBubble.download")}
+            className={`shrink-0 rounded-lg p-1.5 transition-colors ${
+              mine ? "hover:bg-accent-fg/15" : "text-accent hover:bg-accent-soft"
+            }`}
+          >
+            <Download size={16} />
+          </button>
+        )}
+      </div>
+    );
   }
 
   return (

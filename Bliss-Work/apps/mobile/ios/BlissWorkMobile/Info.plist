@@ -27,6 +27,7 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
+          <string>blisswork</string>
           <string>com.mayank2109.blissworkmobile</string>
         </array>
       </dict>

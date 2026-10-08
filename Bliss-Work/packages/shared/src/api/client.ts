@@ -65,7 +65,6 @@ import {
   OrgLifecycleDTO,
   OrgMfaSettingsDTO,
   ReviewResponse,
-  DeadlineRule,
   ScheduledTaskDTO,
   SentTaskDTO,
   StickyTaskDTO,
@@ -444,15 +443,6 @@ export class ApiClient {
     }, z.array(z.string()));
   }
 
-  // ── devices ──────────────────────────────────────────────────────────────────
-  /** Register a push token (e.g. ExpoPushToken) for the current user session. */
-  registerDevice(deviceToken: string, platform: string = 'android') {
-    return this.req(this.cfg.telemetryBase, "/api/v1/telemetry/devices", {
-      method: "POST",
-      body: JSON.stringify({ deviceToken, platform }),
-    });
-  }
-
   // ── member administration (org_admin) ────────────────────────────────────────
   /** Every membership including suspended and removed ones — this is the screen
    *  they are reactivated from, so hiding them would strand them. */
@@ -640,10 +630,9 @@ export class ApiClient {
   me() {
     return this.req(this.cfg.authBase, "/auth/me", {}, UserDTO);
   }
-  /** The locales the translation backend can currently translate the UI into —
-   *  decided server-side by translate-gw (configured locales ∩ what Google
-   *  Cloud Translation supports), never a client-side hardcoded list. Empty
-   *  when translation is unconfigured or unavailable. */
+  /** The locales auth-svc can currently translate the UI into — live from
+   *  Google Cloud Translation (Redis-cached server-side), never a client-side
+   *  hardcoded list. Empty when no Google credential is configured. */
   i18nLanguages() {
     return this.req(this.cfg.authBase, "/i18n/languages", {}, I18nLanguagesDTO);
   }
@@ -685,31 +674,13 @@ export class ApiClient {
   myOrgs() {
     return this.req(this.cfg.authBase, "/auth/orgs/mine", {}, z.array(OrgMembershipDTO));
   }
-  async myOrgsPage(params: { search: string; offset: number; limit: number }): Promise<OrgMembershipPageDTO> {
+  myOrgsPage(params: { search: string; offset: number; limit: number }) {
     const query = new URLSearchParams({
       search: params.search,
       offset: String(params.offset),
       limit: String(params.limit),
     });
-    const res = await this.req(
-      this.cfg.authBase,
-      `/auth/orgs/mine?${query}`,
-      {},
-      z.union([OrgMembershipPageDTO, z.array(OrgMembershipDTO)]),
-    );
-    if (!Array.isArray(res)) return res;
-    // An auth-svc that predates paging ignores limit/offset/search and answers
-    // with the whole (already server-authorized) list — the route's response
-    // model is `list | page`. Page it here the way the paged path does:
-    // case-insensitive name match, ordered by name then id.
-    const needle = params.search.trim().toLowerCase();
-    const matches = res
-      .filter((o) => !needle || o.orgName.toLowerCase().includes(needle))
-      .sort((a, b) => a.orgName.toLowerCase().localeCompare(b.orgName.toLowerCase()) || a.orgId.localeCompare(b.orgId));
-    return {
-      items: matches.slice(params.offset, params.offset + params.limit),
-      hasMore: matches.length > params.offset + params.limit,
-    };
+    return this.req(this.cfg.authBase, `/auth/orgs/mine?${query}`, {}, OrgMembershipPageDTO);
   }
   /** The current org plus any pending deletion. Admin-only. */
   org() {
@@ -1248,20 +1219,6 @@ export class ApiClient {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/mail/${mailId}/read`, {
       method: "POST",
     });
-  }
-
-  /**
-   * Records, in the admin-facing activity timeline, that the caller pressed
-   * Download on one of this mail's files. "Download initiated" only — the bytes
-   * come from the signed /media URL, and Preview/Open never call this. The
-   * acting user is the token's; nothing is sent to the mail's sender.
-   */
-  recordMailAttachmentDownload(mailId: string, attachmentId: string) {
-    return this.req<void>(
-      this.cfg.messagingBase,
-      `/api/v1/mail/${mailId}/attachments/${attachmentId}/downloaded`,
-      { method: "POST" },
-    );
   }
 
   // ── chat attachments ────────────────────────────────────────────────────────
@@ -1821,9 +1778,6 @@ export class ApiClient {
     channelId?: string;
     allocation?: "NOW" | "SCHEDULED" | "RECURRING";
     scheduledFor?: string;
-    /** One concrete deadline (instant or one-off scheduled task). A recurring task
-     *  takes `recurrence.deadline` instead. Omitted = no deadline. */
-    deadlineAt?: string;
     recurrence?: {
       startAt: string;
       frequency: "DAILY" | "WEEKLY" | "MONTHLY";
@@ -1836,19 +1790,13 @@ export class ApiClient {
       endCondition: "NO_END" | "AFTER_OCCURRENCES" | "ON_DATE";
       endAt?: string;
       occurrenceCount?: number;
-      /** How each occurrence's deadline is derived. Omitted = no deadline. */
-      deadline?: DeadlineRule;
     };
   }, idempotencyKey?: string) {
-    // `scheduleId` is nullish, not merely optional: task-svc's CreateTaskResponse
-    // declares `scheduleId: str | None` and sends an explicit null for an immediate
-    // task. Rejecting that null made creating ANY task look like a failure (a 502
-    // "invalid response") although the task had been created.
     return this.req(this.cfg.taskBase, "/api/v1/tasks", {
       method: "POST",
       headers: { "idempotency-key": idempotencyKey ?? uuid() },
       body: JSON.stringify(body),
-    }, z.object({ taskId: z.string(), scheduleId: z.string().nullish() }));
+    }, z.object({ taskId: z.string(), scheduleId: z.string().optional() }));
   }
   /**
    * Every row of one of the caller's task lists, walking the server's pages.
@@ -2049,16 +1997,6 @@ export class ApiClient {
       `/api/v1/tasks/${taskId}/assignees/${userId}`,
       { method: "DELETE", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
       z.object({ withdrawnUserId: z.string(), statusVersion: z.number() }),
-    );
-  }
-  /** Allocator reopens a COMPLETED task for the people who completed it. No body:
-   *  the server restores exactly those assignments (SENT again), never a new set. */
-  reassignTask(taskId: string) {
-    return this.req(
-      this.cfg.taskBase,
-      `/api/v1/tasks/${taskId}/reassign`,
-      { method: "POST" },
-      z.object({ taskId: z.string(), reassignedUserIds: z.array(z.string()) }),
     );
   }
   /** Allocator writes/updates a review on a COMPLETED assignee. Sender-only;
@@ -2364,22 +2302,8 @@ export class ApiClient {
       method: "POST",
     });
   }
-  /** Mark the caller's unread notifications that belong to any of `taskIds` read,
-   *  and nothing else. This is "viewing a task reads its notifications" recorded
-   *  on the server, where the notification lives — not in whatever the client
-   *  happens to have cached. Resolves to how many it changed; idempotent. At most
-   *  200 ids per call (the server rejects more). */
-  markTaskNotificationsRead(taskIds: string[]) {
-    return this.req(
-      this.cfg.notificationBase,
-      "/api/v1/notifications/read-by-tasks",
-      { method: "POST", body: JSON.stringify({ taskIds }) },
-      z.object({ updated: z.number() }),
-    );
-  }
-  /** Mark every unread notification read in one call. Only for an explicit
-   *  "mark all read" action — opening or closing the bell must never call it.
-   *  Idempotent. */
+  /** Mark every unread notification read in one call — used to auto-clear the
+   *  bell when the notifications panel is opened. Idempotent + best-effort. */
   readAllNotifications() {
     return this.req<void>(this.cfg.notificationBase, "/api/v1/notifications/read-all", {
       method: "POST",

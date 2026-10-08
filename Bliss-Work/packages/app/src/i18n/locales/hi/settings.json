@@ -1,0 +1,60 @@
+{
+  "header": {
+    "title": "सेटिंग",
+    "subtitle": "इस डिवाइस पर ऐप के व्यवहार की प्राथमिकताएँ।"
+  },
+  "theme": {
+    "title": "थीम",
+    "description": "अभी उपयोग में: {{theme}}।",
+    "changeTheme": "थीम बदलें",
+    "menuLabel": "थीम",
+    "syncFailed": "कस्टम थीम केवल इस डिवाइस पर बदली है। हम इसे आपके खाते में सहेज नहीं सके और कोशिश करते रहेंगे।",
+    "light": "लाइट",
+    "dark": "डार्क",
+    "custom": {
+      "title": "कस्टम थीम",
+      "label": "कस्टम",
+      "colors": "रंग",
+      "color": "रंग {{number}}",
+      "preview": "कस्टम थीम प्रीव्यू",
+      "create": "कस्टम थीम बनाएँ",
+      "edit": "कस्टम थीम संपादित करें",
+      "cancel": "रद्द करें",
+      "save": "सहेजें"
+    }
+  },
+  "twoFactor": {
+    "title": "टू-फ़ैक्टर ऑथेंटिकेशन",
+    "description": "साइन-इन के दूसरे चरण के रूप में ऑथेंटिकेटर ऐप जोड़ें।"
+  },
+  "activeSessions": {
+    "title": "मौजूदा लॉगिन",
+    "description": "वे सभी डिवाइस देखें जो अभी आपके खाते में साइन इन हैं, और उनमें से किसी को भी दूर से साइन आउट करें।"
+  },
+  "activity": {
+    "title": "आपकी गतिविधि",
+    "description": "{{brand}} आपके काम करने के तरीके के बारे में जो कुछ भी दर्ज करता है, वह सब देखें — वही रिकॉर्ड जो आपके वर्कस्पेस के एडमिन देखते हैं।"
+  },
+  "desktopNotifications": {
+    "title": "डेस्कटॉप नोटिफ़िकेशन",
+    "onDescription": "नए संदेश और टास्क आने पर टोस्ट दिखाएँ।",
+    "offDescription": "टोस्ट रोके गए हैं। आप अब भी बेल मेन्यू में नोटिफ़िकेशन देख सकते हैं।",
+    "turnOn": "चालू करें",
+    "turnOff": "बंद करें"
+  },
+  "about": {
+    "title": "परिचय",
+    "versionDesktop": "{{brand}} {{version}} · डेस्कटॉप",
+    "versionBuild": "{{brand}} · बिल्ड {{sha}}",
+    "checkForUpdates": "अपडेट जाँचें",
+    "checking": "जाँच हो रही है…",
+    "toasts": {
+      "updateDownloading": "{{version}} का अपडेट डाउनलोड हो रहा है",
+      "updateDownloadingDescription": "तैयार होने पर आपसे रीस्टार्ट करने को कहा जाएगा।",
+      "upToDate": "आप अप-टू-डेट हैं",
+      "upToDateDescription": "वर्शन {{version}}",
+      "updateDownloadFailed": "अपडेट डाउनलोड नहीं हो सका",
+      "checkFailedFallback": "अपडेट की जाँच नहीं हो सकी"
+    }
+  }
+}

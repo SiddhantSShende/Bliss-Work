@@ -1,0 +1,70 @@
+{
+  "card": {
+    "from": "보낸 사람: {{name}}",
+    "assigned": "배정됨",
+    "deadline": "마감",
+    "missedOn": "놓침",
+    "collapseToPill": "알약 모양으로 접기",
+    "unpinNoteTitle": "고정 해제(태스크는 유지돼요)",
+    "unpin": "고정 해제",
+    "dismissIgnore": "닫기(무시)",
+    "acknowledge": "확인",
+    "ignore": "무시",
+    "complete": "완료",
+    "leave": "나가기",
+    "untitledTask": "제목 없는 태스크",
+    "expand": "펼치기",
+    "expandLabel": "스티커 메모 펼치기",
+    "dismiss": "닫기",
+    "dismissLabel": "스티커 메모 닫기",
+    "collapse": "접기",
+    "collapseLabel": "스티커 메모 접기",
+    "ignoreTitle": "무시 — 보낸 사람에게 알려요",
+    "acknowledgeTitle": "확인 — 완료할 때까지 이 메모를 화면에 유지해요",
+    "unpinFromDesktopTitle": "바탕화면에서 고정 해제 — 태스크는 내 태스크 목록에 남아 있어요",
+    "navPrevious": "이전 고정 태스크",
+    "navNext": "다음 고정 태스크"
+  },
+  "overlay": {
+    "ariaLabel": "떠 있는 스티커 메모"
+  },
+  "toasts": {
+    "acknowledgeFailed": "확인하지 못했어요",
+    "ignoreFailed": "무시하지 못했어요",
+    "taskIgnored": "태스크를 무시했어요. 보낸 사람에게 알렸어요.",
+    "noteUnpinned": "메모 고정을 해제했어요",
+    "noteUnpinnedDescription": "태스크 목록에는 그대로 남아 있어요. 거기에서 완료하세요.",
+    "unpinFailed": "메모 고정을 해제하지 못했어요",
+    "desktopFull": "이 태스크를 바탕화면에 고정하지 못했어요."
+  },
+  "window": {
+    "loading": "불러오는 중…",
+    "expand": "펼치기",
+    "previousTask": "이전 고정 태스크",
+    "nextTask": "다음 고정 태스크",
+    "chat": {
+      "loadingThread": "스레드 불러오는 중…",
+      "pinnedChat": "고정된 채팅",
+      "unpin": "고정 해제",
+      "unpinTitle": "바탕화면에서 고정 해제",
+      "noMessages": "최근 메시지가 없어요.",
+      "replyPlaceholder": "답장…",
+      "send": "보내기"
+    },
+    "invite": {
+      "meetingFallback": "미팅",
+      "hostedBy": "호스트: {{name}}님",
+      "video": "영상",
+      "videoTitle": "카메라를 켜고 참여",
+      "voice": "음성",
+      "voiceTitle": "음성으로만 참여",
+      "leave": "나가기",
+      "dismiss": "닫기"
+    },
+    "titles": {
+      "task": "태스크",
+      "chat": "채팅",
+      "invite": "미팅 초대"
+    }
+  }
+}

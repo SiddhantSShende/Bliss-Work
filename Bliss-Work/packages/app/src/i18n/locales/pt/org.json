@@ -1,0 +1,174 @@
+{
+  "availablePeople": {
+    "searchPlaceholder": "Buscar colegas…",
+    "empty": {
+      "noMatchesTitle": "Nenhum resultado",
+      "allBusyTitle": "Todo mundo está ocupado",
+      "noMatchesHint": "Nenhum colega disponível corresponde a essa busca.",
+      "allBusyHint": "Pessoas sem tarefas confirmadas aparecem aqui."
+    },
+    "toasts": {
+      "hideFailed": "Não foi possível ocultar essa pessoa",
+      "restoreFailed": "Não foi possível restaurar essa pessoa"
+    },
+    "hiddenToggle": "Ocultas desta lista ({{count}})",
+    "hiddenBusyNote": "Tem tarefas ativas — só volta a aparecer quando estiver livre",
+    "restoreTitle": "Restaurar em Disponíveis",
+    "card": {
+      "selfTitle": "Você não pode atribuir uma tarefa a si mesmo",
+      "assignTitle": "Atribuir uma tarefa a {{name}}",
+      "youSuffix": " (você)",
+      "pendingBadge": "{{count}} pendente(s), sem confirmação",
+      "onCall": "em chamada",
+      "hiddenFromOthers": "oculta para os demais",
+      "hideTitle": "Ocultar de Disponíveis"
+    }
+  },
+  "memberPicker": {
+    "searchPlaceholder": "Buscar colegas…",
+    "clearAll": "Limpar tudo",
+    "selectAll": "Selecionar tudo",
+    "emptyHint": "Todas as pessoas correspondentes já estão aqui.",
+    "cancelButton": "Cancelar",
+    "addButton": "Adicionar",
+    "sendOrganization": "Enviar para a organização"
+  },
+  "inviteePicker": {
+    "searchPlaceholder": "Buscar na sua organização…",
+    "searchAriaLabel": "Buscar na sua organização",
+    "empty": {
+      "noMatches": "Nenhum resultado.",
+      "noneToInvite": "Ninguém mais para convidar."
+    },
+    "loading": "Carregando pessoas…",
+    "you": "(Você)"
+  },
+  "orgPage": {
+    "header": {
+      "title": "Organizações",
+      "subtitle": "Alterne entre os espaços de trabalho dos quais você faz parte ou gerencie o atual."
+    },
+    "toasts": {
+      "switched": "Organização alterada",
+      "switchFailedTitle": "Não foi possível trocar de organização",
+      "switchFailedDescription": "Tente novamente."
+    },
+    "yourOrganizations": "Suas organizações",
+    "loading": "Carregando…",
+    "currentBadge": "Atual",
+    "roleLabel": {
+      "admin": "Admin",
+      "member": "Membro"
+    },
+    "activeLabel": "Ativa",
+    "switchButton": "Trocar",
+    "switchingLabel": "Trocando…",
+    "manageHeading": "Gerenciar {{name}}",
+    "manageFallbackName": "esta organização",
+    "membersButton": "Membros",
+    "invitePeopleButton": "Convidar pessoas"
+  },
+  "orgActivity": {
+    "adminsOnly": {
+      "title": "Somente administradores",
+      "hint": "Sua própria atividade está em Configurações → Sua atividade."
+    },
+    "backToMembers": "Membros",
+    "header": {
+      "title": "Atividade do espaço de trabalho",
+      "subtitle": "Como o tempo da equipe é gasto."
+    },
+    "exportButton": "Exportar",
+    "empty": {
+      "title": "Nenhuma atividade neste período",
+      "hint": "Os gráficos aparecem depois que a equipe usar o {{brand}} por um dia."
+    },
+    "stats": {
+      "teamActiveTime": "Tempo ativo da equipe",
+      "peopleActive": "Pessoas ativas",
+      "perPerson": "Por pessoa",
+      "perPersonHint": "média no período",
+      "sessions": "Sessões"
+    },
+    "sections": {
+      "teamActiveTimePerDay": "Tempo ativo da equipe por dia",
+      "activeTimeByMember": "Tempo ativo por membro",
+      "allMembers": "Todos os membros"
+    },
+    "table": {
+      "member": "Membro",
+      "active": "Ativo",
+      "idle": "Inativo",
+      "sessions": "Sessões",
+      "actions": "Ações"
+    },
+    "chart": {
+      "active": "Ativo",
+      "idle": "Inativo"
+    }
+  },
+  "orgSwitcher": {
+    "switchTitle": "Trocar de organização",
+    "workspaceFallback": "Espaço de trabalho",
+    "yourOrganizations": "Suas organizações",
+    "searchPlaceholder": "Buscar organizações...",
+    "loadMore": "Carregar mais",
+    "loading": "Carregando organizações...",
+    "empty": "Nenhuma organização encontrada",
+    "loadFailed": "Não foi possível carregar as organizações. Clique para tentar novamente.",
+    "roleLabel": {
+      "admin": "Admin",
+      "member": "Membro"
+    },
+    "switchingLabel": "Trocando…",
+    "toasts": {
+      "switchFailedTitle": "Não foi possível trocar de organização",
+      "switchFailedDescription": "Tente novamente."
+    }
+  },
+  "deleteOrgSection": {
+    "toasts": {
+      "scheduledTitle": "Exclusão do espaço de trabalho agendada",
+      "scheduledDescription": "Todas as pessoas foram desconectadas. Você pode cancelar até o prazo final.",
+      "scheduleFailedTitle": "Não foi possível agendar a exclusão",
+      "cancelled": "Exclusão cancelada",
+      "cancelFailedTitle": "Não foi possível cancelar a exclusão"
+    },
+    "scheduled": {
+      "heading": "A exclusão deste espaço de trabalho está agendada",
+      "message": "Tudo em <bold>{{orgName}}</bold> — mensagens, arquivos, tarefas e atividades — será destruído permanentemente em <bold>{{when}}</bold>. Até lá, isso pode ser desfeito.",
+      "cancelButton": "Cancelar exclusão"
+    },
+    "dangerZone": {
+      "heading": "Zona de risco",
+      "description": "Excluir este espaço de trabalho destrói permanentemente todas as mensagens, arquivos, tarefas e registros de atividade nele, para todas as pessoas.",
+      "openButton": "Excluir este espaço de trabalho…"
+    },
+    "confirm": {
+      "instructions": "Isso não poderá ser desfeito depois que o período de carência terminar. Todas as pessoas são desconectadas imediatamente. Para confirmar, digite abaixo o identificador do espaço de trabalho <code>{{slug}}</code>.",
+      "ariaLabel": "Digite o identificador do espaço de trabalho para confirmar",
+      "deleteButton": "Excluir espaço de trabalho",
+      "cancelButton": "Cancelar"
+    }
+  },
+  "leaveOrgButton": {
+    "leaveButton": "Sair",
+    "toasts": {
+      "failedTitle": "Não foi possível sair da organização",
+      "failedDescriptionFallback": "Tente novamente.",
+      "left": "Você saiu de {{orgName}}",
+      "signedOutTitle": "Sessão encerrada",
+      "signedOutDescription": "Entre novamente para continuar."
+    },
+    "confirmDialog": {
+      "title": "Sair de {{orgName}}?",
+      "message": "Você perderá o acesso a todos os canais, mensagens e tarefas em <bold>{{orgName}}</bold>. Nada do que você publicou é excluído, e um administrador de lá pode convidar você de volta.",
+      "movedMessage": " Você será levado para <bold>{{orgName}}</bold>.",
+      "confirmLabel": "Sair da organização"
+    },
+    "stepUp": {
+      "title": "Confirme que é você para sair",
+      "description": "Sua conta usa verificação em duas etapas, então sair de uma organização exige sua senha e um código atual."
+    }
+  }
+}

@@ -7,16 +7,21 @@
  * always worked this way; the activity views use the same rule so a report and a
  * chart covering "the last month" cover the same month.
  */
+import i18n from "../i18n";
+
 export type RangeKey = "7d" | "30d" | "90d" | "custom";
 
 /** The 3 fixed windows every activity view offers, before any `custom` option
  *  a particular screen adds on top. Shared so "Last 30 days" reads the same
- *  word-for-word everywhere it appears. */
-export const ACTIVITY_RANGES: ReadonlyArray<{ key: RangeKey; label: string }> = [
-  { key: "7d", label: "Last 7 days" },
-  { key: "30d", label: "Last 30 days" },
-  { key: "90d", label: "Last 90 days" },
-];
+ *  word-for-word everywhere it appears. A function, not a constant: the labels
+ *  follow the in-app language at call time. */
+export function activityRanges(): ReadonlyArray<{ key: RangeKey; label: string }> {
+  return [
+    { key: "7d", label: i18n.t("common:activityRange.last7") },
+    { key: "30d", label: i18n.t("common:activityRange.last30") },
+    { key: "90d", label: i18n.t("common:activityRange.last90") },
+  ];
+}
 
 /** `YYYY-MM-DD` in the LOCAL timezone (not toISOString, which is UTC and would
  *  shift the date by a day for anyone west of Greenwich in the evening). */

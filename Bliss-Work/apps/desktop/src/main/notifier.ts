@@ -25,6 +25,7 @@ import { Notification, type BrowserWindow } from "electron";
 import { readablePrefix } from "@taskboard/app/chatEnvelope";
 import { notificationRoute } from "@taskboard/app/lib/notificationDestination";
 import type { NotificationDTO } from "@taskboard/shared";
+import { mainT } from "./i18n";
 
 /** A realtime event as it comes off the wire — untrusted, loosely shaped. */
 type WireEvent = Record<string, unknown>;
@@ -78,7 +79,7 @@ const MAX_BODY = 180;
  */
 function preview(body: string): string {
   const text = readablePrefix(body);
-  if (!text) return "Sent an attachment";
+  if (!text) return mainT("notifications.attachment");
   return text.length > MAX_BODY ? `${text.slice(0, MAX_BODY - 1).trimEnd()}…` : text;
 }
 
@@ -111,7 +112,7 @@ export function popupFor(event: unknown, meId: string | null): Popup | null {
         const split = text.indexOf(": ");
         return split > 0
           ? { notificationId, title: text.slice(0, split), body: preview(text.slice(split + 2)) }
-          : { notificationId, title: "New message", body: preview(text) };
+          : { notificationId, title: mainT("notifications.newMessage"), body: preview(text) };
       }
       if (kind === "CHANNEL_MESSAGE") {
         const split = text.indexOf(": ");
@@ -126,12 +127,12 @@ export function popupFor(event: unknown, meId: string | null): Popup | null {
         }
       }
       const title = kind.startsWith("TASK_")
-        ? "Task update"
+        ? mainT("notifications.taskUpdate")
         : kind.startsWith("MEETING_")
-          ? "Meeting"
+          ? mainT("notifications.meeting")
         : kind.startsWith("CHANNEL_")
-          ? "Channel update"
-          : "BlissWork";
+          ? mainT("notifications.channelUpdate")
+          : mainT("notifications.brand");
       return { notificationId, title, body: preview(text) };
     }
     // call.started / call.waiting / call.ring deliberately have NO case here.
@@ -194,11 +195,34 @@ export function userIdFromToken(token: string | null): string | null {
   }
 }
 
+/**
+ * Popups that are on screen (or waiting in the OS notification centre). Electron
+ * does not keep a Notification alive once its last reference is dropped, and on
+ * Windows/macOS a garbage-collected one never fires `click` — the popup is still
+ * visible but clicking it does nothing. So each one is held here until the OS
+ * reports it is over.
+ */
+const livePopups = new Set<Notification>();
+
+/** How many raised popups are still held (for tests). */
+export function livePopupCount(): number {
+  return livePopups.size;
+}
+
 /** Show one popup. `onClick` should bring the app forward. */
 export function raise(popup: Popup, onClick: () => void): void {
   if (!Notification.isSupported()) return;
   const n = new Notification({ title: popup.title, body: popup.body });
-  n.on("click", onClick);
+  livePopups.add(n);
+  const release = () => {
+    livePopups.delete(n);
+  };
+  n.on("click", () => {
+    release();
+    onClick();
+  });
+  n.on("close", release);
+  n.on("failed", release);
   n.show();
 }
 
@@ -242,12 +266,12 @@ export function incomingCallPopup(caller: string, media: "audio" | "video"): Inc
     // A leading glyph is the one call/video indicator a plain-text Windows
     // toast body can carry without a custom template — Windows 10/11 render
     // emoji in notification text natively, no image asset required.
-    body: media === "video" ? "📹 Incoming video call" : "📞 Incoming voice call",
+    body: media === "video" ? mainT("notifications.incomingVideoCall") : mainT("notifications.incomingVoiceCall"),
     groupId: "blisswork-calls",
-    groupTitle: "BlissWork",
+    groupTitle: mainT("notifications.brand"),
     actions: [
-      { type: "button", text: "Accept" },
-      { type: "button", text: "Decline" },
+      { type: "button", text: mainT("notifications.accept") },
+      { type: "button", text: mainT("notifications.decline") },
     ],
   };
 }

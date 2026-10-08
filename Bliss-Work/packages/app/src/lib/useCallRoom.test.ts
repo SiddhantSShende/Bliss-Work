@@ -337,6 +337,56 @@ describe("useCallRoom — session handoff", () => {
   });
 });
 
+describe("useCallRoom — join lifecycle edges", () => {
+  const grant = () => ({
+    state: "JOINED" as const,
+    url: "wss://call.test",
+    token: "token",
+    room: "room-1",
+    identity: "local-user",
+    expiresAt: futureExpiry(),
+    role: "PARTICIPANT" as const,
+  });
+
+  it("does not build an orphan Room when the component unmounts while the token is in flight", async () => {
+    h.api.leaveCall.mockClear();
+    let finishToken!: (g: ReturnType<typeof grant>) => void;
+    h.api.callToken.mockImplementationOnce(() => new Promise((resolve) => { finishToken = resolve; }));
+    const rooms = FakeRoomClass.instances.length;
+    const view = renderHook(() => useCallRoom("call-1"));
+
+    let joined!: Promise<void>;
+    act(() => { joined = view.result.current.join(); });
+    view.unmount();
+    await act(async () => {
+      finishToken(grant());
+      await joined;
+    });
+
+    expect(FakeRoomClass.instances).toHaveLength(rooms); // nothing was constructed or connected
+    expect(h.api.leaveCall).toHaveBeenCalledWith("call-1"); // and the roster entry the token minted is released
+  });
+
+  it("can still join after the previous call's room failed to disconnect", async () => {
+    const view = renderHook(({ id }) => useCallRoom(id), { initialProps: { id: "call-1" } });
+    await act(async () => { await view.result.current.join(); });
+    const first = FakeRoomClass.instances.at(-1)!;
+    (first as unknown as { disconnect: () => Promise<void> }).disconnect = async () => {
+      throw new Error("socket already gone");
+    };
+
+    view.rerender({ id: "call-2" });
+    await act(async () => { await view.result.current.join(); });
+
+    expect(h.api.callToken).toHaveBeenLastCalledWith("call-2", "JOIN");
+    expect(view.result.current.status).toBe("connected");
+    // `joining` was released, so a further join is not silently swallowed.
+    view.rerender({ id: "call-3" });
+    await act(async () => { await view.result.current.join(); });
+    expect(h.api.callToken).toHaveBeenLastCalledWith("call-3", "JOIN");
+  });
+});
+
 describe("useCallRoom — screen-share liveness", () => {
   it("reports an ordinary live share as sharing, with its track", async () => {
     const { result, fakeRoom } = await joinedRoom();

@@ -191,6 +191,15 @@ func (s *Store) HydrateMessages(ctx context.Context, messageIDs []string) (map[s
 		}
 
 		th := threadByID[m.ThreadID]
+		// threads.recipient_id is the ROOT message's recipient. A reply from the
+		// other party goes back the other way, and the live event carries that
+		// message's own recipient — so reconstruct it, or a replayed frame
+		// differs from the live one (and a client that reads recipientId to find
+		// the peer picks itself).
+		recipientID := th.recipientID
+		if m.SenderID != th.senderID {
+			recipientID = th.senderID
+		}
 		out[m.ID] = HydratedMessage{
 			OrgID:           orgByMsg[m.ID],
 			ClientMsgID:     clientByMsg[m.ID],
@@ -201,7 +210,7 @@ func (s *Store) HydrateMessages(ctx context.Context, messageIDs []string) (map[s
 			IsThreadRoot:    m.IsThreadRoot,
 			Seq:             m.Seq,
 			SenderID:        m.SenderID,
-			RecipientID:     th.recipientID,
+			RecipientID:     recipientID,
 			Body:            body,
 			OccurredAt:      m.CreatedAt,
 			Kind:            m.Kind,
@@ -216,10 +225,11 @@ func (s *Store) HydrateMessages(ctx context.Context, messageIDs []string) (map[s
 
 type hydratedThread struct {
 	origin      string
-	recipientID string
+	senderID    string // the root's sender
+	recipientID string // the root's recipient
 }
 
-// threadsByIDs bulk-resolves origin + recipientId for a set of thread ids,
+// threadsByIDs bulk-resolves origin + the root's sender and recipient for a set of thread ids,
 // in one query regardless of batch size — the same `= ANY($1)` shape as
 // everything else in this file. RLS-bypassed for the same reason as
 // HydrateMessages: the batch may span threads from more than one org.
@@ -238,17 +248,17 @@ func (s *Store) threadsByIDs(ctx context.Context, threadIDs []string) (map[strin
 			return err
 		}
 		rows, err := tx.Query(ctx,
-			`SELECT id, origin, recipient_id FROM threads WHERE id = ANY($1)`, threadIDs)
+			`SELECT id, origin, sender_id, recipient_id FROM threads WHERE id = ANY($1)`, threadIDs)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
-			var id, origin, recipientID string
-			if err := rows.Scan(&id, &origin, &recipientID); err != nil {
+			var id, origin, senderID, recipientID string
+			if err := rows.Scan(&id, &origin, &senderID, &recipientID); err != nil {
 				rows.Close()
 				return err
 			}
-			out[id] = hydratedThread{origin: origin, recipientID: recipientID}
+			out[id] = hydratedThread{origin: origin, senderID: senderID, recipientID: recipientID}
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {

@@ -16,6 +16,7 @@ import { qk } from "../lib/queryBridge";
 import { useSession } from "../store/session";
 import { matchUser, rankUsers } from "../lib/matchUser";
 import { displayNameOf } from "../lib/userLabel";
+import { listPreview, readablePrefix } from "../lib/chatEnvelope";
 import { SearchResults, type SearchGroup } from "../features/SearchResults";
 import { useGoBack } from "../lib/useGoBack";
 import { CHATS_PATH, useSelectedChat } from "../lib/selectedChat";
@@ -92,14 +93,18 @@ export function Search() {
           .filter((c: ConversationDTO) =>
             displayNameOf(c).toLowerCase().includes(ql) ||
             c.peerUsername.toLowerCase().includes(ql) ||
-            (c.lastMessage ?? "").toLowerCase().includes(ql))
+            readablePrefix(c.lastMessage ?? "").toLowerCase().includes(ql))
           // Opened by selecting rather than by navigating: a conversation has
           // no URL of its own (lib/selectedChat), so `to` is the section and
           // onSelect is what actually opens the chat.
           .map((c) => ({
             id: c.id,
             title: displayNameOf(c),
-            subtitle: c.lastMessage ?? undefined,
+            // The same short preview the chat list shows, never the raw body —
+            // an attachment's carries its envelope JSON.
+            subtitle: c.lastMessage
+              ? listPreview(c.lastMessage, c.lastMessageSenderId ? c.lastMessageSenderId === me.id : undefined)
+              : undefined,
             to: CHATS_PATH,
             onSelect: () => openChat(c.id),
           })),

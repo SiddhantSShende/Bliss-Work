@@ -20,7 +20,17 @@ const (
 	pingInterval = 20 * time.Second
 	pingTimeout  = 10 * time.Second
 	writeTimeout = 10 * time.Second
+
+	// writerStopWait bounds how long connection cleanup waits for writeLoop to
+	// return before withdrawing presence. A heartbeat in flight is bounded by
+	// pingTimeout; this only has to cover the common case, and a wedged Redis
+	// fails the removal too.
+	writerStopWait = 5 * time.Second
 )
+
+// heartbeatInterval is how often writeLoop re-stamps presence. A variable only
+// so tests can run a beat without waiting out the production interval.
+var heartbeatInterval = store.PresenceHeartbeatInterval
 
 // session holds the mutable per-connection auth state.
 //
@@ -84,9 +94,23 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 	s.log.Info("ws connected", "user", claims.UserID, "conn", connID, "org", claims.OrgID,
 		"orgs", len(claims.Memberships))
 
+	// Closed when writeLoop has returned. Cleanup waits on it (see below).
+	writerDone := make(chan struct{})
+
 	defer func() {
 		conn.Close()
 		s.hub.Remove(conn)
+		// Stop the heartbeat and wait for any in-flight TouchPresence to finish
+		// BEFORE withdrawing presence. writeLoop runs on its own goroutine, so
+		// without this a beat that started just before the socket closed could
+		// ZADD this connection back in after RemovePresence's ZREM — a ghost
+		// "online" entry that nothing removes until it goes stale (up to 120s).
+		cancel()
+		select {
+		case <-writerDone:
+		case <-time.After(writerStopWait):
+			s.log.Warn("writeLoop did not stop before presence cleanup", "conn", connID)
+		}
 		// Use a fresh short-lived context for cleanup (parent may be done).
 		cleanupCtx, cc := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cc()
@@ -118,7 +142,10 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 		s.log.Info("ws disconnected", "user", claims.UserID, "conn", connID)
 	}()
 
-	safego.Go(s.log, "server.writeLoop", func() { s.writeLoop(ctx, cancel, ws, conn, sess) })
+	safego.Go(s.log, "server.writeLoop", func() {
+		defer close(writerDone)
+		s.writeLoop(ctx, cancel, ws, conn, sess)
+	})
 	s.readLoop(ctx, ws, conn, sess)
 }
 
@@ -209,7 +236,7 @@ func (s *Server) reconcilePresence(ctx context.Context, conn *hub.Conn, oldMembe
 func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn *hub.Conn, sess *session) {
 	pingTicker := time.NewTicker(pingInterval)
 	defer pingTicker.Stop()
-	beatTicker := time.NewTicker(store.PresenceHeartbeatInterval)
+	beatTicker := time.NewTicker(heartbeatInterval)
 	defer beatTicker.Stop()
 	defer cancel()
 	// This socket's own heartbeat count, for the presence TTL cadence. Per socket
@@ -278,6 +305,19 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 			// orgs the person is not currently looking at would age out of the
 			// stale window and show them offline while they are plainly
 			// connected — which is the bug this whole path exists to fix.
+			//
+			// Never beat for a socket that is already closing: select picks
+			// randomly among ready cases, so this tick can win over Done, and a
+			// Touch after the connection's presence was (or is about to be)
+			// removed resurrects it.
+			if ctx.Err() != nil {
+				return
+			}
+			select {
+			case <-conn.Done:
+				return
+			default:
+			}
 			beat++
 			tctx, tc := context.WithTimeout(ctx, pingTimeout)
 			for _, m := range sess.claims.Load().Memberships {
@@ -586,7 +626,23 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 	// them to full JSON here, server-side, so the client never sees the
 	// compact form — its wire contract is unchanged either way.
 	if s.hydrator != nil {
-		events = s.hydrator.Hydrate(ctx, events)
+		hydrated, err := s.hydrator.Hydrate(ctx, events)
+		if err != nil {
+			// Do NOT send replay.done and do NOT replay the rest: the client's
+			// cursor advances past whatever it receives, so a replay with the
+			// message.created entries missing is a permanent loss on that client.
+			// There is no resync frame in the protocol, but a closed socket is one
+			// the client already handles — it reconnects and sends the cursor it
+			// had before this attempt, and the entries are still in the outbox.
+			// (A cancelled ctx means the socket is already going away.)
+			if ctx.Err() == nil {
+				s.log.Error("replay hydrate failed; closing so the client reconnects and retries",
+					"user", sess.claims.Load().UserID, "entries", len(events), "err", err)
+				conn.CloseWithReason("replay unavailable")
+			}
+			return
+		}
+		events = hydrated
 	}
 	for _, raw := range events {
 		if !deliverCtx(ctx, conn, raw) {

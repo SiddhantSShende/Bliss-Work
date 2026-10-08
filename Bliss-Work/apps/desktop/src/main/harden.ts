@@ -60,7 +60,7 @@ const RENDERER_DIR = fileURLToPath(new URL("../renderer/", import.meta.url));
  * reading the user's disk with our preload bridge still attached — the same
  * class of problem as letting it call openExternal on file:.
  */
-function isOwnContent(url: string): boolean {
+export function isOwnContent(url: string): boolean {
   let parsed: URL;
   try {
     parsed = new URL(url);

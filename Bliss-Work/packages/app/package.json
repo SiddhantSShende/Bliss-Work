@@ -17,6 +17,9 @@
     "./lib/mapsLink": "./src/lib/mapsLink.ts",
     "./lib/useAttachmentLinks": "./src/lib/useAttachmentLinks.ts",
     "./store/session": "./src/store/session.ts",
+    "./i18n/core": "./src/i18n/core.ts",
+    "./i18n/locales": "./src/i18n/locales.ts",
+    "./i18n/windowLocale": "./src/i18n/windowLocale.ts",
     "./features/member/activityLabels": "./src/features/member/activityLabels.ts"
   },
   "scripts": {

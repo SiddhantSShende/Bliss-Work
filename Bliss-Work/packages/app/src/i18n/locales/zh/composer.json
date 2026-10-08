@@ -1,0 +1,16 @@
+{
+  "replyingTo": "回复 {{who}}",
+  "thisMessage": "这条消息",
+  "cancelReply": "取消回复",
+  "removeAttachment": "移除 {{name}}",
+  "preparingFiles_other": "正在准备 {{count}} 个文件…",
+  "attachTitle": "添加照片、视频或文件",
+  "attachAriaLabel": "添加文件",
+  "shareLocation": "分享你的位置",
+  "send": "发送",
+  "placeholder": {
+    "default": "输入消息…",
+    "dropFiles": "拖放文件以添加…",
+    "addMessageOrSend": "添加留言，或直接点击发送…"
+  }
+}

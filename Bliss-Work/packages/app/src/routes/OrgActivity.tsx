@@ -11,14 +11,14 @@ import {
   RankedBars,
   Spinner,
   StatTile,
-  formatMs,
 } from "@taskboard/ui";
+import { formatMs } from "../i18n/format";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { Tabs } from "../features/Tabs";
 import { ExportActivityDialog } from "../features/ExportActivityDialog";
-import { ACTIVITY_RANGES, computeRange, parseLocalDay, type RangeKey } from "../lib/dateRange";
+import { activityRanges, computeRange, parseLocalDay, type RangeKey } from "../lib/dateRange";
 
 /** Workspace-wide activity: the whole team's shape, and a table of who did what. */
 export function OrgActivity() {
@@ -75,7 +75,7 @@ export function OrgActivity() {
       </div>
 
       <div className="min-h-0 flex-1 space-y-6 overflow-auto p-5">
-        <Tabs tabs={ACTIVITY_RANGES} active={range} onChange={setRange} />
+        <Tabs tabs={activityRanges()} active={range} onChange={setRange} />
 
         {isLoading ? (
           <div className="flex justify-center p-8"><Spinner /></div>
@@ -113,6 +113,7 @@ export function OrgActivity() {
                   value: d.activeMs,
                   context: d.idleMs,
                 }))}
+                format={formatMs}
                 valueLabel={t("org:orgActivity.chart.active")}
                 contextLabel={t("org:orgActivity.chart.idle")}
               />
@@ -125,6 +126,7 @@ export function OrgActivity() {
                   key: m.userId, label: nameOf(m.userId), value: m.totalActiveMs,
                 }))}
                 max={members.length}
+                format={formatMs}
               />
             </section>
 

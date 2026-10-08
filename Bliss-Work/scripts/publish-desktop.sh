@@ -3,6 +3,8 @@
 #
 #   bash scripts/publish-desktop.sh <dir-with-installers> [--dry-run]
 #
+# Set BACKUP_RETENTION to the number of successful publish backups to keep.
+#
 # The release workflow is the normal path. This exists because that path has two
 # hard dependencies that fail independently of the app: GitHub-hosted runners
 # (the only place Windows and macOS can be built and signed) and repository
@@ -29,9 +31,14 @@ SRC="${1:?usage: publish-desktop.sh <dir-with-installers> [--dry-run]}"
 DRY="${2:-}"
 DEST="${DEST:-/home/ubuntu/BlissWork/downloads}"
 BACKUP="${BACKUP:-/home/ubuntu/BlissWork/downloads-backup}"
+: "${BACKUP_RETENTION:?set BACKUP_RETENTION to the number of publish backups to retain}"
 
 [ -d "$SRC" ] || { echo "no such directory: $SRC" >&2; exit 1; }
 [ -d "$DEST" ] || { echo "destination missing: $DEST" >&2; exit 1; }
+[[ "$BACKUP_RETENTION" =~ ^[1-9][0-9]*$ ]] || {
+  echo "BACKUP_RETENTION must be a positive integer" >&2
+  exit 1
+}
 
 # ── Collect what's actually here ────────────────────────────────────────────
 installers=()
@@ -108,31 +115,80 @@ if [ "$DRY" = "--dry-run" ]; then
 fi
 
 # ── Back up what's live, so a bad publish is one command to undo ────────────
-stamp=$(date -u +%Y%m%dT%H%M%SZ)
-mkdir -p "$BACKUP/$stamp"
-cp -a "$DEST"/. "$BACKUP/$stamp/" 2>/dev/null || true
+stamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+mkdir -p "$BACKUP"
+backup_stage=$(mktemp -d "$BACKUP/.${stamp}.tmp.XXXXXX")
+if ! cp -a "$DEST"/. "$backup_stage/"; then
+  rm -rf -- "$backup_stage"
+  echo "failed to back up current downloads; refusing to publish" >&2
+  exit 1
+fi
+if [ -e "$BACKUP/$stamp" ] || ! mv -T -- "$backup_stage" "$BACKUP/$stamp"; then
+  rm -rf -- "$backup_stage"
+  echo "failed to finalize downloads backup; refusing to publish" >&2
+  exit 1
+fi
 echo "backed up current /downloads -> $BACKUP/$stamp"
+
+publish_file() {
+  local source="$1" name="$2" tmp
+  tmp=$(mktemp "$DEST/.${name}.tmp.XXXXXX")
+  if ! cp -f -- "$source" "$tmp"; then
+    rm -f -- "$tmp"
+    echo "failed to stage $(basename "$source") for publication" >&2
+    return 1
+  fi
+  if ! chmod 644 "$tmp"; then
+    rm -f -- "$tmp"
+    echo "failed to set public permissions on staged $name" >&2
+    return 1
+  fi
+  if ! mv -f -- "$tmp" "$DEST/$name"; then
+    rm -f -- "$tmp"
+    echo "failed to atomically publish $name" >&2
+    return 1
+  fi
+}
 
 # ── Installers FIRST, manifests LAST ────────────────────────────────────────
 # An app that polls mid-publish then reads the OLD manifest, which points at
 # files that still exist — rather than a new manifest pointing at a binary that
 # is still copying, which would fail its hash check and dead-end the updater.
 for f in "${installers[@]}"; do
-  cp -f "$f" "$DEST/"
+  publish_file "$f" "$(basename "$f")"
   echo "  published $(basename "$f")"
 done
 
 # Checksums cover only what is now live, recomputed here rather than trusted
 # from the build, so they always describe the bytes actually being served.
-( cd "$DEST" && sha256sum BlissWork-* > SHA256SUMS.txt )
+checksums_tmp=$(mktemp "$DEST/.SHA256SUMS.txt.tmp.XXXXXX")
+if ! ( cd "$DEST" && sha256sum BlissWork-* ) > "$checksums_tmp"; then
+  rm -f -- "$checksums_tmp"
+  echo "failed to generate SHA256SUMS.txt" >&2
+  exit 1
+fi
+if ! chmod 644 "$checksums_tmp"; then
+  rm -f -- "$checksums_tmp"
+  echo "failed to set public permissions on staged SHA256SUMS.txt" >&2
+  exit 1
+fi
+mv -f -- "$checksums_tmp" "$DEST/SHA256SUMS.txt"
 echo "  regenerated SHA256SUMS.txt"
 
 for m in "${manifests[@]}"; do
-  cp -f "$m" "$DEST/"
+  publish_file "$m" "$(basename "$m")"
   echo "  published $(basename "$m")  <- feed updated"
 done
 
 chmod 644 "$DEST"/* 2>/dev/null || true
+
+mapfile -t old_backups < <(
+  find "$BACKUP" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended \
+    -regex '.*/[0-9]{8}T[0-9]{6}Z-[0-9]+' -printf '%f\n' | sort -r | tail -n "+$((BACKUP_RETENTION + 1))"
+)
+for old in "${old_backups[@]}"; do
+  rm -rf -- "$BACKUP/$old"
+done
 echo
 echo "Done. Live now:"
 ls -l --time-style=+"%m-%d %H:%M" "$DEST" | tail -n +2 | awk '{printf "  %-42s %10s  %s %s\n", $7, $5, $6, $7}' | sort -u | head -20

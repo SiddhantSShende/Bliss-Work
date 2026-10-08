@@ -84,6 +84,24 @@ type NewAttachment struct {
 	Height      *int
 	DurationMS  *int
 	TTL         time.Duration // uncommitted lifetime before the reaper claims it
+
+	// BlobPresent, when set, reports whether the blob for SHA256 is still in the
+	// blob store. It is called inside the transaction, holding the per-blob lock
+	// RemoveDraftAttachment also takes, so an upload cannot record a row for a
+	// blob that a concurrent removal is unlinking (ErrBlobGone: retry the upload).
+	BlobPresent func() bool
+}
+
+// ErrBlobGone is an upload whose blob was unlinked by a concurrent removal of
+// the last other attachment pointing at the same bytes. The caller re-uploads.
+var ErrBlobGone = errors.New("the uploaded file was removed while it was being saved; upload it again")
+
+// lockAttachmentBlob serialises everything that decides whether the bytes of
+// (org, sha) stay or go: recording a row that points at them, and removing the
+// last row that does. Transaction-scoped, so it is released by commit/rollback.
+func lockAttachmentBlob(ctx context.Context, tx pgx.Tx, orgID, sha string) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "attachment-blob:"+orgID+":"+sha)
+	return err
 }
 
 // ── membership helpers ───────────────────────────────────────────────────────
@@ -254,6 +272,20 @@ func (s *Store) CreateAttachment(ctx context.Context, in NewAttachment) (*Attach
 				return ErrForbidden
 			}
 			parentArg = &in.ParentID
+		}
+
+		// The blob was written BEFORE this transaction, so a draft-attachment
+		// removal that dropped the last other row for the same bytes may have
+		// unlinked it in between. Under the same lock the removal unlinks with,
+		// either it already ran (the blob is gone: refuse) or it has not yet
+		// looked for references (and will now find this row and keep the file).
+		if in.BlobPresent != nil {
+			if err := lockAttachmentBlob(ctx, tx, in.OrgID, in.SHA256); err != nil {
+				return err
+			}
+			if !in.BlobPresent() {
+				return ErrBlobGone
+			}
 		}
 
 		// Encrypt the filename under the org DEK, created lazily in THIS tx.

@@ -1,0 +1,142 @@
+{
+  "search": {
+    "title": "搜索",
+    "resultsFor": "“{{query}}”的搜索结果",
+    "empty": {
+      "title": "搜索 {{brand}}",
+      "hint": "查找成员、频道、聊天和任务。"
+    },
+    "noResults": {
+      "title": "无匹配结果",
+      "hint": "没有与“{{query}}”匹配的内容。"
+    },
+    "groups": {
+      "people": "成员",
+      "channels": "频道",
+      "chats": "聊天",
+      "tasks": "任务"
+    },
+    "channelMembers_other": "{{count}} 位成员"
+  },
+  "nav": {
+    "mail": "邮件",
+    "meetings": "会议",
+    "chats": "聊天",
+    "tasks": "任务",
+    "channels": "频道",
+    "members": "成员",
+    "org": "组织",
+    "settings": "设置",
+    "more": "更多"
+  },
+  "railBtn": {
+    "titleWithBadge": "{{label}}（{{count}} 条新）",
+    "unreadAriaLabel": "{{count}} 条未读"
+  },
+  "notifications": {
+    "title": "通知",
+    "empty": {
+      "noneYet": "暂无通知",
+      "hint": "动态和更新会显示在这里。"
+    },
+    "error": {
+      "title": "无法加载通知",
+      "hint": "你的通知不会丢失。请检查网络后重试。",
+      "retry": "重试",
+      "partial": "部分通知无法加载，请重试"
+    },
+    "message": {
+      "title": "新消息",
+      "body": "你有一条新消息",
+      "someone": "有人",
+      "aChannel": "某个频道"
+    },
+    "row": {
+      "markRead": "标为已读"
+    },
+    "loadMore": "加载更多",
+    "loadingMore": "加载中…"
+  },
+  "profileMenu": {
+    "accountMenuTitle": "{{name}} — 账号菜单",
+    "accountMenuAriaLabel": "账号菜单",
+    "online": "在线",
+    "editProfile": "编辑个人资料",
+    "settings": "设置",
+    "lightMode": "浅色模式",
+    "darkMode": "深色模式",
+    "signOut": "退出登录"
+  },
+  "getAppButton": {
+    "getDesktopApp": "获取桌面应用",
+    "downloadForPlatform": "下载 {{platform}} 版 {{brand}} — {{requirement}}",
+    "getApp": "获取应用",
+    "downloadHeading": "下载 {{brand}}",
+    "requirement": {
+      "windows": "Windows 10 和 11 · 64 位",
+      "mac": "macOS 11 Big Sur 或更高版本",
+      "linux": "AppImage（通用）或 .deb"
+    }
+  },
+  "roleBadge": {
+    "admin": "管理员",
+    "member": "成员"
+  },
+  "activityNotice": {
+    "message": "你在 {{brand}} 中的活动会被记录，你和工作区管理员均可查看。",
+    "seeRecorded": "查看记录内容"
+  },
+  "listPane": {
+    "back": "返回"
+  },
+  "exportActivity": {
+    "customRange": "自定义范围",
+    "title": {
+      "forMember": "导出 {{name}} 的活动",
+      "workspace": "导出活动"
+    },
+    "from": "开始",
+    "to": "结束",
+    "description": "每位成员每天一行：活跃和空闲时间、会话数、已记录的操作，以及停留时间最长的板块。日期按你所在的时区计算。",
+    "cancel": "取消",
+    "exportButton": "导出 .xlsx",
+    "toasts": {
+      "nothingToExport": "该时间段内没有活动，无可导出内容。",
+      "exported_other": "已导出 {{count}} 行",
+      "exportFailedFallback": "导出失败"
+    }
+  },
+  "activityExport": {
+    "sheets": {
+      "summary": "汇总",
+      "daily": "每日",
+      "sessions": "会话"
+    },
+    "columns": {
+      "member": "成员",
+      "email": "邮箱",
+      "day": "日期",
+      "active": "活跃",
+      "activeHours": "活跃（小时）",
+      "idle": "空闲",
+      "signedIn": "在线时长",
+      "sessions": "会话",
+      "actions": "操作",
+      "firstSeen": "首次活动（{{tz}}）",
+      "lastSeen": "最后活动（{{tz}}）",
+      "topSection": "最常用板块",
+      "daysActive": "活跃天数",
+      "avgPerActiveDay": "活跃日均",
+      "device": "设备",
+      "started": "开始（{{tz}}）",
+      "ended": "结束（{{tz}}）",
+      "endedBecause": "结束原因",
+      "network": "网络"
+    },
+    "stillActive": "仍在活跃"
+  },
+  "liveEvents": {
+    "channelBlocked": "你已被禁止加入某个频道",
+    "channelRemoved": "你已被移出某个频道"
+  }
+}

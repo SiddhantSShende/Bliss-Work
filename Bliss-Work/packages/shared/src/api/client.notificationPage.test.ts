@@ -59,3 +59,26 @@ describe("markTaskNotificationsRead", () => {
     expect(res).toEqual({ updated: 2 });
   });
 });
+
+describe("markNotificationsReadByTarget", () => {
+  it.each([
+    ["a conversation", { conversationId: "c1" }],
+    ["a channel", { channelId: "ch1" }],
+    ["a call", { callId: "k1" }],
+  ])("POSTs %s alone to read-by-target and resolves to how many changed", async (_label, target) => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ updated: 3 }), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await client().markNotificationsReadByTarget(target);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("http://notif.test/api/v1/notifications/read-by-target");
+    expect(init?.method).toBe("POST");
+    // Exactly the one id that was named: nothing else rides along.
+    expect(JSON.parse(String(init?.body))).toEqual(target);
+    expect(res).toEqual({ updated: 3 });
+  });
+});

@@ -151,7 +151,9 @@ export function groupByDay(items: InboxItemDTO[]): DayGroup[] {
 /** Mail-client timestamp: the clock for today, the day for anything older. */
 export function listTime(iso: string): string {
   const day = dayLabel(iso);
-  return day === "Today" ? clock(iso) : day;
+  // dayLabel returns the TRANSLATED word, so compare against the translated word
+  // — a literal "Today" only ever matched in English.
+  return day === i18n.t("common:date.today") ? clock(iso) : day;
 }
 
 /**

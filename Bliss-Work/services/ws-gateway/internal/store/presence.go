@@ -183,6 +183,29 @@ func (s *Store) AddOrgPresence(ctx context.Context, orgID, userID string) (becam
 	return added.Val() > 0, nil
 }
 
+// removeOrgPresenceIfEmptyScript is the atomic check-and-remove behind
+// RemoveOrgPresenceIfLast on a single-node Redis.
+//
+// KEYS[1] is the user's connection set, KEYS[2] the org's online set;
+// ARGV[1] is the stale cutoff (a score), ARGV[2] the member id in the org set.
+// It reaps stale connections, and removes the user from the org set ONLY if no
+// connection is left — returning 1 only when it really removed them.
+//
+// Atomicity is the point. The same three steps issued as separate commands
+// leave a window between "the set is empty" and "remove the user from the org":
+// a page reload's NEW socket can AddPresence and AddOrgPresence inside it, see
+// the org entry still present (so no presence.online goes out), and then have
+// that entry removed by the OLD socket's late ZREM — with presence.offline
+// published on top — leaving a connected user shown offline until the next
+// 45s heartbeat quietly re-adds them. Inside one script nothing can interleave.
+var removeOrgPresenceIfEmptyScript = redis.NewScript(`
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', '(' .. ARGV[1])
+if redis.call('ZCARD', KEYS[1]) > 0 then
+  return 0
+end
+return redis.call('ZREM', KEYS[2], ARGV[2])
+`)
+
 // RemoveOrgPresenceIfLast drops userID from the org's online set only when the
 // user has no remaining live connections (across all nodes). It returns
 // becameOffline=true only on the present→absent transition (the user's LAST
@@ -190,10 +213,39 @@ func (s *Store) AddOrgPresence(ctx context.Context, orgID, userID string) (becam
 //
 // Evicts stale connection entries before counting. A user whose second tab is
 // on a node that crashed must still go offline when they close the first.
+//
+// The check and the removal are ONE atomic step, so becameOffline is true only
+// when this call is what emptied the user out of the org set — see
+// removeOrgPresenceIfEmptyScript for the reload race that made it otherwise.
 func (s *Store) RemoveOrgPresenceIfLast(ctx context.Context, orgID, userID string) (becameOffline bool, err error) {
 	defer observe(metrics.PurposePresence, time.Now(), &err)
+	cutoff := fmt.Sprintf("%f", staleBefore())
+	if s.clustered {
+		return s.removeOrgPresenceIfLastClustered(ctx, orgID, userID, cutoff)
+	}
 	// Named err, not a shadowed one — see AddOrgPresence.
-	if err = s.rdb.ZRemRangeByScore(ctx, s.presenceKey(userID), "-inf", fmt.Sprintf("(%f", staleBefore())).Err(); err != nil {
+	removed, err := removeOrgPresenceIfEmptyScript.Run(ctx, s.rdb,
+		[]string{s.presenceKey(userID), s.orgPresenceKey(orgID)}, cutoff, userID).Int64()
+	if err != nil {
+		return false, err
+	}
+	return removed > 0, nil
+}
+
+// removeOrgPresenceIfLastClustered is the cluster variant. The user's
+// connection set and the org's online set hash to different slots, so one
+// script cannot touch both (CROSSSLOT) and the two cannot be made atomic.
+//
+// It closes the same race by repair instead of prevention: after removing the
+// user from the org set it re-reads the connection set, and if a new socket
+// registered in between it puts the user straight back and reports no
+// transition. That socket's own AddOrgPresence saw the entry still present and
+// announced nothing, so restoring it leaves the user online with no spurious
+// offline — the state the atomic script produces. A socket that registers
+// AFTER the re-read finds the org entry gone and announces presence.online
+// itself.
+func (s *Store) removeOrgPresenceIfLastClustered(ctx context.Context, orgID, userID, cutoff string) (bool, error) {
+	if err := s.rdb.ZRemRangeByScore(ctx, s.presenceKey(userID), "-inf", "("+cutoff).Err(); err != nil {
 		return false, err
 	}
 	n, err := s.rdb.ZCard(ctx, s.presenceKey(userID)).Result()
@@ -204,7 +256,14 @@ func (s *Store) RemoveOrgPresenceIfLast(ctx context.Context, orgID, userID strin
 		return false, nil
 	}
 	removed, err := s.rdb.ZRem(ctx, s.orgPresenceKey(orgID), userID).Result()
-	return removed > 0, err
+	if err != nil || removed == 0 {
+		return false, err
+	}
+	if n, err = s.rdb.ZCard(ctx, s.presenceKey(userID)).Result(); err == nil && n > 0 {
+		err = s.rdb.ZAdd(ctx, s.orgPresenceKey(orgID), redis.Z{Score: float64(nowMs()), Member: userID}).Err()
+		return false, err
+	}
+	return true, nil
 }
 
 // OnlineUserIDs returns the user IDs currently connected within an org.

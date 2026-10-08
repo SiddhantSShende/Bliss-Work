@@ -1,18 +1,21 @@
 /**
- * Chat and channel file attachments, by host:
+ * Chat and channel file attachments. What a click does is `attachmentCapability`'s
+ * call (lib/attachmentCapability.ts), the same for chats, channels and the "Docs"
+ * panel:
  *
- *   desktop → a file with no in-app view goes to the OS's own application through
- *             `config.openAttachment` (the same host call an email attachment uses)
- *   web     → a file with no in-app view points the BROWSER at the signed URL in a
- *             new tab, like the email card's link. The app fetches and saves nothing.
- *   any host→ images, video, PDF and plain text keep opening in the Lightbox
- *   others  → desktop's other windows and mobile have neither, so keep the Lightbox
+ *   native    → images, video, PDF, plain text: the existing Lightbox, on every host
+ *   document  → Word, PowerPoint, Excel, CSV, .txt: the in-app document viewer, on
+ *               every host (it needs no host capability: it just fetches)
+ *   external  → audio: unchanged — the OS's own application on desktop, a browser
+ *               tab on web, the Lightbox on a host with neither
+ *   download  → everything else: NO Open anywhere, only a Download button
  *
  * DMs use useChatMedia with scope "conversation", channels with "channel"; the
  * hook is the one place the click is routed, so it is run for both scopes with
- * the real MediaBubble and Lightbox. The conversation's "Docs" panel
- * (ChatAssetsSheet) lists the same files and is covered too. Only the runtime,
- * the toast, the file-transfer context, `fetch` and `window.open` are stubbed.
+ * the real MediaBubble, Lightbox and document viewer. The conversation's "Docs"
+ * panel (ChatAssetsSheet) lists the same files and is covered too. Only the
+ * runtime, the toast, the file-transfer context, `fetch` and `window.open` are
+ * stubbed.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -49,10 +52,16 @@ import { useChatMedia } from "./useChatMedia";
 import { ChatAssetsSheet } from "./ChatAssetsSheet";
 
 const mk = (id: string, name: string, mime: string): MediaItem => ({ id, name, size: 2048, mime });
-const PPTX = mk("att-pptx", "Quarterly.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation");
-const DOCX = mk("att-docx", "Brief.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-const XLSX = mk("att-xlsx", "Budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+// What the server really stores for these: OOXML is application/zip (or octet-stream),
+// legacy Office octet-stream. The client decides by extension, never by an Office mime.
+const PPTX = mk("att-pptx", "Quarterly.pptx", "application/zip");
+const DOCX = mk("att-docx", "Brief.docx", "application/zip");
+const XLSX = mk("att-xlsx", "Budget.xlsx", "application/zip");
+const XLS = mk("att-xls", "Old budget.xls", "application/octet-stream");
+const CSV = mk("att-csv", "data.csv", "text/plain");
 const ZIP = mk("att-zip", "Assets.zip", "application/zip");
+const RTF = mk("att-rtf", "Letter.rtf", "application/octet-stream");
+const MP3 = mk("att-mp3", "Voice note.mp3", "audio/mpeg");
 const IMAGE = mk("att-img", "photo.png", "image/png");
 const VIDEO = mk("att-vid", "clip.mp4", "video/mp4");
 const PDF = mk("att-pdf", "Report.pdf", "application/pdf");
@@ -60,6 +69,7 @@ const TEXT = mk("att-txt", "notes.txt", "text/plain");
 
 const urlOf = (id: string) => `https://msg.test/media/${id}?t=tok`;
 const OPEN_ARGS = (id: string) => [urlOf(id), "_blank", "noopener,noreferrer"] as const;
+const PREVIEW_OF = (id: string) => `https://msg.test/media/${id}/preview?t=tok`;
 
 const asWeb = () => {
   h.config = { kind: "web" };
@@ -121,18 +131,30 @@ describe.each<[string, AttachmentScope]>([
 ])("%s attachment on WEB", (_label, scope) => {
   beforeEach(asWeb);
 
-  it.each([PPTX, DOCX, XLSX, ZIP])(
-    "opens $name in the browser, not the Lightbox, and downloads nothing itself",
+  it.each([PPTX, DOCX, XLSX, XLS, CSV])(
+    "opens $name in the in-app document viewer — not a browser tab, not a download",
     async (item) => {
       render(withQuery(<Message scope={scope} items={[item]} />));
 
       await userEvent.click(await screen.findByRole("button", { name: `Open ${item.name}` }));
 
-      expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS(item.id));
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-      expect(fetchStub).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog", { name: item.name })).toBeInTheDocument();
+      expect(windowOpen).not.toHaveBeenCalled();
+      // The viewer asked the server for the converted preview (CSV is read directly).
+      const wanted = item === CSV ? urlOf(item.id) : PREVIEW_OF(item.id);
+      await waitFor(() => expect(fetchStub).toHaveBeenCalledWith(wanted, expect.anything()));
     },
   );
+
+  it.each([ZIP, RTF])("$name has NO Open: its card offers only Download", async (item) => {
+    render(withQuery(<Message scope={scope} items={[item]} />));
+
+    expect(await screen.findByRole("button", { name: `Download ${item.name}` })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `Open ${item.name}` })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Preview isn't available/)).not.toBeInTheDocument();
+    expect(windowOpen).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 
   it.each([IMAGE, VIDEO, PDF, TEXT])("keeps $name in the in-app viewer", async (item) => {
     render(withQuery(<Message scope={scope} items={[item]} />));
@@ -143,21 +165,73 @@ describe.each<[string, AttachmentScope]>([
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
-  it("routes each file in a mixed message by its own type", async () => {
-    render(withQuery(<Message scope={scope} items={[IMAGE, PPTX]} />));
+  it("keeps audio's existing behaviour: the browser opens the signed URL in a tab", async () => {
+    render(withQuery(<Message scope={scope} items={[MP3]} />));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+    await userEvent.click(await screen.findByRole("button", { name: `Open ${MP3.name}` }));
 
-    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-pptx"));
+    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS(MP3.id));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetchStub).not.toHaveBeenCalled();
   });
 
-  it("no longer tells the user a file 'can't be previewed' when it opens in the browser", async () => {
-    render(withQuery(<Message scope={scope} items={[PPTX]} />));
+  it("routes each file in a mixed message by its own type", async () => {
+    render(withQuery(<Message scope={scope} items={[IMAGE, PPTX, ZIP, MP3]} />));
 
-    await screen.findByRole("button", { name: "Open Quarterly.pptx" });
+    // The document opens alone: no gallery arrows that could land on a file the Lightbox cannot draw.
+    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+    expect(screen.getByRole("dialog", { name: "Quarterly.pptx" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+    expect(windowOpen).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    expect(screen.queryByText(/Preview isn't available/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: `Open ${MP3.name}` }));
+    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS(MP3.id));
+
+    expect(screen.queryByRole("button", { name: "Open Assets.zip" })).not.toBeInTheDocument();
+  });
+
+  it("an image still opens the Lightbox with the message's images and videos as a gallery", async () => {
+    render(withQuery(<Message scope={scope} items={[IMAGE, VIDEO]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open photo.png" }));
+
+    expect(screen.getByRole("dialog", { name: "photo.png" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
+  });
+
+  it("the gallery never carries the user onto a document or a download-only file", async () => {
+    render(withQuery(<Message scope={scope} items={[IMAGE, PPTX, ZIP, VIDEO]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open photo.png" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    // Next from the first lands on the next DRAWABLE item (the video), not the deck or the zip.
+    expect(screen.getByRole("dialog", { name: "clip.mp4" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("dialog", { name: "photo.png" })).toBeInTheDocument(); // wrapped
+    expect(fetchStub).not.toHaveBeenCalledWith(PREVIEW_OF("att-pptx"), expect.anything()); // no conversion was started
+  });
+
+  it("a lone image has no gallery arrows even when the message also holds documents", async () => {
+    render(withQuery(<Message scope={scope} items={[IMAGE, PPTX]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open photo.png" }));
+
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+  });
+
+  it("the viewer's failure panel offers Download, through the message's own download path", async () => {
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(withQuery(<Message scope={scope} items={[DOCX]} />));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Brief.docx" }));
+
+    // fetchStub answers 404: the document cannot be previewed.
+    expect(await screen.findByText("This document can't be previewed.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Download" }));
+
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(recorded().map((r) => r[0])).toEqual(["attachment_opened", "attachment_downloaded"]);
   });
 });
 
@@ -165,46 +239,79 @@ describe("web attachment authorization stays enforced", () => {
   beforeEach(asWeb);
 
   it("opens exactly the signed URL the server minted for this viewer", async () => {
+    render(withQuery(<Message scope="conversation" items={[MP3]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
+
+    expect(h.api.attachmentLinks).toHaveBeenCalledWith(["att-mp3"]);
+    expect(windowOpen.mock.calls[0]![0]).toBe("https://msg.test/media/att-mp3?t=tok");
+  });
+
+  it("the document viewer asks for the preview on the SAME signed link", async () => {
     render(withQuery(<Message scope="conversation" items={[PPTX]} />));
 
     await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
 
     expect(h.api.attachmentLinks).toHaveBeenCalledWith(["att-pptx"]);
-    expect(windowOpen.mock.calls[0]![0]).toBe("https://msg.test/media/att-pptx?t=tok");
+    await waitFor(() => expect(fetchStub).toHaveBeenCalledWith("https://msg.test/media/att-pptx/preview?t=tok", expect.anything()));
   });
 
   it("offers nothing to click when the server would not mint a link (no access)", async () => {
     h.api.attachmentLinks.mockResolvedValue([]);
-    render(withQuery(<Message scope="channel" items={[PPTX]} />));
+    render(withQuery(<Message scope="channel" items={[PPTX, ZIP]} />));
 
-    expect(await screen.findByText("Not available to you")).toBeInTheDocument();
+    expect((await screen.findAllByText("Not available to you")).length).toBe(2);
     expect(screen.queryByRole("button", { name: "Open Quarterly.pptx" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Download Assets.zip" })).not.toBeInTheDocument();
     expect(windowOpen).not.toHaveBeenCalled();
   });
 });
 
-describe("desktop behaviour is unchanged", () => {
+describe("desktop", () => {
   it.each<[string, AttachmentScope]>([
     ["chat", "conversation"],
     ["channel", "channel"],
-  ])("%s: an Office file still goes to the host's native open, not the browser", async (_l, scope) => {
+  ])("%s: audio is unchanged — the host's native open, not the browser", async (_l, scope) => {
+    const openAttachment = asDesktop();
+    render(withQuery(<Message scope={scope} items={[MP3]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
+
+    expect(openAttachment).toHaveBeenCalledExactlyOnceWith(urlOf("att-mp3"), "Voice note.mp3");
+    expect(windowOpen).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it.each<[string, AttachmentScope]>([
+    ["chat", "conversation"],
+    ["channel", "channel"],
+  ])("%s: an Office file opens in the app now — it is never handed to the OS", async (_l, scope) => {
     const openAttachment = asDesktop();
     render(withQuery(<Message scope={scope} items={[PPTX]} />));
 
     await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
 
-    expect(openAttachment).toHaveBeenCalledExactlyOnceWith(urlOf("att-pptx"), "Quarterly.pptx");
+    expect(screen.getByRole("dialog", { name: "Quarterly.pptx" })).toBeInTheDocument();
+    expect(openAttachment).not.toHaveBeenCalled();
     expect(windowOpen).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("reports a host failure the way an email attachment does", async () => {
+  it("a download-only file is never handed to the OS either, and has no Open", async () => {
+    const openAttachment = asDesktop();
+    render(withQuery(<Message scope="conversation" items={[ZIP]} />));
+
+    expect(await screen.findByRole("button", { name: "Download Assets.zip" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Assets.zip" })).not.toBeInTheDocument();
+    expect(openAttachment).not.toHaveBeenCalled();
+  });
+
+  it("reports a host failure for audio the way an email attachment does", async () => {
     h.config = { kind: "electron", openAttachment: vi.fn(async () => ({ ok: false, error: "No application" })) };
-    render(withQuery(<Message scope="conversation" items={[PPTX]} />));
+    render(withQuery(<Message scope="conversation" items={[MP3]} />));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
 
-    expect(h.toastError).toHaveBeenCalledWith("Could not open Quarterly.pptx", { description: "No application" });
+    expect(h.toastError).toHaveBeenCalledWith("Could not open Voice note.mp3", { description: "No application" });
   });
 
   it("images and PDFs still open the Lightbox, never the host or the browser", async () => {
@@ -218,33 +325,53 @@ describe("desktop behaviour is unchanged", () => {
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
-  it("another desktop window (no host open) is left alone: Lightbox, no browser tab", async () => {
+  it("another desktop window (no host open): audio is left alone — Lightbox, no browser tab", async () => {
     h.config = { kind: "electron" };
-    render(withQuery(<Message scope="conversation" items={[PPTX]} />));
+    render(withQuery(<Message scope="conversation" items={[MP3]} />));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
 
-    expect(screen.getByRole("dialog", { name: "Quarterly.pptx" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Voice note.mp3" })).toBeInTheDocument();
     expect(windowOpen).not.toHaveBeenCalled();
     expect(screen.getAllByText(/Preview (isn't|not) available/).length).toBeGreaterThan(0);
   });
+
+  it("another desktop window (no host open) opens a document in the viewer too", async () => {
+    h.config = { kind: "electron" };
+    render(withQuery(<Message scope="conversation" items={[DOCX]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Brief.docx" }));
+
+    expect(screen.getByRole("dialog", { name: "Brief.docx" })).toBeInTheDocument();
+    await waitFor(() => expect(fetchStub).toHaveBeenCalledWith(PREVIEW_OF("att-docx"), expect.anything()));
+  });
 });
 
-describe("mobile behaviour is unchanged", () => {
-  it("does not open a browser tab: Lightbox as before", async () => {
+describe("mobile", () => {
+  it("audio does not open a browser tab: Lightbox as before", async () => {
     h.config = { kind: "mobile" };
-    render(withQuery(<Message scope="conversation" items={[PPTX]} />));
+    render(withQuery(<Message scope="conversation" items={[MP3]} />));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
 
-    expect(screen.getByRole("dialog", { name: "Quarterly.pptx" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Voice note.mp3" })).toBeInTheDocument();
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("a document opens in the viewer", async () => {
+    h.config = { kind: "mobile" };
+    render(withQuery(<Message scope="conversation" items={[XLSX]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Budget.xlsx" }));
+
+    expect(screen.getByRole("dialog", { name: "Budget.xlsx" })).toBeInTheDocument();
     expect(windowOpen).not.toHaveBeenCalled();
   });
 });
 
 describe("the conversation's Docs panel", () => {
   const messages = [
-    { id: "m1", body: encodeMedia([PPTX, PDF]), senderName: "Sam", at: "2026-09-21T09:00:00Z" },
+    { id: "m1", body: encodeMedia([PPTX, PDF, ZIP, MP3]), senderName: "Sam", at: "2026-09-21T09:00:00Z" },
   ];
   const renderSheet = () =>
     render(
@@ -262,16 +389,16 @@ describe("the conversation's Docs panel", () => {
     );
   const openDocsTab = async () => userEvent.click(await screen.findByRole("tab", { name: /Docs/ }));
 
-  it("web: an Office doc opens in the browser", async () => {
+  it("web: an Office doc opens in the in-app viewer", async () => {
     asWeb();
     renderSheet();
     await openDocsTab();
 
     await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
 
-    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-pptx"));
-    expect(screen.queryByRole("dialog", { name: "Quarterly.pptx" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Preview isn't available/)).not.toBeInTheDocument();
+    expect(windowOpen).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Quarterly.pptx" })).toBeInTheDocument();
+    await waitFor(() => expect(fetchStub).toHaveBeenCalledWith(PREVIEW_OF("att-pptx"), expect.anything()));
   });
 
   it("web: a PDF doc still opens in the in-app viewer", async () => {
@@ -285,14 +412,50 @@ describe("the conversation's Docs panel", () => {
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
-  it("desktop: unchanged, the host opens it", async () => {
+  it("web: audio still opens in the browser", async () => {
+    asWeb();
+    renderSheet();
+    await openDocsTab();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
+
+    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-mp3"));
+  });
+
+  it("desktop: audio is unchanged, the host opens it", async () => {
     const openAttachment = asDesktop();
     renderSheet();
     await openDocsTab();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
 
-    expect(openAttachment).toHaveBeenCalledExactlyOnceWith(urlOf("att-pptx"), "Quarterly.pptx");
+    expect(openAttachment).toHaveBeenCalledExactlyOnceWith(urlOf("att-mp3"), "Voice note.mp3");
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("a download-only file's row has NO Open, only Download", async () => {
+    asWeb();
+    renderSheet();
+    await openDocsTab();
+
+    expect(await screen.findByRole("button", { name: "Download Assets.zip" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Assets.zip" })).not.toBeInTheDocument();
+  });
+
+  it("its Download button downloads through the signed URL with ?dl=1 and records exactly one attachment_downloaded", async () => {
+    asWeb();
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      lastHref = this.href;
+    });
+    let lastHref = "";
+    renderSheet();
+    await openDocsTab();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Download Assets.zip" }));
+
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(lastHref).toBe(`${urlOf("att-zip")}&dl=1`);
+    expect(recorded().map((r) => r[0])).toEqual(["attachment_downloaded"]);
     expect(windowOpen).not.toHaveBeenCalled();
   });
 });
@@ -330,14 +493,33 @@ describe("file activity — telemetry always, chat message only in a locked chan
     expect(h.api.reply).not.toHaveBeenCalled();
   });
 
-  it("LOCKED channel: posts attachment_opened — never downloaded — when a file opens in a browser tab", async () => {
+  it("LOCKED channel: posts attachment_opened — never downloaded — when audio opens in a browser tab", async () => {
+    render(withQuery(<Message scope="channel" locked items={[MP3]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
+
+    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-mp3"));
+    expect(channelPosts()).toEqual([["scope-1", "Me opened Voice note.mp3", "attachment_opened", undefined, "att-mp3"]]);
+    expect(recorded()).toEqual([["attachment_opened", "att-mp3", "Voice note.mp3"]]);
+  });
+
+  it("LOCKED channel: opening a document posts attachment_opened too — never downloaded", async () => {
     render(withQuery(<Message scope="channel" locked items={[PPTX]} />));
 
     await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
 
-    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-pptx"));
     expect(channelPosts()).toEqual([["scope-1", "Me opened Quarterly.pptx", "attachment_opened", undefined, "att-pptx"]]);
     expect(recorded()).toEqual([["attachment_opened", "att-pptx", "Quarterly.pptx"]]);
+  });
+
+  it("LOCKED channel: the Download button of a download-only file posts attachment_downloaded — never opened", async () => {
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(withQuery(<Message scope="channel" locked items={[ZIP]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Download Assets.zip" }));
+
+    expect(channelPosts()).toEqual([["scope-1", "Me downloaded Assets.zip", "attachment_downloaded", undefined, "att-zip"]]);
+    expect(recorded()).toEqual([["attachment_downloaded", "att-zip", "Assets.zip"]]);
   });
 
   it("LOCKED channel: the Docs panel posts and records its own open too", async () => {
@@ -420,15 +602,15 @@ describe("file activity — telemetry always, chat message only in a locked chan
 
   it("reports source desktop from the desktop host", async () => {
     asDesktop();
-    render(withQuery(<Message scope="conversation" items={[PPTX]} />));
+    render(withQuery(<Message scope="conversation" items={[MP3]} />));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
 
     expect(h.api.sendBeacon.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ source: "desktop" }));
   });
 
-  it.each([PPTX, DOCX, XLSX, ZIP])(
-    "records exactly one attachment_opened for a click on $name, however the browser then handles it",
+  it.each([PPTX, DOCX, XLSX, XLS, CSV, MP3])(
+    "records exactly one attachment_opened for a click on $name, however it is then handled",
     async (item) => {
       render(withQuery(<Message scope="conversation" items={[item]} />));
 
@@ -438,24 +620,33 @@ describe("file activity — telemetry always, chat message only in a locked chan
     },
   );
 
-  it("records attachment_opened when desktop hands a file to the OS's own application", async () => {
+  it("records attachment_opened when desktop hands audio to the OS's own application", async () => {
     const openAttachment = asDesktop();
-    render(withQuery(<Message scope="conversation" items={[PPTX]} />));
+    render(withQuery(<Message scope="conversation" items={[MP3]} />));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
 
-    expect(openAttachment).toHaveBeenCalledExactlyOnceWith(urlOf("att-pptx"), "Quarterly.pptx");
+    expect(openAttachment).toHaveBeenCalledExactlyOnceWith(urlOf("att-mp3"), "Voice note.mp3");
     expect(recorded().map((r) => r[0])).toEqual(["attachment_opened"]);
   });
 
-  it("the Docs panel in a DM records its open for a file that leaves the app, with no chat message", async () => {
+  it("records exactly one attachment_downloaded for the Download of a download-only file — and never an opened", async () => {
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(withQuery(<Message scope="conversation" items={[ZIP]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Download Assets.zip" }));
+
+    expect(recorded().map((r) => r[0])).toEqual(["attachment_downloaded"]);
+  });
+
+  it("the Docs panel in a DM records its open for audio that leaves the app, with no chat message", async () => {
     render(
       withQuery(
         <ChatAssetsSheet
           open
           onClose={() => {}}
           title="Sam"
-          messages={[{ id: "m1", body: encodeMedia([PPTX]), senderName: "Sam", at: "2026-09-21T09:00:00Z" }]}
+          messages={[{ id: "m1", body: encodeMedia([MP3]), senderName: "Sam", at: "2026-09-21T09:00:00Z" }]}
           scope="conversation"
           scopeId="scope-3"
           meId="me"
@@ -463,9 +654,9 @@ describe("file activity — telemetry always, chat message only in a locked chan
       ),
     );
     await userEvent.click(await screen.findByRole("tab", { name: /Docs/ }));
-    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Voice note.mp3" }));
 
-    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-pptx"));
+    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-mp3"));
     expect(recorded().map((r) => r[0])).toEqual(["attachment_opened"]);
     expect(h.api.reply).not.toHaveBeenCalled();
   });
@@ -476,9 +667,9 @@ describe("file activity — telemetry always, chat message only in a locked chan
   // Download sends it (chatAttachmentDownload.test.tsx).
   it("a normal click never creates a download anchor and never sends ?dl=1", async () => {
     const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    const { container } = render(withQuery(<Message scope="conversation" items={[PPTX, IMAGE, PDF]} />));
+    const { container } = render(withQuery(<Message scope="conversation" items={[MP3, IMAGE, PDF]} />));
 
-    for (const name of ["Open Quarterly.pptx", "Open photo.png", "Open Report.pdf"]) {
+    for (const name of ["Open Voice note.mp3", "Open photo.png", "Open Report.pdf"]) {
       await userEvent.click(await screen.findByRole("button", { name }));
     }
 

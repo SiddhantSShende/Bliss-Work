@@ -43,27 +43,27 @@ def IMAGES = [
     'auth-svc': [
         context   : '.',
         dockerfile: 'services/auth-svc/Dockerfile',
-        paths     : ['services/auth-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/']
+        paths     : ['services/auth-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/', 'services/shared/internal_auth/', 'services/shared/prune_events/', 'services/shared/logging_setup/', 'services/shared/outbox_dlq/', 'services/shared/client_ip/', 'services/shared/resilience/', 'services/shared/kafka_lazy_producer/', 'services/shared/jwks_auth/']
     ],
     'task-svc': [
         context   : '.',
         dockerfile: 'services/task-svc/Dockerfile',
-        paths     : ['services/task-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/']
+        paths     : ['services/task-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/', 'services/shared/internal_auth/', 'services/shared/prune_events/', 'services/shared/logging_setup/', 'services/shared/outbox_dlq/', 'services/shared/org_purge_tables/', 'services/shared/client_ip/', 'services/shared/resilience/', 'services/shared/kafka_lazy_producer/', 'services/shared/jwks_auth/']
     ],
     'telemetry-svc': [
         context   : '.',
         dockerfile: 'services/telemetry-svc/Dockerfile',
-        paths     : ['services/telemetry-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/']
+        paths     : ['services/telemetry-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/', 'services/shared/logging_setup/', 'services/shared/org_purge_tables/', 'services/shared/client_ip/', 'services/shared/resilience/', 'services/shared/jwks_auth/']
     ],
     'integrations-svc': [
         context   : '.',
         dockerfile: 'services/integrations-svc/Dockerfile',
-        paths     : ['services/integrations-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/']
+        paths     : ['services/integrations-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/', 'services/shared/internal_auth/', 'services/shared/prune_events/', 'services/shared/logging_setup/', 'services/shared/outbox_dlq/', 'services/shared/org_purge_tables/', 'services/shared/client_ip/', 'services/shared/resilience/', 'services/shared/kafka_lazy_producer/', 'services/shared/jwks_auth/']
     ],
     'email-worker': [
         context   : '.',
         dockerfile: 'services/email-worker/Dockerfile',
-        paths     : ['services/email-worker/', 'services/shared/kafka_security/', 'services/shared/tracing/']
+        paths     : ['services/email-worker/', 'services/shared/kafka_security/', 'services/shared/tracing/', 'services/shared/logging_setup/', 'services/shared/resilience/']
     ],
     // Context is the repo root, not services/messaging-svc: go.mod replaces
     // github.com/task-board/shared-kafkaauth with the sibling module
@@ -74,6 +74,14 @@ def IMAGES = [
         dockerfile: 'services/messaging-svc/Dockerfile',
         paths     : ['services/messaging-svc/', 'services/shared/kafkaauth/', 'services/shared/internalauth/', 'services/shared/jwtauth/']
     ],
+    // Office Document Sandbox (LibreOffice headless). The only image that opens
+    // Office files; compose runs it on an internal-only network. No sibling
+    // packages, but the context is the repo root like every service image.
+    'doc-converter': [
+        context   : '.',
+        dockerfile: 'services/doc-converter/Dockerfile',
+        paths     : ['services/doc-converter/']
+    ],
     'notification-svc': [
         context   : '.',
         dockerfile: 'services/notification-svc/Dockerfile',
@@ -83,7 +91,7 @@ def IMAGES = [
     'sticky-svc': [
         context   : '.',
         dockerfile: 'services/sticky-svc/Dockerfile',
-        paths     : ['services/sticky-svc/', 'services/shared/kafka_security/', 'services/shared/tracing/', 'services/shared/internal_auth/', 'services/shared/logging_setup/']
+        paths     : ['services/sticky-svc/', 'services/shared/kafka_security/', 'services/shared/tracing/', 'services/shared/internal_auth/', 'services/shared/logging_setup/', 'services/shared/org_purge_tables/', 'services/shared/client_ip/', 'services/shared/resilience/', 'services/shared/prune_events/', 'services/shared/jwks_auth/', 'services/shared/outbox_dlq/', 'services/shared/kafka_lazy_producer/']
     ],
     // Delivery watchdog for those notes. Go, so it shares kafkaauth rather than
     // the Python kafka_security package.
@@ -99,13 +107,17 @@ def IMAGES = [
         dockerfile: 'services/ws-gateway/Dockerfile',
         paths     : ['services/ws-gateway/', 'services/shared/kafkaauth/', 'services/shared/backoff/', 'services/shared/internalauth/']
     ],
-    // Google Cloud Translation gateway: owns all UI translation. Context is the
-    // repo root: go.mod replaces shared-internalauth with the sibling module, and
-    // the image copies the English UI catalogs from packages/app.
-    'translate-gw': [
+    // Read-composition GraphQL gateway (Node). Context is the repo root: it is
+    // an npm workspace member importing @taskboard/shared, and `npm ci` needs
+    // every workspace's package.json (the same manifests apps/web lists).
+    // Compose pulls ${REGISTRY_PREFIX}/graph-gw in registry mode, so it MUST be
+    // built and pushed here or `compose pull` fails and the deploy rolls back.
+    'graph-gw': [
         context   : '.',
-        dockerfile: 'services/translate-gw/Dockerfile',
-        paths     : ['services/translate-gw/', 'services/shared/internalauth/', 'packages/app/src/i18n/locales/en/']
+        dockerfile: 'services/graph-gw/Dockerfile',
+        paths     : ['services/graph-gw/', 'packages/shared/', 'packages/app/package.json', 'packages/ui/package.json',
+                     'apps/web/package.json', 'apps/desktop/package.json',
+                     'package.json', 'package-lock.json', '.npmrc', '.dockerignore']
     ],
     // Cross-region replication (docs/CROSS-REGION.md). Built here so CI keeps
     // the image current, but NOT part of docker-compose.prod.yml's default
@@ -130,8 +142,8 @@ def IMAGES = [
     'web': [
         context   : '.',
         dockerfile: 'apps/web/Dockerfile',
-        paths     : ['apps/web/', 'packages/', 'package.json',
-                     'package-lock.json', '.npmrc', '.dockerignore']
+        paths     : ['apps/web/', 'apps/desktop/package.json', 'packages/', 'services/graph-gw/package.json',
+                     'package.json', 'package-lock.json', '.npmrc', '.dockerignore']
     ]
 ]
 
@@ -177,7 +189,7 @@ pipeline {
     environment {
         // ---- Registry VM ----
         REGISTRY        = '192.168.30.118:5000'   // change this to your registry
-        REGISTRY_SCHEME = 'http'                  // 'http' or 'https'
+        REGISTRY_SCHEME = 'https'
         NAMESPACE       = 'blisswork'
 
         // ---- Only this branch is allowed to build and deploy ----
@@ -277,6 +289,15 @@ pipeline {
                     test -d apps/web
                     test -f .dockerignore
                     test -f apps/web/Dockerfile
+                    test "${REGISTRY_SCHEME}" = "https" || {
+                        echo "Registry credentials must not be sent over plaintext HTTP; configure TLS for ${REGISTRY}." >&2
+                        exit 1
+                    }
+                    status=$(curl -sS -o /dev/null -w '%{http_code}' "https://${REGISTRY}/v2/")
+                    case "$status" in
+                        200|401) ;;
+                        *) echo "Registry TLS preflight failed (HTTP ${status})." >&2; exit 1 ;;
+                    esac
                     echo "OK - repo looks right"
                 '''
             }

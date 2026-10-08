@@ -29,6 +29,9 @@ import type { PlatformConfig } from "../platform";
 import { useSession } from "../store/session";
 import { qk } from "./queryKeys";
 import { applyStickyPinChanged } from "./stickyPinState";
+import { watchReconnectResync } from "./reconnectResync";
+import { isPendingOwnEcho } from "./pendingOwnEcho";
+import { noteLivePresence, noteLiveSnapshot } from "./presenceFreshness";
 // Re-exported for back-compat: every existing web import site pulls `qk`
 // from here (queryBridge used to define it locally). queryKeys.ts is the
 // canonical, platform-neutral source now (apps/mobile imports it directly,
@@ -57,7 +60,10 @@ import { decrementUnreadCount } from "./unreadNotificationCount";
  *  incoming-meeting popup (announceIncomingMeeting) never shows a blank or
  *  undefined title. */
 function meetingTitle(e: { title?: string; kind: "DIRECT" | "CHANNEL" | "MEETING" }): string {
-  return e.title || (e.kind === "CHANNEL" ? "Channel call" : "Meeting");
+  return (
+    e.title ||
+    (e.kind === "CHANNEL" ? i18n.t("meetings:view.scope.channelCall") : i18n.t("meetings:detail.kindLabel.meeting"))
+  );
 }
 
 /**
@@ -189,9 +195,13 @@ export function WsEventBridge() {
     };
 
     const off = source ? source.subscribe(handle) : ws.on(handle);
+    // Web only: the Electron renderer is handed events, not socket status, so
+    // its utilityProcess socket's reconnects are not visible here.
+    const offResync = source ? undefined : watchReconnectResync(ws, qc);
 
     return () => {
       off();
+      offResync?.();
       // Queued invalidations belong to a subscription that no longer exists.
       invalidate.cancel();
       if (!source) ws.close();
@@ -353,9 +363,16 @@ function handleMessageEvent(e: ServerEvent, ctx: EventHandlerContext) {
   const { qc, invalidate, me } = ctx;
   switch (e.type) {
     case EventType.MessageCreated: {
-      // Own messages are rendered optimistically by the open thread, so skip
-      // the echo here to avoid a duplicate; still refresh the conversation list.
-      if (e.senderId !== me) {
+      // This tab's own send is rendered optimistically by the open thread, so
+      // skip its echo while that temp row is pending to avoid a duplicate. The
+      // same user's message from another tab/device (or a forward / missed-call
+      // notice) has no temp row here and is appended like anyone else's; the
+      // id check below dedupes it against a row the 201 already swapped in.
+      // Either way the conversation list still refreshes.
+      if (
+        e.senderId !== me ||
+        !isPendingOwnEcho(qc.getQueryData<MessageDTO[]>(qk.messages(e.conversationId)), e.senderId, e.body)
+      ) {
         qc.setQueryData<MessageDTO[]>(qk.messages(e.conversationId), (prev) => {
           const next = prev ? [...prev] : [];
           if (!next.some((m) => m.id === e.messageId))
@@ -503,8 +520,8 @@ function handleChannelEvent(e: ServerEvent, ctx: EventHandlerContext) {
         if (live) {
           toast.info(
             e.type === EventType.ChannelBlocked
-              ? "You were blocked from a channel"
-              : "You were removed from a channel",
+              ? i18n.t("shell:liveEvents.channelBlocked")
+              : i18n.t("shell:liveEvents.channelRemoved"),
           );
         }
         if (window.location.pathname.includes(e.channelId)) {
@@ -527,11 +544,15 @@ function handleChannelEvent(e: ServerEvent, ctx: EventHandlerContext) {
       break;
     }
     case EventType.ChannelMessageCreated: {
-      // Skip own echo (optimistically rendered by the open channel). For
-      // everyone else, patch the message straight into the cache so it
-      // appears instantly (no refetch round-trip) — the event already
+      // Skip this tab's own echo while its optimistic temp row is pending
+      // (see MessageCreated). Otherwise — including the same user's message
+      // from another tab/device — patch the message straight into the cache
+      // so it appears instantly (no refetch round-trip); the event already
       // carries every field ChannelMessageDTO needs.
-      if (e.senderId !== me) {
+      if (
+        e.senderId !== me ||
+        !isPendingOwnEcho(qc.getQueryData<ChannelMessageDTO[]>(qk.channelMessages(e.channelId)), e.senderId, e.body)
+      ) {
         qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages(e.channelId), (prev) => {
           const next = prev ? [...prev] : [];
           if (!next.some((m) => m.id === e.messageId))
@@ -910,16 +931,19 @@ function handlePresenceEvent(e: ServerEvent, ctx: EventHandlerContext) {
   const { qc } = ctx;
   switch (e.type) {
     case EventType.PresenceSnapshot: {
+      noteLiveSnapshot();
       qc.setQueryData<string[]>(qk.presence, e.online);
       break;
     }
     case EventType.PresenceOnline: {
+      noteLivePresence(e.userId);
       qc.setQueryData<string[]>(qk.presence, (prev) =>
         prev?.includes(e.userId) ? prev : [...(prev ?? []), e.userId],
       );
       break;
     }
     case EventType.PresenceOffline: {
+      noteLivePresence(e.userId);
       qc.setQueryData<string[]>(qk.presence, (prev) =>
         (prev ?? []).filter((id) => id !== e.userId),
       );

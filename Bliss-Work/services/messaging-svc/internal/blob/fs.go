@@ -258,8 +258,9 @@ func openFile(p string) (Reader, error) {
 	return &fsReader{File: f, size: fi.Size(), modTime: fi.ModTime()}, nil
 }
 
-// Remove deletes a blob. A missing file is not an error: the reaper races with
-// nothing in particular, and "already gone" is the desired end state.
+// Remove deletes a blob and its derivatives. A missing file is not an error:
+// the reaper races with nothing in particular, and "already gone" is the
+// desired end state.
 func (s *FSStore) Remove(orgID, sha string) error {
 	p, err := s.blobPath(orgID, sha)
 	if err != nil {
@@ -268,7 +269,97 @@ func (s *FSStore) Remove(orgID, sha string) error {
 	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	return s.removeDerived(p, sha)
+}
+
+// derivedPath is the blob's own path plus ".{variant}", so a derivative lives
+// in the same shard directory as its original.
+func (s *FSStore) derivedPath(orgID, sha, variant string) (string, error) {
+	if !ValidVariant(variant) {
+		return "", ErrBadKey
+	}
+	p, err := s.blobPath(orgID, sha)
+	if err != nil {
+		return "", err
+	}
+	return p + "." + variant, nil
+}
+
+// removeDerived deletes every "{sha}.v*" sibling of the blob at p. It lists the
+// shard directory rather than globbing: the root is operator-controlled and may
+// contain glob metacharacters.
+func (s *FSStore) removeDerived(p, sha string) error {
+	dir := filepath.Dir(p)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, sha+".") && ValidVariant(strings.TrimPrefix(name, sha+".")) {
+			if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+// PutDerived writes a derivative atomically: spool in tmp/ (same filesystem),
+// then rename, so a torn write is never observable as a complete derivative.
+func (s *FSStore) PutDerived(orgID, sha, variant string, r io.Reader, max int64) error {
+	dst, err := s.derivedPath(orgID, sha, variant)
+	if err != nil {
+		return err
+	}
+	if max <= 0 {
+		return errors.New("blob: max must be positive")
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		return fmt.Errorf("blob: mkdir shard: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Join(s.root, "tmp"), "derived-*.part")
+	if err != nil {
+		return fmt.Errorf("blob: spool: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		if tmpName != "" {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	n, err := io.Copy(tmp, io.LimitReader(r, max+1))
+	if err != nil {
+		return fmt.Errorf("blob: write: %w", err)
+	}
+	if n > max {
+		return ErrTooLarge
+	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("blob: sync: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("blob: close: %w", err)
+	}
+	if err := os.Rename(tmpName, dst); err != nil {
+		return fmt.Errorf("blob: commit: %w", err)
+	}
+	tmpName = ""
+	return nil
+}
+
+// OpenDerived returns a stored derivative, or an os.IsNotExist error when there
+// is none yet.
+func (s *FSStore) OpenDerived(orgID, sha, variant string) (Reader, error) {
+	p, err := s.derivedPath(orgID, sha, variant)
+	if err != nil {
+		return nil, err
+	}
+	return openFile(p)
 }
 
 // ── derived-content cache (static maps) ──────────────────────────────────────

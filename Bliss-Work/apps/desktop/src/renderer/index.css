@@ -13,3 +13,10 @@
 /* Tailwind v4 ignores node_modules — scan the workspace UI/app packages. */
 @source "../../../../packages/ui/src";
 @source "../../../../packages/app/src";
+
+/* Linux pinned note only (the sticky renderer sets data-manual-drag): the OS cannot
+   act on a drag region for that window, so body drags are handled in script
+   instead — see useManualMove in StickyResizeHandles.tsx. */
+html[data-manual-drag] .app-drag {
+  -webkit-app-region: no-drag;
+}

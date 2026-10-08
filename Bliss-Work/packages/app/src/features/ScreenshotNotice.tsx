@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import i18n from "../i18n";
 import type { CallDTO, ChannelDTO, ChannelMessageDTO, MessageDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -205,7 +206,7 @@ function screenshotContext(route: string | undefined, thread: ActiveThread | nul
   const surface = path ? surfaceOf(path) : null;
   const routeChannelId = path?.match(/^\/app\/channels\/([^/]+)$/)?.[1];
   if (surface === "chats" && thread?.kind === "chat") {
-    const name = thread.peerName.trim() && thread.peerName !== "Unknown user" ? thread.peerName : undefined;
+    const name = thread.peerName.trim() && thread.peerName !== i18n.t("common:unknownUser") ? thread.peerName : undefined;
     return {
       label: name ? `Chat: ${name}` : "Chats",
       name,

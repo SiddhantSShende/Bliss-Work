@@ -12,6 +12,7 @@ import { MobileCallSession } from './MobileCallSession';
 import { LiveKitRoomAdapter } from './LiveKitRoomAdapter';
 import { applySpeaker, startCallAudio, stopCallAudio } from './audio';
 import { parseCallLink } from './callLinks';
+import { joinFromCallLink } from './callLinkJoin';
 import { roomInviteFor } from './roomInvites';
 import { canUseFullScreenIntent, openFullScreenIntentSettings, releaseLockScreen } from './incomingCallNative';
 import { cancelAllMeetingReminders, onMeetingReminderResponse, setInMeetingCheck, syncMeetingReminders } from './meetingReminders';
@@ -58,6 +59,21 @@ const CallsContext = createContext<CallsContextValue | null>(null);
 
 /** Re-dial the socket when the app returns after at least this long away. */
 const REDIAL_AFTER_BACKGROUND_MS = 20_000;
+
+/** Explicit consent before a LINK joins a call (see callLinkJoin). Dismissing
+ *  the dialog (back button / tap outside) counts as Cancel. */
+const confirmJoinFromLink = () =>
+  new Promise<boolean>((resolve) => {
+    Alert.alert(
+      'Join this call?',
+      'A call link was opened. You will join with your microphone and camera off; turn them on once you are in.',
+      [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Join', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
 
 const dbg = (event: string, data?: Record<string, string | number | boolean | undefined>) => {
   // Ids, states and phases only — never tokens, SDP, or credentials.
@@ -399,22 +415,27 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
     [room],
   );
 
+  // One confirmation at a time: a cold-start URL can arrive via both
+  // getInitialURL and the 'url' event.
+  const linkPrompt = useRef(false);
   const openCallLink = useCallback(
     (url: string): boolean => {
       const link = parseCallLink(url, config.webBaseUrl);
       if (!link) return false;
       dbg('link', { kind: link.kind });
-      if (link.kind === 'call') {
-        joinMeeting(link.callId);
-      } else {
-        void api
-          .joinCallByToken(link.token)
-          .then((call) => joinMeeting(call.id, call.media, call.title || undefined))
-          .catch(() => Alert.alert("Couldn't join the call", 'This invite link may have expired.'));
-      }
+      if (linkPrompt.current) return true;
+      linkPrompt.current = true;
+      void joinFromCallLink(link, {
+        confirm: confirmJoinFromLink,
+        redeemToken: (token) => api.joinCallByToken(token),
+        join: (id, media, title, opts) => void room.join(id, media, title, opts),
+        redeemFailed: () => Alert.alert("Couldn't join the call", 'This invite link may have expired.'),
+      }).finally(() => {
+        linkPrompt.current = false;
+      });
       return true;
     },
-    [api, config.webBaseUrl, joinMeeting],
+    [api, config.webBaseUrl, room],
   );
 
   // blisswork://call/<id> — warm and cold start.

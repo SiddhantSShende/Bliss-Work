@@ -44,7 +44,7 @@ let sessionDead = false;
  *  non-destructive. 'deactivated' means an admin suspended or removed this
  *  membership: the session must end at the next refresh rather than linger
  *  until the ~15-minute access token expires. */
-const TERMINAL_CODES = new Set(["reused", "expired", "deactivated"]);
+const TERMINAL_CODES = new Set(["unknown", "reused", "expired", "deactivated"]);
 
 /** True once refresh has failed terminally; cleared by a successful login. */
 export function isSessionDead(): boolean {
@@ -168,6 +168,7 @@ async function performRefresh(
           .then((b: { code?: string }) => b?.code)
           .catch(() => undefined);
         if (code && TERMINAL_CODES.has(code)) {
+          const hadActiveSession = useSession.getState().status === "authed";
           sessionDead = true;
           persist?.(null);
           useSession.getState().clear();
@@ -180,9 +181,11 @@ async function performRefresh(
           // Same wording as MfaChallenge.tsx's own "session expired" screen,
           // so the message is consistent regardless of which path found it —
           // reuses that screen's own catalog keys rather than duplicating them.
-          toast.error(i18n.t("auth:mfaChallenge.sessionExpired.title"), {
-            description: i18n.t("auth:mfaChallenge.sessionExpired.subtitle"),
-          });
+          if (hadActiveSession) {
+            toast.error(i18n.t("auth:mfaChallenge.sessionExpired.title"), {
+              description: i18n.t("auth:mfaChallenge.sessionExpired.subtitle"),
+            });
+          }
         }
       }
       return null;

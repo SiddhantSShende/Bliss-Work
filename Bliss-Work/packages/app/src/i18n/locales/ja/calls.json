@@ -1,0 +1,197 @@
+{
+  "notify": {
+    "incomingVideo": "ビデオ通話の着信",
+    "incomingVoice": "音声通話の着信",
+    "incomingBody": "{{caller}}から着信しています",
+    "missedTitle": "不在着信",
+    "missedBody": "{{caller}}からの着信に応答できませんでした",
+    "cameraUnavailable": "カメラを使用できません",
+    "cameraUnavailableDescription": "このアプリのカメラの権限を確認してください。",
+    "couldNotShareScreen": "画面を共有できませんでした",
+    "ringtoneMuted": "ブラウザーにより着信音がミュートされています",
+    "ringtoneMutedDescription": "通話の音を許可するには、画面のどこかをクリックしてください。",
+    "unknownCaller": "誰か"
+  },
+  "endedReasons": {
+    "noAnswer": "応答なし",
+    "mediaBlocked": "カメラ/マイクがブロックされています",
+    "declined": "通話が拒否されました",
+    "callEnded": "通話が終了しました",
+    "userUnavailable": "相手は応答できません",
+    "connectionFailed": "接続に失敗しました"
+  },
+  "window": {
+    "tabTitle": "{{title}} · {{brand}}",
+    "untitledMeeting": "ミーティング",
+    "loading": "ミーティングを読み込み中…",
+    "loadError": {
+      "title": "このミーティングを読み込めません。",
+      "hint": "接続を確認して、もう一度お試しください。",
+      "returnToMeetings": "ミーティングに戻る",
+      "retrying": "再試行中…",
+      "retry": "再試行"
+    },
+    "unavailable": {
+      "title": "このミーティングは利用できません",
+      "hint": "ミーティングが終了したか、参加者から外れた可能性があります。",
+      "close": "閉じる"
+    }
+  },
+  "join": {
+    "signIn": {
+      "title": "参加するにはログインしてください",
+      "hint": "このミーティングリンクは、別の組織のアカウントを含め、どの{{brand}}アカウントでも利用できます。"
+    },
+    "joining": "参加中…",
+    "invalid": {
+      "title": "この招待リンクは無効です",
+      "hint": "有効期限が切れたか、取り消されたか、ミーティングがすでに終了した可能性があります。主催者に新しいリンクを依頼してください。",
+      "backToApp": "{{brand}}に戻る"
+    },
+    "timeout": {
+      "title": "予想より時間がかかっています",
+      "hint": "ページを再読み込みすると解決することがよくあります。",
+      "reload": "再読み込み"
+    },
+    "handoff": {
+      "joining": "ミーティングに参加中…"
+    }
+  },
+  "chat": {
+    "disclaimer": "ここでのメッセージはミーティングの全メンバーに表示されます。個別に送るには、下で名前を選択してください。",
+    "empty": "メッセージはまだありません。ここで送信した内容はミーティングの間だけ保持されます。保存が必要な場合は、ヘッダーからダウンロードしてください。",
+    "toLabel": "宛先:",
+    "toAriaLabel": "このメッセージの宛先",
+    "everyone": "全員",
+    "privateOption": "{{name}}(個別)",
+    "attachmentsUnsupported": "ミーティングのチャットでは添付ファイルを使用できません",
+    "privatePlaceholder": "{{name}}への個別メッセージ…",
+    "everyonePlaceholder": "全員にメッセージ…",
+    "privateAriaLabel": "{{name}}への個別メッセージ",
+    "everyoneAriaLabel": "全員にメッセージ",
+    "send": "送信",
+    "onlyWillSee": "{{name}}にのみ表示されます",
+    "you": "自分",
+    "privateToName": "{{name}}への個別メッセージ",
+    "privateToYou": "自分への個別メッセージ"
+  },
+  "members": {
+    "pagesAriaLabel": "メンバーのページ",
+    "previous": "前のメンバー",
+    "pageAriaLabel": "メンバー {{page}}/{{pages}}ページ",
+    "more": "他のメンバー"
+  },
+  "menu": {
+    "call": "通話",
+    "voiceCall": "音声通話",
+    "videoCall": "ビデオ通話",
+    "sendCallLink": "通話リンクを送信",
+    "scheduleCall": "通話を予約"
+  },
+  "notes": {
+    "empty": "ポイントはまだありません。ここに書いた内容はミーティングの全員に共有されます。",
+    "placeholder": "重要なポイントを入力…",
+    "ariaLabel": "重要なポイントを入力",
+    "enterToAdd": "Enterで追加",
+    "addPoint": "ポイントを追加"
+  },
+  "sidebar": {
+    "controlsAriaLabel": "ミーティングの操作",
+    "mute": "ミュート",
+    "muted": "ミュート中",
+    "camera": "カメラ",
+    "share": "共有",
+    "raise": "挙手",
+    "people": "参加者",
+    "add": "追加",
+    "addPeople": "メンバーを追加",
+    "chats": "チャット",
+    "notes": "メモ",
+    "record": "録画",
+    "recordUnsupported": "このブラウザーではミーティングを録画できません",
+    "copyLink": "リンクをコピー",
+    "copyInviteLink": "招待リンクをコピー",
+    "pip": "PiP",
+    "exitPip": "PiP終了",
+    "pictureInPicture": "ピクチャーインピクチャー",
+    "exitPictureInPicture": "ピクチャーインピクチャーを終了",
+    "pictureInPictureNoVideo": "ピクチャーインピクチャーには誰かの映像が必要です。カメラや画面共有をオンにしている人がいません",
+    "minimize": "最小化",
+    "minimise": "最小化",
+    "end": "終了",
+    "endCall": "通話を終了"
+  },
+  "sidePanel": {
+    "tabNames": {
+      "chat": "チャット",
+      "notes": "メモ",
+      "participants": "参加者"
+    },
+    "regionAriaLabel": "ミーティングの{{tab}}",
+    "tablistAriaLabel": "チャット、メモ、参加者",
+    "chatTab": "チャット",
+    "notesTab": "メモ",
+    "peopleTab": "参加者",
+    "saveAsFile": "{{tab}}をファイルとして保存",
+    "closeTab": "{{tab}}を閉じる"
+  },
+  "filmstrip": {
+    "ariaLabel": "その他の参加者",
+    "moreMembers": "他{{count}}人のメンバー"
+  },
+  "roomLazy": {
+    "connecting": "接続中…",
+    "error": {
+      "title": "ミーティングルームを開く際に問題が発生しました。",
+      "hint": "ページを再読み込みすると解決することがよくあります。",
+      "reload": "再読み込み"
+    }
+  },
+  "incomingNotice": {
+    "untitledMeeting": "ミーティング",
+    "ariaLabel": "ミーティングの着信:{{title}}",
+    "hostedBy": "ホスト:{{organizer}}",
+    "video": "ビデオ",
+    "joinWithCamera": "カメラをオンにして参加",
+    "voice": "音声",
+    "joinVoiceOnly": "音声のみで参加",
+    "leave": "退出"
+  },
+  "scheduledNotice": {
+    "untitledMeeting": "ミーティング",
+    "ariaLabel": "ミーティングを予約しました:{{title}}",
+    "heading": "ミーティングを予約しました",
+    "hostedBy": "ホスト:{{organizer}}",
+    "join": "ミーティングに参加",
+    "dismiss": "閉じる"
+  },
+  "miniMeeting": {
+    "ariaLabel": "{{title}} — ミーティング進行中",
+    "reconnecting": "再接続中…",
+    "connecting": "接続中…",
+    "backToMeeting": "ミーティングに戻る",
+    "nobodySpeaking": "話している人はいません",
+    "mute": "ミュート",
+    "unmute": "ミュート解除",
+    "turnCameraOff": "カメラをオフにする",
+    "turnCameraOn": "カメラをオンにする",
+    "newChatMessages_other": "チャットの新着メッセージ{{count}}件",
+    "leaveMeeting": "ミーティングを退出"
+  },
+  "sendLinkDialog": {
+    "title": "通話リンクを送信",
+    "description": "リンクは{{peerName}}とのチャットに投稿されます。ここで追加した人にはダイレクトメッセージで送信され、ミーティングの通話に席が確保されます。",
+    "alsoSendTo": "追加の送信先",
+    "selectedCount": "— {{count}}人を選択中",
+    "optional": "— 任意",
+    "cancel": "キャンセル",
+    "sendLink": "リンクを送信"
+  },
+  "screenShare": {
+    "showControls": "画面共有の操作を表示",
+    "sharingYourScreen": "画面を共有中です",
+    "stopSharingTitle": "共有を停止",
+    "stop": "停止",
+    "slideOutOfTheWay": "端に寄せる"
+  }
+}

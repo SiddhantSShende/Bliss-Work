@@ -24,6 +24,7 @@ import { ForwardToDialog } from "../features/ForwardToDialog";
 import { RenameChannelDialog } from "../features/RenameChannelDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { useOptimisticSend } from "../lib/useOptimisticSend";
+import { useMarkReadWhileViewing } from "../lib/useMarkReadWhileViewing";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { CallMenu } from "../features/CallMenu";
 import { ConversationMenu } from "../features/ConversationMenu";
@@ -38,6 +39,7 @@ import { exportChatTranscript } from "../lib/chatExport";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { useMeetingSession } from "../lib/MeetingSession";
 import { useActiveThread, type ActiveThread } from "../lib/activeThread";
+import { useMarkTargetNotificationsRead } from "../lib/useMarkTargetNotificationsRead";
 import { isAttachmentActivityKind, showsAttachmentActivity } from "../lib/useAttachmentActivity";
 
 export function ChannelView() {
@@ -110,6 +112,9 @@ export function ChannelView() {
     return () => clearActiveThread(t);
   }, [channelId, setActiveThread, clearActiveThread]);
 
+  // Opening a channel reads its notifications — scoped to this channel on the server.
+  useMarkTargetNotificationsRead(api, "channelId", channelId);
+
   // Newest page only; older pages are prepended into the same flat array so
   // the websocket patches and optimistic sends below are unaffected.
   const { data: messages = [] } = useQuery({
@@ -141,9 +146,10 @@ export function ChannelView() {
    *
    * This is what puts anything in the receipts at all — a channel's "seen"
    * state is a cursor per member, and nothing else moves it. Same shape as
-   * DMView's api.read call, and keyed on the message COUNT for the same
-   * reason: a re-render that changed nothing about what is on screen should
-   * not re-post the same position.
+   * DMView's api.read call, and keyed on the newest message's seq (not the
+   * count) while the tab is visible and focused — see useMarkReadWhileViewing:
+   * a re-render, or an older page prepended, changes nothing about how far the
+   * reader has got and should not re-post the same position.
    *
    * Failures are swallowed deliberately. A read receipt that does not land is
    * worth nothing to the reader and an error toast about it would interrupt
@@ -156,15 +162,12 @@ export function ChannelView() {
    * count until something unrelated refetches it. Same fix, same reason, as
    * DMView's equivalent effect for qk.conversations.
    */
-  useEffect(() => {
-    const maxSeq = messages.reduce((m: number, x: ChannelMessageDTO) => Math.max(m, x.seq), 0);
-    if (maxSeq === 0) return;
+  useMarkReadWhileViewing(channelId, messages, (maxSeq) => {
     api
       .markChannelRead(channelId, maxSeq)
       .then(() => qc.invalidateQueries({ queryKey: qk.channels }))
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length, channelId]);
+  });
 
   /**
    * Who has read MY messages. Only mine, because "Seen by" renders on the

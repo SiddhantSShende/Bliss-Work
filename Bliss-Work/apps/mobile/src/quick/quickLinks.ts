@@ -12,6 +12,14 @@ export function quickModeFromUrl(url: string | null | undefined): QuickMode | nu
   return m ? (m[1]!.toLowerCase() as QuickMode) : null;
 }
 
+/** Ignore React Native's cached launch URL when the app merely resumes. */
+export function shouldProcessForegroundLaunchUrl(
+  url: string | null | undefined,
+  lastLaunchUrl: string | null,
+): url is string {
+  return !!url && url !== lastLaunchUrl;
+}
+
 /** iOS home-screen quick-action ids (Info.plist UIApplicationShortcutItemType) -> quick flow. */
 export function quickModeFromActionId(id: string): QuickMode | null {
   switch (id) {

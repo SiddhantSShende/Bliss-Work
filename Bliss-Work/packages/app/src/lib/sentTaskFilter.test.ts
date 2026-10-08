@@ -5,6 +5,9 @@ import {
   filterSentTasks,
   markedDays,
   personOptions,
+  channelMemberIds,
+  selectedMemberIds,
+  type ChannelMembers,
   type SentAssignee,
   type SentTaskFilter,
   type SentTaskMatch,
@@ -97,5 +100,95 @@ describe("markedDays", () => {
 describe("personOptions", () => {
   it("lists each assignee once, from real task data", () => {
     expect(personOptions(tasks).map((p) => p.id)).toEqual(["alice", "bob", "carol"]);
+  });
+});
+
+describe("channel selection", () => {
+  // alice is in both channels, bob in A only, carol in B only, dan in neither, E is empty.
+  const members: ChannelMembers = new Map([
+    ["A", ["alice", "bob"]],
+    ["B", ["alice", "carol"]],
+    ["E", []],
+  ]);
+  const withChannels = (...ch: string[]) => filter({ channelIds: new Set(ch) });
+  const who = (f: SentTaskFilter) => selectedMemberIds(f, members);
+
+  it("one channel selects all of its members", () => {
+    expect(who(withChannels("A"))).toEqual(new Set(["alice", "bob"]));
+    expect(ids(filterSentTasks(tasks, withChannels("A"), members))).toEqual(["t1", "t3"]);
+  });
+
+  it("several channels select the union of their members", () => {
+    expect(who(withChannels("A", "B"))).toEqual(new Set(["alice", "bob", "carol"]));
+    expect(ids(filterSentTasks(tasks, withChannels("A", "B"), members))).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("a member of two selected channels is counted once", () => {
+    expect([...who(withChannels("A", "B"))!].filter((m) => m === "alice")).toHaveLength(1);
+  });
+
+  it("deselecting one overlapping channel keeps the member the other still contributes", () => {
+    expect(who(withChannels("A", "B"))!.has("alice")).toBe(true);
+    const afterUntickA = who(withChannels("B"))!;
+    expect(afterUntickA.has("alice")).toBe(true);
+    expect(afterUntickA.has("bob")).toBe(false);
+  });
+
+  it("explicit people are independent of channels: unioned in, and left alone when channels clear", () => {
+    const both = filter({ personIds: new Set(["carol"]), channelIds: new Set(["A"]) });
+    expect(who(both)).toEqual(new Set(["carol", "alice", "bob"]));
+    // Deselecting the channel removes only what it contributed; carol was ticked by hand.
+    expect(who({ ...both, channelIds: new Set() })).toEqual(new Set(["carol"]));
+    expect(both.personIds).toEqual(new Set(["carol"]));
+  });
+
+  it("an explicit person who is also in a selected channel survives that channel being cleared", () => {
+    const both = filter({ personIds: new Set(["alice"]), channelIds: new Set(["A"]) });
+    expect(who({ ...both, channelIds: new Set() })).toEqual(new Set(["alice"]));
+  });
+
+  it("people alone behave exactly as before, and nothing selected means no restriction", () => {
+    expect(who(filter({ personIds: new Set(["bob"]) }))).toEqual(new Set(["bob"]));
+    expect(who(NO_SENT_FILTER)).toBeNull();
+    expect(ids(filterSentTasks(tasks, filter({ personIds: new Set(["bob", "carol"]) }), members))).toEqual(["t1", "t2"]);
+  });
+
+  it("a channel with no members selects nobody — nothing matches", () => {
+    expect(who(withChannels("E"))).toEqual(new Set());
+    expect(filterSentTasks(tasks, withChannels("E"), members)).toEqual([]);
+  });
+
+  it("a channel whose members are still loading is an active restriction: nothing matches yet, never everything", () => {
+    // "slow" is absent from the map — requested, no answer yet.
+    expect(who(withChannels("slow"))).toEqual(new Set());
+    expect(filterSentTasks(tasks, withChannels("slow"), members)).toEqual([]);
+    expect(markedDays(tasks, withChannels("slow"), members).size).toBe(0);
+    // The explicit people already apply while it loads, and its members join on arrival.
+    const f = filter({ personIds: new Set(["bob"]), channelIds: new Set(["slow"]) });
+    expect(ids(filterSentTasks(tasks, f, members))).toEqual(["t1"]);
+    const arrived: ChannelMembers = new Map([...members, ["slow", ["carol"]]]);
+    expect(ids(filterSentTasks(tasks, f, arrived))).toEqual(["t1", "t2"]);
+  });
+
+  it("a channel that failed to load (null) stays an active restriction — it never falls back to everything", () => {
+    const failed: ChannelMembers = new Map([...members, ["gone", null]]);
+    expect(selectedMemberIds(withChannels("gone"), failed)).toEqual(new Set());
+    expect(filterSentTasks(tasks, withChannels("gone"), failed)).toEqual([]);
+    expect(markedDays(tasks, withChannels("gone"), failed).size).toBe(0);
+    // Alongside others it simply contributes nobody: explicit people and loaded channels still apply.
+    expect(selectedMemberIds(filter({ personIds: new Set(["bob"]), channelIds: new Set(["gone"]) }), failed)).toEqual(new Set(["bob"]));
+    expect(selectedMemberIds(withChannels("A", "gone"), failed)).toEqual(new Set(["alice", "bob"]));
+  });
+
+  it("channelMemberIds is only what the ticked channels contribute, never the explicit people", () => {
+    const f = filter({ personIds: new Set(["dan"]), channelIds: new Set(["A", "B", "slow"]) });
+    expect(channelMemberIds(f, members)).toEqual(new Set(["alice", "bob", "carol"]));
+    expect(channelMemberIds(withChannels("A"), members)).toEqual(new Set(["alice", "bob"]));
+    expect(channelMemberIds(NO_SENT_FILTER, members)).toEqual(new Set());
+  });
+
+  it("marks the calendar for the channel's members only", () => {
+    expect(markedDays(tasks, withChannels("B"), members)).toEqual(new Set([dayStart(9, 10), dayStart(9, 11), dayStart(8, 2)]));
+    expect(markedDays(tasks, withChannels("E"), members).size).toBe(0);
   });
 });

@@ -1,0 +1,54 @@
+{
+  "menu": {
+    "file": "文件",
+    "showApp": "显示 BlissWork",
+    "quit": "退出",
+    "view": "视图",
+    "aboutItem": "关于 BlissWork",
+    "aboutTitle": "关于 BlissWork",
+    "aboutMessage": "BlissWork",
+    "aboutDetail": "版本 {{version}}\nElectron {{electron}} · Chromium {{chrome}}\n\n团队消息与任务协作，支持置顶便签。",
+    "ok": "确定",
+    "webHelp": "BlissWork 网页版"
+  },
+  "tray": {
+    "tooltipIdle": "BlissWork",
+    "tooltipTasks_other": "BlissWork — {{count}} 个进行中的任务",
+    "activeTasks": "进行中的任务：{{count}}",
+    "show": "显示 BlissWork",
+    "quit": "退出"
+  },
+  "notifications": {
+    "brand": "BlissWork",
+    "newMessage": "新消息",
+    "taskUpdate": "任务更新",
+    "meeting": "会议",
+    "channelUpdate": "频道更新",
+    "attachment": "发送了一个附件",
+    "incomingVideoCall": "📹 视频来电",
+    "incomingVoiceCall": "📞 语音来电",
+    "accept": "接听",
+    "decline": "拒绝"
+  },
+  "updater": {
+    "restartNow": "立即重启",
+    "later": "稍后",
+    "updateReady": "更新已就绪",
+    "readyMessage": "BlissWork {{version}} 已可安装。",
+    "readyDetail": "重启应用即可完成更新。下次退出时也会自动安装。",
+    "devUnsupported": "仅已安装的版本支持更新。",
+    "storeManaged": "此应用的更新由 Microsoft Store 管理。",
+    "unreachable": "无法连接更新服务器。"
+  },
+  "attachment": {
+    "notMainWindow": "已拒绝：非主窗口。",
+    "unsafeUrl": "已拒绝不安全的网址。",
+    "downloadFailed": "下载失败（{{status}}）。",
+    "emptyBody": "响应内容为空。",
+    "couldNotOpen": "无法打开该文件。"
+  },
+  "windows": {
+    "meetingTitle": "会议 · BlissWork",
+    "loading": "加载中…"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "replyingTo": "{{who}} को उत्तर दे रहे हैं",
+  "thisMessage": "यह संदेश",
+  "cancelReply": "उत्तर रद्द करें",
+  "removeAttachment": "{{name}} हटाएँ",
+  "preparingFiles_one": "{{count}} फ़ाइल तैयार की जा रही है…",
+  "preparingFiles_other": "{{count}} फ़ाइलें तैयार की जा रही हैं…",
+  "attachTitle": "फ़ोटो, वीडियो या फ़ाइलें जोड़ें",
+  "attachAriaLabel": "फ़ाइल जोड़ें",
+  "shareLocation": "अपनी लोकेशन साझा करें",
+  "send": "भेजें",
+  "placeholder": {
+    "default": "संदेश लिखें…",
+    "dropFiles": "जोड़ने के लिए फ़ाइलें यहाँ छोड़ें…",
+    "addMessageOrSend": "संदेश जोड़ें, या भेजें दबाएँ…"
+  }
+}

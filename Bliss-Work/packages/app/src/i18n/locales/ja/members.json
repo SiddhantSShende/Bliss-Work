@@ -1,0 +1,348 @@
+{
+  "list": {
+    "title": "メンバー",
+    "workspaceActivity": "ワークスペースのアクティビティ",
+    "searchPlaceholder": "チームメンバーを検索…",
+    "selfRow": {
+      "name": "{{name}}(自分)",
+      "subtitle": "自分のアクティビティとセッション"
+    },
+    "empty": {
+      "title": "チームメンバーが見つかりません"
+    },
+    "status": {
+      "online": "オンライン",
+      "idle": "アイドル",
+      "lastSeen": "最終確認:{{time}}"
+    },
+    "messageButton": "{{name}}にメッセージ"
+  },
+  "detail": {
+    "notFound": {
+      "title": "メンバーが見つかりません",
+      "hint": "左側から別のチームメンバーを選択してください。"
+    },
+    "backButton": "メンバーに戻る",
+    "tabs": {
+      "overview": "概要",
+      "activity": "アクティビティ",
+      "analytics": "分析",
+      "sessions": "セッション",
+      "admin": "管理",
+      "security": "セキュリティ"
+    },
+    "roleLabel": {
+      "admin": "管理者",
+      "member": "メンバー"
+    },
+    "fields": {
+      "email": "メールアドレス",
+      "username": "ユーザー名",
+      "role": "役割",
+      "status": "ステータス",
+      "lastSeen": "最終確認",
+      "emailVerified": "メール認証",
+      "joined": "参加日",
+      "removed": "削除日"
+    },
+    "emailVerified": {
+      "yes": "認証済み",
+      "no": "未認証"
+    },
+    "lastSeen": {
+      "now": "現在",
+      "noRecentActivity": "最近のアクティビティなし"
+    },
+    "exportButton": "エクスポート",
+    "exportTooltip": "このメンバーのアクティビティをエクスポート",
+    "messageButton": "メッセージ",
+    "selfActivityBanner": "これはあなた自身のアクティビティの記録です。ワークスペースの管理者にも表示されます。"
+  },
+  "status": {
+    "active": "有効",
+    "suspended": "停止中",
+    "removed": "削除済み"
+  },
+  "admin": {
+    "toasts": {
+      "actionFailed": "操作に失敗しました",
+      "nowAdmin": "{{name}}が管理者になりました",
+      "nowMember": "{{name}}がメンバーになりました",
+      "reactivated": "{{name}}は再びログインできます",
+      "suspended": "{{name}}を停止しました",
+      "removed": "{{name}}をワークスペースから削除しました"
+    },
+    "selfGuard": "自分自身の役割やメンバーシップは変更できません。他の管理者に依頼してください。このルールにより、最後の管理者が自分を含む全員をワークスペースから締め出してしまうことを防ぎます。",
+    "sections": {
+      "role": {
+        "title": "役割",
+        "hint": "管理者は、メンバーの招待や管理、監査ログの確認ができます。役割を変更すると、新しい権限がすぐに反映されるよう、そのメンバーはすべてのデバイスからログアウトされます。"
+      },
+      "access": {
+        "title": "アクセス",
+        "hint": "停止してもデータはすべて保持され、いつでも元に戻せます。削除するとメンバーシップが取り消されますが、メッセージ、タスク、履歴はそのまま残り、後で再招待することもできます。"
+      },
+      "activeSessions": {
+        "title": "アクティブなセッション",
+        "hint": "セッションをログアウトするとすぐに終了し、そのデバイスは再度ログインが必要になります。"
+      }
+    },
+    "actions": {
+      "demote": "メンバーに変更",
+      "makeAdmin": "管理者にする",
+      "suspend": "停止",
+      "remove": "削除",
+      "reactivate": "再開"
+    },
+    "reactivateFirst": "役割を変更する前に、このメンバーを再開してください。",
+    "confirmDialog": {
+      "removeTitle": "ワークスペースから削除しますか?",
+      "suspendTitle": "メンバーを停止しますか?",
+      "removeMessage": "<bold>{{name}}</bold>はこのワークスペースにすぐにアクセスできなくなり、ディレクトリからも表示されなくなります。書き込んだ内容は残ります。いつでも再招待できます。",
+      "suspendMessage": "<bold>{{name}}</bold>はすべてのデバイスからログアウトされ、再開するまで再ログインできません。削除されるものはありません。"
+    },
+    "sessions": {
+      "loadError": {
+        "title": "セッションを読み込めませんでした",
+        "hint": "接続を確認して、もう一度お試しください。"
+      },
+      "none": "アクティブなセッションはありません。",
+      "signedOutToast": "{{device}}をログアウトしました",
+      "revokeFailedToast": {
+        "title": "このセッションをログアウトできませんでした",
+        "description": "もう一度お試しください。"
+      },
+      "confirmDialog": {
+        "title": "このセッションをログアウトしますか?",
+        "message": "<bold>{{device}}</bold>は直ちにログアウトされ、再度ログインが必要になります。",
+        "confirmLabel": "ログアウト"
+      }
+    }
+  },
+  "analytics": {
+    "empty": {
+      "title": "この期間のアクティビティはありません",
+      "hint": "グラフにするアクティビティが1日分たまると表示されます。"
+    },
+    "summary": {
+      "activeTime": "アクティブ時間",
+      "acrossDays_other": "{{count}}日間",
+      "sessions": "セッション",
+      "sessionsHint": "記録されたログイン",
+      "events": "イベント",
+      "eventsHint": "記録されたイベント",
+      "lastActive": "最終アクティブ",
+      "lastActiveHint": "記録された最新のアクティビティ",
+      "lastActiveNone": "アクティビティの記録なし",
+      "vsPrevious": "前の期間との比較"
+    },
+    "overview": {
+      "title": "アクティビティの概要",
+      "hint": "選択した期間の合計時間とアクティビティの内訳",
+      "activeOfSignedIn": "ログイン時間のうちアクティブだった割合",
+      "active": "アクティブ",
+      "idle": "アイドル",
+      "idleHint": "ログイン中、入力なし"
+    },
+    "topApps": {
+      "title": "よく使うアプリ",
+      "hint": "この期間に最も使われたアプリ",
+      "empty": "この期間のアプリのデータはありません。"
+    },
+    "recent": {
+      "title": "最近のアクティビティ",
+      "hint": "アプリとシステムの最新のアクティビティ",
+      "empty": "最近のアクティビティの記録はありません。",
+      "viewAll": "すべてのアクティビティを表示"
+    },
+    "work": {
+      "title": "作業時間帯",
+      "hint": "アクティビティのヒートマップ — 色が濃いほどアクティビティが多いことを示します",
+      "less": "少ない",
+      "more": "多い",
+      "outsideHours": "この時間帯以外の方が{{time}}多くアクティブ"
+    },
+    "trend": {
+      "title": "アクティビティの推移",
+      "hint": "曜日ごとのアクティブ時間とアイドル時間の平均",
+      "active": "アクティブ",
+      "idle": "アイドル"
+    }
+  },
+  "auditLog": {
+    "labels": {
+      "org": {
+        "created": "ワークスペースを作成しました"
+      },
+      "user": {
+        "profile_updated": "プロフィールを更新しました"
+      },
+      "invite": {
+        "created": "メンバーを招待しました",
+        "accepted": "招待を承諾しました",
+        "revoked": "招待を取り消しました"
+      },
+      "password": {
+        "reset_requested": "パスワードの再設定をリクエストしました",
+        "reset_completed": "パスワードの再設定を完了しました"
+      },
+      "email": {
+        "verified": "メールアドレスを認証しました"
+      },
+      "member": {
+        "role_changed": "役割を変更しました",
+        "deactivated": "メンバーを停止しました",
+        "reactivated": "メンバーを再開しました",
+        "removed": "メンバーを削除しました"
+      }
+    },
+    "error": {
+      "title": "監査ログを読み込めませんでした",
+      "hint": "接続を確認して、もう一度お試しください。"
+    },
+    "empty": {
+      "title": "記録はまだありません",
+      "hintScoped": "このメンバーに対する管理者の操作がここに表示されます。",
+      "hintAll": "ワークスペース全体の管理者の操作がここに表示されます。"
+    },
+    "systemActor": "システム"
+  },
+  "sessions": {
+    "empty": {
+      "title": "記録されたセッションはありません",
+      "hint": "デバイスからログインすると、セッションがここに表示されます。"
+    },
+    "activeNow": "現在アクティブ",
+    "endReason": {
+      "disconnect": "アプリを閉じました",
+      "timeout": "応答がなくなりました"
+    },
+    "durations": {
+      "total": "合計{{duration}}",
+      "active": "アクティブ{{duration}}",
+      "idle": "アイドル{{duration}}"
+    },
+    "approximateNetworkTooltip": "おおよそのネットワーク",
+    "retentionNote": "過去7日間を表示しています。それより前のセッションは保管されていますが、ここでは閲覧できません。"
+  },
+  "timeline": {
+    "filters": {
+      "all": "すべて",
+      "engagement": "作業",
+      "navigation": "アプリ内",
+      "outside": "アプリ外のアクティビティ",
+      "auth": "ログイン",
+      "security": "セキュリティ"
+    },
+    "empty": {
+      "title": "アクティビティの記録はまだありません",
+      "hint": "{{brand}}を使うと、アクティビティがここに表示されます。"
+    },
+    "error": {
+      "title": "アクティビティを読み込めませんでした",
+      "hint": "接続を確認して、もう一度お試しください。"
+    },
+    "verifiedTooltip": "自己申告ではなく、{{brand}}自体が記録したものです",
+    "retentionNote": "過去7日間を表示しています。それより前のアクティビティは保管されていますが、ここでは閲覧できません。"
+  },
+  "loadOlder": {
+    "button": "以前を読み込む"
+  },
+  "activityLabels": {
+    "actions": {
+      "login": "ログインしました",
+      "logout": "ログアウトしました",
+      "org": {
+        "switched": "ワークスペースを切り替えました"
+      },
+      "message": {
+        "sent": "メッセージを送信しました"
+      },
+      "mail": {
+        "attachment": {
+          "downloaded": "メールの添付ファイルをダウンロードしました"
+        }
+      },
+      "attachment": {
+        "opened": "ファイルを開きました",
+        "downloaded": "ファイルをダウンロードしました"
+      },
+      "channel": {
+        "message": {
+          "sent": "チャンネルに投稿しました"
+        }
+      },
+      "conversation": {
+        "ignored": "会話を無視しました"
+      },
+      "user": {
+        "blocked": "ユーザーをブロックしました",
+        "unblocked": "ユーザーのブロックを解除しました"
+      },
+      "task": {
+        "allocated": "タスクを割り当てました",
+        "acknowledged": "タスクを確認しました",
+        "completed": "タスクを完了しました",
+        "ignored": "タスクを無視しました",
+        "left": "タスクを辞退しました",
+        "reviewed": "タスクをレビューしました"
+      },
+      "route": {
+        "enter": "開きました",
+        "dwell": "滞在しました"
+      },
+      "focus": "{{brand}}に戻りました",
+      "blur": "{{brand}}から離れました",
+      "idle": {
+        "start": "アイドルになりました",
+        "end": "アクティブになりました"
+      },
+      "screenshot": {
+        "attempted": "スクリーンショットの操作をブロックしました"
+      },
+      "app": {
+        "focus": "使用しました"
+      },
+      "os": {
+        "idle": "席を外しています"
+      }
+    },
+    "surfaces": {
+      "mail": "メール",
+      "inbox": "受信トレイ",
+      "chats": "チャット",
+      "channels": "チャンネル",
+      "tasks": "タスク",
+      "members": "メンバー",
+      "integrations": "連携",
+      "search": "検索",
+      "settings": "設定",
+      "profile": "プロフィール",
+      "org": "組織"
+    },
+    "theApp": "アプリ",
+    "source": {
+      "verified": "検証済み",
+      "desktop": "デスクトップアプリ",
+      "extension": "ブラウザー拡張機能",
+      "web": "Webアプリ"
+    }
+  },
+  "myActivity": {
+    "settingsBack": "設定",
+    "title": "アクティビティ",
+    "subtitle": "{{brand}}が記録しているあなたの作業状況のすべてです。",
+    "whatsRecorded": "記録される内容と、閲覧できる人",
+    "bullets": {
+      "signInOut": "ログインとログアウトの時刻、およびオンライン、アイドル、オフラインの状態。",
+      "appUsage": "{{brand}}のどの機能を、どれだけ使ったか。",
+      "messagesAndTasks": "送信したメッセージと操作したタスク。メッセージは最初の1行のみで、会話全体は記録されません。",
+      "deviceAndLocation": "ログインに使用したブラウザーとデバイス、およびIPアドレスから推定したおおよその位置。"
+    },
+    "retentionNote": "この記録はワークスペースの管理者が閲覧できます。ここには過去7日間を表示しています。詳細なアクティビティは90日間、日別の合計はそれより長く保管され、どちらもレポートに使用され、リクエストに応じて提供されますが、アプリ内では閲覧できません。"
+  },
+  "membersEmpty": {
+    "title": "メンバー",
+    "hint": "左側でチームメンバーを選択するとプロフィールが表示されます。チャットアイコンをタップするとメッセージを送れます。"
+  }
+}

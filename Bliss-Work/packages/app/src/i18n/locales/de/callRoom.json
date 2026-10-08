@@ -1,0 +1,163 @@
+{
+  "errors": {
+    "accessRevoked": "Sie haben keinen Zugriff mehr auf diesen Anruf",
+    "notConfigured": "Gruppenanrufe sind auf diesem Server nicht aktiviert",
+    "couldNotJoin": "Dem Anruf konnte nicht beigetreten werden",
+    "couldNotStart": "Der Anruf konnte nicht gestartet werden",
+    "couldNotShareScreen": "Ihr Bildschirm konnte nicht geteilt werden"
+  },
+  "notify": {
+    "screenShareStopped": "Bildschirmfreigabe beendet",
+    "screenShareStoppedDescription": "Durch die erneute Verbindung zum Anruf wurde Ihre Freigabe beendet – starten Sie sie erneut, wenn Sie noch präsentieren.",
+    "meetingEnded": "Dieses Meeting wurde beendet",
+    "micBlocked": "Mikrofon blockiert",
+    "micBlockedHint": "Prüfen Sie die Mikrofonberechtigung dieser App.",
+    "micUnavailable": "Mikrofon nicht verfügbar",
+    "micUnavailableHint": "Prüfen Sie, ob ein Mikrofon angeschlossen ist und nicht bereits verwendet wird.",
+    "cameraBlocked": "Kamera blockiert",
+    "cameraBlockedHint": "Prüfen Sie die Kameraberechtigung dieser App.",
+    "cameraUnavailable": "Kamera nicht verfügbar",
+    "cameraUnavailableHint": "Prüfen Sie, ob eine Kamera angeschlossen ist und nicht bereits verwendet wird."
+  },
+  "preJoin": {
+    "readyToJoinLabel": "Bereit zum Beitreten",
+    "leave": "Verlassen",
+    "cameraOffPlaceholder": "Ihre Kamera ist aus",
+    "error": {
+      "deniedTitle": "Kamera und Mikrofon sind blockiert",
+      "otherTitle": "Kein Zugriff auf Kamera oder Mikrofon",
+      "deniedHint": "Prüfen Sie die Kamera- und Mikrofonberechtigung dieser App und versuchen Sie es erneut.",
+      "otherHint": "Stellen Sie sicher, dass Kamera und Mikrofon angeschlossen sind und nicht bereits verwendet werden, und versuchen Sie es erneut.",
+      "tryAgain": "Erneut versuchen",
+      "openCameraSettings": "Kameraeinstellungen öffnen",
+      "openMicrophoneSettings": "Mikrofoneinstellungen öffnen"
+    },
+    "muteMic": "Mikrofon stummschalten",
+    "unmuteMic": "Mikrofon einschalten",
+    "cameraOff": "Kamera ausschalten",
+    "cameraOn": "Kamera einschalten",
+    "heading": "Bereit zum Beitreten?",
+    "description": "Prüfen Sie Kamera und Mikrofon, bevor Sie das Meeting betreten.",
+    "joinButton": "Meeting beitreten"
+  },
+  "waitingRoom": {
+    "canStartHint": "Sie sind als Erste oder Erster hier. Starten Sie das Meeting, damit alle anderen hereinkommen.",
+    "waitingHint": "Das Meeting wurde noch nicht geöffnet. Sie treten automatisch bei, sobald es startet.",
+    "leave": "Verlassen",
+    "starting": "Wird gestartet…",
+    "startNow": "Jetzt starten"
+  },
+  "joinFailed": {
+    "anotherDeviceTitle": "Sie sind bereits auf einem anderen Gerät in diesem Meeting",
+    "anotherDeviceHint": "Sie sind derzeit von einem anderen Gerät aus mit diesem Meeting verbunden.",
+    "switchHere": "Hierher wechseln",
+    "displacedTitle": "Sie sind diesem Meeting auf einem anderen Gerät beigetreten",
+    "displacedHint": "Dieses Meeting ist jetzt auf einem anderen Gerät aktiv.",
+    "tokenTitle": "Meeting-Zugangsdaten konnten nicht abgerufen werden",
+    "disconnectedTitle": "Verbindung zum Meeting getrennt",
+    "genericTitle": "Verbindung zum Meeting nicht möglich",
+    "tokenHint": "Die Token-Anfrage ist fehlgeschlagen. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "disconnectedHint": "Die Verbindung zum Meeting ging verloren und konnte nicht wiederhergestellt werden. Prüfen Sie Ihre Verbindung und treten Sie erneut bei.",
+    "genericHint": "Die Verbindung zum Meeting-Server ist fehlgeschlagen. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "leave": "Verlassen",
+    "retrying": "Neuer Versuch…",
+    "retry": "Erneut versuchen"
+  },
+  "room": {
+    "defaultTitleChannel": "Kanalanruf",
+    "defaultTitleMeeting": "Meeting",
+    "youFallbackName": "Sie",
+    "addPeopleDefaultTitle": "Personen hinzufügen",
+    "channelAlreadyInvited": "Alle im Kanal sind bereits eingeladen",
+    "header": {
+      "participantsPresent_one": "{{count}} teilnehmende Person anwesend",
+      "participantsPresent_other": "{{count}} Teilnehmende anwesend",
+      "external": "{{count}} extern",
+      "recording": "Aufnahme läuft",
+      "reconnecting": "Verbindung wird wiederhergestellt…",
+      "connecting": "Verbindung wird aufgebaut…"
+    },
+    "stage": {
+      "speaking": "Spricht",
+      "presenting": "Präsentiert",
+      "connectingPlaceholder": "Verbindung wird aufgebaut…"
+    },
+    "toasts": {
+      "recordingSaved": "Aufnahme in Ihren Downloads gespeichert",
+      "recordingUnsupported": "Dieser Browser kann keine Meetings aufnehmen",
+      "recordingStarted": "Aufnahme gestartet – sie wird auf diesem Gerät gespeichert",
+      "inviteLinkCopied": "Einladungslink kopiert"
+    }
+  },
+  "controls": {
+    "addPeopleDefault": "Personen hinzufügen",
+    "stopSharing": "Bildschirmfreigabe beenden",
+    "startSharing": "Bildschirm teilen",
+    "callDurationAriaLabel": "Anrufdauer",
+    "mute": "Stummschalten",
+    "unmute": "Stummschaltung aufheben",
+    "cameraOff": "Kamera ausschalten",
+    "cameraOn": "Kamera einschalten",
+    "endCall": "Anruf beenden"
+  },
+  "roster": {
+    "ariaLabel": "Teilnehmende",
+    "title": "Teilnehmende",
+    "searchPlaceholder": "Mitglieder suchen…",
+    "searchAriaLabel": "Mitglieder suchen",
+    "inMeetingCount": "Im Meeting · {{count}}",
+    "youSuffix": " (Sie)",
+    "sharing": "Teilt",
+    "handUp": "Hand gehoben",
+    "pin": "{{name}} anheften",
+    "unpin": "{{name}} loslösen",
+    "showMore": "+{{count}} weitere Mitglieder",
+    "showLess": "Weniger anzeigen",
+    "noMatches": "Kein Mitglied passt zu „{{query}}“.",
+    "inviteMembers": "Mitglieder einladen"
+  },
+  "tile": {
+    "presentingScreen": "Sie präsentieren Ihren Bildschirm",
+    "pin": "{{name}} anheften",
+    "unpin": "{{name}} loslösen",
+    "handRaisedTitle": "{{name}} hat die Hand gehoben",
+    "youSuffix": " (Sie)",
+    "unpinStageTitle": "{{name}} von der Hauptansicht loslösen",
+    "unpinStageAriaLabel": "Hauptansicht loslösen",
+    "unpinStageButton": "Loslösen"
+  },
+  "callUi": {
+    "couldNotOpenRoom": "Der Anrufraum konnte nicht geöffnet werden",
+    "movingToRoom": "Alle werden in den Raum geholt…",
+    "decline": "Ablehnen",
+    "accept": "Annehmen",
+    "incomingVideo": "Eingehender Videoanruf…",
+    "incomingVoice": "Eingehender Sprachanruf…",
+    "peerFallbackName": "Person",
+    "subtitle": {
+      "sharing": "{{peer}} teilt den Bildschirm",
+      "connected": "Verbunden",
+      "callEnded": "Anruf beendet",
+      "calling": "Anruf läuft…"
+    },
+    "audioBlocked": {
+      "title": "Tippen, um den Anruf zu hören",
+      "description": "Ihr Browser hat die Audiowiedergabe blockiert, bis Sie etwas antippen."
+    }
+  },
+  "addPeopleDialog": {
+    "shareTitle": "Meeting-Link teilen",
+    "shareDescription": "Laden Sie Teammitglieder mit einem sicheren Link zu diesem Meeting ein.",
+    "cancel": "Abbrechen",
+    "sendLink": "Link senden",
+    "sendTitle": "Meeting-Link senden",
+    "linkSentWithExceptions": "Link mit einigen Ausnahmen gesendet",
+    "linkSentWithExceptionsDescription": "{{sent}} gesendet, {{failed}} nicht erreichbar.",
+    "linkSent": "Link gesendet",
+    "linkSentToMembers": "Link an {{count}} Mitglieder gesendet",
+    "addedToCall": "Zum Anruf hinzugefügt",
+    "addedPeople": "{{count}} Personen hinzugefügt",
+    "couldNotAdd": "Niemand konnte zu diesem Anruf hinzugefügt werden",
+    "groupCallingUnavailable": "Gruppenanrufe sind auf diesem Server möglicherweise nicht verfügbar."
+  }
+}

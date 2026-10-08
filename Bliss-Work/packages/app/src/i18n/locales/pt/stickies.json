@@ -1,0 +1,70 @@
+{
+  "card": {
+    "from": "de {{name}}",
+    "assigned": "Atribuída",
+    "deadline": "Prazo",
+    "missedOn": "Vencida",
+    "collapseToPill": "Recolher em formato compacto",
+    "unpinNoteTitle": "Desafixar (a tarefa permanece)",
+    "unpin": "Desafixar",
+    "dismissIgnore": "Dispensar (ignorar)",
+    "acknowledge": "Confirmar",
+    "ignore": "Ignorar",
+    "complete": "Concluir",
+    "leave": "Abandonar",
+    "untitledTask": "Tarefa sem título",
+    "expand": "Expandir",
+    "expandLabel": "Expandir nota adesiva",
+    "dismiss": "Dispensar",
+    "dismissLabel": "Dispensar nota adesiva",
+    "collapse": "Recolher",
+    "collapseLabel": "Recolher nota adesiva",
+    "ignoreTitle": "Ignorar — a pessoa remetente será notificada",
+    "acknowledgeTitle": "Confirmar — manter esta nota na tela até você concluir a tarefa",
+    "unpinFromDesktopTitle": "Desafixar da área de trabalho — a tarefa permanece na sua lista de tarefas",
+    "navPrevious": "Tarefa fixada anterior",
+    "navNext": "Próxima tarefa fixada"
+  },
+  "overlay": {
+    "ariaLabel": "Notas adesivas flutuantes"
+  },
+  "toasts": {
+    "acknowledgeFailed": "Não foi possível confirmar",
+    "ignoreFailed": "Não foi possível ignorar",
+    "taskIgnored": "Tarefa ignorada — a pessoa remetente foi notificada.",
+    "noteUnpinned": "Nota desafixada",
+    "noteUnpinnedDescription": "Ela continua na sua lista de tarefas — conclua-a por lá.",
+    "unpinFailed": "Não foi possível desafixar a nota",
+    "desktopFull": "Não foi possível fixar esta tarefa na área de trabalho."
+  },
+  "window": {
+    "loading": "Carregando…",
+    "expand": "Expandir",
+    "previousTask": "Tarefa fixada anterior",
+    "nextTask": "Próxima tarefa fixada",
+    "chat": {
+      "loadingThread": "Carregando conversa…",
+      "pinnedChat": "Chat fixado",
+      "unpin": "Desafixar",
+      "unpinTitle": "Desafixar da área de trabalho",
+      "noMessages": "Ainda não há mensagens recentes.",
+      "replyPlaceholder": "Responder…",
+      "send": "Enviar"
+    },
+    "invite": {
+      "meetingFallback": "Reunião",
+      "hostedBy": "Organizada por {{name}}",
+      "video": "Vídeo",
+      "videoTitle": "Entrar com a câmera ligada",
+      "voice": "Voz",
+      "voiceTitle": "Entrar somente com voz",
+      "leave": "Sair",
+      "dismiss": "Dispensar"
+    },
+    "titles": {
+      "task": "Tarefa",
+      "chat": "Chat",
+      "invite": "Convite para reunião"
+    }
+  }
+}

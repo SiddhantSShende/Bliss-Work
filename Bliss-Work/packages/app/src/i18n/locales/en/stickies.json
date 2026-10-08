@@ -36,5 +36,35 @@
     "noteUnpinnedDescription": "It's still in your Tasks list — complete it from there.",
     "unpinFailed": "Couldn't unpin the note",
     "desktopFull": "Couldn't pin this task to the desktop."
+  },
+  "window": {
+    "loading": "Loading…",
+    "expand": "Expand",
+    "previousTask": "Previous pinned task",
+    "nextTask": "Next pinned task",
+    "chat": {
+      "loadingThread": "Loading thread…",
+      "pinnedChat": "Pinned chat",
+      "unpin": "Unpin",
+      "unpinTitle": "Unpin from desktop",
+      "noMessages": "No recent messages yet.",
+      "replyPlaceholder": "Reply…",
+      "send": "Send"
+    },
+    "invite": {
+      "meetingFallback": "Meeting",
+      "hostedBy": "Hosted by {{name}}",
+      "video": "Video",
+      "videoTitle": "Join with camera on",
+      "voice": "Voice",
+      "voiceTitle": "Join with voice only",
+      "leave": "Leave",
+      "dismiss": "Dismiss"
+    },
+    "titles": {
+      "task": "Task",
+      "chat": "Chat",
+      "invite": "Meeting invite"
+    }
   }
 }

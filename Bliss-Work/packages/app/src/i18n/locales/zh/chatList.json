@@ -1,0 +1,296 @@
+{
+  "preview": {
+    "linkReceived": "收到链接",
+    "linkSent": "已发送链接",
+    "locationShared": "已共享位置",
+    "fileSent": "已发送文件",
+    "imageSent": "已发送图片",
+    "videoSent": "已发送视频",
+    "imagesSent_other": "已发送 {{count}} 张图片",
+    "filesSent_other": "已发送 {{count}} 个文件"
+  },
+  "common": {
+    "cancel": "取消",
+    "join": "加入",
+    "pinnedLabel": "已置顶",
+    "mutedLabel": "已静音",
+    "muteNotifications": "静音通知",
+    "unmuteNotifications": "取消静音通知",
+    "memberCount_other": "{{count}} 位成员"
+  },
+  "chatsList": {
+    "title": "聊天",
+    "newChat": "新建聊天",
+    "searchAriaLabel": "搜索聊天",
+    "searchPlaceholder": "搜索聊天...",
+    "filtersAriaLabel": "聊天筛选",
+    "filters": {
+      "all": "全部",
+      "unread": "未读",
+      "mentions": "提及"
+    },
+    "you": "你",
+    "startChatting": "开始聊天",
+    "empty": {
+      "title": "暂无聊天",
+      "hint": "点击 + 开始对话。"
+    },
+    "emptySearch": {
+      "title": "没有匹配的聊天",
+      "hint": "试试其他搜索词或筛选条件。"
+    },
+    "menu": {
+      "optionsLabel": "聊天选项",
+      "pin": "置顶聊天",
+      "unpin": "取消置顶聊天",
+      "delete": "删除聊天"
+    },
+    "deleteDialog": {
+      "title": "删除聊天记录？",
+      "message": "这将为你删除此聊天记录，对方仍会保留自己的副本。",
+      "confirmLabel": "删除聊天"
+    },
+    "deleteErrorToast": "无法删除此聊天"
+  },
+  "channelsList": {
+    "title": "频道",
+    "addChannel": "添加频道",
+    "searchAriaLabel": "搜索频道",
+    "searchPlaceholder": "搜索频道...",
+    "filtersAriaLabel": "频道筛选",
+    "filters": {
+      "all": "全部",
+      "unread": "未读"
+    },
+    "tabs": {
+      "mine": "我的频道",
+      "browse": "浏览"
+    },
+    "empty": {
+      "title": "暂无频道",
+      "hint": "点击 + 创建频道，或前往“浏览”查找公开频道。"
+    },
+    "emptySearch": {
+      "title": "没有匹配的频道",
+      "hint": "试试其他搜索词或筛选条件。"
+    },
+    "loadError": {
+      "title": "无法加载公开频道",
+      "hint": "获取频道目录时出错。",
+      "retry": "重试"
+    },
+    "emptyOpen": {
+      "title": "没有可加入的公开频道",
+      "hint": "团队成员创建的公开频道会显示在这里。"
+    },
+    "loadMore": "加载更多",
+    "leaveSuccessToast": "已退出频道。",
+    "leaveErrorToast": "无法退出",
+    "menu": {
+      "optionsLabel": "频道选项",
+      "pin": "置顶频道",
+      "unpin": "取消置顶频道",
+      "leave": "退出频道",
+      "leaving": "正在退出…"
+    }
+  },
+  "leaveChannel": {
+    "titleNamed": "退出 #{{channel}}？",
+    "titleGeneric": "退出频道？",
+    "messageLocked": "这是一个私密频道，需要由成员重新邀请你才能再次加入。",
+    "messageOpen": "你可以随时在“浏览”中重新加入。",
+    "confirmLabel": "退出频道"
+  },
+  "newChat": {
+    "title": "新建聊天",
+    "searchPlaceholder": "搜索成员…",
+    "emptyTitle": "未找到成员",
+    "errorToast": {
+      "title": "无法开始对话",
+      "description": "请重试。"
+    }
+  },
+  "addChannel": {
+    "title": "添加频道",
+    "tabs": {
+      "create": "创建新频道",
+      "browse": "添加频道"
+    },
+    "searchPlaceholder": "搜索频道…",
+    "loading": "正在加载频道…",
+    "empty": {
+      "title": "暂无频道",
+      "hint": "请在另一个标签页中创建。"
+    },
+    "emptySearch": {
+      "title": "没有匹配的频道",
+      "hint": "试试其他搜索词。"
+    },
+    "loadError": "无法加载完整的频道目录。",
+    "retry": "重试",
+    "row": {
+      "private": "私密",
+      "public": "公开",
+      "joined": "已加入"
+    }
+  },
+  "createChannel": {
+    "channelNameLabel": "频道名称",
+    "channelNamePlaceholder": "design-team",
+    "visibilityLabel": "可见范围",
+    "openOption": {
+      "label": "公开",
+      "hint": "组织内任何人都可加入"
+    },
+    "lockedOption": {
+      "label": "私密",
+      "hint": "仅限受邀者"
+    },
+    "membersLabel": "成员",
+    "membersLabelWithCount": "成员（{{count}}）",
+    "noMembers": "尚未添加成员。",
+    "removeMemberAriaLabel": "移除 {{name}}",
+    "removeMemberFallback": "成员",
+    "addMember": "添加成员",
+    "createButton": "创建频道",
+    "creating": "正在创建…",
+    "nameRequiredToast": "请为频道命名",
+    "createErrorToast": "无法创建频道"
+  },
+  "renameChannel": {
+    "title": "重命名频道",
+    "placeholder": "频道名称",
+    "save": "保存",
+    "saving": "正在保存…",
+    "successToast": "频道已重命名",
+    "errorToast": "无法重命名频道"
+  },
+  "channelMembers": {
+    "addPeople": "添加成员",
+    "addedToast": "已加入频道",
+    "actionFailed": "操作失败",
+    "youSuffix": "（你）",
+    "roles": {
+      "owner": "所有者",
+      "admin": "管理员",
+      "member": "成员"
+    },
+    "workspaceAdmin": "工作区管理员",
+    "unknownUsername": "未知",
+    "actions": {
+      "makeAdmin": "设为频道管理员",
+      "removeAdmin": "取消频道管理员",
+      "transferOwnership": "转让所有权",
+      "removeFromChannel": "移出频道",
+      "blockFromChannel": "禁止加入频道"
+    },
+    "blockedHeading": "已禁止",
+    "unblock": "解除禁止",
+    "fallbackThem": "对方",
+    "transferConfirm": {
+      "title": "转让所有权？",
+      "message": "将 #{{channel}} 的所有者转让给 {{name}}？你将成为管理员。",
+      "confirmLabel": "转让"
+    },
+    "blockConfirm": {
+      "title": "禁止加入频道？",
+      "message": "禁止 {{name}} 加入 #{{channel}}？对方将被移出，且无法再次加入。",
+      "confirmLabel": "禁止"
+    }
+  },
+  "chatSearchBar": {
+    "placeholder": "搜索此对话…",
+    "ariaLabel": "搜索此对话",
+    "noMatches": "无匹配结果",
+    "matchesOfLoaded": "已加载 {{loaded}} 条中的 {{matches}} 条",
+    "clearSearch": "清除搜索",
+    "closeSearch": "关闭搜索"
+  },
+  "chatAssets": {
+    "tabs": {
+      "media": "媒体",
+      "docs": "文档",
+      "links": "链接"
+    },
+    "scopeNote_other": "仅来自此处已加载的 {{count}} 条消息，在对话中加载更早的消息可包含更多内容。",
+    "emptyMedia": {
+      "title": "暂无照片或视频",
+      "hint": "此对话中分享的图片和视频会收集在这里。"
+    },
+    "unavailable": "不可用",
+    "openItem": "打开 {{name}}",
+    "downloadItem": "下载 {{name}}",
+    "emptyDocs": {
+      "title": "暂无文档",
+      "hint": "非照片和视频的文件，如 PDF、表格、压缩包，会收集在这里。"
+    },
+    "previewUnavailable": "此文件类型不支持预览",
+    "emptyLinks": {
+      "title": "暂无链接",
+      "hint": "此对话中发布的网址会收集在这里。"
+    }
+  },
+  "pinButton": {
+    "pin": "置顶到桌面",
+    "unpin": "从桌面取消置顶"
+  },
+  "selectionToolbar": {
+    "selectedCount_other": "已选 {{count}} 项",
+    "cannotDelete_other": "· {{count}} 项无法删除",
+    "forward": "转发",
+    "delete": "删除"
+  },
+  "messageStatus": {
+    "pending": "发送中…",
+    "sent": "已发送",
+    "delivered": "已送达",
+    "seen": "已读"
+  },
+  "forwardBadge": {
+    "titleWithPlatform": "{{brand}} 已打开 {{platform}} 并预填了消息，但我们无法得知是否已发送。",
+    "titleWhatsapp": "{{brand}} 已打开 WhatsApp 并预填了消息，但我们无法得知是否已发送。",
+    "notConfirmed": "· 未确认",
+    "messageForwardedTo": "消息已转发到 {{platform}}"
+  },
+  "forwardTo": {
+    "titleSingle": "转发给…",
+    "titleMultiple": "转发 {{count}} 条消息",
+    "messagesPrefix": "{{count}} 条消息 · ",
+    "searchPlaceholder": "搜索成员和频道…",
+    "selectedCount_other": "已选 {{count}} 项",
+    "clearSelection": "清除",
+    "noMatches": "没有匹配的成员或频道。",
+    "peopleHeading": "成员",
+    "channelsHeading": "频道",
+    "forwardToOne": "转发给 {{name}}",
+    "forwardToMany": "转发到 {{count}} 个目标",
+    "forwardDefault": "转发",
+    "fallbackChannel": "某个频道",
+    "fallbackPerson": "某人",
+    "toasts": {
+      "openAction": "打开",
+      "oneSuccess": "已转发给 {{destination}}",
+      "allSuccess": "已成功转发到 {{count}} 个目标。",
+      "allFailed_other": "转发到 {{count}} 个目标失败。",
+      "partialSuccess_other": "已成功转发到 {{count}} 个目标。",
+      "partialFailedDescription": "{{count}} 个转发失败：{{list}}",
+      "genericError": {
+        "title": "无法转发",
+        "description": "请重试。"
+      }
+    }
+  },
+  "chatsEmpty": {
+    "welcomeWithName": "欢迎，{{name}} 👋",
+    "welcome": "欢迎 👋",
+    "hint": "在左侧选择一个聊天，或点击 + 开始新对话。"
+  },
+  "channelsEmpty": {
+    "title": "频道",
+    "hint": "在左侧选择一个频道，或点击 + 创建频道。"
+  },
+  "joinChannel": {
+    "joined": "已加入频道。",
+    "couldNotJoin": "无法加入"
+  }
+}

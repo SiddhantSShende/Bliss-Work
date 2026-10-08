@@ -1,0 +1,213 @@
+{
+  "liveEvents": {
+    "newMailInInbox": "Correo nuevo en tu bandeja de entrada"
+  },
+  "shared": {
+    "tryAgain": "Reintentar",
+    "noSubject": "(sin asunto)",
+    "restoreMailTitle": "Restaurar: devuelve este correo a la carpeta de donde vino",
+    "deleteMailTitle": "Eliminar: quita solo tu copia; las de los demás no se ven afectadas",
+    "restoreLabel": "Restaurar",
+    "deleteLabel": "Eliminar",
+    "loading": "Cargando…"
+  },
+  "fields": {
+    "to": "Para",
+    "cc": "Cc",
+    "bcc": "Cco"
+  },
+  "layout": {
+    "backToList": "Volver a la lista",
+    "welcome": {
+      "title": "Nada abierto",
+      "hint": "Elige un mensaje de la lista para leerlo aquí o selecciona Nuevo correo para escribir uno."
+    }
+  },
+  "folders": {
+    "title": "Correo",
+    "unreadAriaLabel": "{{folder}}, {{count}} sin leer",
+    "box": {
+      "inbox": "Bandeja de entrada",
+      "sent": "Elementos enviados",
+      "drafts": "Borradores",
+      "deleted": "Elementos eliminados",
+      "favorites": "Favoritos"
+    }
+  },
+  "list": {
+    "tabs": {
+      "all": "Todos",
+      "unread": "Sin leer"
+    },
+    "newMail": {
+      "title": "Nuevo correo: redacta un mensaje",
+      "label": "Nuevo correo"
+    },
+    "checkForNewMail": "Buscar correo nuevo",
+    "unknownPeer": "esta persona",
+    "emptyStates": {
+      "unreadTitle": "Nada sin leer",
+      "deletedTitle": "Nada eliminado",
+      "favoritesTitle": "Aún no hay favoritos",
+      "defaultTitle": "Aún no hay nada aquí",
+      "unreadHint": "Todo lo de esta carpeta ya se leyó.",
+      "peerHint": "No hay correo con {{peer}} en {{folder}}.",
+      "deletedHint": "El correo que eliminas se conserva aquí durante 90 días para que puedas recuperarlo.",
+      "favoritesHint": "Marca un correo con una estrella desde cualquier carpeta y se reunirá aquí. Las estrellas se guardan en este dispositivo.",
+      "defaultHint": "Selecciona Nuevo correo para escribir uno."
+    },
+    "messageCount_one": "{{shown}} mensaje",
+    "messageCount_many": "{{shown}} de mensajes",
+    "messageCount_other": "{{shown}} mensajes",
+    "loadingMore": "Cargando más…",
+    "showAllMailTitle": "Mostrar el correo de todos",
+    "errors": {
+      "couldNotRemoveItem": "No se pudo quitar ese elemento",
+      "couldNotRestoreItem": "No se pudo restaurar ese correo",
+      "couldNotDeleteMessage": "No se pudo eliminar ese mensaje",
+      "couldNotAcknowledgeTask": "No se pudo confirmar esa tarea",
+      "couldNotCompleteTask": "No se pudo completar esa tarea"
+    }
+  },
+  "detail": {
+    "loadingMail": "Cargando correo…",
+    "loadError": "No se pudo abrir este correo. Es posible que se haya eliminado.",
+    "unknownSender": "Remitente desconocido",
+    "restoredToast": "Restaurado en tu buzón",
+    "movedToDeletedToast": "Movido a Elementos eliminados",
+    "couldNotRestoreToast": "No se pudo restaurar",
+    "couldNotRemoveToast": "No se pudo quitar",
+    "statusSent": "enviado",
+    "statusInbox": "recibido",
+    "noMessageBody": "(mensaje sin contenido)",
+    "toolbar": {
+      "reply": "Responder",
+      "replyTitle": "Responder al remitente",
+      "replyAll": "Responder a todos",
+      "replyAllTitle": "Responder a todos los de este correo",
+      "forward": "Reenviar",
+      "forwardTitle": "Reenviar este correo a otra persona"
+    }
+  },
+  "thread": {
+    "defaultSubject": "Hilo",
+    "ignoreTitle": "Ignorar: se oculta para ambas partes",
+    "messageFailedToast": "No se pudo enviar el mensaje",
+    "couldNotRemoveThreadToast": "No se pudo quitar este hilo"
+  },
+  "task": {
+    "couldNotUpdateToast": "No se pudo actualizar esa tarea",
+    "notFoundTitle": "No se encontró la tarea",
+    "notFoundHint": "Es posible que se haya eliminado."
+  },
+  "row": {
+    "externalSender": "Remitente externo",
+    "untitledTask": "(tarea sin título)",
+    "noPreview": "(sin vista previa)",
+    "taskLabel": "Tarea",
+    "threadLabel": "hilo",
+    "newBadge": "nuevo",
+    "favorite": {
+      "add": "Agregar a Favoritos",
+      "remove": "Quitar de Favoritos"
+    },
+    "acknowledgeTitle": "Confirmar: aceptar esta tarea",
+    "acknowledgeLabel": "Confirmar",
+    "completeTitle": "Marcar como completada",
+    "completeLabel": "Completar",
+    "ignoreTitleTask": "Ignorar: se quita de tu buzón",
+    "ignoreTitleThread": "Ignorar: se oculta para ambos",
+    "ignoreLabel": "Ignorar",
+    "dismissTitle": "Eliminar de tu buzón"
+  },
+  "addressField": {
+    "invalidAddressTitle": "Esto no parece una dirección de correo electrónico",
+    "removeAddress": "Quitar {{address}}"
+  },
+  "attachments": {
+    "heading": "Archivos adjuntos ({{count}})",
+    "couldNotAttachToast": "No se pudo adjuntar {{filename}}",
+    "tooLargeToast": "{{filename}} es más grande que {{maxSize}}.",
+    "couldNotRemoveToast": "No se pudo quitar ese archivo",
+    "tray": {
+      "uploading": "Subiendo… {{progress}}%",
+      "remove": "Quitar {{filename}}"
+    },
+    "preview": "Vista previa",
+    "previewFile": "Vista previa de {{filename}}",
+    "open": "Abrir",
+    "openFile": "Abrir {{filename}}",
+    "download": "Descargar",
+    "downloadFile": "Descargar {{filename}}",
+    "preparing": "Preparando…",
+    "unavailable": "No disponible"
+  },
+  "draftList": {
+    "discardedToast": "Borrador descartado",
+    "couldNotDiscardToast": "No se pudo descartar",
+    "loading": "Cargando borradores…",
+    "errorTitle": "No se pudieron cargar los borradores",
+    "errorHint": "Revisa tu conexión y selecciona Buscar correo nuevo arriba.",
+    "emptyTitle": "No hay borradores",
+    "emptyHint": "Un correo que empiezas y dejas sin enviar se guarda aquí hasta que lo termines.",
+    "noRecipient": "Aún sin destinatario",
+    "addressedMore": "{{first}} + {{count}} más",
+    "attachments_one": "{{count}} archivo",
+    "attachments_many": "{{count}} de archivos",
+    "attachments_other": "{{count}} archivos",
+    "discardTitle": "Descartar este borrador: no se ha enviado a nadie",
+    "discardAriaLabel": "Descartar borrador"
+  },
+  "compose": {
+    "headings": {
+      "draft": "Borrador",
+      "forward": "Reenviar",
+      "reply": "Responder",
+      "newMail": "Nuevo correo"
+    },
+    "closeTitle": "Cerrar: se conserva en Borradores",
+    "startErrorBanner": "No se pudo iniciar un borrador. Revisa tu conexión e inténtalo de nuevo.",
+    "retry": "Reintentar",
+    "openingDraft": "Abriendo borrador…",
+    "loadErrorText": "No se pudo abrir este borrador. Es posible que se haya enviado o descartado.",
+    "ccBccButton": "Cc / Cco",
+    "toPlaceholder": "nombre@empresa.com",
+    "ccPlaceholder": "Copiar a alguien",
+    "bccPlaceholder": "Copia oculta: no la ve nadie más",
+    "subjectLabel": "Asunto",
+    "subjectPlaceholder": "¿De qué se trata?",
+    "messageLabel": "Mensaje",
+    "messagePlaceholder": "Escribe tu correo…",
+    "attachTitleReady": "Adjuntar archivos",
+    "attachTitlePreparing": "Preparando borrador…",
+    "attachLabel": "Adjuntar",
+    "removeAll": "Quitar todo",
+    "preparing": "Preparando…",
+    "discardButton": "Descartar",
+    "discardTitle": "Descartar: elimina este borrador; no se ha enviado a nadie",
+    "closeButton": "Cerrar",
+    "sendButton": "Enviar",
+    "sendingButton": "Enviando…",
+    "draftDiscardedToast": "Borrador descartado",
+    "couldNotDiscardToast": "No se pudo descartar el borrador",
+    "couldNotSendToast": "No se pudo enviar",
+    "errors": {
+      "draftNotReady": "el borrador no está listo",
+      "invalidAddress": "\"{{address}}\" no parece una dirección de correo electrónico.",
+      "subjectTooLong": "El asunto tiene {{length}} caracteres; el límite es {{limit}}."
+    },
+    "sentSummary": {
+      "sent": "Enviado",
+      "sentToPeople": "Enviado a {{count}} personas",
+      "delivering": "Enviado: entregando",
+      "deliveringToCount": "Enviado: entregando a {{count}}",
+      "sentAndDelivering": "Enviado a {{inApp}} aquí, entregando a {{external}} más"
+    }
+  },
+  "quote": {
+    "wrote": "El {{when}}, {{sender}} escribió:"
+  },
+  "recipients": {
+    "summaryMore": "{{list}} + {{count}} más"
+  }
+}

@@ -12,7 +12,7 @@
  */
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ExternalLink, FileText, Images, Link2, Play } from "lucide-react";
+import { ExternalLink, FileText, Images, Link2, Play, Download } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import type { AttachmentScope } from "@taskboard/shared";
 import {
@@ -21,13 +21,15 @@ import {
   type LinkAsset,
   type MediaAsset,
 } from "../lib/chatAssets";
-import { canPreviewDocInApp, prettySize } from "../lib/chatEnvelope";
+import { prettySize } from "../lib/chatEnvelope";
+import { attachmentCapability } from "../lib/attachmentCapability";
+import { downloadAttachment } from "../lib/download";
 import { hasOutsideOpen, openOutsideApp } from "../lib/openAttachment";
 import { useRuntime } from "../lib/runtime";
 import { relativeTime } from "../lib/relativeTime";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
 import { useAttachmentActivity } from "../lib/useAttachmentActivity";
-import { Lightbox } from "./Lightbox";
+import { AttachmentViewer } from "./AttachmentViewer";
 import { Sheet } from "./Modal";
 import { Tabs, type TabSpec } from "./Tabs";
 
@@ -82,19 +84,32 @@ export function ChatAssetsSheet({
   );
   const { urlFor, isResolved } = useAttachmentLinks(ids);
 
-  // Same rule as the thread's bubble (useChatMedia.openItem): a doc with no
-  // in-app view leaves the app (desktop's own application, or a browser tab on
-  // web); the rest use the Lightbox. Both are the user OPENING the file, so both
-  // report "attachment_opened" — the same rule as openItem, see its comment.
-  // This panel offers no download of its own; that is the message's 3-dot menu.
+  // Same rules as the thread's bubble (useChatMedia.openItem), from the same
+  // `attachmentCapability`: audio leaves the app as it always has; a document
+  // opens in the in-app document viewer; PDF and plain text use the Lightbox; and a
+  // download-only file has no Open at all (its row offers Download, below). Opening
+  // reports "attachment_opened" — the same rule as openItem.
   const openDoc = (asset: MediaAsset) => {
-    const url = urlFor(asset.item.id);
-    if (url && openOutsideApp(config, asset.item.mime, url, asset.item.name)) {
-      reportAttachmentActivity("attachment_opened", asset.item);
+    const { item } = asset;
+    const kind = attachmentCapability({ name: item.name, mime: item.mime, size: item.size }).kind;
+    if (kind === "download") return;
+    const url = urlFor(item.id);
+    if (kind === "external" && url && openOutsideApp(config, item.mime, url, item.name)) {
+      reportAttachmentActivity("attachment_opened", item);
       return;
     }
-    reportAttachmentActivity("attachment_opened", asset.item);
+    reportAttachmentActivity("attachment_opened", item);
     setDocPreview(asset);
+  };
+
+  // The one deliberate download, same as useChatMedia.downloadItem: through the
+  // viewer's own signed URL with the explicit-download flag, and exactly one
+  // "attachment_downloaded" — never an "opened" too.
+  const downloadDoc = (asset: MediaAsset) => {
+    const url = urlFor(asset.item.id);
+    if (!url) return;
+    downloadAttachment(url, asset.item.name);
+    reportAttachmentActivity("attachment_downloaded", asset.item);
   };
 
   const tabs: readonly TabSpec<AssetTab>[] = [
@@ -123,7 +138,13 @@ export function ChatAssetsSheet({
           />
         )}
         {tab === "docs" && (
-          <DocList assets={assets.docs} urlFor={urlFor} opensOutside={hasOutsideOpen(config)} onPreview={openDoc} />
+          <DocList
+            assets={assets.docs}
+            urlFor={urlFor}
+            opensOutside={hasOutsideOpen(config)}
+            onPreview={openDoc}
+            onDownload={downloadDoc}
+          />
         )}
         {tab === "links" && <LinkList assets={assets.links} />}
       </Sheet>
@@ -135,12 +156,13 @@ export function ChatAssetsSheet({
           its "full-screen" backdrop inside the narrow sheet panel instead of
           covering the viewport. */}
       {docPreview && (
-        <Lightbox
+        <AttachmentViewer
           items={[docPreview.item]}
           index={0}
           urlFor={urlFor}
           onClose={() => setDocPreview(null)}
           onIndexChange={() => {}}
+          onDownload={(item) => downloadDoc({ ...docPreview, item })}
         />
       )}
     </>
@@ -241,14 +263,17 @@ function DocList({
   urlFor,
   opensOutside,
   onPreview,
+  onDownload,
 }: {
   assets: MediaAsset[];
   urlFor: (id: string | undefined) => string | undefined;
   /** A doc with no in-app view leaves the app (desktop's own application, or a
    *  browser tab on web), so the row must not say it cannot be previewed. */
   opensOutside: boolean;
-  /** Open a doc — in the shared in-app Lightbox, or outside the app. */
+  /** Open a doc — in the shared in-app viewer, or outside the app (audio). */
   onPreview: (asset: MediaAsset) => void;
+  /** The one audited download. A file the app has no viewer for offers only this. */
+  onDownload: (asset: MediaAsset) => void;
 }) {
   const { t } = useTranslation("chatList");
   if (assets.length === 0) {
@@ -265,14 +290,14 @@ function DocList({
       {assets.map((asset) => {
         const { item, messageId, senderName, at } = asset;
         const url = urlFor(item.id);
-        const previewable = canPreviewDocInApp(item.mime);
-        // Openable once resolved, regardless of type — a type outside
-        // canPreviewDocInApp has no in-app renderer (see MediaBubble's
-        // FileCard for how such a file is opened: a browser tab on web, the
-        // OS's own application on desktop, and only a host with neither
-        // falls through to the shared Lightbox, which says so explicitly
-        // instead of the row doing nothing).
-        const openable = !!url;
+        const kind = attachmentCapability({ name: item.name, mime: item.mime, size: item.size }).kind;
+        // Download-only files have NO Open (see attachmentCapability); the row
+        // offers Download instead. Everything else opens once it is resolved —
+        // in the in-app viewer, or (audio) outside the app, and only a host with
+        // neither falls through to the Lightbox, which says so explicitly.
+        const downloadOnly = kind === "download";
+        const openable = !!url && !downloadOnly;
+        const noView = kind === "external" && !opensOutside;
         const rowClass = `flex items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-surface-2 ${
           url ? "" : "pointer-events-none opacity-50"
         }`;
@@ -290,16 +315,35 @@ function DocList({
                 </span>
                 <Shared senderName={senderName} at={at} />
               </span>
-              {url && !previewable && !opensOutside && (
+              {url && noView && (
                 <span className="text-xs text-muted">{t("chatAssets.previewUnavailable")}</span>
               )}
             </span>
           </>
         );
 
-        // Every resolved file opens in-app, in the same Lightbox the chat
-        // bubble and the Media tab use — a type the app can't render itself
-        // still opens it, showing why instead of doing nothing.
+        // A resolved file the app has no viewer for: not a button, only Download.
+        if (downloadOnly && url) {
+          return (
+            <li key={`${messageId}:${item.id}`}>
+              <div className={rowClass}>
+                {row}
+                <button
+                  type="button"
+                  onClick={() => onDownload(asset)}
+                  aria-label={t("chatAssets.downloadItem", { name: item.name })}
+                  title={t("chatAssets.downloadItem", { name: item.name })}
+                  className="shrink-0 rounded-lg p-1.5 text-accent transition-colors hover:bg-accent-soft"
+                >
+                  <Download size={16} />
+                </button>
+              </div>
+            </li>
+          );
+        }
+
+        // Every other resolved file opens in-app (the same viewer the chat
+        // bubble uses), showing why if the host cannot, instead of doing nothing.
         if (openable) {
           return (
             <li key={`${messageId}:${item.id}`}>

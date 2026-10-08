@@ -135,6 +135,9 @@ const api = {
    *  main one and on macOS. */
   setTitleBarTheme: (theme: { color: string; symbolColor: string }) =>
     ipcRenderer.send("window:title-bar-theme", theme),
+  /** The page zoom changed: main re-fits the native window controls' height to
+   *  the (zoom-scaled) top bar. Carries no value — main reads the factor itself. */
+  syncTitleBarZoom: () => ipcRenderer.send("window:title-bar-zoom"),
 
   /** Open an https URL in the system browser. Used for OAuth: Google rejects
    *  embedded webviews, so the consent screen has to leave the app. Main
@@ -301,6 +304,12 @@ const api = {
    * while the window is minimised or in the tray, long after any renderer
    * code has run.
    */
+  /** The effective UI language, mirrored to main so the application menu, tray
+   *  and OS notifications follow it (main/locale-pref.ts, main/i18n.ts). */
+  locale: {
+    setLocale: (locale: string): Promise<void> => ipcRenderer.invoke("locale:set", locale),
+  },
+
   notifications: {
     getDesktopEnabled: (): Promise<boolean> => ipcRenderer.invoke("notifications:get-desktop-enabled"),
     setDesktopEnabled: (enabled: boolean): Promise<void> =>

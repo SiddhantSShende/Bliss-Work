@@ -30,6 +30,11 @@ def init_engine() -> AsyncEngine:
             max_overflow=5,
             pool_recycle=1800,  # recycle pooled conns every 30 min (avoid stale)
             connect_args=settings.sqlalchemy_connect_args,
+            # A failing statement raises a DBAPIError whose str() embeds the
+            # bound parameters, which errors/logging then write out (a failed
+            # outbox INSERT would log plaintext payload). SQL text and SQLSTATE
+            # stay. See auth-svc/app/db.py.
+            hide_parameters=True,
         )
         SessionLocal = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
     return _engine

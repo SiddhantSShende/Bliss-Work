@@ -1,0 +1,60 @@
+{
+  "header": {
+    "title": "设置",
+    "subtitle": "设置应用在此设备上的行为。"
+  },
+  "theme": {
+    "title": "主题",
+    "description": "当前使用：{{theme}}。",
+    "changeTheme": "更换主题",
+    "menuLabel": "主题",
+    "syncFailed": "自定义主题仅在此设备上生效。无法保存到你的账号，我们会继续尝试。",
+    "light": "浅色",
+    "dark": "深色",
+    "custom": {
+      "title": "自定义主题",
+      "label": "自定义",
+      "colors": "颜色",
+      "color": "颜色 {{number}}",
+      "preview": "自定义主题预览",
+      "create": "创建自定义主题",
+      "edit": "编辑自定义主题",
+      "cancel": "取消",
+      "save": "保存"
+    }
+  },
+  "twoFactor": {
+    "title": "双重验证",
+    "description": "添加验证器应用，作为登录的第二道验证。"
+  },
+  "activeSessions": {
+    "title": "当前登录",
+    "description": "查看所有已登录你账号的设备，并可远程将其退出登录。"
+  },
+  "activity": {
+    "title": "你的活动",
+    "description": "查看 {{brand}} 记录的你的所有工作情况，工作区管理员看到的也是同一份记录。"
+  },
+  "desktopNotifications": {
+    "title": "桌面通知",
+    "onDescription": "有新消息和任务时弹出提示。",
+    "offDescription": "弹出提示已暂停，你仍可在铃铛菜单中查看通知。",
+    "turnOn": "开启",
+    "turnOff": "关闭"
+  },
+  "about": {
+    "title": "关于",
+    "versionDesktop": "{{brand}} {{version}} · 桌面版",
+    "versionBuild": "{{brand}} · 构建 {{sha}}",
+    "checkForUpdates": "检查更新",
+    "checking": "正在检查…",
+    "toasts": {
+      "updateDownloading": "正在下载 {{version}} 更新",
+      "updateDownloadingDescription": "准备就绪后会提示你重启。",
+      "upToDate": "已是最新版本",
+      "upToDateDescription": "版本 {{version}}",
+      "updateDownloadFailed": "更新下载失败",
+      "checkFailedFallback": "无法检查更新"
+    }
+  }
+}

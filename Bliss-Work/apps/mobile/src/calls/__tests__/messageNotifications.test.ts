@@ -1,4 +1,5 @@
 const mockSchedule = jest.fn(async (..._a: unknown[]) => 'id');
+const mockGetItem = jest.fn(async (_key: string) => null as string | null);
 
 jest.mock('expo-notifications', () => ({
   AndroidImportance: { HIGH: 4 },
@@ -7,6 +8,11 @@ jest.mock('expo-notifications', () => ({
   scheduleNotificationAsync: (...a: unknown[]) => mockSchedule(...a),
   addNotificationResponseReceivedListener: () => ({ remove: () => undefined }),
   getLastNotificationResponseAsync: async () => null,
+}));
+
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: { getItem: (...a: [string]) => mockGetItem(...a), setItem: async () => undefined },
 }));
 
 const appState = { currentState: 'active' as string };
@@ -32,6 +38,8 @@ const chatMsg: IncomingMessage = {
 
 beforeEach(() => {
   mockSchedule.mockClear();
+  mockGetItem.mockReset();
+  mockGetItem.mockResolvedValue(null);
   appState.currentState = 'active';
 });
 
@@ -105,5 +113,17 @@ describe('showMessageNotification', () => {
     } finally {
       clearThreadFocused({ kind: 'chat', id: 'c1' });
     }
+  });
+
+  it('does not notify for a conversation muted in persisted device preferences', async () => {
+    mockGetItem.mockResolvedValue(JSON.stringify(['c1']));
+    await showMessageNotification(chatMsg);
+    expect(mockSchedule).not.toHaveBeenCalled();
+  });
+
+  it('still notifies when a different conversation is muted', async () => {
+    mockGetItem.mockResolvedValue(JSON.stringify(['another-conversation']));
+    await showMessageNotification(chatMsg);
+    expect(mockSchedule).toHaveBeenCalledTimes(1);
   });
 });

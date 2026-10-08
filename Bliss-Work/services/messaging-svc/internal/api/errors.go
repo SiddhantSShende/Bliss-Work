@@ -39,6 +39,8 @@ const (
 	CodeInternalError      ErrorCode = "internal_error"
 	CodeServiceUnavailable ErrorCode = "service_unavailable"
 	CodeGatewayTimeout     ErrorCode = "gateway_timeout"
+	CodeUnsupportedMedia   ErrorCode = "unsupported_media"
+	CodePreviewFailed      ErrorCode = "preview_failed"
 )
 
 type apiErrorBody struct {
@@ -120,6 +122,10 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		return http.StatusBadRequest, CodeValidationError, err.Error()
 	case errors.Is(err, store.ErrMeetingTooLarge):
 		return http.StatusBadRequest, CodeValidationError, err.Error()
+	case errors.Is(err, store.ErrBlobGone):
+		// 409: the upload itself was fine; a concurrent removal unlinked the
+		// shared bytes while it was being recorded. Uploading again works.
+		return http.StatusConflict, CodeConflict, err.Error()
 	case errors.Is(err, store.ErrTooManySeries):
 		// 409: well-formed and allowed, but the organiser is at the limit — a state
 		// the client can resolve by cancelling one.

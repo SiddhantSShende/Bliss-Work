@@ -16,8 +16,9 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
-import { createMainWindow, MAIN_TITLE_BAR_HEIGHT } from "./windows";
+import { createMainWindow, syncMainTitleBarZoom } from "./windows";
 import { StickyManager } from "./sticky-manager";
+import { isNoteDrag } from "./sticky-resize";
 import { ChatStickyManager, type ChatStickyBootstrap } from "./chat-sticky-manager";
 import { MeetingInviteManager } from "./meeting-invite-manager";
 import { MeetingWindowManager } from "./meeting-window-manager";
@@ -29,9 +30,12 @@ import {
   clearRefreshToken,
 } from "./session-token";
 import * as notificationPrefs from "./notification-prefs";
+import * as localePref from "./locale-pref";
+import { initMainLocale, mainT, onMainLocaleChange, setMainLocale } from "./i18n";
 import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
 import { appIcon, trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
+import { isPermissionGranted, requesterUrl } from "./permissions";
 import { registerFileSink } from "./file-sink";
 import { registerAttachmentOpen } from "./attachment-open";
 import { checkForUpdatesNow, checkOnWindowFocus, initAutoUpdate } from "./updater";
@@ -259,8 +263,14 @@ if (!app.requestSingleInstanceLock()) {
       "notifications",
       "clipboard-sanitized-write",
     ]);
-    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
-    session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
+    // The allowlist applies to our own pages only (see permissions.ts): a frame
+    // inside one of them — a blob: or srcdoc preview — is not "this app".
+    session.defaultSession.setPermissionRequestHandler((wc, permission, cb, details) =>
+      cb(isPermissionGranted(allowed, permission, requesterUrl(details, wc.getURL()))),
+    );
+    session.defaultSession.setPermissionCheckHandler((wc, permission, _origin, details) =>
+      isPermissionGranted(allowed, permission, requesterUrl(details, wc?.getURL())),
+    );
 
     // Screen sharing in a call. getDisplayMedia() is REFUSED outright in
     // Electron unless this handler exists — there is no Chromium picker in an
@@ -356,12 +366,15 @@ function bootstrap() {
   }
   const startedAtLogin = process.argv.includes("--auto-start");
 
-  Menu.setApplicationMenu(
-    buildAppMenu({
-      onShow: focusMain,
-      onQuit: quitApp,
-    }),
-  );
+  // Language first: the menu and tray below are built from it. The renderer
+  // re-asserts the real choice over IPC once it has run (see "locale:set").
+  initMainLocale(localePref.readStoredLocale(), app.getLocale());
+  const installMenu = () => Menu.setApplicationMenu(buildAppMenu({ onShow: focusMain, onQuit: quitApp }));
+  installMenu();
+  onMainLocaleChange(() => {
+    installMenu();
+    updateTray();
+  });
   mainWindow = createMainWindow(startedAtLogin);
   wireMainWindow(mainWindow);
 
@@ -548,6 +561,7 @@ function startWsProcess() {
       // Phase 8: ws-process drives sticky-chat fan-out for pinned threads.
       threadId?: string;
       payload?: unknown;
+      clientMsgId?: string;
       // Phase 10: inbound rtc.* control frame to relay to the renderer.
       frame?: unknown;
     }) => {
@@ -585,6 +599,9 @@ function startWsProcess() {
         }
         case "sticky-chat-message":
           if (m.threadId) chatSticky.pushMessage(m.threadId, m.payload);
+          break;
+        case "sticky-chat-send-failed":
+          if (m.threadId && m.clientMsgId) chatSticky.pushSendFailed(m.threadId, m.clientMsgId);
           break;
         case "rtc-frame":
           sendToMain("rtc:frame", m.frame);
@@ -625,7 +642,11 @@ function quitApp() {
   sticky.destroyAll();
   chatSticky.destroyAll();
   meetingInvite.destroy();
-  meetingWindows.destroyAll();
+  // NOT meetingWindows.destroyAll(): destroy() skips the window's close
+  // handshake, so leaveCall() would never be posted and the resume-meeting
+  // marker never cleared. app.quit() emits `before-quit` (below) while those
+  // windows are still alive, and that handler waits for each to leave before
+  // finishQuit() destroys them.
   app.quit();
 }
 
@@ -638,13 +659,13 @@ function createTray() {
 function updateTray() {
   if (!tray) return;
   const n = sticky.taskCount();
-  tray.setToolTip(`BlissWork${n ? ` — ${n} active task${n > 1 ? "s" : ""}` : ""}`);
+  tray.setToolTip(n ? mainT("tray.tooltipTasks", { count: n }) : mainT("tray.tooltipIdle"));
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: `Active tasks: ${n}`, enabled: false },
+      { label: mainT("tray.activeTasks", { count: n }), enabled: false },
       { type: "separator" },
-      { label: "Show BlissWork", click: focusMain },
-      { label: "Quit", click: quitApp },
+      { label: mainT("tray.show"), click: focusMain },
+      { label: mainT("tray.quit"), click: quitApp },
     ]),
   );
 }
@@ -880,6 +901,16 @@ ipcMain.handle("notifications:set-desktop-enabled", (e, enabled: unknown) => {
   notificationPrefs.setDesktopEnabled(enabled === true);
 });
 
+// ── UI language ──────────────────────────────────────────────────────────────
+// The renderer owns the choice and mirrors the effective language here, so the
+// menu, tray and OS popups (all built in this process) follow it. An unknown
+// code is ignored rather than trusted.
+ipcMain.handle("locale:set", (e, locale: unknown) => {
+  if (!fromMainWindow(e)) return;
+  if (typeof locale !== "string" || !setMainLocale(locale)) return;
+  localePref.writeStoredLocale(locale);
+});
+
 ipcMain.on("task:intent", (_e, intent: unknown) => {
   if (!isTaskIntent(intent)) {
     console.error("[sticky] task:intent ignored — invalid payload");
@@ -966,6 +997,18 @@ ipcMain.on("sticky:collapse", (_e, p: unknown) => {
     console.error("[sticky] sticky:collapse failed", err);
   }
 });
+// Linux only: a press on the note's body or one of its renderer-drawn resize
+// handles (see ./sticky-resize). Main follows the cursor until drag-end.
+ipcMain.on("sticky:drag-start", (_e, p: unknown) => {
+  const drag = p && typeof p === "object" ? (p as { drag?: unknown }).drag : undefined;
+  if (!isNoteDrag(drag)) return;
+  try {
+    sticky.beginDrag(drag);
+  } catch (err) {
+    console.error("[sticky] sticky:drag-start failed", err);
+  }
+});
+ipcMain.on("sticky:drag-end", () => sticky.endDrag());
 // The note's own renderer reporting its resolved theme colour (see
 // StickyManager.setBackgroundColor for why the window needs telling at all).
 ipcMain.on("sticky:bg", (_e, p: unknown) => {
@@ -991,9 +1034,24 @@ ipcMain.on("window:title-bar-theme", (e, p: unknown) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win || win !== mainWindow || win.isDestroyed()) return;
   try {
-    win.setTitleBarOverlay({ color, symbolColor, height: MAIN_TITLE_BAR_HEIGHT });
+    // Colours only: the height follows page zoom (window:title-bar-zoom) and a
+    // full update here would snap it back to the 100% value.
+    win.setTitleBarOverlay({ color, symbolColor });
   } catch (err) {
     console.error("[window] window:title-bar-theme failed", err);
+  }
+});
+// The renderer reporting that its page zoom changed (View > Zoom, or restored
+// from the last session): the native controls are sized in window pixels, so
+// they have to be re-fitted to the zoomed bar. The factor is read here from the
+// sender, not taken from the renderer.
+ipcMain.on("window:title-bar-zoom", (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win !== mainWindow || win.isDestroyed()) return;
+  try {
+    syncMainTitleBarZoom(win);
+  } catch (err) {
+    console.error("[window] window:title-bar-zoom failed", err);
   }
 });
 // Phase 10: renderer → ws-process WebRTC signaling (rtc.offer/answer/ice/cancel).

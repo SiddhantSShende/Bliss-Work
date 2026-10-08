@@ -1,0 +1,144 @@
+{
+  "search": {
+    "title": "Suche",
+    "resultsFor": "Ergebnisse für „{{query}}“",
+    "empty": {
+      "title": "{{brand}} durchsuchen",
+      "hint": "Finden Sie Personen, Kanäle, Chats und Aufgaben."
+    },
+    "noResults": {
+      "title": "Keine Treffer",
+      "hint": "Zu „{{query}}“ wurde nichts gefunden."
+    },
+    "groups": {
+      "people": "Personen",
+      "channels": "Kanäle",
+      "chats": "Chats",
+      "tasks": "Aufgaben"
+    },
+    "channelMembers_one": "{{count}} Mitglied",
+    "channelMembers_other": "{{count}} Mitglieder"
+  },
+  "nav": {
+    "mail": "Mail",
+    "meetings": "Meetings",
+    "chats": "Chats",
+    "tasks": "Aufgaben",
+    "channels": "Kanäle",
+    "members": "Mitglieder",
+    "org": "Org.",
+    "settings": "Einstellungen",
+    "more": "Mehr"
+  },
+  "railBtn": {
+    "titleWithBadge": "{{label}} ({{count}} neu)",
+    "unreadAriaLabel": "{{count}} ungelesen"
+  },
+  "notifications": {
+    "title": "Benachrichtigungen",
+    "empty": {
+      "noneYet": "Noch keine Benachrichtigungen",
+      "hint": "Neuigkeiten und Aktivitäten erscheinen hier."
+    },
+    "error": {
+      "title": "Benachrichtigungen konnten nicht geladen werden",
+      "hint": "Ihre Benachrichtigungen sind sicher. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+      "retry": "Erneut versuchen",
+      "partial": "Einige Benachrichtigungen konnten nicht geladen werden – versuchen Sie es erneut"
+    },
+    "message": {
+      "title": "Neue Nachricht",
+      "body": "Sie haben eine neue Nachricht",
+      "someone": "Jemand",
+      "aChannel": "ein Kanal"
+    },
+    "row": {
+      "markRead": "Als gelesen"
+    },
+    "loadMore": "Mehr laden",
+    "loadingMore": "Wird geladen…"
+  },
+  "profileMenu": {
+    "accountMenuTitle": "{{name}} – Kontomenü",
+    "accountMenuAriaLabel": "Kontomenü",
+    "online": "Online",
+    "editProfile": "Profil bearbeiten",
+    "settings": "Einstellungen",
+    "lightMode": "Heller Modus",
+    "darkMode": "Dunkler Modus",
+    "signOut": "Abmelden"
+  },
+  "getAppButton": {
+    "getDesktopApp": "Desktop-App holen",
+    "downloadForPlatform": "{{brand}} für {{platform}} herunterladen – {{requirement}}",
+    "getApp": "App holen",
+    "downloadHeading": "{{brand}} herunterladen",
+    "requirement": {
+      "windows": "Windows 10 & 11 · 64-Bit",
+      "mac": "macOS 11 Big Sur oder neuer",
+      "linux": "AppImage (universell) oder .deb"
+    }
+  },
+  "roleBadge": {
+    "admin": "Admin",
+    "member": "Mitglied"
+  },
+  "activityNotice": {
+    "message": "Ihre Aktivität in {{brand}} wird erfasst, damit Sie und die Admins Ihres Arbeitsbereichs sie einsehen können.",
+    "seeRecorded": "Erfasste Daten ansehen"
+  },
+  "listPane": {
+    "back": "Zurück"
+  },
+  "exportActivity": {
+    "customRange": "Eigener Zeitraum",
+    "title": {
+      "forMember": "Aktivität von {{name}} exportieren",
+      "workspace": "Aktivität exportieren"
+    },
+    "from": "Von",
+    "to": "Bis",
+    "description": "Eine Zeile pro Mitglied und Tag: aktive und inaktive Zeit, Sitzungen, erfasste Aktionen und der Bereich, in dem die meiste Zeit verbracht wurde. Datumsangaben beziehen sich auf Ihre eigene Zeitzone.",
+    "cancel": "Abbrechen",
+    "exportButton": ".xlsx exportieren",
+    "toasts": {
+      "nothingToExport": "In diesem Zeitraum gab es keine Aktivität – nichts zu exportieren.",
+      "exported_one": "{{count}} Zeile exportiert",
+      "exported_other": "{{count}} Zeilen exportiert",
+      "exportFailedFallback": "Export fehlgeschlagen"
+    }
+  },
+  "activityExport": {
+    "sheets": {
+      "summary": "Zusammenfassung",
+      "daily": "Täglich",
+      "sessions": "Sitzungen"
+    },
+    "columns": {
+      "member": "Mitglied",
+      "email": "E-Mail",
+      "day": "Tag",
+      "active": "Aktiv",
+      "activeHours": "Aktiv (Std.)",
+      "idle": "Inaktiv",
+      "signedIn": "Angemeldet",
+      "sessions": "Sitzungen",
+      "actions": "Aktionen",
+      "firstSeen": "Zuerst gesehen ({{tz}})",
+      "lastSeen": "Zuletzt gesehen ({{tz}})",
+      "topSection": "Top-Bereich",
+      "daysActive": "Aktive Tage",
+      "avgPerActiveDay": "Ø pro aktivem Tag",
+      "device": "Gerät",
+      "started": "Beginn ({{tz}})",
+      "ended": "Ende ({{tz}})",
+      "endedBecause": "Beendet wegen",
+      "network": "Netzwerk"
+    },
+    "stillActive": "noch aktiv"
+  },
+  "liveEvents": {
+    "channelBlocked": "Sie wurden aus einem Kanal gesperrt",
+    "channelRemoved": "Sie wurden aus einem Kanal entfernt"
+  }
+}

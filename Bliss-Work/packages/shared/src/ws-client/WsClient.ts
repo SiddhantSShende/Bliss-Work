@@ -194,7 +194,13 @@ export class WsClient {
   }
 
   private setStatus(s: WsStatus) {
-    for (const h of this.statusHandlers) h(s);
+    for (const h of this.statusHandlers) {
+      try {
+        h(s);
+      } catch (err) {
+        console.error("[ws] status handler threw", s, err);
+      }
+    }
   }
 
   private async open(generation = this.generation): Promise<void> {
@@ -390,7 +396,13 @@ export class WsClient {
       // Catch-up is over; everything from here is genuinely new.
       if (control.data.type === "replay.done") this.endReplay();
       // Fan out rtc.* signaling (and other control frames) to the WebRTC layer.
-      for (const h of this.controlHandlers) h(control.data);
+      for (const h of this.controlHandlers) {
+        try {
+          h(control.data);
+        } catch (err) {
+          console.error("[ws] control handler threw", control.data.type, err);
+        }
+      }
       return;
     }
 
@@ -426,7 +438,15 @@ export class WsClient {
     if (Number.isFinite(at) && at > this.highWaterMs) this.highWaterMs = at;
 
     const meta: WsEventMeta = { replayed: this.replaying };
-    for (const h of this.handlers) h(e, meta);
+    // The eventId is already recorded as seen, so a handler that throws must
+    // not stop delivery to the remaining subscribers (nothing would retry it).
+    for (const h of this.handlers) {
+      try {
+        h(e, meta);
+      } catch (err) {
+        console.error("[ws] event handler threw", e.type, err);
+      }
+    }
   }
 
   /** Bucket a messageId for a 500ms-deferred batched ack frame. */

@@ -14,6 +14,7 @@ const api = {
   directory: vi.fn(async () => []),
   taskSchedules: vi.fn(async () => [] as ScheduledTaskDTO[]),
   channels: vi.fn(async () => CHANNELS as ChannelDTO[]),
+  channelMembers: vi.fn(async (_channelId: string) => [] as string[]),
   addTaskParticipants: vi.fn(async (_taskId: string, targets: { userIds?: string[]; channelIds?: string[] }) => ({
     addedUserIds: targets.userIds ?? [],
     addedChannelIds: targets.channelIds ?? [],
@@ -135,6 +136,74 @@ describe("MyTasksBoard filters", () => {
 
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(titles()).toHaveLength(3);
+  });
+
+  it("selecting channels filters by the union of their members, and unticking one keeps what the other still contributes", async () => {
+    const user = userEvent.setup();
+    // alice is in both channels; carol only in design; bob in neither.
+    api.channelMembers.mockImplementation(async (id: string) => (id === GENERAL.id ? ["u-alice"] : ["u-alice", "u-carol"]));
+    renderBoard();
+    await screen.findByText("Ship the release");
+    const channelList = screen.getByRole("list", { name: "Channels" });
+
+    await user.click(within(channelList).getByRole("checkbox", { name: "general" }));
+    await waitFor(() => expect(titles()).toEqual(["Ship the release", "Fix the flaky test"]));
+    // alice shows as ticked because of the channel, but only as a derived tick: no chip,
+    // nothing in the explicit selection.
+    expect(screen.getByRole("checkbox", { name: /alice$/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /alice$/ })).toHaveAccessibleDescription("Selected through a channel");
+    expect(screen.queryByRole("list", { name: "Selected people" })).not.toBeInTheDocument();
+
+    await user.click(within(channelList).getByRole("checkbox", { name: "design" }));
+    await waitFor(() => expect(titles()).toHaveLength(3));
+
+    // design out: carol goes with it, alice stays because general still contributes her.
+    await user.click(within(channelList).getByRole("checkbox", { name: "design" }));
+    await waitFor(() => expect(titles()).toEqual(["Ship the release", "Fix the flaky test"]));
+    await user.click(within(channelList).getByRole("checkbox", { name: "general" }));
+    await waitFor(() => expect(titles()).toHaveLength(3));
+    expect(api.channelMembers).toHaveBeenCalledWith(GENERAL.id);
+    expect(api.channelMembers).toHaveBeenCalledWith(DESIGN.id);
+  });
+
+  it("a channel whose members are still loading never shows the unfiltered list, and applies as soon as they arrive", async () => {
+    const user = userEvent.setup();
+    let arrive!: (ids: string[]) => void;
+    api.channelMembers.mockImplementation(() => new Promise<string[]>((resolve) => (arrive = resolve)));
+    renderBoard();
+    await screen.findByText("Ship the release");
+    expect(titles()).toHaveLength(3);
+
+    await user.click(within(screen.getByRole("list", { name: "Channels" })).getByRole("checkbox", { name: "general" }));
+    await waitFor(() => expect(api.channelMembers).toHaveBeenCalledWith(GENERAL.id));
+    expect(titles()).toEqual([]);
+
+    arrive(["u-carol"]);
+    await waitFor(() => expect(titles()).toEqual(["Write the docs"]));
+    // carol shows as ticked in the People list because of the channel.
+    expect(screen.getByRole("checkbox", { name: /carol$/ })).toBeChecked();
+  });
+
+  it("no explicit people + a selected channel whose member request fails must not silently show the unfiltered list", async () => {
+    const user = userEvent.setup();
+    api.channelMembers.mockRejectedValueOnce(new Error("503"));
+    renderBoard();
+    await screen.findByText("Ship the release");
+    expect(titles()).toHaveLength(3);
+
+    const general = within(screen.getByRole("list", { name: "Channels" })).getByRole("checkbox", { name: "general" });
+    await user.click(general);
+
+    // The channel is still ticked, so it still filters: no tasks, and the panel says why.
+    expect(await screen.findByText("Couldn't load the members of general, so no tasks are shown.")).toBeInTheDocument();
+    expect(general).toBeChecked();
+    expect(titles()).toEqual([]);
+
+    // Retry re-requests it; once the members arrive the restriction resolves normally.
+    api.channelMembers.mockResolvedValueOnce(["u-carol"]);
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(titles()).toEqual(["Write the docs"]));
+    expect(screen.queryByText(/Couldn't load the members/)).not.toBeInTheDocument();
   });
 
   it("uses the calendar as a date filter, and picking the day again clears it", async () => {
@@ -329,6 +398,7 @@ describe("MyTasksBoard scheduled assignments", () => {
     await showScheduled(scheduled({ assignees: people }));
 
     expect(screen.getByText("alice, bob")).toBeInTheDocument();
-    expect(screen.queryByText(/channel/i)).not.toBeInTheDocument();
+    // The schedule card's own line ("Channels: #x" / "N channels"); the filter panel has a Channels heading of its own.
+    expect(screen.queryByText(/^Channels: |^\d+ channels?$/)).not.toBeInTheDocument();
   });
 });

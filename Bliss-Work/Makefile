@@ -84,7 +84,7 @@ define confirm
 	if [ "$$ans" != "y" ]; then echo "Aborted — nothing was done."; exit 1; fi
 endef
 
-.PHONY: help env keys up wait seed demo logs ps down reset test check-migrations \
+.PHONY: help env keys up wait seed demo logs ps down reset test check-migrations check-i18n check-office-readers check-jenkins-images check-alertmanager-prod \
 	dev-up dev-down dev-restart dev-logs dev-ps dev-build dev-reset-db \
 	prod-up prod-down prod-restart prod-logs prod-ps prod-build \
 	prod-deploy prod-guard prod-fetch prod-deploy-images prod-deploy-core \
@@ -298,10 +298,10 @@ KEEP_IMAGE_TAGS      ?= 3
 # docker-compose.prod.yml by hand — there is no way to derive "these are the
 # ones we build, health-check, and roll" from the compose file itself without
 # adding a `profiles:`/label convention it doesn't have today.
-DEPLOY_BUILT_SERVICES  := auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw caddy
-DEPLOY_SHA_IMAGES      := auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw caddy-waf
-DEPLOY_HEALTH_SERVICES := auth-svc task-svc notification-svc messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw nginx caddy
-DEPLOY_CORE_SERVICES   := postgres redis kafka kafka-init livekit coturn auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw caddy nginx
+DEPLOY_BUILT_SERVICES  := auth-svc email-worker task-svc notification-svc doc-converter messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw caddy
+DEPLOY_SHA_IMAGES      := auth-svc email-worker task-svc notification-svc doc-converter messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw caddy-waf
+DEPLOY_HEALTH_SERVICES := auth-svc task-svc notification-svc doc-converter messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw nginx caddy
+DEPLOY_CORE_SERVICES   := postgres redis kafka kafka-init livekit coturn auth-svc email-worker task-svc notification-svc doc-converter messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw caddy nginx
 
 # Deliberately EXCLUDES the observability stack (otel-collector, prometheus,
 # the exporters, cadvisor, alertmanager, tempo, loki, grafana) — none of those
@@ -476,12 +476,39 @@ deploy_smoke_test() {
 #      image tag, and resetting git state from an unrelated manual invocation
 #      would be its own destructive surprise).
 # $2 = prev_tag to redeploy. Required.
+# $3 = "1" when this deploy STARTED on a dirty working tree or under
+#      DEPLOY_ALLOW_DIRTY=1. `git reset --hard` would then destroy the
+#      operator's uncommitted work, so `git reset --keep` is used instead: it
+#      moves HEAD back and refuses (leaving everything untouched) rather than
+#      overwrite a local change.
 deploy_rollback() {
-	local prev_sha="$$1" prev_tag="$$2"
+	local prev_sha="$$1" prev_tag="$$2" started_dirty="$${3:-0}"
+	local web_source_matches=1 rollback_sha
 	[ -n "$$prev_tag" ] || die "rollback: no previous known-good tag recorded ($$DEPLOY_LAST_GOOD is empty or missing)."
 	warn "Rolling back to $${prev_sha:-the current checkout} (images: $$prev_tag)"
 
-	[ -z "$$prev_sha" ] || git reset --hard "$$prev_sha"
+	# The local web bundle is built from this checkout, not from the image tag.
+	# Never rebuild it unless the source is known to match the image being restored.
+	if [ -z "$$prev_sha" ] && [ "$$PULL_MODE" != "1" ]; then
+		rollback_sha="$$(git rev-parse "$$prev_tag^{commit}" 2>/dev/null || true)"
+		[ -n "$$rollback_sha" ] && [ "$$rollback_sha" = "$$(git rev-parse HEAD)" ] || \
+			die "rollback: check out the source commit for image tag $$prev_tag before rolling back the web bundle."
+		[ -z "$$(git status --porcelain)" ] || \
+			die "rollback: the source tree is dirty; make it clean before rebuilding the rollback web bundle."
+	fi
+
+	if [ "$$PULL_MODE" != "1" ] && [ "$$started_dirty" = "1" ]; then
+		web_source_matches=0
+	fi
+	if [ -z "$$prev_sha" ]; then
+		:
+	elif [ "$$started_dirty" != "1" ]; then
+		git reset --hard "$$prev_sha"
+	elif ! git reset --keep "$$prev_sha"; then
+		if [ "$$PULL_MODE" != "1" ]; then web_source_matches=0; fi
+		warn "Deploy started on a dirty tree (or DEPLOY_ALLOW_DIRTY=1), so the working tree was NOT hard-reset and your uncommitted changes are intact."
+		warn "git could not move HEAD back to $$prev_sha without touching them; HEAD is still at $$(git rev-parse HEAD). Move it yourself when ready: git reset --keep $$prev_sha"
+	fi
 
 	if $(SUDO) docker image inspect "$$REGISTRY_PREFIX/auth-svc:$$prev_tag" >/dev/null 2>&1; then
 		# Previous image set is still in the local store — a container
@@ -498,7 +525,12 @@ deploy_rollback() {
 		export IMAGE_TAG="$$prev_tag"
 		compose up -d --build --remove-orphans "$${CORE_SERVICES[@]}"
 	fi
-	deploy_web_bundle
+	if [ "$$web_source_matches" = "1" ]; then
+		deploy_web_bundle
+	else
+		warn "Rollback incomplete: skipped web bundle rebuild because this checkout may not match rollback image $$prev_tag. Check out the matching source and rebuild the web bundle before considering rollback complete."
+		return 1
+	fi
 
 	warn "Rollback complete: production is back on $$prev_tag."
 }
@@ -530,10 +562,16 @@ deploy_prune_old_images() {
 # back to exactly what was running before this call started.
 deploy_run() {
 	mkdir -p "$$DEPLOY_STATE_DIR"
-	local prev_sha prev_tag new_sha
+	local prev_sha prev_tag new_sha started_dirty
 	prev_sha="$$(git rev-parse HEAD)"
 	prev_tag="$$(cat "$$DEPLOY_LAST_GOOD" 2>/dev/null || true)"
 	log "Current: $$prev_sha (images: $${prev_tag:-unknown})"
+	# Decided BEFORE deploy_fetch: a failed deploy's rollback must not
+	# `git reset --hard` over uncommitted work (see deploy_rollback).
+	started_dirty=0
+	if [ "$${DEPLOY_ALLOW_DIRTY:-0}" = "1" ] || [ -n "$$(git status --porcelain)" ]; then
+		started_dirty=1
+	fi
 
 	deploy_fetch
 
@@ -550,7 +588,7 @@ deploy_run() {
 	# itself must not recurse. The final `exit 1` is deliberate even though
 	# rollback succeeded — the DEPLOY still failed, and callers (Jenkins,
 	# GitHub Actions) need that reflected in the exit code.
-	trap 'trap - ERR; deploy_rollback "$$prev_sha" "$$prev_tag"; exit 1' ERR
+	trap 'trap - ERR; deploy_rollback "$$prev_sha" "$$prev_tag" "$$started_dirty"; exit 1' ERR
 
 	deploy_build_or_pull_images
 	deploy_core
@@ -767,6 +805,26 @@ reset:
 test:
 	npm test --silent
 	node scripts/check-migrations.mjs
+	node scripts/check-locales.mjs
+	node scripts/check-no-office-readers.mjs
+	node scripts/check-jenkins-images.mjs
+	node scripts/check-alertmanager-prod.mjs
 
 check-migrations:
 	node scripts/check-migrations.mjs
+
+# Every locale must mirror locales/en (keys, placeholders, plural forms) — see docs/I18N.md.
+check-i18n:
+	node scripts/check-locales.mjs
+
+# Office files may only be read inside the Office Document Sandbox (services/doc-converter).
+check-office-readers:
+	node scripts/check-no-office-readers.mjs
+
+# Jenkinsfile IMAGES must include every deployed image and cover every Dockerfile COPY source.
+check-jenkins-images:
+	node scripts/check-jenkins-images.mjs
+
+# Prod Alertmanager must use the prod config and a fail-closed secret receiver, never the dev sink.
+check-alertmanager-prod:
+	node scripts/check-alertmanager-prod.mjs

@@ -1,6 +1,8 @@
 {
   "mediaBubble": {
     "openFile": "Open {{name}}",
+    "download": "Download",
+    "downloadFile": "Download {{name}}",
     "uploading": "Uploading… {{percent}}%",
     "notAvailable": "Not available to you",
     "previewUnavailable": "Preview isn't available for this file type"

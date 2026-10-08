@@ -1,0 +1,213 @@
+{
+  "liveEvents": {
+    "newMailInInbox": "Nouveau message dans votre boîte de réception"
+  },
+  "shared": {
+    "tryAgain": "Réessayer",
+    "noSubject": "(sans objet)",
+    "restoreMailTitle": "Restaurer — remet ce message dans le dossier d'où il provient",
+    "deleteMailTitle": "Supprimer — ne supprime que votre copie ; celle des autres n'est pas affectée",
+    "restoreLabel": "Restaurer",
+    "deleteLabel": "Supprimer",
+    "loading": "Chargement…"
+  },
+  "fields": {
+    "to": "À",
+    "cc": "Cc",
+    "bcc": "Cci"
+  },
+  "layout": {
+    "backToList": "Retour à la liste",
+    "welcome": {
+      "title": "Rien d'ouvert",
+      "hint": "Choisissez un message dans la liste pour le lire ici, ou sélectionnez Nouveau message pour en écrire un."
+    }
+  },
+  "folders": {
+    "title": "Courrier",
+    "unreadAriaLabel": "{{folder}}, {{count}} non lus",
+    "box": {
+      "inbox": "Boîte de réception",
+      "sent": "Éléments envoyés",
+      "drafts": "Brouillons",
+      "deleted": "Éléments supprimés",
+      "favorites": "Favoris"
+    }
+  },
+  "list": {
+    "tabs": {
+      "all": "Tous",
+      "unread": "Non lus"
+    },
+    "newMail": {
+      "title": "Nouveau message — rédiger un e-mail",
+      "label": "Nouveau message"
+    },
+    "checkForNewMail": "Vérifier les nouveaux messages",
+    "unknownPeer": "cette personne",
+    "emptyStates": {
+      "unreadTitle": "Rien de non lu",
+      "deletedTitle": "Rien de supprimé",
+      "favoritesTitle": "Aucun favori pour l'instant",
+      "defaultTitle": "Rien ici pour l'instant",
+      "unreadHint": "Tout ce qui se trouve dans ce dossier a été lu.",
+      "peerHint": "Aucun message avec {{peer}} dans {{folder}}.",
+      "deletedHint": "Les messages que vous supprimez sont conservés ici pendant 90 jours, afin que vous puissiez les restaurer.",
+      "favoritesHint": "Marquez un message d'une étoile depuis n'importe quel dossier et il sera rassemblé ici. Les étoiles sont conservées sur cet appareil.",
+      "defaultHint": "Choisissez Nouveau message pour en écrire un."
+    },
+    "messageCount_one": "{{shown}} message",
+    "messageCount_many": "{{shown}} de messages",
+    "messageCount_other": "{{shown}} messages",
+    "loadingMore": "Chargement de la suite…",
+    "showAllMailTitle": "Afficher les messages de tout le monde",
+    "errors": {
+      "couldNotRemoveItem": "Impossible de retirer cet élément",
+      "couldNotRestoreItem": "Impossible de restaurer ce message",
+      "couldNotDeleteMessage": "Impossible de supprimer ce message",
+      "couldNotAcknowledgeTask": "Impossible de prendre en compte cette tâche",
+      "couldNotCompleteTask": "Impossible de terminer cette tâche"
+    }
+  },
+  "detail": {
+    "loadingMail": "Chargement du message…",
+    "loadError": "Ce message n'a pas pu être ouvert. Il a peut-être été supprimé.",
+    "unknownSender": "Expéditeur inconnu",
+    "restoredToast": "Restauré dans votre boîte mail",
+    "movedToDeletedToast": "Déplacé vers Éléments supprimés",
+    "couldNotRestoreToast": "Impossible de restaurer",
+    "couldNotRemoveToast": "Impossible de retirer",
+    "statusSent": "envoyé",
+    "statusInbox": "boîte de réception",
+    "noMessageBody": "(message sans contenu)",
+    "toolbar": {
+      "reply": "Répondre",
+      "replyTitle": "Répondre à l'expéditeur",
+      "replyAll": "Répondre à tous",
+      "replyAllTitle": "Répondre à tous les destinataires de ce message",
+      "forward": "Transférer",
+      "forwardTitle": "Transférer ce message à quelqu'un d'autre"
+    }
+  },
+  "thread": {
+    "defaultSubject": "Fil de discussion",
+    "ignoreTitle": "Ignorer — masque pour les deux parties",
+    "messageFailedToast": "Échec de l'envoi du message",
+    "couldNotRemoveThreadToast": "Impossible de retirer ce fil"
+  },
+  "task": {
+    "couldNotUpdateToast": "Impossible de mettre à jour cette tâche",
+    "notFoundTitle": "Tâche introuvable",
+    "notFoundHint": "Elle a peut-être été supprimée."
+  },
+  "row": {
+    "externalSender": "Expéditeur externe",
+    "untitledTask": "(tâche sans titre)",
+    "noPreview": "(aucun aperçu)",
+    "taskLabel": "Tâche",
+    "threadLabel": "fil",
+    "newBadge": "nouveau",
+    "favorite": {
+      "add": "Ajouter aux favoris",
+      "remove": "Retirer des favoris"
+    },
+    "acknowledgeTitle": "Prendre en compte — accepter cette tâche",
+    "acknowledgeLabel": "Prendre en compte",
+    "completeTitle": "Marquer comme terminée",
+    "completeLabel": "Terminer",
+    "ignoreTitleTask": "Ignorer — retirer de votre boîte mail",
+    "ignoreTitleThread": "Ignorer — masque pour les deux",
+    "ignoreLabel": "Ignorer",
+    "dismissTitle": "Supprimer de votre boîte mail"
+  },
+  "addressField": {
+    "invalidAddressTitle": "Cela ne ressemble pas à une adresse e-mail",
+    "removeAddress": "Retirer {{address}}"
+  },
+  "attachments": {
+    "heading": "Pièces jointes ({{count}})",
+    "couldNotAttachToast": "Impossible de joindre {{filename}}",
+    "tooLargeToast": "{{filename}} dépasse {{maxSize}}.",
+    "couldNotRemoveToast": "Impossible de retirer ce fichier",
+    "tray": {
+      "uploading": "Téléversement… {{progress}} %",
+      "remove": "Retirer {{filename}}"
+    },
+    "preview": "Aperçu",
+    "previewFile": "Aperçu de {{filename}}",
+    "open": "Ouvrir",
+    "openFile": "Ouvrir {{filename}}",
+    "download": "Télécharger",
+    "downloadFile": "Télécharger {{filename}}",
+    "preparing": "Préparation…",
+    "unavailable": "Indisponible"
+  },
+  "draftList": {
+    "discardedToast": "Brouillon supprimé",
+    "couldNotDiscardToast": "Impossible de supprimer",
+    "loading": "Chargement des brouillons…",
+    "errorTitle": "Les brouillons n'ont pas pu être chargés",
+    "errorHint": "Vérifiez votre connexion et choisissez Vérifier les nouveaux messages ci-dessus.",
+    "emptyTitle": "Aucun brouillon",
+    "emptyHint": "Un message que vous commencez et quittez sans l'envoyer est conservé ici jusqu'à ce que vous le terminiez.",
+    "noRecipient": "Aucun destinataire pour l'instant",
+    "addressedMore": "{{first}} + {{count}} autres",
+    "attachments_one": "{{count}} fichier",
+    "attachments_many": "{{count}} de fichiers",
+    "attachments_other": "{{count}} fichiers",
+    "discardTitle": "Supprimer ce brouillon — il n'a été envoyé à personne",
+    "discardAriaLabel": "Supprimer le brouillon"
+  },
+  "compose": {
+    "headings": {
+      "draft": "Brouillon",
+      "forward": "Transfert",
+      "reply": "Réponse",
+      "newMail": "Nouveau message"
+    },
+    "closeTitle": "Fermer — conserve ce message dans les brouillons",
+    "startErrorBanner": "Impossible de démarrer un brouillon. Vérifiez votre connexion et réessayez.",
+    "retry": "Réessayer",
+    "openingDraft": "Ouverture du brouillon…",
+    "loadErrorText": "Ce brouillon n'a pas pu être ouvert. Il a peut-être été envoyé ou supprimé.",
+    "ccBccButton": "Cc / Cci",
+    "toPlaceholder": "nom@societe.com",
+    "ccPlaceholder": "Mettre quelqu'un en copie",
+    "bccPlaceholder": "Copie cachée — masquée pour tous les autres",
+    "subjectLabel": "Objet",
+    "subjectPlaceholder": "De quoi s'agit-il ?",
+    "messageLabel": "Message",
+    "messagePlaceholder": "Écrivez votre e-mail…",
+    "attachTitleReady": "Joindre des fichiers",
+    "attachTitlePreparing": "Préparation du brouillon…",
+    "attachLabel": "Joindre",
+    "removeAll": "Tout retirer",
+    "preparing": "Préparation…",
+    "discardButton": "Supprimer",
+    "discardTitle": "Supprimer — efface ce brouillon ; il n'a été envoyé à personne",
+    "closeButton": "Fermer",
+    "sendButton": "Envoyer",
+    "sendingButton": "Envoi…",
+    "draftDiscardedToast": "Brouillon supprimé",
+    "couldNotDiscardToast": "Impossible de supprimer le brouillon",
+    "couldNotSendToast": "Impossible d'envoyer",
+    "errors": {
+      "draftNotReady": "brouillon non prêt",
+      "invalidAddress": "« {{address}} » ne ressemble pas à une adresse e-mail.",
+      "subjectTooLong": "L'objet fait {{length}} caractères — la limite est de {{limit}}."
+    },
+    "sentSummary": {
+      "sent": "Envoyé",
+      "sentToPeople": "Envoyé à {{count}} personnes",
+      "delivering": "Envoyé — remise en cours",
+      "deliveringToCount": "Envoyé — remise en cours à {{count}}",
+      "sentAndDelivering": "Envoyé à {{inApp}} ici, remise en cours à {{external}} autres"
+    }
+  },
+  "quote": {
+    "wrote": "Le {{when}}, {{sender}} a écrit :"
+  },
+  "recipients": {
+    "summaryMore": "{{list}} + {{count}} autres"
+  }
+}

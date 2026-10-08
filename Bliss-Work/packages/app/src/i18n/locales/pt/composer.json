@@ -1,0 +1,18 @@
+{
+  "replyingTo": "Respondendo a {{who}}",
+  "thisMessage": "esta mensagem",
+  "cancelReply": "Cancelar resposta",
+  "removeAttachment": "Remover {{name}}",
+  "preparingFiles_one": "Preparando {{count}} arquivo…",
+  "preparingFiles_many": "Preparando {{count}} de arquivos…",
+  "preparingFiles_other": "Preparando {{count}} arquivos…",
+  "attachTitle": "Anexar fotos, vídeos ou arquivos",
+  "attachAriaLabel": "Anexar um arquivo",
+  "shareLocation": "Compartilhar sua localização",
+  "send": "Enviar",
+  "placeholder": {
+    "default": "Escreva uma mensagem…",
+    "dropFiles": "Solte arquivos para anexar…",
+    "addMessageOrSend": "Adicione uma mensagem ou pressione Enviar…"
+  }
+}

@@ -163,3 +163,37 @@ func TestHydrateMessages_MultiOrgBatch(t *testing.T) {
 		t.Errorf("org 2 body = %q", got[res2.MessageID].Body)
 	}
 }
+
+// B-MSG-7: a reply from the OTHER party must hydrate with the other party as its
+// recipient (the root's recipient is the replier themselves), matching the live
+// event.
+func TestHydrateMessages_ReplyFromRecipientCarriesTheRootSenderAsRecipient(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+
+	orgID := uuid.NewString()
+	alice, bob := uuid.NewString(), uuid.NewString()
+	seedUser(t, s, orgID, alice, "alice", "Alice")
+	seedUser(t, s, orgID, bob, "bob", "Bob")
+
+	root, err := s.SendMessage(ctx, orgID, alice, bob, "root", uuid.NewString(), SendOptions{Origin: ThreadOriginChat})
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	// Bob answers Alice's message in the same thread.
+	reply, err := s.ReplyToThread(ctx, orgID, bob, root.ThreadID, root.MessageID, "reply", uuid.NewString(), "")
+	if err != nil {
+		t.Fatalf("ReplyToThread: %v", err)
+	}
+
+	got, err := s.HydrateMessages(ctx, []string{root.MessageID, reply.MessageID})
+	if err != nil {
+		t.Fatalf("HydrateMessages: %v", err)
+	}
+	if r := got[root.MessageID].RecipientID; r != bob {
+		t.Errorf("root RecipientID = %q, want bob %q", r, bob)
+	}
+	if r := got[reply.MessageID].RecipientID; r != alice {
+		t.Errorf("reply RecipientID = %q, want alice %q (the root's sender), got the replier's own id back", r, alice)
+	}
+}

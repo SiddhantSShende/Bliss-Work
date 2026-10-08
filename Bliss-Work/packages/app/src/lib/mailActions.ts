@@ -137,7 +137,7 @@ export function quoteBody(sender: string, sentAt: string, body: string): string 
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n");
-  return `\n\nOn ${formatMailTime(sentAt)}, ${sender} wrote:\n${quoted}\n`;
+  return `\n\n${i18n.t("mail:quote.wrote", { when: formatMailTime(sentAt), sender })}\n${quoted}\n`;
 }
 
 /**
@@ -178,7 +178,7 @@ export function forwardBody(mail: MailDTO, senderLabel: string): string {
 export function summarizeRecipients(people: MailRecipientDTO[], max = 3): string {
   const names = people.map((p) => p.displayName || p.address).filter(Boolean);
   if (names.length <= max) return names.join(", ");
-  return `${names.slice(0, max).join(", ")} + ${names.length - max} more`;
+  return i18n.t("mail:recipients.summaryMore", { list: names.slice(0, max).join(", "), count: names.length - max });
 }
 
 /** Every addressee spelled out — the `title` behind the summary above. */

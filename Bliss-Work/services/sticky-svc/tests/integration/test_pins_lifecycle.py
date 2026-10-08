@@ -204,3 +204,37 @@ class TestDeliveryTracking:
                 )
             ).all()
         assert rows == []
+
+
+class _Msg:
+    def __init__(self, value, offset=0):
+        self.value = value
+        self.offset = offset
+
+
+class TestPoisonEventsDoNotWedgeTheConsumer:
+    """One undeliverable event must not stop the pins behind it (B-STK-1)."""
+
+    async def test_a_bad_sender_id_is_skipped_and_the_next_event_applies(self, db_app):
+        bad = event("task.assigned", senderId="not-a-uuid")
+        good_task = str(uuid.uuid4())
+        good = event("task.assigned", task=good_task)
+
+        ok = await consumer._process_batch({"tp": [_Msg(bad, 0), _Msg(good, 1)]})
+
+        assert ok is True, "the batch must be committable past the poison event"
+        pins = await open_pins(ORG_A, ALICE)
+        assert [str(p["task_id"]) for p in pins] == [good_task]
+
+    async def test_a_db_rejected_org_deleted_is_skipped_not_retried_forever(self, db_app):
+        # org.deleted's orgId is bound straight into a uuid comparison by the
+        # purge; a non-UUID makes Postgres raise DataError on every attempt.
+        poison = {"type": "org.deleted", "eventId": str(uuid.uuid4()), "orgId": "not-a-uuid"}
+        good_task = str(uuid.uuid4())
+
+        ok = await consumer._process_batch(
+            {"tp": [_Msg(poison, 0), _Msg(event("task.assigned", task=good_task), 1)]}
+        )
+
+        assert ok is True
+        assert [str(p["task_id"]) for p in await open_pins(ORG_A, ALICE)] == [good_task]

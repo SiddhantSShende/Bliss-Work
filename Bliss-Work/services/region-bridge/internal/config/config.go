@@ -32,7 +32,9 @@ type Config struct {
 	// DLQTopic receives events that cannot be bridged and must not block the
 	// stream behind them. Empty disables dead-lettering, which makes a poison
 	// event block its partition — allowed, because for some deployments losing
-	// ordering is worse than stalling, but it must be a choice.
+	// ordering is worse than stalling, but it must be a choice. (That is the
+	// exporter. The importer has nothing to block: with no DLQ it logs, counts
+	// and terminates a poison event rather than recycling it.)
 	DLQTopic string
 	// KafkaGroupID is the consumer group the exporter joins. Distinct from
 	// every application group so bridging cannot consume events away from the

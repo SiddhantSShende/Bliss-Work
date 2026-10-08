@@ -1,0 +1,16 @@
+{
+  "_comment": "The one list of what can be previewed in-app, asserted by three test suites so the copies cannot drift: packages/app (lib/attachmentCapability.test.ts), services/messaging-svc (internal/media/preview_test.go) and services/doc-converter (tests/test_spec.py). `preview` maps an extension to the artifact the sandbox produces: pdf (Word, PowerPoint) or sheet (Excel). Everything in `notPreviewable` must be download-only.",
+  "preview": {
+    "doc": "pdf",
+    "docx": "pdf",
+    "ppt": "pdf",
+    "pptx": "pdf",
+    "xls": "sheet",
+    "xlsx": "sheet"
+  },
+  "notPreviewable": [
+    "rtf", "odt", "ods", "odp", "docm", "xlsm", "pptm", "dotx", "xltx", "potx", "dot", "xlt", "pot", "pps", "ppsx",
+    "txt", "csv", "pdf", "png", "jpg", "zip", "rar", "7z", "gz", "tar", "eml", "msg", "psd", "ai", "dwg", "dxf",
+    "js", "ts", "py", "go", "java", "c", "html", "xml", "json", "md", "exe", "bat", "sh", "bin", "dmg", "iso"
+  ]
+}

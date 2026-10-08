@@ -8,6 +8,7 @@
 import { loadConfig } from "./config.js";
 import { createLogger } from "./logging.js";
 import { Metrics } from "./metrics.js";
+import { routeMetricPath } from "./routeLabels.js";
 import { startTracing } from "./tracing.js";
 
 const cfg = loadConfig();
@@ -33,7 +34,7 @@ let draining = false;
 let inFlight = 0;
 
 const server = createServer((req, res) => {
-  const path = (req.url ?? "/").split("?")[0] ?? "/";
+  const path = routeMetricPath(req.url ?? "/");
 
   if (path === "/healthz") return respond(res, 200, { status: "ok" });
   if (path === "/readyz") {
@@ -59,8 +60,6 @@ const server = createServer((req, res) => {
     stopTimer();
     metrics.httpRequests.inc({
       method: req.method ?? "GET",
-      // The registered path, never the raw URL: query strings carry variables
-      // and would make this label unbounded.
       path,
       status: String(res.statusCode),
     });

@@ -1,0 +1,93 @@
+{
+  "loading": "加载中…",
+  "unknownUser": "未知用户",
+  "screenshotBlocked": "检测到截图操作。此处不允许截图。",
+  "date": {
+    "today": "今天",
+    "yesterday": "昨天",
+    "tomorrow": "明天"
+  },
+  "buttons": {
+    "dismiss": "关闭",
+    "view": "查看",
+    "manage": "管理",
+    "save": "保存",
+    "cancel": "取消",
+    "edit": "编辑"
+  },
+  "language": {
+    "changeLanguage": "切换语言",
+    "switcherTitle": "语言：{{name}}",
+    "switchFailed": "无法加载该语言，请重试。"
+  },
+  "relativeTime": {
+    "justNow": "刚刚",
+    "minutesAgo_other": "{{count}}分钟前",
+    "hoursAgo_other": "{{count}}小时前",
+    "daysAgo_other": "{{count}}天前"
+  },
+  "confirmDialog": {
+    "confirmDefault": "确认",
+    "cancel": "取消"
+  },
+  "modal": {
+    "close": "关闭"
+  },
+  "lightbox": {
+    "close": "关闭",
+    "previous": "上一个",
+    "next": "下一个",
+    "loading": "加载中…",
+    "previewNotAvailable": "此文件类型不支持预览",
+    "openInBrowser": "改用浏览器打开",
+    "loadingPreview": "正在加载预览…",
+    "itemCount": " · 第 {{current}} 个，共 {{total}} 个"
+  },
+  "documentViewer": {
+    "converting": "正在准备预览…较大的文档可能需要一分钟。",
+    "failed": "无法预览此文档。",
+    "failedHint": "你仍然可以下载它。",
+    "unavailable": "预览暂时不可用。",
+    "busy": "同时请求的预览过多，请稍后再试。",
+    "tooLarge": "此文件太大，无法预览。",
+    "timedOut": "这比预期花费的时间更长。",
+    "network": "无法加载预览，请检查你的网络连接。",
+    "download": "下载",
+    "sheetNotice": "简易数据视图。不显示格式、合并单元格、图表和图片——请下载文件以查看其原始效果。",
+    "csvNotice": "简易数据视图。请下载文件，以便在电子表格应用中打开。",
+    "showingRowsOf": "显示前 {{shown}} 行，共 {{total}} 行。",
+    "showingRows": "显示前 {{shown}} 行。",
+    "moreSheets": "仅显示前 {{count}} 个工作表。",
+    "showMoreRows": "显示更多行",
+    "emptySheet": "此工作表为空。",
+    "sheets": "工作表",
+    "textTruncated": "仅显示此文件的前面部分。",
+    "emptyFile": "此文件为空。"
+  },
+  "errorBoundary": {
+    "title": "出错了。",
+    "unexpectedError": "发生了意外错误。",
+    "reference": "参考编号：{{requestId}}",
+    "retry": "重试",
+    "goHome": "返回首页"
+  },
+  "globalError": {
+    "title": "出错了"
+  },
+  "attachment": {
+    "couldNotOpen": "无法打开 {{filename}}"
+  },
+  "ui": {
+    "back": "返回",
+    "onCall": "通话中",
+    "nothingRecorded": "此时间段内没有记录。",
+    "chartValue": "数值",
+    "chartPeakAria": "按天统计 {{value}}，峰值 {{peak}}",
+    "chartActiveIdle": "活跃 {{active}}，空闲 {{idle}}"
+  },
+  "activityRange": {
+    "last7": "最近 7 天",
+    "last30": "最近 30 天",
+    "last90": "最近 90 天"
+  }
+}

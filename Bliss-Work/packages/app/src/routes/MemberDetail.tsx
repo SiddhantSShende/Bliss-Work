@@ -252,7 +252,7 @@ export function MemberDetail() {
         )}
 
         {tab === "analytics" && canSeeActivity && (
-          <MemberAnalytics userId={isSelf ? "me" : member.id} />
+          <MemberAnalytics userId={isSelf ? "me" : member.id} onViewAllActivity={() => setTab("timeline")} />
         )}
 
         {tab === "sessions" && canSeeActivity && (

@@ -1,0 +1,56 @@
+{
+  "menu": {
+    "file": "Arquivo",
+    "showApp": "Mostrar o BlissWork",
+    "quit": "Sair",
+    "view": "Exibir",
+    "aboutItem": "Sobre o BlissWork",
+    "aboutTitle": "Sobre o BlissWork",
+    "aboutMessage": "BlissWork",
+    "aboutDetail": "Versão {{version}}\nElectron {{electron}} · Chromium {{chrome}}\n\nMensagens de equipe + tarefas com notas adesivas sempre visíveis.",
+    "ok": "OK",
+    "webHelp": "BlissWork na web"
+  },
+  "tray": {
+    "tooltipIdle": "BlissWork",
+    "tooltipTasks_one": "BlissWork — {{count}} tarefa ativa",
+    "tooltipTasks_many": "BlissWork — {{count}} de tarefas ativas",
+    "tooltipTasks_other": "BlissWork — {{count}} tarefas ativas",
+    "activeTasks": "Tarefas ativas: {{count}}",
+    "show": "Mostrar o BlissWork",
+    "quit": "Sair"
+  },
+  "notifications": {
+    "brand": "BlissWork",
+    "newMessage": "Nova mensagem",
+    "taskUpdate": "Atualização de tarefa",
+    "meeting": "Reunião",
+    "channelUpdate": "Atualização de canal",
+    "attachment": "Enviou um anexo",
+    "incomingVideoCall": "📹 Chamada de vídeo recebida",
+    "incomingVoiceCall": "📞 Chamada de voz recebida",
+    "accept": "Aceitar",
+    "decline": "Recusar"
+  },
+  "updater": {
+    "restartNow": "Reiniciar agora",
+    "later": "Mais tarde",
+    "updateReady": "Atualização pronta",
+    "readyMessage": "O BlissWork {{version}} está pronto para ser instalado.",
+    "readyDetail": "Reinicie o app para aplicar a atualização. Ela também será instalada automaticamente na próxima vez que você sair.",
+    "devUnsupported": "As atualizações se aplicam apenas a versões instaladas.",
+    "storeManaged": "A Microsoft Store gerencia as atualizações deste app.",
+    "unreachable": "Não foi possível acessar o servidor de atualizações."
+  },
+  "attachment": {
+    "notMainWindow": "Recusado: não é a janela principal.",
+    "unsafeUrl": "URL insegura recusada.",
+    "downloadFailed": "Falha no download ({{status}}).",
+    "emptyBody": "Corpo da resposta vazio.",
+    "couldNotOpen": "Não foi possível abrir o arquivo."
+  },
+  "windows": {
+    "meetingTitle": "Reunião · BlissWork",
+    "loading": "Carregando…"
+  }
+}

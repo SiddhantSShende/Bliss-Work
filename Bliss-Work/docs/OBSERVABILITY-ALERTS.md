@@ -129,7 +129,14 @@ receiver pointed at an in-network sink so the send always succeeds locally
 without external credentials. It also defines an inhibit rule so a firing
 `critical` suppresses the sibling `warning` for the same `alertname`/`job`.
 
-**Production receivers** are stubbed (commented) in `alertmanager.yml`:
+**Production** does NOT use `alertmanager.yml`. `docker-compose.prod.yml` mounts
+`alertmanager.prod.yml`, which delivers every alert to one webhook whose URL is
+read from a secret file (`url_file`). Set `ALERTMANAGER_WEBHOOK_URL_FILE` in
+`.env.prod` to the host path of that file (see `.env.prod.example`); compose
+refuses to run without it. `scripts/check-alertmanager-prod.mjs` guards this.
+
+Further provider receivers (add to `alertmanager.prod.yml`; stubbed in
+`alertmanager.yml`):
 
 - **Slack** — `slack_configs` with an incoming-webhook `api_url` (inject via a
   secret/file, not inline), one channel per `category`/`severity` route.

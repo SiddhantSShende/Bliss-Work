@@ -223,6 +223,7 @@
     },
     "unavailable": "Unavailable",
     "openItem": "Open {{name}}",
+    "downloadItem": "Download {{name}}",
     "emptyDocs": {
       "title": "No documents yet",
       "hint": "Files that aren't photos or video — PDFs, spreadsheets, archives — collect here."

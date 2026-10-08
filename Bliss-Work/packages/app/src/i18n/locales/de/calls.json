@@ -1,0 +1,198 @@
+{
+  "notify": {
+    "incomingVideo": "Eingehender Videoanruf",
+    "incomingVoice": "Eingehender Sprachanruf",
+    "incomingBody": "{{caller}} ruft Sie an",
+    "missedTitle": "Verpasster Anruf",
+    "missedBody": "Sie haben einen Anruf von {{caller}} verpasst",
+    "cameraUnavailable": "Kamera nicht verfügbar",
+    "cameraUnavailableDescription": "Prüfen Sie die Kameraberechtigung dieser App.",
+    "couldNotShareScreen": "Ihr Bildschirm konnte nicht geteilt werden",
+    "ringtoneMuted": "Der Klingelton wird von Ihrem Browser stummgeschaltet",
+    "ringtoneMutedDescription": "Klicken Sie irgendwo, um Anruftöne zuzulassen.",
+    "unknownCaller": "Jemand"
+  },
+  "endedReasons": {
+    "noAnswer": "Keine Antwort",
+    "mediaBlocked": "Kamera/Mikrofon blockiert",
+    "declined": "Anruf abgelehnt",
+    "callEnded": "Anruf beendet",
+    "userUnavailable": "Person nicht erreichbar",
+    "connectionFailed": "Verbindung fehlgeschlagen"
+  },
+  "window": {
+    "tabTitle": "{{title}} · {{brand}}",
+    "untitledMeeting": "Meeting",
+    "loading": "Meeting wird geladen…",
+    "loadError": {
+      "title": "Dieses Meeting konnte nicht geladen werden.",
+      "hint": "Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+      "returnToMeetings": "Zurück zu Meetings",
+      "retrying": "Neuer Versuch…",
+      "retry": "Erneut versuchen"
+    },
+    "unavailable": {
+      "title": "Dieses Meeting ist nicht verfügbar",
+      "hint": "Es wurde möglicherweise beendet, oder Sie stehen nicht mehr auf der Teilnehmerliste.",
+      "close": "Schließen"
+    }
+  },
+  "join": {
+    "signIn": {
+      "title": "Zum Beitreten anmelden",
+      "hint": "Dieser Meeting-Link funktioniert mit jedem {{brand}}-Konto, auch mit einem aus einer anderen Organisation."
+    },
+    "joining": "Beitritt läuft…",
+    "invalid": {
+      "title": "Dieser Einladungslink ist nicht mehr gültig",
+      "hint": "Er ist möglicherweise abgelaufen oder wurde zurückgezogen, oder das Meeting ist bereits beendet. Bitten Sie die organisierende Person um einen neuen Link.",
+      "backToApp": "Zurück zu {{brand}}"
+    },
+    "timeout": {
+      "title": "Das dauert länger als erwartet",
+      "hint": "Meist hilft es, die Seite neu zu laden.",
+      "reload": "Neu laden"
+    },
+    "handoff": {
+      "joining": "Dem Meeting wird beigetreten…"
+    }
+  },
+  "chat": {
+    "disclaimer": "Nachrichten hier sind für alle Teilnehmenden sichtbar – wählen Sie unten einen Namen, um privat zu schreiben.",
+    "empty": "Noch keine Nachrichten. Alles, was hier gesendet wird, bleibt nur für die Dauer des Meetings erhalten – laden Sie es über die Kopfzeile herunter, wenn Sie es behalten möchten.",
+    "toLabel": "An:",
+    "toAriaLabel": "Wer diese Nachricht erhält",
+    "everyone": "Alle",
+    "privateOption": "{{name}} (privat)",
+    "attachmentsUnsupported": "Anhänge werden im Meeting-Chat nicht unterstützt",
+    "privatePlaceholder": "Private Nachricht an {{name}}…",
+    "everyonePlaceholder": "Nachricht an alle…",
+    "privateAriaLabel": "Private Nachricht an {{name}}",
+    "everyoneAriaLabel": "Nachricht an alle",
+    "send": "Senden",
+    "onlyWillSee": "Nur {{name}} sieht dies",
+    "you": "Sie",
+    "privateToName": "Privat an {{name}}",
+    "privateToYou": "Privat an Sie"
+  },
+  "members": {
+    "pagesAriaLabel": "Seiten der Teilnehmenden",
+    "previous": "Vorherige Teilnehmende",
+    "pageAriaLabel": "Teilnehmende, Seite {{page}} von {{pages}}",
+    "more": "Weitere Teilnehmende"
+  },
+  "menu": {
+    "call": "Anruf",
+    "voiceCall": "Sprachanruf",
+    "videoCall": "Videoanruf",
+    "sendCallLink": "Anruflink senden",
+    "scheduleCall": "Anruf planen"
+  },
+  "notes": {
+    "empty": "Noch keine Punkte. Alles, was hier steht, wird mit allen im Meeting geteilt.",
+    "placeholder": "Wichtigen Punkt notieren…",
+    "ariaLabel": "Wichtigen Punkt notieren",
+    "enterToAdd": "Enter zum Hinzufügen",
+    "addPoint": "Punkt hinzufügen"
+  },
+  "sidebar": {
+    "controlsAriaLabel": "Meeting-Steuerung",
+    "mute": "Stumm",
+    "muted": "Stumm",
+    "camera": "Kamera",
+    "share": "Teilen",
+    "raise": "Melden",
+    "people": "Personen",
+    "add": "Hinzufügen",
+    "addPeople": "Personen hinzufügen",
+    "chats": "Chats",
+    "notes": "Notizen",
+    "record": "Aufnahme",
+    "recordUnsupported": "Dieser Browser kann keine Meetings aufnehmen",
+    "copyLink": "Link kopieren",
+    "copyInviteLink": "Einladungslink kopieren",
+    "pip": "PiP",
+    "exitPip": "PiP beenden",
+    "pictureInPicture": "Bild-in-Bild",
+    "exitPictureInPicture": "Bild-in-Bild beenden",
+    "pictureInPictureNoVideo": "Bild-in-Bild braucht das Video einer Person – niemand hat Kamera oder Bildschirmfreigabe eingeschaltet",
+    "minimize": "Minimieren",
+    "minimise": "Minimieren",
+    "end": "Beenden",
+    "endCall": "Anruf beenden"
+  },
+  "sidePanel": {
+    "tabNames": {
+      "chat": "Chat",
+      "notes": "Notizen",
+      "participants": "Teilnehmende"
+    },
+    "regionAriaLabel": "Meeting: {{tab}}",
+    "tablistAriaLabel": "Chat, Notizen oder Teilnehmende",
+    "chatTab": "Chat",
+    "notesTab": "Notizen",
+    "peopleTab": "Personen",
+    "saveAsFile": "{{tab}} als Datei speichern",
+    "closeTab": "{{tab}} schließen"
+  },
+  "filmstrip": {
+    "ariaLabel": "Weitere Teilnehmende",
+    "moreMembers": "+{{count}} weitere"
+  },
+  "roomLazy": {
+    "connecting": "Verbindung wird aufgebaut…",
+    "error": {
+      "title": "Beim Öffnen des Meeting-Raums ist etwas schiefgelaufen.",
+      "hint": "Meist hilft es, die Seite neu zu laden.",
+      "reload": "Neu laden"
+    }
+  },
+  "incomingNotice": {
+    "untitledMeeting": "Meeting",
+    "ariaLabel": "Eingehendes Meeting: {{title}}",
+    "hostedBy": "Organisiert von {{organizer}}",
+    "video": "Video",
+    "joinWithCamera": "Mit Kamera beitreten",
+    "voice": "Audio",
+    "joinVoiceOnly": "Nur mit Audio beitreten",
+    "leave": "Verlassen"
+  },
+  "scheduledNotice": {
+    "untitledMeeting": "Meeting",
+    "ariaLabel": "Meeting geplant: {{title}}",
+    "heading": "Meeting geplant",
+    "hostedBy": "Organisiert von {{organizer}}",
+    "join": "Meeting beitreten",
+    "dismiss": "Schließen"
+  },
+  "miniMeeting": {
+    "ariaLabel": "{{title}} – Meeting läuft",
+    "reconnecting": "Verbindung wird wiederhergestellt…",
+    "connecting": "Verbindung wird aufgebaut…",
+    "backToMeeting": "Zurück zum Meeting",
+    "nobodySpeaking": "Niemand spricht",
+    "mute": "Stummschalten",
+    "unmute": "Stummschaltung aufheben",
+    "turnCameraOff": "Kamera ausschalten",
+    "turnCameraOn": "Kamera einschalten",
+    "newChatMessages_one": "{{count}} neue Chatnachricht",
+    "newChatMessages_other": "{{count}} neue Chatnachrichten",
+    "leaveMeeting": "Meeting verlassen"
+  },
+  "sendLinkDialog": {
+    "title": "Anruflink senden",
+    "description": "Der Link wird in Ihrem Chat mit {{peerName}} gepostet. Alle, die Sie hier hinzufügen, erhalten ihn als Direktnachricht und bekommen unter Meetings einen Platz im Anruf.",
+    "alsoSendTo": "Auch senden an",
+    "selectedCount": "– {{count}} ausgewählt",
+    "optional": "– optional",
+    "cancel": "Abbrechen",
+    "sendLink": "Link senden"
+  },
+  "screenShare": {
+    "showControls": "Steuerung der Bildschirmfreigabe anzeigen",
+    "sharingYourScreen": "Sie teilen Ihren Bildschirm",
+    "stopSharingTitle": "Freigabe beenden",
+    "stop": "Stopp",
+    "slideOutOfTheWay": "Aus dem Weg schieben"
+  }
+}

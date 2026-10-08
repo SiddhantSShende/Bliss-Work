@@ -45,6 +45,16 @@ const api = {
   /** Collapse the container to a pill / expand it back; main resizes the window. */
   setCollapsed: (collapsed: boolean) => ipcRenderer.send("sticky:collapse", { collapsed }),
 
+  /** True where main cannot let the OS move/resize the note (Linux — see
+   *  main/sticky-resize.ts), so the renderer draws the resize handles and starts
+   *  body drags itself. */
+  manualResize: process.platform === "linux",
+
+  /** A resize handle or the note body ("move") was pressed / released; main
+   *  follows the cursor in between. */
+  dragStart: (drag: string) => ipcRenderer.send("sticky:drag-start", { drag }),
+  dragEnd: () => ipcRenderer.send("sticky:drag-end"),
+
   /** The window is opaque, not transparent (see windows.ts), so its native
    *  background has to be told what colour to be — it can't just inherit
    *  whatever CSS variable the theme resolves to. Sent as a resolved `#rrggbb`

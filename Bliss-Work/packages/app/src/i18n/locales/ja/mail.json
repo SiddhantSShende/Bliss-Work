@@ -1,0 +1,209 @@
+{
+  "liveEvents": {
+    "newMailInInbox": "受信トレイに新着メールがあります"
+  },
+  "shared": {
+    "tryAgain": "再試行",
+    "noSubject": "(件名なし)",
+    "restoreMailTitle": "元に戻す — このメールを元のフォルダーに戻します",
+    "deleteMailTitle": "削除 — あなたのコピーのみ削除され、他の人には影響しません",
+    "restoreLabel": "元に戻す",
+    "deleteLabel": "削除",
+    "loading": "読み込み中…"
+  },
+  "fields": {
+    "to": "宛先",
+    "cc": "Cc",
+    "bcc": "Bcc"
+  },
+  "layout": {
+    "backToList": "一覧に戻る",
+    "welcome": {
+      "title": "開いているメールはありません",
+      "hint": "一覧からメールを選択するとここに表示されます。新規メールを作成することもできます。"
+    }
+  },
+  "folders": {
+    "title": "メール",
+    "unreadAriaLabel": "{{folder}}、未読{{count}}件",
+    "box": {
+      "inbox": "受信トレイ",
+      "sent": "送信済みアイテム",
+      "drafts": "下書き",
+      "deleted": "削除済みアイテム",
+      "favorites": "お気に入り"
+    }
+  },
+  "list": {
+    "tabs": {
+      "all": "すべて",
+      "unread": "未読"
+    },
+    "newMail": {
+      "title": "新規メール — メールを作成",
+      "label": "新規メール"
+    },
+    "checkForNewMail": "新着メールを確認",
+    "unknownPeer": "このユーザー",
+    "emptyStates": {
+      "unreadTitle": "未読はありません",
+      "deletedTitle": "削除したメールはありません",
+      "favoritesTitle": "お気に入りはまだありません",
+      "defaultTitle": "まだ何もありません",
+      "unreadHint": "このフォルダーのメールはすべて既読です。",
+      "peerHint": "{{folder}}に{{peer}}とのメールはありません。",
+      "deletedHint": "削除したメールは90日間ここに保管されるので、元に戻せます。",
+      "favoritesHint": "どのフォルダーのメールでも星を付けると、ここに集まります。星の情報はこのデバイスに保存されます。",
+      "defaultHint": "「新規メール」を選択して作成しましょう。"
+    },
+    "messageCount_other": "{{shown}}件",
+    "loadingMore": "さらに読み込み中…",
+    "showAllMailTitle": "全員のメールを表示",
+    "errors": {
+      "couldNotRemoveItem": "このアイテムを削除できませんでした",
+      "couldNotRestoreItem": "このメールを元に戻せませんでした",
+      "couldNotDeleteMessage": "このメッセージを削除できませんでした",
+      "couldNotAcknowledgeTask": "このタスクを確認できませんでした",
+      "couldNotCompleteTask": "このタスクを完了できませんでした"
+    }
+  },
+  "detail": {
+    "loadingMail": "メールを読み込み中…",
+    "loadError": "このメールを開けませんでした。削除された可能性があります。",
+    "unknownSender": "不明な送信者",
+    "restoredToast": "メールボックスに戻しました",
+    "movedToDeletedToast": "削除済みアイテムに移動しました",
+    "couldNotRestoreToast": "元に戻せませんでした",
+    "couldNotRemoveToast": "削除できませんでした",
+    "statusSent": "送信済み",
+    "statusInbox": "受信トレイ",
+    "noMessageBody": "(本文なし)",
+    "toolbar": {
+      "reply": "返信",
+      "replyTitle": "送信者に返信",
+      "replyAll": "全員に返信",
+      "replyAllTitle": "このメールの全員に返信",
+      "forward": "転送",
+      "forwardTitle": "このメールを他の人に転送"
+    }
+  },
+  "thread": {
+    "defaultSubject": "スレッド",
+    "ignoreTitle": "無視 — 双方で非表示になります",
+    "messageFailedToast": "メッセージを送信できませんでした",
+    "couldNotRemoveThreadToast": "このスレッドを削除できませんでした"
+  },
+  "task": {
+    "couldNotUpdateToast": "このタスクを更新できませんでした",
+    "notFoundTitle": "タスクが見つかりません",
+    "notFoundHint": "削除された可能性があります。"
+  },
+  "row": {
+    "externalSender": "外部の送信者",
+    "untitledTask": "(無題のタスク)",
+    "noPreview": "(プレビューなし)",
+    "taskLabel": "タスク",
+    "threadLabel": "スレッド",
+    "newBadge": "新着",
+    "favorite": {
+      "add": "お気に入りに追加",
+      "remove": "お気に入りから削除"
+    },
+    "acknowledgeTitle": "確認 — このタスクを受け入れます",
+    "acknowledgeLabel": "確認",
+    "completeTitle": "完了にする",
+    "completeLabel": "完了",
+    "ignoreTitleTask": "無視 — メールボックスから削除します",
+    "ignoreTitleThread": "無視 — 双方で非表示になります",
+    "ignoreLabel": "無視",
+    "dismissTitle": "メールボックスから削除"
+  },
+  "addressField": {
+    "invalidAddressTitle": "メールアドレスの形式ではないようです",
+    "removeAddress": "{{address}}を削除"
+  },
+  "attachments": {
+    "heading": "添付ファイル({{count}})",
+    "couldNotAttachToast": "{{filename}}を添付できませんでした",
+    "tooLargeToast": "{{filename}}は{{maxSize}}を超えています。",
+    "couldNotRemoveToast": "このファイルを削除できませんでした",
+    "tray": {
+      "uploading": "アップロード中… {{progress}}%",
+      "remove": "{{filename}}を削除"
+    },
+    "preview": "プレビュー",
+    "previewFile": "{{filename}}をプレビュー",
+    "open": "開く",
+    "openFile": "{{filename}}を開く",
+    "download": "ダウンロード",
+    "downloadFile": "{{filename}}をダウンロード",
+    "preparing": "準備中…",
+    "unavailable": "利用不可"
+  },
+  "draftList": {
+    "discardedToast": "下書きを破棄しました",
+    "couldNotDiscardToast": "破棄できませんでした",
+    "loading": "下書きを読み込み中…",
+    "errorTitle": "下書きを読み込めませんでした",
+    "errorHint": "接続を確認して、上の「新着メールを確認」を選択してください。",
+    "emptyTitle": "下書きはありません",
+    "emptyHint": "作成を始めて送信せずに閉じたメールは、完成するまでここに保管されます。",
+    "noRecipient": "宛先がまだありません",
+    "addressedMore": "{{first}} 他{{count}}件",
+    "attachments_other": "{{count}}件のファイル",
+    "discardTitle": "この下書きを破棄 — 誰にも送信されていません",
+    "discardAriaLabel": "下書きを破棄"
+  },
+  "compose": {
+    "headings": {
+      "draft": "下書き",
+      "forward": "転送",
+      "reply": "返信",
+      "newMail": "新規メール"
+    },
+    "closeTitle": "閉じる — 下書きに保存されます",
+    "startErrorBanner": "下書きを開始できませんでした。接続を確認して、もう一度お試しください。",
+    "retry": "再試行",
+    "openingDraft": "下書きを開いています…",
+    "loadErrorText": "この下書きを開けませんでした。送信済みか、破棄された可能性があります。",
+    "ccBccButton": "Cc / Bcc",
+    "toPlaceholder": "name@company.com",
+    "ccPlaceholder": "コピーを送る相手",
+    "bccPlaceholder": "ブラインドコピー — 他の人には表示されません",
+    "subjectLabel": "件名",
+    "subjectPlaceholder": "どのような内容ですか?",
+    "messageLabel": "本文",
+    "messagePlaceholder": "メールを入力…",
+    "attachTitleReady": "ファイルを添付",
+    "attachTitlePreparing": "下書きを準備中…",
+    "attachLabel": "添付",
+    "removeAll": "すべて削除",
+    "preparing": "準備中…",
+    "discardButton": "破棄",
+    "discardTitle": "破棄 — この下書きを削除します。誰にも送信されていません",
+    "closeButton": "閉じる",
+    "sendButton": "送信",
+    "sendingButton": "送信中…",
+    "draftDiscardedToast": "下書きを破棄しました",
+    "couldNotDiscardToast": "下書きを破棄できませんでした",
+    "couldNotSendToast": "送信できませんでした",
+    "errors": {
+      "draftNotReady": "下書きの準備ができていません",
+      "invalidAddress": "「{{address}}」はメールアドレスの形式ではないようです。",
+      "subjectTooLong": "件名が{{length}}文字です。上限は{{limit}}文字です。"
+    },
+    "sentSummary": {
+      "sent": "送信しました",
+      "sentToPeople": "{{count}}人に送信しました",
+      "delivering": "送信済み — 配信中",
+      "deliveringToCount": "送信済み — {{count}}件を配信中",
+      "sentAndDelivering": "アプリ内の{{inApp}}件に送信済み、外部の{{external}}件に配信中"
+    }
+  },
+  "quote": {
+    "wrote": "{{when}}、{{sender}}さんが書きました:"
+  },
+  "recipients": {
+    "summaryMore": "{{list}} 他{{count}}件"
+  }
+}

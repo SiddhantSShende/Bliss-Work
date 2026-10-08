@@ -1,0 +1,55 @@
+{
+  "menu": {
+    "file": "File",
+    "showApp": "Show BlissWork",
+    "quit": "Quit",
+    "view": "View",
+    "aboutItem": "About BlissWork",
+    "aboutTitle": "About BlissWork",
+    "aboutMessage": "BlissWork",
+    "aboutDetail": "Version {{version}}\nElectron {{electron}} · Chromium {{chrome}}\n\nTeam messaging + tasks with always-on-top sticky notes.",
+    "ok": "OK",
+    "webHelp": "BlissWork on the Web"
+  },
+  "tray": {
+    "tooltipIdle": "BlissWork",
+    "tooltipTasks_one": "BlissWork — {{count}} active task",
+    "tooltipTasks_other": "BlissWork — {{count}} active tasks",
+    "activeTasks": "Active tasks: {{count}}",
+    "show": "Show BlissWork",
+    "quit": "Quit"
+  },
+  "notifications": {
+    "brand": "BlissWork",
+    "newMessage": "New message",
+    "taskUpdate": "Task update",
+    "meeting": "Meeting",
+    "channelUpdate": "Channel update",
+    "attachment": "Sent an attachment",
+    "incomingVideoCall": "📹 Incoming video call",
+    "incomingVoiceCall": "📞 Incoming voice call",
+    "accept": "Accept",
+    "decline": "Decline"
+  },
+  "updater": {
+    "restartNow": "Restart now",
+    "later": "Later",
+    "updateReady": "Update ready",
+    "readyMessage": "BlissWork {{version}} is ready to install.",
+    "readyDetail": "Restart the app to apply the update. It will also install automatically the next time you quit.",
+    "devUnsupported": "Updates apply to installed builds only.",
+    "storeManaged": "The Microsoft Store manages updates for this app.",
+    "unreachable": "Couldn't reach the update server."
+  },
+  "attachment": {
+    "notMainWindow": "Refused: not the main window.",
+    "unsafeUrl": "Refused an unsafe URL.",
+    "downloadFailed": "Download failed ({{status}}).",
+    "emptyBody": "Empty response body.",
+    "couldNotOpen": "Could not open the file."
+  },
+  "windows": {
+    "meetingTitle": "Meeting · BlissWork",
+    "loading": "Loading…"
+  }
+}

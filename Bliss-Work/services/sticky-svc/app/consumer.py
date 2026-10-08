@@ -31,8 +31,9 @@ import uuid
 
 from aiokafka import AIOKafkaConsumer
 from kafka_security import kafka_security_kwargs
+from prometheus_client import Counter
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 
 from .config import settings
 from .db import session, set_bypass_rls
@@ -62,12 +63,41 @@ _BATCH_LINGER_MS = 250
 # batch that fails instantly would spin at full speed. Matches
 # telemetry-svc/app/consumer.py's `_RETRY_BACKOFF`.
 _RETRY_BACKOFF = 1.0
+# Cap for the exponential growth of that backoff while the SAME failure keeps
+# recurring (a database that stays down), so an outage is probed gently but a
+# recovery is still noticed within seconds. Reset by the next successful batch.
+_RETRY_BACKOFF_MAX = 30.0
+
+SKIPPED = Counter(
+    "sticky_events_skipped_total",
+    "Kafka events dropped as permanently unprocessable, by reason.",
+    ["reason"],
+)
 
 # Bound on how much of a malformed id gets logged. Matches
 # telemetry-svc/app/consumer.py's `_MAX_ID_LEN` — ids arrive from another
 # service's producer, so a poison message must not also be a way to write an
 # unbounded amount of text into the logs.
 _MAX_ID_LEN = 128
+
+
+def _is_permanent_db_error(exc: Exception) -> bool:
+    """True when Postgres rejected the event's VALUES, so no retry can succeed.
+
+    SQLAlchemy's `DataError`/`IntegrityError` are not enough on their own: with
+    the asyncpg driver a bad uuid (client-side encode error, SQLSTATE 22000), an
+    `invalid input syntax` (22P02) or a division by zero (22012) all surface as
+    a bare `DBAPIError`, so the SQLSTATE class is checked as well — 22 = data
+    exception, 23 = integrity constraint violation. Everything else (08
+    connection, 53 resources, 57 statement timeout/shutdown, 40 deadlock or
+    serialization failure) is transient and keeps being retried.
+    """
+    if isinstance(exc, (DataError, IntegrityError)):
+        return True
+    if isinstance(exc, DBAPIError):
+        state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+        return isinstance(state, str) and state[:2] in ("22", "23")
+    return False
 
 
 def _deserialize_event(value: bytes) -> dict | list | None:
@@ -162,6 +192,7 @@ class StickyConsumer:
                 await self._stop_quietly(consumer)
 
     async def _consume_loop(self, consumer: AIOKafkaConsumer) -> None:
+        failures = 0  # consecutive failed batches, for the retry backoff
         try:
             while not self._stop.is_set():
                 batches = await consumer.getmany(
@@ -170,6 +201,7 @@ class StickyConsumer:
                 if not batches:
                     continue
                 if await self._process_batch(batches):
+                    failures = 0
                     if self._stop.is_set():
                         break
                     await consumer.commit()
@@ -193,7 +225,10 @@ class StickyConsumer:
                 # manage to write is a no-op the second time through.
                 for tp, records in batches.items():
                     consumer.seek(tp, records[0].offset)
-                await self._sleep_or_stop(_RETRY_BACKOFF)
+                failures += 1
+                await self._sleep_or_stop(
+                    min(_RETRY_BACKOFF * 2 ** (failures - 1), _RETRY_BACKOFF_MAX)
+                )
         except asyncio.CancelledError:
             pass
 
@@ -211,18 +246,36 @@ class StickyConsumer:
         a different topic's event) is not a failure here — `handle()` returns
         early for those rather than raising, so a genuinely malformed message
         cannot get stuck retrying forever the way a transient DB error should.
+
+        The same goes for a message the DATABASE rejects on its values
+        (SQLSTATE class 22, a value that does not fit the column type; class 23, a
+        constraint no retry can satisfy — see `_is_permanent_db_error`). Retrying cannot
+        change that outcome, and this loop has no attempt cap, so treating it
+        as transient wedged every pin update behind one poison event. It is
+        logged, counted in `sticky_events_skipped_total` and skipped. Anything
+        else (connection loss, pool/statement timeout, deadlock) stays
+        transient: the batch is abandoned uncommitted and retried with backoff.
         """
         for _tp, messages in batches.items():
             for msg in messages:
                 try:
                     await self.handle(msg.value)
-                except Exception as exc:  # noqa: BLE001 — abandon batch, don't die
-                    log.warning(
-                        "sticky_event_failed",
-                        error=str(exc),
-                        event_id=(msg.value or {}).get("eventId"),
+                except Exception as exc:  # noqa: BLE001 — classified below
+                    if not _is_permanent_db_error(exc):
+                        log.warning(
+                            "sticky_event_failed",
+                            error=str(exc),
+                            event_id=(msg.value or {}).get("eventId"),
+                        )
+                        return False
+                    SKIPPED.labels(reason="rejected_by_db").inc()
+                    log.error(
+                        "sticky_event_skipped",
+                        reason="rejected_by_db",
+                        error=type(exc).__name__,
+                        offset=msg.offset,
+                        event_id=str((msg.value or {}).get("eventId"))[:_MAX_ID_LEN],
                     )
-                    return False
         return True
 
     async def handle(self, event: dict) -> None:
@@ -250,18 +303,26 @@ class StickyConsumer:
             return
 
         # Every one of these is bound into a `uuid`-typed column below
-        # (consumed_events.event_id; sticky_pins.org_id/assignee_id/task_id).
+        # (consumed_events.event_id; sticky_pins.org_id/assignee_id/task_id/
+        # sender_id).
         # A malformed id used to raise a DataError that `_process_batch` could
         # only see as a transient failure, seeking back and retrying the same
         # unparseable message forever — a poison pill. Validate up front and
         # skip it instead, the same fix telemetry-svc/app/consumer.py applies
         # in `_to_claimable` for its own eventId.
-        for field_name, value in (
+        # senderId is optional (the column is nullable), so only a PRESENT one is
+        # checked — but it was the one id left out of this loop, and a bad one
+        # raised a DataError on every retry, wedging the consumer.
+        sender_id = event.get("senderId")
+        to_check = [
             ("eventId", event_id),
             ("orgId", org_id),
             ("taskId", task_id),
             ("assigneeId", assignee_id),
-        ):
+        ]
+        if sender_id is not None:
+            to_check.append(("senderId", sender_id))
+        for field_name, value in to_check:
             try:
                 uuid.UUID(str(value))
             except (AttributeError, TypeError, ValueError):
@@ -271,6 +332,7 @@ class StickyConsumer:
                     value=str(value)[:_MAX_ID_LEN],
                     event_id=str(event_id)[:_MAX_ID_LEN],
                 )
+                SKIPPED.labels(reason="id_not_a_uuid").inc()
                 return
 
         version = event.get("statusVersion")
@@ -316,7 +378,7 @@ class StickyConsumer:
                 "org": org_id,
                 "me": assignee_id,
                 "task": task_id,
-                "sender": event.get("senderId"),
+                "sender": sender_id,
                 "status": plan.status,
                 "assignee_status": plan.assignee_status,
                 "version": plan.status_version,

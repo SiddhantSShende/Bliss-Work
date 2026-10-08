@@ -1,0 +1,22 @@
+{
+  "topNavbar": {
+    "openMenu": "Menú",
+    "openNavigationMenu": "Abrir menú de navegación",
+    "searchPlaceholder": "Buscar personas, canales, chats, tareas…",
+    "clearSearch": "Borrar búsqueda",
+    "invite": "Invitar",
+    "search": "Buscar",
+    "notifications": "Notificaciones"
+  },
+  "verifyEmail": {
+    "message": "Verifica tu correo electrónico para proteger tu cuenta por completo.",
+    "resendSent": "Enviado ✓",
+    "resend": "Reenviar correo",
+    "resentToast": "Correo de verificación enviado. Revisa tu bandeja de entrada."
+  },
+  "mfaRequired": {
+    "messageWithDeadline": "Tu espacio de trabajo exige autenticación en dos pasos a los administradores. Actívala antes del {{deadline}}.",
+    "messageNoDeadline": "Tu espacio de trabajo exige autenticación en dos pasos a los administradores.",
+    "enableNow": "Activar ahora"
+  }
+}

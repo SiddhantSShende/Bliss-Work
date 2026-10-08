@@ -10,8 +10,10 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/task-board/shared-backoff"
 	"github.com/task-board/shared-kafkaauth"
 	"github.com/task-board/ws-gateway/internal/contract"
+	"github.com/task-board/ws-gateway/internal/metrics"
 	"github.com/task-board/ws-gateway/internal/tracing"
 )
 
@@ -29,9 +31,24 @@ import (
 // NOTIFICATION_PARTITIONS=200 in production).
 const ConsumerGroup = "delivery-svc"
 
+// routeRetryPolicy paces re-attempts of an event whose routing failed on a
+// transient dependency error. Capped so a Redis outage that lasts minutes is
+// probed every few seconds rather than hammered, but short enough that recovery
+// is noticed promptly; jittered (see shared/backoff) so every replica does not
+// retry in lockstep against a recovering Redis. A var so tests can shrink it.
+var routeRetryPolicy = backoff.Policy{Base: 100 * time.Millisecond, Max: 5 * time.Second}
+
+// reader is the slice of *kafka.Reader the consumer loop uses, as an interface
+// so the fetch/route/commit ordering can be tested without a broker.
+type reader interface {
+	FetchMessage(ctx context.Context) (kafka.Message, error)
+	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
+	Close() error
+}
+
 // Consumer reads the fan-out topics and hands each event to a Router.
 type Consumer struct {
-	reader *kafka.Reader
+	reader reader
 	router *Router
 	log    *slog.Logger
 }
@@ -56,6 +73,35 @@ func NewConsumer(brokers []string, r *Router, log *slog.Logger) *Consumer {
 		Dialer:         kafkaauth.Dialer(),
 	})
 	return &Consumer{reader: reader, router: r, log: log}
+}
+
+// deliver routes one event, retrying transient failures until it succeeds or
+// the consumer is shut down. It returns true when the event is processed (the
+// caller may commit its offset) and false only when ctx was cancelled first (the
+// caller must not).
+//
+// Blocking the partition here is deliberate: while Redis is failing no event on
+// it can be written to an outbox or routed, so moving on would only turn each
+// of them into a silent loss. Permanent failures never reach this loop — Route
+// reports those as success after skipping and counting them.
+func (c *Consumer) deliver(ctx, msgCtx context.Context, value []byte) bool {
+	// Once per event, not per attempt, so retries do not inflate it.
+	metrics.FanoutEventsConsumed.Inc()
+	for attempt := 1; ; attempt++ {
+		err := c.router.Route(msgCtx, value)
+		if err == nil {
+			return true
+		}
+		if ctx.Err() != nil {
+			return false
+		}
+		metrics.RouteRetriesTotal.Inc()
+		c.log.Error("routing failed; retrying without committing the offset",
+			"attempt", attempt, "err", err)
+		if !routeRetryPolicy.Sleep(ctx.Done(), attempt) {
+			return false
+		}
+	}
 }
 
 // Run consumes until ctx is cancelled.
@@ -104,8 +150,13 @@ func (c *Consumer) Run(ctx context.Context) {
 				semconv.MessagingOperationName("process"),
 			),
 		)
-		c.router.Route(msgCtx, msg.Value)
+		done := c.deliver(ctx, msgCtx, msg.Value)
 		span.End()
+		if !done {
+			// Shutting down mid-retry. The event is NOT processed, so its offset
+			// must not move: the next start re-reads it from the committed one.
+			return
+		}
 
 		// Only now is the event durable in the recipients' replay outboxes, so
 		// only now may the offset move. A commit failure is logged and not

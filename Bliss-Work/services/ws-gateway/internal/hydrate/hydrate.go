@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/task-board/shared-backoff"
 	"github.com/task-board/ws-gateway/internal/contract"
 )
 
@@ -27,6 +28,17 @@ const httpTimeout = 5 * time.Second
 // (internal_hydrate.go's maxHydrateBatch) and the existing 256-id convention
 // used elsewhere in this codebase (delivery.go, internal_delivery.go).
 const maxBatch = 256
+
+// fetchMaxAttempts is how many times one hydrate call is tried (1 initial + 2
+// retries) before the failure is reported to the caller. Bounded, because the
+// caller is a websocket handshake: a client is waiting on `replay.done`.
+const fetchMaxAttempts = 3
+
+// fetchRetryPolicy paces those attempts. Short and capped: it sits inside a
+// reconnect, and a reconnect storm (exactly when this endpoint is most likely
+// to fail) must not be turned into a longer one. Jittered by shared/backoff so
+// the storm does not retry in lockstep. A var so tests can shrink it.
+var fetchRetryPolicy = backoff.Policy{Base: 100 * time.Millisecond, Max: time.Second}
 
 // Hydrator calls messaging-svc's internal hydrate endpoint.
 type Hydrator struct {
@@ -84,14 +96,22 @@ type wireMessageCreated struct {
 
 // Hydrate returns entries with every compact reference swapped for its full
 // JSON reconstruction, in the SAME order, with non-reference entries passed
-// through untouched. An id messaging-svc could not resolve, or any failure
-// of the hydrate call itself (timeout, 5xx, network error), simply drops
-// that one entry from the result rather than failing the whole replay burst
-// — the same "at-least-once, tolerate a gap" posture the rest of this
-// pipeline already has (a dropped entry here is no worse than one the
-// existing maxReplayHard trim or TTL expiry already silently drops, and the
-// same REST-backfill path remains available).
-func (h *Hydrator) Hydrate(ctx context.Context, entries [][]byte) [][]byte {
+// through untouched.
+//
+// An id messaging-svc answered for but did not return (the message no longer
+// exists) is dropped from the result: that is a permanent fact about the
+// message, and the same posture as an entry the outbox trim/TTL already drops.
+//
+// A FAILURE OF THE HYDRATE CALL ITSELF (timeout, 5xx, network error — after
+// bounded retries) is different, and is returned as an error with nil entries.
+// It used to drop every compact entry from the burst and carry on, which looked
+// like an empty catch-up: the caller sent `replay.done`, and the client — whose
+// cursor advances to the newest event it sees, replayed or live — never asked
+// for those messages again. That happens exactly during a reconnect storm, when
+// this endpoint is most likely to be struggling. The caller must not complete the
+// replay on error; the entries are still in the Redis outbox for the next
+// attempt.
+func (h *Hydrator) Hydrate(ctx context.Context, entries [][]byte) ([][]byte, error) {
 	var refIDs []string
 	for _, e := range entries {
 		if _, mid, ok := contract.DecodeCompactRef(e); ok {
@@ -99,18 +119,22 @@ func (h *Hydrator) Hydrate(ctx context.Context, entries [][]byte) [][]byte {
 		}
 	}
 	if len(refIDs) == 0 {
-		return entries
-	}
-	if len(refIDs) > maxBatch {
-		// A single reconnect's replay burst is already bounded by
-		// maxReplayHard (100); this is defense-in-depth, not an expected path.
-		refIDs = refIDs[:maxBatch]
+		return entries, nil
 	}
 
-	resolved, err := h.fetch(ctx, refIDs)
-	if err != nil {
-		h.log.Warn("hydrate call failed; affected replay entries dropped", "count", len(refIDs), "err", err)
-		resolved = nil
+	resolved := make(map[string]wireMessageCreated, len(refIDs))
+	// Chunked to messaging-svc's cap. A single reconnect's burst is already
+	// bounded by maxReplayHard (100), so this is one call in practice; chunking
+	// rather than truncating means a larger burst can never silently lose its tail.
+	for start := 0; start < len(refIDs); start += maxBatch {
+		end := min(start+maxBatch, len(refIDs))
+		got, err := h.fetchWithRetry(ctx, refIDs[start:end])
+		if err != nil {
+			return nil, err
+		}
+		for id, m := range got {
+			resolved[id] = m
+		}
 	}
 
 	out := make([][]byte, 0, len(entries))
@@ -122,9 +146,8 @@ func (h *Hydrator) Hydrate(ctx context.Context, entries [][]byte) [][]byte {
 		}
 		m, ok := resolved[mid]
 		if !ok {
-			// Not resolved (missing, or the fetch failed outright) — dropped,
-			// same posture as an entry the trim/TTL already silently drops;
-			// REST backfill remains available.
+			// messaging-svc answered but has no such message (deleted/purged):
+			// nothing to replay, REST backfill remains available.
 			continue
 		}
 		m.Type = "message.created"
@@ -135,7 +158,32 @@ func (h *Hydrator) Hydrate(ctx context.Context, entries [][]byte) [][]byte {
 		}
 		out = append(out, raw)
 	}
-	return out
+	return out, nil
+}
+
+// fetchWithRetry is fetch with up to fetchMaxAttempts tries and jittered
+// backoff between them. It gives up early, with the context's error, when ctx
+// is cancelled (the socket went away), so a closing connection never sits in a
+// retry loop.
+func (h *Hydrator) fetchWithRetry(ctx context.Context, ids []string) (map[string]wireMessageCreated, error) {
+	var err error
+	for attempt := 1; attempt <= fetchMaxAttempts; attempt++ {
+		var got map[string]wireMessageCreated
+		if got, err = h.fetch(ctx, ids); err == nil {
+			return got, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		h.log.Warn("hydrate call failed", "attempt", attempt, "of", fetchMaxAttempts, "count", len(ids), "err", err)
+		if attempt == fetchMaxAttempts || !fetchRetryPolicy.Sleep(ctx.Done(), attempt) {
+			break
+		}
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return nil, fmt.Errorf("hydrate failed after %d attempts: %w", fetchMaxAttempts, err)
 }
 
 func (h *Hydrator) fetch(ctx context.Context, messageIDs []string) (map[string]wireMessageCreated, error) {

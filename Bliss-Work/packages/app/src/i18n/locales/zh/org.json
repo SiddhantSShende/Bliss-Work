@@ -1,0 +1,174 @@
+{
+  "availablePeople": {
+    "searchPlaceholder": "搜索团队成员…",
+    "empty": {
+      "noMatchesTitle": "无匹配结果",
+      "allBusyTitle": "大家都在忙",
+      "noMatchesHint": "没有符合该搜索的可用成员。",
+      "allBusyHint": "没有已知悉任务的成员会显示在这里。"
+    },
+    "toasts": {
+      "hideFailed": "无法隐藏该成员",
+      "restoreFailed": "无法恢复该成员"
+    },
+    "hiddenToggle": "已从此列表隐藏（{{count}}）",
+    "hiddenBusyNote": "有进行中的任务，空闲前不会重新出现",
+    "restoreTitle": "恢复到“可用”",
+    "card": {
+      "selfTitle": "你不能把任务分配给自己",
+      "assignTitle": "分配任务给 {{name}}",
+      "youSuffix": "（你）",
+      "pendingBadge": "{{count}} 项待处理，未知悉",
+      "onCall": "通话中",
+      "hiddenFromOthers": "对其他人隐藏",
+      "hideTitle": "从“可用”中隐藏"
+    }
+  },
+  "memberPicker": {
+    "searchPlaceholder": "搜索团队成员…",
+    "clearAll": "全部清除",
+    "selectAll": "全选",
+    "emptyHint": "所有匹配的成员都已在这里。",
+    "cancelButton": "取消",
+    "addButton": "添加",
+    "sendOrganization": "发送给整个组织"
+  },
+  "inviteePicker": {
+    "searchPlaceholder": "搜索你的组织…",
+    "searchAriaLabel": "搜索你的组织",
+    "empty": {
+      "noMatches": "无匹配结果。",
+      "noneToInvite": "没有其他可邀请的人。"
+    },
+    "loading": "正在加载成员…",
+    "you": "（你）"
+  },
+  "orgPage": {
+    "header": {
+      "title": "组织",
+      "subtitle": "在你所属的工作区之间切换，或管理当前工作区。"
+    },
+    "toasts": {
+      "switched": "已切换组织",
+      "switchFailedTitle": "无法切换组织",
+      "switchFailedDescription": "请重试。"
+    },
+    "yourOrganizations": "你的组织",
+    "loading": "加载中…",
+    "currentBadge": "当前",
+    "roleLabel": {
+      "admin": "管理员",
+      "member": "成员"
+    },
+    "activeLabel": "使用中",
+    "switchButton": "切换",
+    "switchingLabel": "正在切换…",
+    "manageHeading": "管理 {{name}}",
+    "manageFallbackName": "此组织",
+    "membersButton": "成员",
+    "invitePeopleButton": "邀请成员"
+  },
+  "orgActivity": {
+    "adminsOnly": {
+      "title": "仅限管理员",
+      "hint": "你自己的活动请前往“设置 → 你的活动”查看。"
+    },
+    "backToMembers": "成员",
+    "header": {
+      "title": "工作区活动",
+      "subtitle": "团队的时间花在了哪里。"
+    },
+    "exportButton": "导出",
+    "empty": {
+      "title": "此时间段内没有活动",
+      "hint": "团队使用 {{brand}} 满一天后会显示图表。"
+    },
+    "stats": {
+      "teamActiveTime": "团队活跃时长",
+      "peopleActive": "活跃人数",
+      "perPerson": "人均",
+      "perPersonHint": "所选范围内的平均值",
+      "sessions": "会话"
+    },
+    "sections": {
+      "teamActiveTimePerDay": "团队每日活跃时长",
+      "activeTimeByMember": "成员活跃时长",
+      "allMembers": "所有成员"
+    },
+    "table": {
+      "member": "成员",
+      "active": "活跃",
+      "idle": "空闲",
+      "sessions": "会话",
+      "actions": "操作"
+    },
+    "chart": {
+      "active": "活跃",
+      "idle": "空闲"
+    }
+  },
+  "orgSwitcher": {
+    "switchTitle": "切换组织",
+    "workspaceFallback": "工作区",
+    "yourOrganizations": "你的组织",
+    "searchPlaceholder": "搜索组织...",
+    "loadMore": "加载更多",
+    "loading": "正在加载组织...",
+    "empty": "未找到组织",
+    "loadFailed": "无法加载组织，点击重试。",
+    "roleLabel": {
+      "admin": "管理员",
+      "member": "成员"
+    },
+    "switchingLabel": "正在切换…",
+    "toasts": {
+      "switchFailedTitle": "无法切换组织",
+      "switchFailedDescription": "请重试。"
+    }
+  },
+  "deleteOrgSection": {
+    "toasts": {
+      "scheduledTitle": "工作区已安排删除",
+      "scheduledDescription": "所有人都已退出登录。截止时间前你可以取消删除。",
+      "scheduleFailedTitle": "无法安排删除",
+      "cancelled": "已取消删除",
+      "cancelFailedTitle": "无法取消删除"
+    },
+    "scheduled": {
+      "heading": "此工作区已安排删除",
+      "message": "<bold>{{orgName}}</bold> 中的所有内容，包括消息、文件、任务和活动记录，将于 <bold>{{when}}</bold> 被永久销毁。在此之前仍可撤销。",
+      "cancelButton": "取消删除"
+    },
+    "dangerZone": {
+      "heading": "危险操作区",
+      "description": "删除此工作区将永久销毁其中的所有消息、文件、任务和活动记录，所有人均无法再访问。",
+      "openButton": "删除此工作区…"
+    },
+    "confirm": {
+      "instructions": "宽限期结束后将无法撤销，所有人会立即退出登录。请在下方输入工作区标识 <code>{{slug}}</code> 以确认。",
+      "ariaLabel": "输入工作区标识以确认",
+      "deleteButton": "删除工作区",
+      "cancelButton": "取消"
+    }
+  },
+  "leaveOrgButton": {
+    "leaveButton": "退出",
+    "toasts": {
+      "failedTitle": "无法退出组织",
+      "failedDescriptionFallback": "请重试。",
+      "left": "你已退出 {{orgName}}",
+      "signedOutTitle": "已退出登录",
+      "signedOutDescription": "请重新登录以继续。"
+    },
+    "confirmDialog": {
+      "title": "退出 {{orgName}}？",
+      "message": "你将无法再访问 <bold>{{orgName}}</bold> 中的所有频道、消息和任务。你发布的内容不会被删除，该组织的管理员也可以再次邀请你加入。",
+      "movedMessage": "你将被切换到 <bold>{{orgName}}</bold>。",
+      "confirmLabel": "退出组织"
+    },
+    "stepUp": {
+      "title": "确认是你本人操作，以退出",
+      "description": "你的账号已启用两步验证，因此退出组织需要输入密码和当前验证码。"
+    }
+  }
+}

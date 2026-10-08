@@ -1,0 +1,379 @@
+{
+  "liveEvents": {
+    "newTask": "Neue Aufgabe: {{title}}",
+    "newTaskFrom": "von {{sender}}",
+    "taskLeftBy": "Aufgabe verlassen von {{assignee}}",
+    "taskIgnoredBy": "Aufgabe ignoriert von {{assignee}}",
+    "taskReviewed": "{{reviewer}} hat Ihre Aufgabe bewertet",
+    "taskAcknowledgedBy": "Aufgabe bestätigt von {{assignee}}",
+    "taskCompletedBy": "Aufgabe abgeschlossen von {{assignee}}",
+    "taskMissedBy": "Aufgabe verpasst von {{assignee}}",
+    "taskMissed": "Die Frist einer Aufgabe ist abgelaufen. Sie wurde zu „Verpasst“ verschoben.",
+    "taskWithdrawn": "Aufgabenzuweisung zurückgezogen"
+  },
+  "deadline": {
+    "label": "Frist",
+    "relative": "{{amount}} {{unit}} nach jeder Wiederholung",
+    "fixed": "{{time}} am Tag jeder Wiederholung",
+    "unit": {
+      "MINUTES_one": "Minute",
+      "MINUTES_other": "Minuten",
+      "HOURS_one": "Stunde",
+      "HOURS_other": "Stunden",
+      "DAYS_one": "Tag",
+      "DAYS_other": "Tage"
+    }
+  },
+  "tasksList": {
+    "header": "Aufgaben",
+    "categories": {
+      "mine": "Meine Aufgaben",
+      "allocated": "Mir zugewiesen",
+      "available": "Verfügbar",
+      "completed": "Abgeschlossen",
+      "left": "Verlassen",
+      "ignored": "Ignoriert",
+      "missed": "Verpasst"
+    }
+  },
+  "tasksPage": {
+    "count_one": "{{count}} Aufgabe",
+    "count_other": "{{count}} Aufgaben",
+    "countMore": "{{count}}+ Aufgaben",
+    "titles": {
+      "mine": "Meine Aufgaben",
+      "allocated": "Mir zugewiesen",
+      "available": "Verfügbar",
+      "completed": "Abgeschlossen",
+      "left": "Verlassen",
+      "ignored": "Ignoriert",
+      "missed": "Verpasst",
+      "default": "Aufgaben"
+    },
+    "buckets": {
+      "allocated": "Zugewiesen",
+      "available": "Verfügbar",
+      "mine": "Meine Aufgaben",
+      "completed": "Abgeschlossen",
+      "left": "Verlassen",
+      "ignored": "Ignoriert",
+      "missed": "Verpasst"
+    },
+    "export": {
+      "title": "Aufgaben nach Excel exportieren",
+      "button": "Exportieren"
+    },
+    "newTask": "Neue Aufgabe",
+    "empty": {
+      "title": "Nichts hier",
+      "hint": "Aufgaben erscheinen hier, sobald sie eintreffen.",
+      "missedHint": "Eine Aufgabe, deren Frist abläuft, bevor Sie sie abschließen, wird hierher verschoben."
+    },
+    "actionVerbs": {
+      "acknowledge": "bestätigt",
+      "complete": "abgeschlossen",
+      "ignore": "ignoriert",
+      "leave": "verlassen"
+    },
+    "toasts": {
+      "actionFailed": "Die Aufgabe konnte nicht {{verb}} werden",
+      "completed": "Aufgabe abgeschlossen – die absendende Person wurde benachrichtigt.",
+      "left": "Sie haben die Aufgabe verlassen – die absendende Person wurde benachrichtigt."
+    },
+    "unpin": "Loslösen",
+    "pinTask": "Aufgabe anheften",
+    "unpinTask": "Aufgabe loslösen",
+    "pinFailed": "Die Aufgabe konnte nicht angeheftet werden",
+    "unpinFailed": "Die Aufgabe konnte nicht losgelöst werden",
+    "pagination": {
+      "previous": "Zurück",
+      "next": "Weiter",
+      "pageOf": "Seite {{current}} von {{total}}"
+    }
+  },
+  "participants": {
+    "label": "Beteiligte",
+    "add": "Hinzufügen",
+    "addMember": "Mitglied hinzufügen",
+    "addTitle": "Beteiligte hinzufügen",
+    "tabPeople": "Personen",
+    "tabChannels": "Kanäle",
+    "selected": "Ausgewählte Beteiligte",
+    "kindPerson": "Person",
+    "kindChannel": "Kanal",
+    "removeSelected": "{{name}} entfernen",
+    "unknownPerson": "Unbekannte Person",
+    "unknownChannel": "Unbekannter Kanal",
+    "withdraw": "Zurückziehen",
+    "withdrawUser": "{{name}} zurückziehen",
+    "withdrawSelf": "Aus dieser Aufgabe zurückziehen",
+    "added": "Beteiligte hinzugefügt",
+    "withdrawn": "Beteiligte Person zurückgezogen",
+    "failed": "Die Beteiligten konnten nicht aktualisiert werden"
+  },
+  "myTasksBoard": {
+    "scheduledChannels": "Kanäle: {{names}}",
+    "scheduledChannelCount_one": "{{count}} Kanal",
+    "scheduledChannelCount_other": "{{count}} Kanäle",
+    "loading": "Ihre Aufgaben werden geladen…",
+    "loadError": {
+      "title": "Ihre Aufgaben konnten nicht geladen werden.",
+      "retry": "Erneut versuchen"
+    },
+    "empty": {
+      "title": "Sie haben noch keine Aufgaben gesendet",
+      "hint": "Erstellen Sie eine mit „Neue Aufgabe“."
+    },
+    "filters": {
+      "title": "Filter",
+      "statusHeading": "Status",
+      "peopleHeading": "Personen",
+      "searchPeople": "Personen suchen…",
+      "selectedPeople": "Ausgewählte Personen",
+      "removePerson": "{{name}} entfernen",
+      "showFewer": "Weniger anzeigen",
+      "noPeople": "Keine Personen gefunden",
+      "channelsHeading": "Kanäle",
+      "searchChannels": "Kanäle suchen…",
+      "noChannels": "Keine Kanäle gefunden",
+      "viaChannel": "Über einen Kanal ausgewählt",
+      "channelFailed": "Die Mitglieder von {{name}} konnten nicht geladen werden, daher werden keine Aufgaben angezeigt.",
+      "channelRetry": "Erneut versuchen",
+      "clear": "Filter zurücksetzen"
+    },
+    "details": "Details",
+    "summary": {
+      "pending": "ausstehend",
+      "inProgress": "in Bearbeitung",
+      "completed": "abgeschlossen",
+      "left": "verlassen",
+      "ignored": "ignoriert",
+      "missed": "verpasst",
+      "closed": "geschlossen",
+      "doneOf": "{{done}}/{{total}} erledigt"
+    },
+    "noMatch": {
+      "title": "Keine Aufgaben passen zu diesen Filtern",
+      "hint": "Ältere Aufgaben sind noch nicht geladen – laden Sie unten weitere."
+    },
+    "loadMore": "Mehr laden",
+    "loadingMore": "Wird geladen...",
+    "reassign": {
+      "label": "Neu zuweisen",
+      "pending": "Wird neu zugewiesen…",
+      "done_one": "Aufgabe an {{count}} Person zurückgesendet",
+      "done_other": "Aufgabe an {{count}} Personen zurückgesendet",
+      "failed": "Diese Aufgabe konnte nicht neu zugewiesen werden"
+    },
+    "milestones": {
+      "allocated": "Zugewiesen",
+      "acknowledged": "Bestätigt",
+      "ignored": "Ignoriert",
+      "completed": "Abgeschlossen",
+      "left": "Verlassen",
+      "missed": "Verpasst",
+      "reviewed": "Bewertet"
+    },
+    "review": {
+      "write": "Bewertung schreiben",
+      "edit": "Bewertung bearbeiten"
+    },
+    "scheduled": "Geplant",
+    "cancelSchedule": "Zeitplan abbrechen",
+    "cancelRecurring": "Wiederkehrende Aufgabe abbrechen"
+  },
+  "createTaskDialog": {
+    "title": "Neue Aufgabe",
+    "fields": {
+      "title": "Titel",
+      "titlePlaceholder": "Was ist zu tun?",
+      "description": "Beschreibung",
+      "descriptionPlaceholder": "Details hinzufügen…",
+      "assignTo": "Zuweisen an",
+      "you": "(Sie)",
+      "channelHint": "Alle Mitglieder des Kanals erhalten die Aufgabe mit demselben Ablauf aus Bestätigen / Ignorieren.",
+      "unknownPerson": "Unbekannte Person",
+      "peopleLabel": "Personen",
+      "assignToEmpty": "Noch niemand zugewiesen.",
+      "addPeople": "Personen hinzufügen",
+      "removePerson": "{{name}} entfernen",
+      "done": "Fertig",
+      "channelsLabel": "Kanäle",
+      "assignToChannelEmpty": "Noch keine Kanäle hinzugefügt.",
+      "addChannels": "Kanäle hinzufügen",
+      "unknownChannel": "Nicht verfügbarer Kanal",
+      "removeChannel": "{{name}} entfernen"
+    },
+    "deadline": {
+      "label": "Frist",
+      "none": "Keine Frist",
+      "at": "Datum & Uhrzeit",
+      "relative": "Relativ",
+      "fixed": "Feste Uhrzeit",
+      "amount": "Dauer der Frist",
+      "unit": "Einheit der Frist",
+      "units": {
+        "MINUTES": "Minuten",
+        "HOURS": "Stunden",
+        "DAYS": "Tage"
+      },
+      "afterEach": "nach jeder Wiederholung",
+      "fixedTime": "Uhrzeit der Frist",
+      "onEachDate": "am Tag jeder Wiederholung",
+      "date": "Datum der Frist",
+      "time": "Uhrzeit der Frist"
+    },
+    "errors": {
+      "needTitle": "Geben Sie der Aufgabe einen Titel",
+      "needAssignee": "Wählen Sie mindestens eine zuständige Person",
+      "invalidSchedule": "Wählen Sie Datum und Uhrzeit in der Zukunft",
+      "invalidStart": "Wählen Sie einen Start der Wiederholung in der Zukunft",
+      "needWeekday": "Wählen Sie mindestens einen Wochentag",
+      "invalidMonthlyRule": "Wählen Sie einen gültigen Tag im Monat",
+      "invalidOccurrences": "Die Anzahl der Wiederholungen muss größer als null sein",
+      "invalidEndDate": "Das Enddatum muss nach dem Start liegen",
+      "needDeadlineAt": "Wählen Sie Datum und Uhrzeit der Frist",
+      "deadlineNotFuture": "Die Frist muss in der Zukunft liegen",
+      "deadlineBeforeStart": "Die Frist muss nach dem geplanten Start der Aufgabe liegen",
+      "invalidDeadlineAmount": "Geben Sie eine ganze Zahl dafür ein, wie lange nach jeder Wiederholung die Frist endet",
+      "needDeadlineTime": "Wählen Sie eine Uhrzeit für die Frist",
+      "fixedDeadlineBeforeStart": "Die feste Fristuhrzeit muss nach der Startzeit liegen",
+      "createFailed": "Die Aufgabe konnte nicht erstellt werden"
+    },
+    "toasts": {
+      "sentPlain": "Aufgabe gesendet",
+      "scheduled": "Aufgabe geplant",
+      "genericChannelFallback": "Kanal",
+      "sentToChannel_one": "Aufgabe an #{{channelName}} gesendet – {{count}} Mitglied",
+      "sentToChannel_other": "Aufgabe an #{{channelName}} gesendet – {{count}} Mitglieder"
+    },
+    "actions": {
+      "cancel": "Abbrechen",
+      "create": "Aufgabe erstellen",
+      "creating": "Wird erstellt…"
+    },
+    "allocation": {
+      "title": "Zuweisung",
+      "now": "Jetzt",
+      "scheduled": "Für später planen",
+      "recurring": "Wiederkehrende Aufgabe",
+      "nowDescription": "Sofort zuweisen",
+      "scheduledDescription": "Datum und Uhrzeit festlegen",
+      "recurringDescription": "Automatisch wiederholen",
+      "repeat": "Wiederholen",
+      "startDate": "Startdatum",
+      "startTime": "Startzeit",
+      "daily": "Täglich",
+      "weekly": "Wöchentlich",
+      "monthly": "Monatlich",
+      "everyDay": "Alle N Tag(e)",
+      "everyWeek": "Alle N Woche(n)",
+      "everyMonth": "Alle N Monat(e)",
+      "noEnd": "Kein Enddatum",
+      "afterOccurrences": "Nach N Wiederholungen beenden",
+      "onDate": "An einem bestimmten Datum beenden",
+      "peopleCount_one": "{{count}} Person",
+      "peopleCount_other": "{{count}} Personen",
+      "noTargetYet": "noch kein Ziel gewählt",
+      "summary": "Diese Aufgabe wird {{who}} zugewiesen: {{when}}.",
+      "dayOfMonth": "Tag im Monat",
+      "weekdayPattern": "Wochentagsmuster",
+      "ordinal": {
+        "1": "Erster",
+        "2": "Zweiter",
+        "3": "Dritter",
+        "4": "Vierter",
+        "5": "Fünfter"
+      }
+    }
+  },
+  "exportTasksDialog": {
+    "title": "Aufgaben nach Excel exportieren",
+    "scopeHeading": "Welche Aufgaben",
+    "scopes": {
+      "all": "Alle meine Aufgaben",
+      "sent": "Von mir zugewiesen",
+      "received": "Mir zugewiesen"
+    },
+    "rangeHeading": "Zeitraum",
+    "ranges": {
+      "week": "Vergangene Woche",
+      "month": "Vergangener Monat",
+      "year": "Vergangenes Jahr",
+      "all": "Gesamte Zeit",
+      "custom": "Eigener Zeitraum"
+    },
+    "from": "Von",
+    "to": "Bis",
+    "footerNote": "Zeiten werden in der lokalen Zeitzone Ihres Geräts exportiert. Eine Zeile pro Person, der die Aufgabe zugewiesen wurde.",
+    "actions": {
+      "cancel": "Abbrechen",
+      "export": "Exportieren",
+      "exporting": "Wird exportiert…"
+    },
+    "toasts": {
+      "nothingTitle": "Nichts zu exportieren",
+      "nothingDescription": "Im gewählten Zeitraum gibt es keine Aufgaben.",
+      "exported_one": "{{count}} Zeile nach Excel exportiert",
+      "exported_other": "{{count}} Zeilen nach Excel exportiert",
+      "cappedTitle": "Export wurde begrenzt",
+      "cappedDescription": "Es wurden nur die neuesten {{cap}} Zeilen aufgenommen – schränken Sie den Zeitraum ein, um die übrigen zu erhalten.",
+      "failedTitle": "Export fehlgeschlagen"
+    }
+  },
+  "miniTaskCalendar": {
+    "today": "Heute",
+    "previousMonth": "Vorheriger Monat",
+    "nextMonth": "Nächster Monat"
+  },
+  "dropConfirm": {
+    "title_one": "Diese Datei anhängen?",
+    "title_other": "Diese {{count}} Dateien anhängen?",
+    "description": "Es wird noch nichts gesendet – die Dateien landen im Nachrichtenfeld, und Sie klicken weiterhin auf „Senden“.",
+    "cancel": "Abbrechen",
+    "attach": "Anhängen"
+  },
+  "createReviewDialog": {
+    "title": "Arbeit von {{name}} bewerten",
+    "ratingOptional": "Sterne (optional)",
+    "starCount_one": "{{count}} Stern",
+    "starCount_other": "{{count}} Sterne",
+    "clear": "Zurücksetzen",
+    "feedback": "Feedback",
+    "feedbackPlaceholder": "Wie lief es?",
+    "cancel": "Abbrechen",
+    "saving": "Wird gespeichert…",
+    "saveReview": "Bewertung speichern",
+    "saved": "Bewertung gespeichert",
+    "couldNotSave": "Die Bewertung konnte nicht gespeichert werden",
+    "writeFirst": "Schreiben Sie zuerst eine kurze Bewertung"
+  },
+  "xlsxExport": {
+    "sheetName": "Aufgabenverlauf",
+    "columns": {
+      "task": "Aufgabe",
+      "description": "Beschreibung",
+      "allocatedBy": "Zugewiesen von",
+      "allocatedByEmail": "Zugewiesen von (E-Mail)",
+      "allocatedTo": "Zugewiesen an",
+      "allocatedToEmail": "Zugewiesen an (E-Mail)",
+      "status": "Status",
+      "allocatedAt": "Zugewiesen am ({{tz}})",
+      "acknowledgedAt": "Bestätigt am ({{tz}})",
+      "ignoredAt": "Ignoriert am ({{tz}})",
+      "completedAt": "Abgeschlossen am ({{tz}})",
+      "leftAt": "Verlassen am ({{tz}})",
+      "timeToComplete": "Bearbeitungsdauer",
+      "reviewedAt": "Bewertet am ({{tz}})",
+      "review": "Bewertung",
+      "rating": "Sterne"
+    },
+    "status": {
+      "SENT": "Gesendet (ausstehend)",
+      "ACKNOWLEDGED": "Bestätigt",
+      "COMPLETED": "Abgeschlossen",
+      "IGNORED": "Ignoriert",
+      "LEFT": "Verlassen"
+    }
+  }
+}

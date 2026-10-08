@@ -20,6 +20,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -72,22 +73,37 @@ func New(st Store, p Pusher, log *slog.Logger) *Router {
 
 // Route delivers one raw event.
 //
-// Errors are logged rather than returned to the consumer loop, and deliberately
-// so: the alternative is stalling the Kafka partition behind a Redis blip or a
-// gateway pod that is mid-restart. Every recipient's copy is already in their
-// replay outbox by the time any push is attempted, so a dropped push costs a
-// reconnect, not a message.
-func (r *Router) Route(ctx context.Context, raw []byte) {
-	metrics.FanoutEventsConsumed.Inc()
-
+// The return value is the consumer's commit decision, so it has to be exact:
+//
+//   - nil means the event is DONE: delivered, or deliberately skipped because no
+//     retry could ever make it deliverable (unparseable, or addressed to no one).
+//     The offset may move.
+//   - an error means a dependency failed transiently (Redis for the outbox write,
+//     the routing table or node addresses) and the event is NOT done. The
+//     caller must retry it and must not commit past it.
+//
+// This used to log those failures and return nothing, so the consumer committed
+// the offset for an event whose outbox write or routing lookup had just failed:
+// on a Redis blip every recipient lost the event outright — absent from replay
+// AND never pushed live. Retrying is cheap and safe: the outbox write is an
+// idempotent ZADD of the same member and clients dedupe on eventId.
+//
+// A failed push to a gateway is deliberately NOT an error here. By then every
+// recipient's copy is durably in their replay outbox, so a dead pod costs that
+// pod's users a reconnect, not a message — and retrying would stall the whole
+// partition behind one pod that is mid-restart.
+func (r *Router) Route(ctx context.Context, raw []byte) error {
 	var ev contract.Event
 	if err := json.Unmarshal(raw, &ev); err != nil {
+		// Permanent: the same bytes will never parse. Skipped (and counted), not
+		// retried — retrying would wedge the partition on one poison message.
+		metrics.FanoutEventsSkippedTotal.WithLabelValues(metrics.SkipUnparseable).Inc()
 		r.log.Warn("skip unparseable event", "err", err)
-		return
+		return nil
 	}
 	recipients := ev.RecipientsOf()
 	if len(recipients) == 0 {
-		return // internal-only or unknown type; never pushed to a socket
+		return nil // internal-only or unknown type; never pushed to a socket
 	}
 	metrics.FanoutRecipientsTotal.Add(float64(len(recipients)))
 
@@ -111,17 +127,16 @@ func (r *Router) Route(ctx context.Context, raw []byte) {
 		metrics.FanoutOutboxWritesTotal.WithLabelValues(result).Inc()
 	}
 	if err != nil {
-		// Keep going. A delivery that arrives on a live socket but is missing
-		// from replay is better than no delivery at all, and the client that
-		// was online got it.
-		r.log.Error("append outbox failed", "recipients", len(recipients), "err", err)
+		// Not "keep going": pushing now would deliver to live sockets but leave
+		// the event out of replay, and the offset would then be committed past
+		// it for everyone who was not connected at this moment.
+		return fmt.Errorf("append outbox for %d recipients: %w", len(recipients), err)
 	}
 
 	// 2. Where is everyone?
 	nodesByUser, err := r.store.NodesForUsers(ctx, recipients)
 	if err != nil {
-		r.log.Error("routing lookup failed", "recipients", len(recipients), "err", err)
-		return
+		return fmt.Errorf("routing lookup for %d recipients: %w", len(recipients), err)
 	}
 
 	// Recipients with no live node anywhere. Counted separately from delivery
@@ -134,7 +149,7 @@ func (r *Router) Route(ctx context.Context, raw []byte) {
 	// 3. Group, resolve, push.
 	byNode := groupByNode(recipients, nodesByUser, payload)
 	if len(byNode) == 0 {
-		return // the whole audience is offline; nothing to send
+		return nil // the whole audience is offline; nothing to send
 	}
 
 	nodeIDs := make([]string, 0, len(byNode))
@@ -143,10 +158,10 @@ func (r *Router) Route(ctx context.Context, raw []byte) {
 	}
 	addrs, err := r.store.NodeAddrs(ctx, nodeIDs)
 	if err != nil {
-		r.log.Error("node address lookup failed", "nodes", len(nodeIDs), "err", err)
-		return
+		return fmt.Errorf("node address lookup for %d nodes: %w", len(nodeIDs), err)
 	}
 	r.pushAll(ctx, byNode, addrs)
+	return nil
 }
 
 // pushAll fans the per-node batches out concurrently, bounded.

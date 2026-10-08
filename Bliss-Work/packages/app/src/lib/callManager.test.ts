@@ -255,3 +255,80 @@ describe("microphone capture", () => {
     debug.mockRestore();
   });
 });
+
+describe("camera off releases the capture device", () => {
+  /** A stream whose track list really changes, unlike the static one above. */
+  function mutableStream(tracks: Array<{ kind: string; stop: ReturnType<typeof vi.fn>; enabled: boolean; id: string }>) {
+    return {
+      getTracks: () => tracks,
+      getAudioTracks: () => tracks.filter((t) => t.kind === "audio"),
+      getVideoTracks: () => tracks.filter((t) => t.kind === "video"),
+      addTrack: (t: (typeof tracks)[number]) => void tracks.push(t),
+      removeTrack: (t: (typeof tracks)[number]) => void tracks.splice(tracks.indexOf(t), 1),
+    };
+  }
+  const cam = (id: string) => ({ kind: "video", stop: vi.fn(), enabled: true, id });
+
+  async function videoCall() {
+    const initial = cam("cam-1");
+    const audio = { kind: "audio", stop: vi.fn(), enabled: true, id: "audio-track" };
+    const local = mutableStream([audio, initial]);
+    getUserMedia.mockImplementationOnce(async () => local);
+    const session = makeSession("video");
+    await session.prepareCallee();
+    const videoTx = pc.transceivers.find((t) => (t.sender.track as { kind?: string } | null)?.kind === "video")!;
+    return { session, local, initial, videoTx };
+  }
+
+  it("stops the track, takes it out of the stream and unpublishes it", async () => {
+    const { session, local, initial, videoTx } = await videoCall();
+
+    expect(await session.setCam(false)).toBe(false);
+
+    expect(initial.stop).toHaveBeenCalledTimes(1);
+    expect(local.getVideoTracks()).toHaveLength(0);
+    expect(videoTx.sender.replaceTrack).toHaveBeenLastCalledWith(null);
+    // The mic is untouched.
+    expect(local.getAudioTracks()).toHaveLength(1);
+  });
+
+  it("captures a fresh camera when it is turned back on", async () => {
+    const { session, local, videoTx } = await videoCall();
+    await session.setCam(false);
+    const second = cam("cam-2");
+    getUserMedia.mockImplementationOnce(async () => mutableStream([second]));
+
+    expect(await session.setCam(true)).toBe(true);
+
+    expect(getUserMedia).toHaveBeenLastCalledWith({ video: true });
+    expect(local.getVideoTracks()).toEqual([second]);
+    expect(videoTx.sender.replaceTrack).toHaveBeenLastCalledWith(second);
+    expect(second.stop).not.toHaveBeenCalled();
+  });
+
+  it("keeps the screen share on the sender while the camera is switched off mid-share", async () => {
+    const { session, initial, videoTx } = await videoCall();
+    const screenTrack = { kind: "video", stop: vi.fn(), id: "screen", addEventListener: vi.fn(), getSettings: () => ({}) };
+    const getDisplayMedia = vi.fn(async () => ({
+      getTracks: () => [screenTrack],
+      getVideoTracks: () => [screenTrack],
+    }));
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia, getDisplayMedia } });
+    await session.startShare();
+    videoTx.sender.replaceTrack.mockClear();
+
+    await session.setCam(false);
+    expect(initial.stop).toHaveBeenCalledTimes(1);
+    expect(videoTx.sender.replaceTrack).not.toHaveBeenCalled(); // the share still owns the sender
+
+    await session.stopShare();
+    expect(videoTx.sender.replaceTrack).toHaveBeenLastCalledWith(null); // camera stays off afterwards
+  });
+
+  it("still stops everything when the call ends", async () => {
+    const { session, initial } = await videoCall();
+    session.close();
+    expect(initial.stop).toHaveBeenCalled();
+  });
+});
+

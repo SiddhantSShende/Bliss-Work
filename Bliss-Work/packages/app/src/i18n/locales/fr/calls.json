@@ -1,0 +1,199 @@
+{
+  "notify": {
+    "incomingVideo": "Appel vidéo entrant",
+    "incomingVoice": "Appel vocal entrant",
+    "incomingBody": "{{caller}} vous appelle",
+    "missedTitle": "Appel manqué",
+    "missedBody": "Vous avez manqué un appel de {{caller}}",
+    "cameraUnavailable": "Caméra indisponible",
+    "cameraUnavailableDescription": "Vérifiez l'autorisation de la caméra pour cette application.",
+    "couldNotShareScreen": "Impossible de partager votre écran",
+    "ringtoneMuted": "La sonnerie est coupée par votre navigateur",
+    "ringtoneMutedDescription": "Cliquez n'importe où pour autoriser les sons d'appel.",
+    "unknownCaller": "Quelqu'un"
+  },
+  "endedReasons": {
+    "noAnswer": "Sans réponse",
+    "mediaBlocked": "Caméra/microphone bloqué",
+    "declined": "Appel refusé",
+    "callEnded": "Appel terminé",
+    "userUnavailable": "Utilisateur indisponible",
+    "connectionFailed": "échec de la connexion"
+  },
+  "window": {
+    "tabTitle": "{{title}} · {{brand}}",
+    "untitledMeeting": "Réunion",
+    "loading": "Chargement de la réunion…",
+    "loadError": {
+      "title": "Impossible de charger cette réunion.",
+      "hint": "Vérifiez votre connexion et réessayez.",
+      "returnToMeetings": "Retour aux réunions",
+      "retrying": "Nouvelle tentative…",
+      "retry": "Réessayer"
+    },
+    "unavailable": {
+      "title": "Cette réunion n'est pas disponible",
+      "hint": "Elle est peut-être terminée, ou vous ne figurez plus sur sa liste de participants.",
+      "close": "Fermer"
+    }
+  },
+  "join": {
+    "signIn": {
+      "title": "Connectez-vous pour participer",
+      "hint": "Ce lien de réunion fonctionne avec tout compte {{brand}}, y compris celui d'une autre organisation."
+    },
+    "joining": "Connexion à la réunion…",
+    "invalid": {
+      "title": "Ce lien d'invitation n'est plus valide",
+      "hint": "Il a peut-être expiré, été révoqué, ou la réunion est déjà terminée. Demandez-en un nouveau à l'organisateur.",
+      "backToApp": "Retour à {{brand}}"
+    },
+    "timeout": {
+      "title": "Cela prend plus de temps que prévu",
+      "hint": "Recharger la page résout généralement le problème.",
+      "reload": "Recharger"
+    },
+    "handoff": {
+      "joining": "Connexion à la réunion…"
+    }
+  },
+  "chat": {
+    "disclaimer": "Les messages ici sont visibles par tous les participants de la réunion — choisissez un nom ci-dessous pour en envoyer un en privé.",
+    "empty": "Aucun message pour l'instant. Tout ce qui est envoyé ici est conservé pendant la durée de la réunion — téléchargez-le depuis l'en-tête si vous souhaitez le garder.",
+    "toLabel": "À :",
+    "toAriaLabel": "Destinataire de ce message",
+    "everyone": "Tout le monde",
+    "privateOption": "{{name}} (privé)",
+    "attachmentsUnsupported": "Les pièces jointes ne sont pas prises en charge dans la discussion de réunion",
+    "privatePlaceholder": "Message privé à {{name}}…",
+    "everyonePlaceholder": "Écrire à tout le monde…",
+    "privateAriaLabel": "Message privé à {{name}}",
+    "everyoneAriaLabel": "Écrire à tout le monde",
+    "send": "Envoyer",
+    "onlyWillSee": "Seul(e) {{name}} verra ceci",
+    "you": "Vous",
+    "privateToName": "Privé pour {{name}}",
+    "privateToYou": "Privé pour vous"
+  },
+  "members": {
+    "pagesAriaLabel": "Pages de membres",
+    "previous": "Membres précédents",
+    "pageAriaLabel": "Page {{page}} sur {{pages}} des membres",
+    "more": "Plus de membres"
+  },
+  "menu": {
+    "call": "Appel",
+    "voiceCall": "Appel vocal",
+    "videoCall": "Appel vidéo",
+    "sendCallLink": "Envoyer un lien d'appel",
+    "scheduleCall": "Planifier un appel"
+  },
+  "notes": {
+    "empty": "Aucun point pour l'instant. Tout ce qui est écrit ici est partagé avec toutes les personnes présentes à la réunion.",
+    "placeholder": "Écrire un point important…",
+    "ariaLabel": "Écrire un point important",
+    "enterToAdd": "Entrée pour ajouter",
+    "addPoint": "Ajouter le point"
+  },
+  "sidebar": {
+    "controlsAriaLabel": "Commandes de la réunion",
+    "mute": "Couper le micro",
+    "muted": "Micro coupé",
+    "camera": "Caméra",
+    "share": "Partager",
+    "raise": "Lever la main",
+    "people": "Personnes",
+    "add": "Ajouter",
+    "addPeople": "Ajouter des personnes",
+    "chats": "Discussions",
+    "notes": "Notes",
+    "record": "Enregistrer",
+    "recordUnsupported": "Ce navigateur ne peut pas enregistrer les réunions",
+    "copyLink": "Copier le lien",
+    "copyInviteLink": "Copier le lien d'invitation",
+    "pip": "PiP",
+    "exitPip": "Quitter PiP",
+    "pictureInPicture": "Image dans l'image",
+    "exitPictureInPicture": "Quitter l'image dans l'image",
+    "pictureInPictureNoVideo": "L'image dans l'image nécessite la vidéo de quelqu'un — personne n'a activé sa caméra ni partagé son écran",
+    "minimize": "Réduire",
+    "minimise": "Réduire",
+    "end": "Terminer",
+    "endCall": "Raccrocher"
+  },
+  "sidePanel": {
+    "tabNames": {
+      "chat": "discussion",
+      "notes": "notes",
+      "participants": "participants"
+    },
+    "regionAriaLabel": "Réunion : {{tab}}",
+    "tablistAriaLabel": "Discussion, notes ou participants",
+    "chatTab": "Discussion",
+    "notesTab": "Notes",
+    "peopleTab": "Personnes",
+    "saveAsFile": "Enregistrer l'onglet {{tab}} dans un fichier",
+    "closeTab": "Fermer l'onglet {{tab}}"
+  },
+  "filmstrip": {
+    "ariaLabel": "Autres participants",
+    "moreMembers": "+{{count}} autres membres"
+  },
+  "roomLazy": {
+    "connecting": "Connexion…",
+    "error": {
+      "title": "Une erreur s'est produite à l'ouverture de la salle de réunion.",
+      "hint": "Recharger la page résout généralement le problème.",
+      "reload": "Recharger"
+    }
+  },
+  "incomingNotice": {
+    "untitledMeeting": "Réunion",
+    "ariaLabel": "Réunion entrante : {{title}}",
+    "hostedBy": "Organisée par {{organizer}}",
+    "video": "Vidéo",
+    "joinWithCamera": "Rejoindre avec la caméra activée",
+    "voice": "Audio",
+    "joinVoiceOnly": "Rejoindre en audio uniquement",
+    "leave": "Quitter"
+  },
+  "scheduledNotice": {
+    "untitledMeeting": "Réunion",
+    "ariaLabel": "Réunion planifiée : {{title}}",
+    "heading": "Réunion planifiée",
+    "hostedBy": "Organisée par {{organizer}}",
+    "join": "Rejoindre la réunion",
+    "dismiss": "Ignorer"
+  },
+  "miniMeeting": {
+    "ariaLabel": "{{title}} — réunion en cours",
+    "reconnecting": "Reconnexion…",
+    "connecting": "Connexion…",
+    "backToMeeting": "Retour à la réunion",
+    "nobodySpeaking": "Personne ne parle",
+    "mute": "Couper le micro",
+    "unmute": "Réactiver le micro",
+    "turnCameraOff": "Désactiver la caméra",
+    "turnCameraOn": "Activer la caméra",
+    "newChatMessages_one": "{{count}} nouveau message de discussion",
+    "newChatMessages_many": "{{count}} de nouveaux messages de discussion",
+    "newChatMessages_other": "{{count}} nouveaux messages de discussion",
+    "leaveMeeting": "Quitter la réunion"
+  },
+  "sendLinkDialog": {
+    "title": "Envoyer un lien d'appel",
+    "description": "Le lien est publié dans votre discussion avec {{peerName}}. Les personnes que vous ajoutez ici le reçoivent en message direct et se voient réserver une place dans l'appel sous Réunions.",
+    "alsoSendTo": "Envoyer aussi à",
+    "selectedCount": "— {{count}} sélectionné(s)",
+    "optional": "— facultatif",
+    "cancel": "Annuler",
+    "sendLink": "Envoyer le lien"
+  },
+  "screenShare": {
+    "showControls": "Afficher les commandes de partage d'écran",
+    "sharingYourScreen": "Vous partagez votre écran",
+    "stopSharingTitle": "Arrêter le partage",
+    "stop": "Arrêter",
+    "slideOutOfTheWay": "Écarter"
+  }
+}

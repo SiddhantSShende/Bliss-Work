@@ -109,7 +109,7 @@ export type AuditPage = z.infer<typeof AuditPage>;
  * and the export mark the difference, because anyone using this screen to make a
  * decision about a person deserves to know which they are looking at.
  */
-export const ActivitySource = z.enum(["server", "web", "desktop", "extension", "mobile"]);
+export const ActivitySource = z.enum(["server", "web", "desktop", "extension"]);
 export type ActivitySource = z.infer<typeof ActivitySource>;
 
 /** Online / idle / offline — three states, where raw presence has only two. */
@@ -309,9 +309,8 @@ export type CaptchaChallengeDTO = z.infer<typeof CaptchaChallengeDTO>;
 
 /** GET /i18n/languages' response — the live set of locales the dynamic
  *  translation backend can currently produce a catalog for. Never a
- *  hardcoded client-side list; always whatever translate-gw (behind
- *  auth-svc) offers: its configured locales that Google Cloud Translation
- *  also supports. */
+ *  hardcoded client-side list; always whatever auth-svc's Google
+ *  Cloud Translation check just returned (or its Redis-cached copy of it). */
 export const I18nLanguageDTO = z.object({
   code: z.string(),
   name: z.string(),
@@ -327,8 +326,7 @@ export type I18nLanguagesDTO = z.infer<typeof I18nLanguagesDTO>;
  *  the exact shape `i18next.addResourceBundle(locale, namespace, ...)` wants for each entry.
  *  `partial` is true when Google failed to translate some strings for this
  *  request — those keys carry their English source text and rely on the
- *  client's own `fallbackLng: "en"` to read correctly either way. A partial
- *  catalog is applied but not cached client-side. */
+ *  client's own `fallbackLng: "en"` to read correctly either way. */
 export const I18nCatalogDTO = z.object({
   locale: z.string(),
   namespaces: z.record(z.string(), z.record(z.string(), z.unknown())),
@@ -450,9 +448,6 @@ export const MessageKind = z.enum([
   "channel_renamed",
   "channel_created",
   "channel_member_added",
-  // Server-only, posted into a LOCKED channel when something that originated in
-  // it is forwarded. The body names the forwarder and never the destination.
-  "channel_forward_notice",
 ]);
 export type MessageKind = z.infer<typeof MessageKind>;
 
@@ -647,7 +642,7 @@ export const InboxItemDTO = z.object({
   lastEventAt: z.string(),
   unreadCount: z.number().int().nonnegative(),
   /** Tiny chip surface: 'SENT'|'DELIVERED'|'SEEN' for threads (sender side);
-   *  'SENT'|'ACKNOWLEDGED'|'COMPLETED'|'IGNORED'|'LEFT'|'MISSED' for tasks. */
+   *  'SENT'|'ACKNOWLEDGED'|'COMPLETED'|'IGNORED'|'LEFT' for tasks. */
   statusBadge: z.string().nullable(),
   hiddenForOwner: z.boolean(),
   deletedForOwner: z.boolean(),
@@ -786,9 +781,6 @@ export const AssigneeStatus = z.enum([
   "ACKNOWLEDGED",
   "COMPLETED",
   "LEFT",
-  /** The deadline passed before the assignment was completed. Terminal, and set
-   *  only by task-svc's deadline sweeper — never by a user action. */
-  "MISSED",
 ]);
 export type AssigneeStatus = z.infer<typeof AssigneeStatus>;
 
@@ -828,11 +820,6 @@ export const StickyTaskDTO = z.object({
   reviewedAt: z.string().nullable().optional(),
   review: z.string().nullable().optional(),
   reviewRating: ReviewRating,
-  /** When the task is due; absent/null = no deadline. For a recurring task this
-   *  is the deadline resolved for THIS occurrence. */
-  deadlineAt: z.string().nullable().optional(),
-  /** When the deadline passed unmet (status MISSED). */
-  missedAt: z.string().nullable().optional(),
   participants: z.array(TaskParticipantDTO).default([]),
 });
 export type StickyTaskDTO = z.infer<typeof StickyTaskDTO>;
@@ -844,7 +831,6 @@ export const SentTaskDTO = z.object({
   title: z.string(),
   description: z.string(),
   createdAt: z.string(),
-  deadlineAt: z.string().nullable().optional(),
   assignees: z.array(
     z.object({
       assigneeId: z.string().uuid(),
@@ -855,7 +841,6 @@ export const SentTaskDTO = z.object({
       completedAt: z.string().nullable().optional(),
       ignoredAt: z.string().nullable().optional(),
       leftAt: z.string().nullable().optional(),
-      missedAt: z.string().nullable().optional(),
       reviewedAt: z.string().nullable().optional(),
       review: z.string().nullable().optional(),
       reviewRating: ReviewRating,
@@ -864,23 +849,6 @@ export const SentTaskDTO = z.object({
   participants: z.array(TaskParticipantDTO).default([]),
 });
 export type SentTaskDTO = z.infer<typeof SentTaskDTO>;
-
-/**
- * How a recurring series derives each occurrence's deadline.
- *  - RELATIVE: `amount` `unit` after the occurrence (MINUTES/HOURS elapsed; DAYS are
- *    calendar days on the wall clock of `timeZone`).
- *  - FIXED_TIME: `time` ("HH:MM") on the occurrence's own date, in `timeZone`.
- * `timeZone` is the IANA zone the rule is read in — an offset cannot say what a
- * wall-clock time means after a DST change.
- */
-export const DeadlineRule = z.object({
-  kind: z.enum(["RELATIVE", "FIXED_TIME"]),
-  amount: z.number().int().nullable().optional(),
-  unit: z.enum(["MINUTES", "HOURS", "DAYS"]).nullable().optional(),
-  time: z.string().nullable().optional(),
-  timeZone: z.string(),
-});
-export type DeadlineRule = z.infer<typeof DeadlineRule>;
 
 export const ScheduledTaskDTO = z.object({
   scheduleId: z.string().uuid(),
@@ -905,10 +873,6 @@ export const ScheduledTaskDTO = z.object({
   occurrenceLimit: z.number().int().nullable().optional(),
   occurrenceCount: z.number().int(),
   assignees: z.array(z.object({ userId: z.string(), username: z.string() })),
-  /** SCHEDULED: the one absolute deadline. */
-  deadlineAt: z.string().nullable().optional(),
-  /** RECURRING: the rule each occurrence's deadline is resolved from. */
-  deadlineRule: DeadlineRule.nullable().optional(),
 });
 export type ScheduledTaskDTO = z.infer<typeof ScheduledTaskDTO>;
 
@@ -936,8 +900,6 @@ export const TaskExportRow = z.object({
   ignoredAt: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
   leftAt: z.string().nullable().optional(),
-  deadlineAt: z.string().nullable().optional(),
-  missedAt: z.string().nullable().optional(),
   /** Whole-turnaround seconds (completed − allocated); null unless completed. */
   timeTakenSeconds: z.number().int().nullable().optional(),
   reviewedAt: z.string().nullable().optional(),

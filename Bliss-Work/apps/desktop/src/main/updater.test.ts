@@ -9,7 +9,7 @@
  * electron-updater (the OS and the network) are stand-ins.
  */
 import { EventEmitter } from "node:events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   updater: null as unknown as EventEmitter & Record<string, unknown>, // set when electron-updater is (re)imported
@@ -26,7 +26,7 @@ vi.mock("electron-updater", async () => {
   const updater = Object.assign(new Emitter(), {
     autoDownload: true,
     autoInstallOnAppQuit: false,
-    checkForUpdates: vi.fn(async () => ({ updateInfo: { version: "1.0.0" } })),
+    checkForUpdates: vi.fn(async () => ({ isUpdateAvailable: false, updateInfo: { version: "1.0.0" } })),
     downloadUpdate: vi.fn(async () => []),
     quitAndInstall: vi.fn(),
   });
@@ -35,8 +35,17 @@ vi.mock("electron-updater", async () => {
 });
 vi.mock("./update-integrity", () => ({ checkSecondSource: h.checkSecondSource }));
 
+// One entry per installer this app ships (electron-builder's artifactName), so the
+// update resolves on whichever platform/arch the tests happen to run on.
+const feedFiles = (sha512: string) =>
+  ["x64", "arm64"].flatMap((arch) => [
+    { url: `BlissWork-windows-${arch}.exe`, sha512 },
+    { url: `BlissWork-mac-${arch}.dmg`, sha512: "dmg" },
+    { url: `BlissWork-mac-${arch}.zip`, sha512 },
+    { url: `BlissWork-linux-${arch}.AppImage`, sha512 },
+  ]);
 const available = (version: string) =>
-  h.updater.emit("update-available", { version, files: [{ url: `BlissWork-${version}.exe`, sha512: "x" }], path: "p", sha512: "x" });
+  h.updater.emit("update-available", { version, files: feedFiles("x"), path: "p", sha512: "x" });
 const downloaded = (version: string) => h.updater.emit("update-downloaded", { version });
 /** Let the async handlers (integrity check, then downloadUpdate) run to completion. */
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -57,6 +66,10 @@ beforeEach(async () => {
   h.showMessageBox.mockReset().mockResolvedValue({ response: 1 }); // the user answers "Later"
   h.checkSecondSource.mockReset().mockResolvedValue({ verified: true });
   h.updater?.removeAllListeners();
+  if (h.updater) {
+    downloadUpdate().mockClear();
+    checkForUpdates().mockReset().mockResolvedValue({ isUpdateAvailable: false, updateInfo: { version: "1.0.0" } });
+  }
 });
 
 async function freshUpdater() {
@@ -129,5 +142,110 @@ describe("Settings → Check for updates", () => {
     checkForUpdates().mockResolvedValue({ updateInfo: { version: "1.0.0" } });
 
     expect(await checkForUpdatesNow()).toEqual({ status: "up-to-date", version: "1.0.0" });
+  });
+});
+
+describe("the second-source integrity check", () => {
+  const platformAndArch = (platform: string, arch: string) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue(platform as NodeJS.Platform);
+    vi.spyOn(process, "arch", "get").mockReturnValue(arch as NodeJS.Architecture);
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  it("checks the hash of the installer this platform downloads, not files[0]", async () => {
+    platformAndArch("darwin", "arm64");
+    await freshUpdater();
+    h.updater.emit("update-available", {
+      version: "1.1.0",
+      path: "BlissWork-mac-x64.dmg",
+      sha512: "first",
+      files: [
+        { url: "BlissWork-mac-x64.dmg", sha512: "first" },
+        { url: "BlissWork-mac-x64.zip", sha512: "x64zip" },
+        { url: "BlissWork-mac-arm64.dmg", sha512: "armdmg" },
+        { url: "BlissWork-mac-arm64.zip", sha512: "armzip" },
+      ],
+    });
+    await settle();
+
+    expect(h.checkSecondSource).toHaveBeenCalledWith(
+      expect.objectContaining({ artifactFileName: "BlissWork-mac-arm64.zip", expectedSha512: "armzip" }),
+    );
+    expect(downloadUpdate()).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the manifest has no installer for this platform: nothing is verified or downloaded", async () => {
+    platformAndArch("linux", "x64");
+    await freshUpdater();
+    h.updater.emit("update-available", {
+      version: "1.1.0",
+      files: [{ url: "BlissWork-windows-x64.exe", sha512: "x" }],
+      path: "BlissWork-windows-x64.exe",
+      sha512: "x",
+    });
+    await settle();
+
+    expect(h.checkSecondSource).not.toHaveBeenCalled();
+    expect(downloadUpdate()).not.toHaveBeenCalled();
+  });
+
+  it("tells a user who asked, via the check's own result, that the update was refused", async () => {
+    platformAndArch("linux", "x64");
+    const { checkForUpdatesNow } = await freshUpdater();
+    checkForUpdates().mockImplementation(async () => {
+      // electron-updater fires this synchronously inside checkForUpdates().
+      h.updater.emit("update-available", {
+        version: "1.1.0",
+        files: [{ url: "BlissWork-windows-x64.exe", sha512: "x" }],
+        path: "BlissWork-windows-x64.exe",
+        sha512: "x",
+      });
+      return { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    });
+
+    const result = await checkForUpdatesNow();
+
+    expect(result.status).toBe("error");
+    expect(downloadUpdate()).not.toHaveBeenCalled();
+  });
+});
+
+describe("Settings → Check for updates, a feed that is not newer", () => {
+  it("reports up to date for an OLDER feed version instead of promising a download", async () => {
+    const { checkForUpdatesNow } = await freshUpdater();
+    // 0.9.0 differs from the running 1.0.0 but is not an update; electron-updater says so.
+    checkForUpdates().mockResolvedValue({ isUpdateAvailable: false, updateInfo: { version: "0.9.0" } });
+
+    expect(await checkForUpdatesNow()).toEqual({ status: "up-to-date", version: "1.0.0" });
+  });
+
+  it("does not leave the on-demand flag set, so a later background failure is not shown as the user's", async () => {
+    const send = vi.fn();
+    const mod = await import("./updater");
+    mod.initAutoUpdate(() => ({ webContents: { send } }) as never);
+    // A real update is found first (flag set) ...
+    checkForUpdates().mockResolvedValueOnce({ isUpdateAvailable: true, updateInfo: { version: "1.1.0" } });
+    await mod.checkForUpdatesNow();
+    // ... then a later on-demand check finds nothing newer: the flag must be cleared.
+    checkForUpdates().mockResolvedValueOnce({ isUpdateAvailable: false, updateInfo: { version: "1.0.0" } });
+    await mod.checkForUpdatesNow();
+
+    h.updater.emit("error", new Error("background download failed"));
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("clears the flag when the check itself fails", async () => {
+    const send = vi.fn();
+    const mod = await import("./updater");
+    mod.initAutoUpdate(() => ({ webContents: { send } }) as never);
+    checkForUpdates().mockResolvedValueOnce({ isUpdateAvailable: true, updateInfo: { version: "1.1.0" } });
+    await mod.checkForUpdatesNow();
+    checkForUpdates().mockRejectedValueOnce(new Error("offline"));
+    expect((await mod.checkForUpdatesNow()).status).toBe("error");
+
+    h.updater.emit("error", new Error("later"));
+
+    expect(send).not.toHaveBeenCalled();
   });
 });

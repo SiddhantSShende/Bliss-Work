@@ -1,0 +1,99 @@
+{
+  "loading": "Cargando…",
+  "unknownUser": "Usuario desconocido",
+  "screenshotBlocked": "Se detectó un intento de captura de pantalla. No se permiten capturas de pantalla.",
+  "date": {
+    "today": "Hoy",
+    "yesterday": "Ayer",
+    "tomorrow": "Mañana"
+  },
+  "buttons": {
+    "dismiss": "Descartar",
+    "view": "Ver",
+    "manage": "Administrar",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "edit": "Editar"
+  },
+  "language": {
+    "changeLanguage": "Cambiar idioma",
+    "switcherTitle": "Idioma: {{name}}",
+    "switchFailed": "No se pudo cargar ese idioma. Inténtalo de nuevo."
+  },
+  "relativeTime": {
+    "justNow": "justo ahora",
+    "minutesAgo_one": "hace {{count}} min",
+    "minutesAgo_many": "hace {{count}} min",
+    "minutesAgo_other": "hace {{count}} min",
+    "hoursAgo_one": "hace {{count}} h",
+    "hoursAgo_many": "hace {{count}} h",
+    "hoursAgo_other": "hace {{count}} h",
+    "daysAgo_one": "hace {{count}} d",
+    "daysAgo_many": "hace {{count}} d",
+    "daysAgo_other": "hace {{count}} d"
+  },
+  "confirmDialog": {
+    "confirmDefault": "Confirmar",
+    "cancel": "Cancelar"
+  },
+  "modal": {
+    "close": "Cerrar"
+  },
+  "lightbox": {
+    "close": "Cerrar",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "loading": "Cargando…",
+    "previewNotAvailable": "La vista previa no está disponible para este tipo de archivo",
+    "openInBrowser": "Abrir en el navegador",
+    "loadingPreview": "Cargando vista previa…",
+    "itemCount": " · {{current}} de {{total}}"
+  },
+  "documentViewer": {
+    "converting": "Preparando la vista previa… los documentos grandes pueden tardar un minuto.",
+    "failed": "No se puede mostrar una vista previa de este documento.",
+    "failedHint": "Aun así puedes descargarlo.",
+    "unavailable": "Las vistas previas no están disponibles temporalmente.",
+    "busy": "Demasiadas vistas previas a la vez. Inténtalo de nuevo en un momento.",
+    "tooLarge": "Este archivo es demasiado grande para la vista previa.",
+    "timedOut": "Esto está tardando más de lo esperado.",
+    "network": "No se pudo cargar la vista previa. Comprueba tu conexión.",
+    "download": "Descargar",
+    "sheetNotice": "Vista de datos sencilla. No se muestran el formato, las celdas combinadas, los gráficos ni las imágenes: descarga el archivo para verlo tal como se creó.",
+    "csvNotice": "Vista de datos sencilla. Descarga el archivo para abrirlo en una aplicación de hojas de cálculo.",
+    "showingRowsOf": "Mostrando las primeras {{shown}} filas de {{total}}.",
+    "showingRows": "Mostrando las primeras {{shown}} filas.",
+    "moreSheets": "Solo se muestran las primeras {{count}} hojas.",
+    "showMoreRows": "Mostrar más filas",
+    "emptySheet": "Esta hoja está vacía.",
+    "sheets": "Hojas",
+    "textTruncated": "Solo se muestra la primera parte de este archivo.",
+    "emptyFile": "Este archivo está vacío."
+  },
+  "errorBoundary": {
+    "title": "Algo salió mal.",
+    "unexpectedError": "Ocurrió un error inesperado.",
+    "reference": "Referencia: {{requestId}}",
+    "retry": "Reintentar",
+    "goHome": "Ir al inicio"
+  },
+  "globalError": {
+    "title": "Algo salió mal"
+  },
+  "attachment": {
+    "couldNotOpen": "No se pudo abrir {{filename}}"
+  },
+  "ui": {
+    "back": "Atrás",
+    "onCall": "En una llamada",
+    "nothingRecorded": "No hay nada registrado en este período.",
+    "chartValue": "Valor",
+    "chartPeakAria": "{{value}} por día, máximo {{peak}}",
+    "chartActiveIdle": "{{active}} activos, {{idle}} inactivos"
+  },
+  "activityRange": {
+    "last7": "Últimos 7 días",
+    "last30": "Últimos 30 días",
+    "last90": "Últimos 90 días"
+  }
+}

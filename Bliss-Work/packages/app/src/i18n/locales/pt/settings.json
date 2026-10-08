@@ -1,0 +1,60 @@
+{
+  "header": {
+    "title": "Configurações",
+    "subtitle": "Preferências de como o app se comporta neste dispositivo."
+  },
+  "theme": {
+    "title": "Tema",
+    "description": "Usando atualmente: {{theme}}.",
+    "changeTheme": "Alterar tema",
+    "menuLabel": "Tema",
+    "syncFailed": "O tema personalizado foi alterado somente neste dispositivo. Não conseguimos salvá-lo na sua conta e vamos continuar tentando.",
+    "light": "Claro",
+    "dark": "Escuro",
+    "custom": {
+      "title": "Tema personalizado",
+      "label": "Personalizado",
+      "colors": "Cores",
+      "color": "Cor {{number}}",
+      "preview": "Visualização do tema personalizado",
+      "create": "Criar tema personalizado",
+      "edit": "Editar tema personalizado",
+      "cancel": "Cancelar",
+      "save": "Salvar"
+    }
+  },
+  "twoFactor": {
+    "title": "Autenticação em dois fatores",
+    "description": "Adicione um app autenticador como segunda etapa de login."
+  },
+  "activeSessions": {
+    "title": "Logins atuais",
+    "description": "Veja todos os dispositivos conectados à sua conta no momento e desconecte qualquer um deles remotamente."
+  },
+  "activity": {
+    "title": "Sua atividade",
+    "description": "Veja tudo o que o {{brand}} registra sobre como você trabalha — o mesmo registro que os administradores do seu espaço de trabalho veem."
+  },
+  "desktopNotifications": {
+    "title": "Notificações da área de trabalho",
+    "onDescription": "Mostrar avisos quando chegarem novas mensagens e tarefas.",
+    "offDescription": "Os avisos estão pausados. Você ainda pode ver as notificações no menu do sino.",
+    "turnOn": "Ativar",
+    "turnOff": "Desativar"
+  },
+  "about": {
+    "title": "Sobre",
+    "versionDesktop": "{{brand}} {{version}} · desktop",
+    "versionBuild": "{{brand}} · build {{sha}}",
+    "checkForUpdates": "Verificar atualizações",
+    "checking": "Verificando…",
+    "toasts": {
+      "updateDownloading": "Baixando a atualização para a versão {{version}}",
+      "updateDownloadingDescription": "Pediremos que você reinicie quando estiver pronta.",
+      "upToDate": "Você está com a versão mais recente",
+      "upToDateDescription": "Versão {{version}}",
+      "updateDownloadFailed": "Falha ao baixar a atualização",
+      "checkFailedFallback": "Não foi possível verificar atualizações"
+    }
+  }
+}

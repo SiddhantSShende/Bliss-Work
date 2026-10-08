@@ -1,0 +1,305 @@
+{
+  "preview": {
+    "linkReceived": "Link erhalten",
+    "linkSent": "Link gesendet",
+    "locationShared": "Standort geteilt",
+    "fileSent": "Datei gesendet",
+    "imageSent": "Bild gesendet",
+    "videoSent": "Video gesendet",
+    "imagesSent_one": "{{count}} Bild gesendet",
+    "imagesSent_other": "{{count}} Bilder gesendet",
+    "filesSent_one": "{{count}} Datei gesendet",
+    "filesSent_other": "{{count}} Dateien gesendet"
+  },
+  "common": {
+    "cancel": "Abbrechen",
+    "join": "Beitreten",
+    "pinnedLabel": "Angeheftet",
+    "mutedLabel": "Stumm",
+    "muteNotifications": "Benachrichtigungen stummschalten",
+    "unmuteNotifications": "Stummschaltung aufheben",
+    "memberCount_one": "{{count}} Mitglied",
+    "memberCount_other": "{{count}} Mitglieder"
+  },
+  "chatsList": {
+    "title": "Chats",
+    "newChat": "Neuer Chat",
+    "searchAriaLabel": "Chats durchsuchen",
+    "searchPlaceholder": "Chats durchsuchen...",
+    "filtersAriaLabel": "Chat-Filter",
+    "filters": {
+      "all": "Alle",
+      "unread": "Ungelesen",
+      "mentions": "Erwähnungen"
+    },
+    "you": "Sie",
+    "startChatting": "Chat starten",
+    "empty": {
+      "title": "Noch keine Chats",
+      "hint": "Tippen Sie auf +, um eine Unterhaltung zu beginnen."
+    },
+    "emptySearch": {
+      "title": "Keine passenden Chats",
+      "hint": "Versuchen Sie eine andere Suche oder einen anderen Filter."
+    },
+    "menu": {
+      "optionsLabel": "Chat-Optionen",
+      "pin": "Chat anheften",
+      "unpin": "Chat loslösen",
+      "delete": "Chat löschen"
+    },
+    "deleteDialog": {
+      "title": "Chatverlauf löschen?",
+      "message": "Damit wird dieser Chatverlauf für Sie gelöscht. Die andere Person behält ihre Kopie.",
+      "confirmLabel": "Chat löschen"
+    },
+    "deleteErrorToast": "Dieser Chat konnte nicht gelöscht werden"
+  },
+  "channelsList": {
+    "title": "Kanäle",
+    "addChannel": "Kanal hinzufügen",
+    "searchAriaLabel": "Kanäle durchsuchen",
+    "searchPlaceholder": "Kanäle durchsuchen...",
+    "filtersAriaLabel": "Kanalfilter",
+    "filters": {
+      "all": "Alle",
+      "unread": "Ungelesen"
+    },
+    "tabs": {
+      "mine": "Meine Kanäle",
+      "browse": "Entdecken"
+    },
+    "empty": {
+      "title": "Noch keine Kanäle",
+      "hint": "Tippen Sie auf +, um einen zu erstellen, oder auf „Entdecken“, um offene Kanäle zu finden."
+    },
+    "emptySearch": {
+      "title": "Keine passenden Kanäle",
+      "hint": "Versuchen Sie eine andere Suche oder einen anderen Filter."
+    },
+    "loadError": {
+      "title": "Offene Kanäle konnten nicht geladen werden",
+      "hint": "Beim Abrufen des Verzeichnisses ist etwas schiefgelaufen.",
+      "retry": "Erneut versuchen"
+    },
+    "emptyOpen": {
+      "title": "Keine offenen Kanäle zum Beitreten",
+      "hint": "Offene Kanäle, die Ihre Teammitglieder erstellen, erscheinen hier."
+    },
+    "loadMore": "Mehr laden",
+    "leaveSuccessToast": "Kanal verlassen.",
+    "leaveErrorToast": "Verlassen nicht möglich",
+    "menu": {
+      "optionsLabel": "Kanaloptionen",
+      "pin": "Kanal anheften",
+      "unpin": "Kanal loslösen",
+      "leave": "Kanal verlassen",
+      "leaving": "Wird verlassen…"
+    }
+  },
+  "leaveChannel": {
+    "titleNamed": "#{{channel}} verlassen?",
+    "titleGeneric": "Kanal verlassen?",
+    "messageLocked": "Dies ist ein geschlossener Kanal. Ein Mitglied muss Sie erneut einladen, damit Sie zurückkehren können.",
+    "messageOpen": "Sie können jederzeit über den Tab „Entdecken“ wieder beitreten.",
+    "confirmLabel": "Kanal verlassen"
+  },
+  "newChat": {
+    "title": "Neuer Chat",
+    "searchPlaceholder": "Personen suchen…",
+    "emptyTitle": "Keine Personen gefunden",
+    "errorToast": {
+      "title": "Die Unterhaltung konnte nicht gestartet werden",
+      "description": "Bitte versuchen Sie es erneut."
+    }
+  },
+  "addChannel": {
+    "title": "Kanal hinzufügen",
+    "tabs": {
+      "create": "Neuen Kanal erstellen",
+      "browse": "Kanal hinzufügen"
+    },
+    "searchPlaceholder": "Kanäle suchen…",
+    "loading": "Kanäle werden geladen…",
+    "empty": {
+      "title": "Noch keine Kanäle",
+      "hint": "Erstellen Sie einen im anderen Tab."
+    },
+    "emptySearch": {
+      "title": "Keine passenden Kanäle",
+      "hint": "Versuchen Sie eine andere Suche."
+    },
+    "loadError": "Das vollständige Kanalverzeichnis konnte nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "row": {
+      "private": "Privat",
+      "public": "Öffentlich",
+      "joined": "Beigetreten"
+    }
+  },
+  "createChannel": {
+    "channelNameLabel": "Kanalname",
+    "channelNamePlaceholder": "design-team",
+    "visibilityLabel": "Sichtbarkeit",
+    "openOption": {
+      "label": "Offen",
+      "hint": "Alle in der Organisation können beitreten"
+    },
+    "lockedOption": {
+      "label": "Geschlossen",
+      "hint": "Nur auf Einladung"
+    },
+    "membersLabel": "Mitglieder",
+    "membersLabelWithCount": "Mitglieder ({{count}})",
+    "noMembers": "Noch keine Mitglieder hinzugefügt.",
+    "removeMemberAriaLabel": "{{name}} entfernen",
+    "removeMemberFallback": "Mitglied",
+    "addMember": "Mitglied hinzufügen",
+    "createButton": "Kanal erstellen",
+    "creating": "Wird erstellt…",
+    "nameRequiredToast": "Geben Sie dem Kanal einen Namen",
+    "createErrorToast": "Der Kanal konnte nicht erstellt werden"
+  },
+  "renameChannel": {
+    "title": "Kanal umbenennen",
+    "placeholder": "Kanalname",
+    "save": "Speichern",
+    "saving": "Wird gespeichert…",
+    "successToast": "Kanal umbenannt",
+    "errorToast": "Der Kanal konnte nicht umbenannt werden"
+  },
+  "channelMembers": {
+    "addPeople": "Personen hinzufügen",
+    "addedToast": "Zum Kanal hinzugefügt",
+    "actionFailed": "Aktion fehlgeschlagen",
+    "youSuffix": " (Sie)",
+    "roles": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "member": "Mitglied"
+    },
+    "workspaceAdmin": "Admin des Arbeitsbereichs",
+    "unknownUsername": "unbekannt",
+    "actions": {
+      "makeAdmin": "Zum Kanal-Admin machen",
+      "removeAdmin": "Als Kanal-Admin entfernen",
+      "transferOwnership": "Eigentum übertragen",
+      "removeFromChannel": "Aus Kanal entfernen",
+      "blockFromChannel": "Aus Kanal sperren"
+    },
+    "blockedHeading": "Gesperrt",
+    "unblock": "Entsperren",
+    "fallbackThem": "diese Person",
+    "transferConfirm": {
+      "title": "Eigentum übertragen?",
+      "message": "{{name}} zum Owner von #{{channel}} machen? Sie werden Admin.",
+      "confirmLabel": "Übertragen"
+    },
+    "blockConfirm": {
+      "title": "Aus Kanal sperren?",
+      "message": "{{name}} aus #{{channel}} sperren? Die Person wird entfernt und kann nicht erneut beitreten.",
+      "confirmLabel": "Sperren"
+    }
+  },
+  "chatSearchBar": {
+    "placeholder": "Diese Unterhaltung durchsuchen…",
+    "ariaLabel": "Diese Unterhaltung durchsuchen",
+    "noMatches": "Keine Treffer",
+    "matchesOfLoaded": "{{matches}} von {{loaded}} geladen",
+    "clearSearch": "Suche löschen",
+    "closeSearch": "Suche schließen"
+  },
+  "chatAssets": {
+    "tabs": {
+      "media": "Medien",
+      "docs": "Dokumente",
+      "links": "Links"
+    },
+    "scopeNote_one": "Aus der {{count}} hier geladenen Nachricht – laden Sie ältere Nachrichten in der Unterhaltung, um mehr einzubeziehen.",
+    "scopeNote_other": "Aus den {{count}} hier geladenen Nachrichten – laden Sie ältere Nachrichten in der Unterhaltung, um mehr einzubeziehen.",
+    "emptyMedia": {
+      "title": "Noch keine Fotos oder Videos",
+      "hint": "In dieser Unterhaltung geteilte Bilder und Clips werden hier gesammelt."
+    },
+    "unavailable": "Nicht verfügbar",
+    "openItem": "{{name}} öffnen",
+    "downloadItem": "{{name}} herunterladen",
+    "emptyDocs": {
+      "title": "Noch keine Dokumente",
+      "hint": "Dateien, die keine Fotos oder Videos sind – PDFs, Tabellen, Archive – werden hier gesammelt."
+    },
+    "previewUnavailable": "Für diesen Dateityp ist keine Vorschau verfügbar",
+    "emptyLinks": {
+      "title": "Noch keine Links",
+      "hint": "In dieser Unterhaltung geteilte Webadressen werden hier gesammelt."
+    }
+  },
+  "pinButton": {
+    "pin": "An Desktop anheften",
+    "unpin": "Vom Desktop loslösen"
+  },
+  "selectionToolbar": {
+    "selectedCount_one": "{{count}} ausgewählt",
+    "selectedCount_other": "{{count}} ausgewählt",
+    "cannotDelete_one": "· {{count}} nicht löschbar",
+    "cannotDelete_other": "· {{count}} nicht löschbar",
+    "forward": "Weiterleiten",
+    "delete": "Löschen"
+  },
+  "messageStatus": {
+    "pending": "Wird gesendet…",
+    "sent": "Gesendet",
+    "delivered": "Zugestellt",
+    "seen": "Gesehen"
+  },
+  "forwardBadge": {
+    "titleWithPlatform": "{{brand}} hat {{platform}} mit der vorausgefüllten Nachricht geöffnet. Ob sie gesendet wurde, können wir nicht feststellen.",
+    "titleWhatsapp": "{{brand}} hat WhatsApp mit der vorausgefüllten Nachricht geöffnet. Ob sie gesendet wurde, können wir nicht feststellen.",
+    "notConfirmed": "· nicht bestätigt",
+    "messageForwardedTo": "Nachricht an {{platform}} weitergeleitet"
+  },
+  "forwardTo": {
+    "titleSingle": "Weiterleiten an…",
+    "titleMultiple": "{{count}} Nachrichten weiterleiten",
+    "messagesPrefix": "{{count}} Nachrichten · ",
+    "searchPlaceholder": "Personen und Kanäle suchen…",
+    "selectedCount_one": "{{count}} ausgewählt",
+    "selectedCount_other": "{{count}} ausgewählt",
+    "clearSelection": "Zurücksetzen",
+    "noMatches": "Keine passenden Personen oder Kanäle.",
+    "peopleHeading": "Personen",
+    "channelsHeading": "Kanäle",
+    "forwardToOne": "An {{name}} weiterleiten",
+    "forwardToMany": "An {{count}} Ziele weiterleiten",
+    "forwardDefault": "Weiterleiten",
+    "fallbackChannel": "einen Kanal",
+    "fallbackPerson": "eine Person",
+    "toasts": {
+      "openAction": "Öffnen",
+      "oneSuccess": "An {{destination}} weitergeleitet",
+      "allSuccess": "Erfolgreich an {{count}} Ziele weitergeleitet.",
+      "allFailed_one": "Weiterleitung an {{count}} Ziel fehlgeschlagen.",
+      "allFailed_other": "Weiterleitung an {{count}} Ziele fehlgeschlagen.",
+      "partialSuccess_one": "Erfolgreich an {{count}} Ziel weitergeleitet.",
+      "partialSuccess_other": "Erfolgreich an {{count}} Ziele weitergeleitet.",
+      "partialFailedDescription": "Weiterleitung an {{count}} fehlgeschlagen: {{list}}",
+      "genericError": {
+        "title": "Das konnte nicht weitergeleitet werden",
+        "description": "Bitte versuchen Sie es erneut."
+      }
+    }
+  },
+  "chatsEmpty": {
+    "welcomeWithName": "Willkommen, {{name}} 👋",
+    "welcome": "Willkommen 👋",
+    "hint": "Wählen Sie links einen Chat aus oder tippen Sie auf +, um eine neue Unterhaltung zu beginnen."
+  },
+  "channelsEmpty": {
+    "title": "Kanäle",
+    "hint": "Wählen Sie links einen Kanal aus oder tippen Sie auf +, um einen zu erstellen."
+  },
+  "joinChannel": {
+    "joined": "Kanal beigetreten.",
+    "couldNotJoin": "Beitreten nicht möglich"
+  }
+}

@@ -2,6 +2,7 @@
   "expo": {
     "name": "BlissWorkMobile",
     "slug": "blissworkmobile",
+    "scheme": "blisswork",
     "extra": {
       "eas": {
         "projectId": "d93cbbcf-ef6c-48cc-8b6b-bc990373ebe2"

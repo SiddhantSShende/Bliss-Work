@@ -102,13 +102,23 @@ export function useOptimisticSend<TDto extends Sendable>({
       return { tempId };
     },
     onSuccess: (res, vars, ctx) => {
-      qc.setQueryData<TDto[]>(queryKey, (prev) =>
-        (prev ?? []).map((m) => {
+      qc.setQueryData<TDto[]>(queryKey, (prev) => {
+        const rows = prev ?? [];
+        // The socket echo of this send can land before the 201 and, if its body
+        // did not match the temp row, be appended under the real id already
+        // (queryBridge). Swapping the temp row's id then would leave two rows
+        // with one id, so drop the temp row and finish the real one instead.
+        if (rows.some((m) => m.id === res.messageId)) {
+          return rows
+            .filter((m) => m.id !== ctx?.tempId)
+            .map((m) => (m.id === res.messageId && reconcile ? reconcile(m, res) : m));
+        }
+        return rows.map((m) => {
           if (m.id !== ctx?.tempId) return m;
           const patched: TDto = { ...m, id: res.messageId, seq: res.seq };
           return reconcile ? reconcile(patched, res) : patched;
-        }),
-      );
+        });
+      });
       onSuccess?.(res, vars);
     },
     onError: (error, vars, ctx) => {

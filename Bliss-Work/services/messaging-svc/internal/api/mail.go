@@ -125,13 +125,9 @@ func (s *Server) removeDraftAttachment(w http.ResponseWriter, r *http.Request) {
 		writeErrR(w, r, http.StatusBadRequest, "invalid id")
 		return
 	}
-	sha, err := s.store.RemoveDraftAttachment(
-		r.Context(), claims.OrgID, claims.UserID, mailID, attachmentID)
-	if err != nil {
-		s.mapErrR(w, r, err)
-		return
-	}
-	if sha != "" {
+	// The store calls this under the per-blob lock, once it has seen that no row
+	// in the org points at the bytes any more.
+	unlink := func(sha string) {
 		if rerr := s.blobs.Remove(claims.OrgID, sha); rerr != nil {
 			// The row is already gone, so the file is unreachable either way and
 			// the user's request succeeded. Logged rather than surfaced: what is
@@ -141,6 +137,11 @@ func (s *Server) removeDraftAttachment(w http.ResponseWriter, r *http.Request) {
 				"attachment_id", attachmentID, "err", rerr,
 				"request_id", mw.RequestIDFromContext(r.Context()))
 		}
+	}
+	if _, err := s.store.RemoveDraftAttachment(
+		r.Context(), claims.OrgID, claims.UserID, mailID, attachmentID, unlink); err != nil {
+		s.mapErrR(w, r, err)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

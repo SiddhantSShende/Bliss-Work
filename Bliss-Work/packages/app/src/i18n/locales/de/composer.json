@@ -1,0 +1,17 @@
+{
+  "replyingTo": "Antwort an {{who}}",
+  "thisMessage": "diese Nachricht",
+  "cancelReply": "Antwort abbrechen",
+  "removeAttachment": "{{name}} entfernen",
+  "preparingFiles_one": "{{count}} Datei wird vorbereitet…",
+  "preparingFiles_other": "{{count}} Dateien werden vorbereitet…",
+  "attachTitle": "Fotos, Videos oder Dateien anhängen",
+  "attachAriaLabel": "Datei anhängen",
+  "shareLocation": "Standort teilen",
+  "send": "Senden",
+  "placeholder": {
+    "default": "Nachricht schreiben…",
+    "dropFiles": "Dateien zum Anhängen ablegen…",
+    "addMessageOrSend": "Nachricht hinzufügen oder Senden drücken…"
+  }
+}

@@ -10,6 +10,7 @@
  */
 import type { CallDTO } from "@taskboard/shared";
 import i18n from "../i18n";
+import { formatDurationCompact } from "../i18n/format";
 
 /** The three buckets a meeting can be in. These ARE the folders. */
 export type MeetingBucket = "upcoming" | "live" | "past";
@@ -66,15 +67,15 @@ export function meetingBucketOrPast(call: CallDTO): MeetingBucket {
  *  `meetingDisplayName`, this never falls back to the participant roster; the
  *  calendar surfaces that use it have no room for a joined-names list. */
 export function meetingTitle(call: CallDTO, nameOf: (id: string) => string): string {
-  return call.title.trim() || nameOf(call.createdBy) || "Untitled meeting";
+  return call.title.trim() || nameOf(call.createdBy) || i18n.t("meetings:view.untitled");
 }
 
 /** What kind of call this is, for the one-line "scope" caption under a
  *  meeting's name — null for a plain MEETING, which has no scope worth
  *  naming. */
 export function meetingScope(call: CallDTO): string | null {
-  if (call.kind === "CHANNEL") return "Channel call";
-  if (call.kind === "DIRECT") return "Direct call";
+  if (call.kind === "CHANNEL") return i18n.t("meetings:view.scope.channelCall");
+  if (call.kind === "DIRECT") return i18n.t("meetings:view.scope.directCall");
   return null;
 }
 
@@ -108,7 +109,7 @@ export const NO_MEETING_FILTER: MeetingFilter = { kinds: [], mineOnly: false };
  *  tick on every kind narrows nothing, same as ticking none — both mean
  *  "every kind" per `matchesFilter`, so neither should light the dot. */
 export function isFiltering(f: MeetingFilter): boolean {
-  const allKindsChosen = f.kinds.length === Object.keys(MEETING_KIND_LABEL).length;
+  const allKindsChosen = f.kinds.length === MEETING_KINDS.length;
   return (f.kinds.length > 0 && !allKindsChosen) || f.mineOnly;
 }
 
@@ -122,13 +123,15 @@ export function matchesFilter(
   return true;
 }
 
+/** Every kind a call can be. */
+export const MEETING_KINDS = ["MEETING", "CHANNEL", "DIRECT"] as const satisfies readonly CallDTO["kind"][];
+
 /** What each kind is called wherever one is named — the filter menu, a block's
- *  subtitle, a row's scope line. One mapping so they cannot disagree. */
-export const MEETING_KIND_LABEL: Record<CallDTO["kind"], string> = {
-  MEETING: "Meetings",
-  CHANNEL: "Channel calls",
-  DIRECT: "Direct calls",
-};
+ *  subtitle, a row's scope line. One lookup so they cannot disagree; resolved
+ *  per call (not a module constant) so it follows the in-app language. */
+export function meetingKindLabel(kind: CallDTO["kind"]): string {
+  return i18n.t(`meetings:view.kind.${kind}`);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Naming a meeting that was never named
@@ -185,13 +188,16 @@ export function meetingDisplayName(
  */
 export function joinNames(names: readonly string[]): string {
   const last = names[names.length - 1];
-  if (names.length === 0 || last === undefined) return "Untitled meeting";
+  if (names.length === 0 || last === undefined) return i18n.t("meetings:view.untitled");
   if (names.length === 1) return last;
+  const separator = i18n.t("meetings:view.listSeparator");
   if (names.length <= NAMED_LIMIT + 1) {
-    return `${names.slice(0, -1).join(", ")} & ${last}`;
+    return i18n.t("meetings:view.namesAnd", { list: names.slice(0, -1).join(separator), last });
   }
-  const rest = names.length - NAMED_LIMIT;
-  return `${names.slice(0, NAMED_LIMIT).join(", ")} & ${rest} others`;
+  return i18n.t("meetings:view.namesAndOthers", {
+    list: names.slice(0, NAMED_LIMIT).join(separator),
+    count: names.length - NAMED_LIMIT,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,13 +230,7 @@ export function durationMsOf(call: CallDTO, now = Date.now()): number | null {
  *  reads as a meeting that did not happen. */
 export function durationLabel(ms: number | null): string {
   if (ms === null) return "—";
-  const totalMinutes = Math.floor(ms / 60_000);
-  if (totalMinutes < 1) return "<1m";
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m`;
-  if (minutes === 0) return `${hours}h`;
-  return `${hours}h ${minutes}m`;
+  return formatDurationCompact(ms);
 }
 
 /** The word for a call's state, in the list and on the detail header. Uses the
@@ -238,8 +238,8 @@ export function durationLabel(ms: number | null): string {
  *  in the places that only care which pile it is in — except that a cancelled
  *  meeting says so, because "Past" would hide that it never happened. */
 export function statusLabel(call: CallDTO): string {
-  if (call.status === "CANCELLED") return "Cancelled";
-  if (call.status === "LIVE") return "Live";
-  if (call.status === "SCHEDULED") return "Upcoming";
-  return "Ended";
+  if (call.status === "CANCELLED") return i18n.t("meetings:view.status.cancelled");
+  if (call.status === "LIVE") return i18n.t("meetings:view.status.live");
+  if (call.status === "SCHEDULED") return i18n.t("meetings:view.status.upcoming");
+  return i18n.t("meetings:view.status.ended");
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/task-board/messaging-svc/internal/auth"
 	"github.com/task-board/messaging-svc/internal/blob"
 	"github.com/task-board/messaging-svc/internal/config"
+	"github.com/task-board/messaging-svc/internal/convert"
 	"github.com/task-board/messaging-svc/internal/crypto"
 	"github.com/task-board/messaging-svc/internal/kafka"
 	"github.com/task-board/messaging-svc/internal/livekit"
@@ -341,6 +342,21 @@ func main() {
 	apiSrv := api.NewServer(st, verifier, log, blobs, signer, cfg.Media, cfg.Maps, lk).
 		WithSharedRateLimits(rateStore).
 		WithRecorder(recorder)
+
+	// In-app previews of Office documents. Off unless CONVERTER_URL names the
+	// Office Document Sandbox (services/doc-converter); without it the preview
+	// route answers "unavailable" and the app offers Download instead.
+	if pc := cfg.Preview; pc.ConverterURL != "" {
+		apiSrv.WithPreview(convert.NewService(blobs, convert.NewClient(pc.ConverterURL, pc.RunTimeout), convert.Config{
+			Wait:        pc.Wait,
+			RunTimeout:  pc.RunTimeout,
+			MaxOutput:   pc.MaxOutputBytes,
+			MaxSheets:   pc.MaxSheetsBytes,
+			MaxInFlight: pc.MaxInFlight,
+			FailureTTL:  pc.FailureTTL,
+		}), pc)
+		log.Info("document previews enabled", "max_in_flight", pc.MaxInFlight)
+	}
 
 	// Ends calls that have run past the time they were scheduled to finish.
 	// Runs in EVERY replica on purpose — the sweep claims rows with FOR UPDATE

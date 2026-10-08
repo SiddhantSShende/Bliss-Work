@@ -1,0 +1,201 @@
+{
+  "profile": {
+    "header": {
+      "title": "मेरी प्रोफ़ाइल",
+      "subtitle": "तय करें कि आप अपनी टीम को कैसे दिखें।"
+    },
+    "photo": {
+      "changePhoto": "फ़ोटो बदलें",
+      "addPhoto": "फ़ोटो जोड़ें",
+      "changePhotoAria": "प्रोफ़ाइल फ़ोटो बदलें",
+      "addPhotoAria": "प्रोफ़ाइल फ़ोटो जोड़ें"
+    },
+    "form": {
+      "displayNameLabel": "प्रदर्शित नाम",
+      "displayNamePlaceholder": "आपका नाम",
+      "emailLabel": "ईमेल",
+      "usernameLabel": "यूज़रनेम",
+      "cancel": "रद्द करें",
+      "saveChanges": "बदलाव सहेजें"
+    },
+    "toasts": {
+      "profileUpdated": "प्रोफ़ाइल अपडेट हो गई",
+      "updateFailed": "प्रोफ़ाइल अपडेट नहीं हो सकी",
+      "photoUpdated": "प्रोफ़ाइल फ़ोटो अपडेट हो गई",
+      "photoUpdateFailed": "आपकी फ़ोटो अपडेट नहीं हो सकी",
+      "unsupportedFileType": {
+        "title": "असमर्थित फ़ाइल प्रकार",
+        "description": "कृपया JPG, PNG या WebP छवि चुनें।"
+      },
+      "processFailed": {
+        "title": "वह छवि प्रोसेस नहीं हो सकी",
+        "description": "कृपया कोई दूसरी फ़ोटो आज़माएँ।"
+      }
+    }
+  },
+  "activeSessions": {
+    "header": {
+      "title": "सक्रिय सेशन",
+      "subtitle": "आप कहाँ-कहाँ साइन इन हैं। जो डिवाइस आप न पहचानें, उसे साइन आउट कर दें।"
+    },
+    "empty": {
+      "title": "कोई सक्रिय सेशन नहीं",
+      "hint": "साइन इन किए हुए सभी डिवाइस यहाँ दिखेंगे।"
+    },
+    "signOutAllOthers": "बाकी सभी सेशन से साइन आउट करें",
+    "confirmOne": {
+      "title": "इस सेशन को साइन आउट करें?",
+      "message": "<bold>{{device}}</bold> तुरंत साइन आउट हो जाएगा और उसे दोबारा साइन इन करना होगा।",
+      "confirmLabel": "साइन आउट करें"
+    },
+    "confirmAllOthers": {
+      "title": "बाकी सभी सेशन से साइन आउट करें?",
+      "message_one": "यह डिवाइस साइन इन रहेगा। {{count}} अन्य सेशन तुरंत साइन आउट हो जाएगा।",
+      "message_other": "यह डिवाइस साइन इन रहेगा। {{count}} अन्य सेशन तुरंत साइन आउट हो जाएँगे।",
+      "confirmLabel": "बाकी को साइन आउट करें"
+    },
+    "toasts": {
+      "signedOutOf": "{{device}} से साइन आउट किया गया",
+      "revokeFailed": {
+        "title": "उस सेशन को साइन आउट नहीं किया जा सका",
+        "description": "कृपया फिर से कोशिश करें।"
+      },
+      "noOtherSessions": "साइन आउट करने के लिए कोई अन्य सेशन नहीं",
+      "signedOutOfOthers_one": "{{count}} अन्य सेशन से साइन आउट किया गया",
+      "signedOutOfOthers_other": "{{count}} अन्य सेशन से साइन आउट किया गया",
+      "revokeOthersFailed": {
+        "title": "बाकी सेशन साइन आउट नहीं किए जा सके",
+        "description": "कृपया फिर से कोशिश करें।"
+      }
+    }
+  },
+  "activeSessionsList": {
+    "thisDevice": "यह डिवाइस",
+    "active": "सक्रिय: {{time}}",
+    "signedIn": "साइन इन: {{time}}",
+    "approximateNetwork": "अनुमानित नेटवर्क",
+    "signOut": "साइन आउट करें"
+  },
+  "mfaSettings": {
+    "header": {
+      "title": "टू-फ़ैक्टर ऑथेंटिकेशन",
+      "subtitle": "ऑथेंटिकेटर ऐप से साइन-इन में दूसरा चरण जोड़ें।"
+    },
+    "enrolled": {
+      "status": {
+        "title": "टू-फ़ैक्टर ऑथेंटिकेशन चालू है",
+        "description": "साइन इन करते समय आपसे दूसरा फ़ैक्टर माँगा जाएगा।"
+      },
+      "backupCodes": {
+        "title": "बैकअप कोड",
+        "description": "नए कोड बनाने पर सभी अप्रयुक्त कोड बदल जाते हैं — पुराने कोड तुरंत काम करना बंद कर देते हैं।",
+        "action": "नए बनाएँ"
+      },
+      "disable": {
+        "title": "टू-फ़ैक्टर ऑथेंटिकेशन बंद करें",
+        "description": "आपका ऑथेंटिकेटर ऐप और बैकअप कोड हटा दिए जाएँगे।",
+        "action": "बंद करें"
+      }
+    },
+    "notEnrolled": {
+      "totp": {
+        "title": "ऑथेंटिकेटर ऐप",
+        "description": "Google Authenticator, 1Password, Authy या कोई भी TOTP ऐप।"
+      },
+      "setUp": "सेट अप करें"
+    },
+    "backupCodesModal": {
+      "title": "अपने बैकअप कोड सहेजें"
+    },
+    "stepUp": {
+      "titles": {
+        "disable": "पुष्टि करें कि यह आप ही हैं",
+        "regenerate": "नए कोड बनाने के लिए पुष्टि करें कि यह आप ही हैं"
+      },
+      "passwordPlaceholder": "आपका पासवर्ड",
+      "backupCodePlaceholder": "बैकअप कोड",
+      "authCodePlaceholder": "ऑथेंटिकेशन कोड",
+      "useAuthCodeInstead": "इसके बजाय ऑथेंटिकेशन कोड का उपयोग करें",
+      "useBackupCodeInstead": "इसके बजाय बैकअप कोड का उपयोग करें",
+      "submitLabels": {
+        "regenerate": "नए बैकअप कोड बनाएँ"
+      },
+      "toasts": {
+        "tooManyAttemptsTitle": "बहुत ज़्यादा प्रयास",
+        "verificationFailedTitle": "सत्यापन विफल रहा",
+        "verificationFailedDescription": "अपना पासवर्ड और कोड जाँचें, फिर दोबारा कोशिश करें।"
+      }
+    },
+    "toasts": {
+      "refreshFailed": {
+        "title": "आपका खाता रीफ़्रेश नहीं हो सका",
+        "description": "इस पेज पर आपके टू-फ़ैक्टर ऑथेंटिकेशन की स्थिति पुरानी हो सकती है — ताज़ा जानकारी के लिए रीफ़्रेश करें।"
+      },
+      "mfaTurnedOff": "टू-फ़ैक्टर ऑथेंटिकेशन बंद हो गया"
+    }
+  },
+  "passwordField": {
+    "hidePassword": "पासवर्ड छिपाएँ",
+    "showPassword": "पासवर्ड दिखाएँ",
+    "strength": {
+      "veryWeak": "बहुत कमज़ोर",
+      "weak": "कमज़ोर",
+      "fair": "ठीक-ठाक",
+      "good": "अच्छा",
+      "strong": "मज़बूत"
+    },
+    "requirements": {
+      "minLength": "कम से कम 10 अक्षर",
+      "letter": "एक अक्षर",
+      "digit": "एक अंक",
+      "special": "एक विशेष वर्ण (!@#$…)"
+    }
+  },
+  "backupCodesView": {
+    "description": "इन बैकअप कोड को किसी सुरक्षित जगह सहेजें। अगर आपका ऑथेंटिकेटर खो जाए, तो हर कोड से आप सिर्फ़ एक बार साइन इन कर सकते हैं — ये दोबारा नहीं दिखाए जाएँगे।",
+    "copied": "कॉपी हो गया",
+    "copyFailed": "बैकअप कोड कॉपी नहीं हो सके। कृपया उन्हें चुनकर हाथ से कॉपी करें।",
+    "copyAll": "सब कॉपी करें",
+    "acknowledgeLabel": "मैंने ये कोड किसी सुरक्षित जगह सहेज लिए हैं।",
+    "done": "हो गया"
+  },
+  "totpEnroll": {
+    "toasts": {
+      "startFailed": {
+        "title": "नामांकन शुरू नहीं हो सका",
+        "description": "कृपया फिर से कोशिश करें।"
+      },
+      "tooManyAttempts": {
+        "title": "बहुत ज़्यादा प्रयास",
+        "description": "दोबारा कोशिश करने से पहले एक मिनट रुकें।"
+      },
+      "incorrectCode": {
+        "title": "गलत कोड",
+        "description": "अपने डिवाइस का समय जाँचें और फिर कोशिश करें।"
+      }
+    },
+    "startError": {
+      "message": "नामांकन शुरू नहीं हो सका।",
+      "retry": "फिर कोशिश करें"
+    },
+    "preparing": "नामांकन तैयार किया जा रहा है…",
+    "instructions": "इसे किसी ऑथेंटिकेटर ऐप (Google Authenticator, 1Password, Authy, …) से स्कैन करें, या सेटअप कुंजी हाथ से दर्ज करें।",
+    "qrAlt": "अपने ऑथेंटिकेटर ऐप से स्कैन करें",
+    "setupKeyLabel": "सेटअप कुंजी",
+    "codeLabel": "6 अंकों का कोड दर्ज करें",
+    "verifying": "सत्यापित हो रहा है…",
+    "confirmAndEnable": "पुष्टि करें और चालू करें"
+  },
+  "mfaPolicy": {
+    "title": "एडमिन के लिए टू-फ़ैक्टर ऑथेंटिकेशन अनिवार्य करें",
+    "descriptionWithDeadline": "जिन एडमिन ने नामांकन नहीं किया, उन्हें {{deadline}} तक चेतावनी मिलेगी, उसके बाद नामांकन करने तक साइन-इन पर रोक दिया जाएगा।",
+    "descriptionNoDeadline": "एडमिन खुद तय करते हैं कि इसे चालू करना है या नहीं।",
+    "turnOff": "बंद करें",
+    "turnOn": "चालू करें",
+    "toasts": {
+      "enabled": "अब एडमिन के लिए टू-फ़ैक्टर ऑथेंटिकेशन अनिवार्य है",
+      "disabled": "टू-फ़ैक्टर ऑथेंटिकेशन अब अनिवार्य नहीं है",
+      "updateFailed": "नीति अपडेट नहीं हो सकी"
+    }
+  }
+}

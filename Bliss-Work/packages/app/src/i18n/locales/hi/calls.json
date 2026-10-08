@@ -1,0 +1,198 @@
+{
+  "notify": {
+    "incomingVideo": "आने वाली वीडियो कॉल",
+    "incomingVoice": "आने वाली वॉइस कॉल",
+    "incomingBody": "{{caller}} आपको कॉल कर रहे हैं",
+    "missedTitle": "मिस्ड कॉल",
+    "missedBody": "आपसे {{caller}} की कॉल छूट गई",
+    "cameraUnavailable": "कैमरा उपलब्ध नहीं",
+    "cameraUnavailableDescription": "इस ऐप की कैमरा अनुमति जाँचें।",
+    "couldNotShareScreen": "आपकी स्क्रीन साझा नहीं हो सकी",
+    "ringtoneMuted": "आपके ब्राउज़र ने रिंगटोन म्यूट कर दी है",
+    "ringtoneMutedDescription": "कॉल की आवाज़ें चालू करने के लिए कहीं भी क्लिक करें।",
+    "unknownCaller": "कोई"
+  },
+  "endedReasons": {
+    "noAnswer": "कोई उत्तर नहीं",
+    "mediaBlocked": "कैमरा/माइक्रोफ़ोन ब्लॉक है",
+    "declined": "कॉल अस्वीकार की गई",
+    "callEnded": "कॉल समाप्त हुई",
+    "userUnavailable": "उपयोगकर्ता उपलब्ध नहीं",
+    "connectionFailed": "कनेक्शन विफल रहा"
+  },
+  "window": {
+    "tabTitle": "{{title}} · {{brand}}",
+    "untitledMeeting": "मीटिंग",
+    "loading": "मीटिंग लोड हो रही है…",
+    "loadError": {
+      "title": "यह मीटिंग लोड नहीं हो सकी।",
+      "hint": "अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+      "returnToMeetings": "मीटिंग पर लौटें",
+      "retrying": "फिर कोशिश हो रही है…",
+      "retry": "फिर कोशिश करें"
+    },
+    "unavailable": {
+      "title": "यह मीटिंग उपलब्ध नहीं है",
+      "hint": "हो सकता है यह समाप्त हो चुकी हो, या अब आप इसकी सूची में न हों।",
+      "close": "बंद करें"
+    }
+  },
+  "join": {
+    "signIn": {
+      "title": "जुड़ने के लिए साइन इन करें",
+      "hint": "यह मीटिंग लिंक किसी भी {{brand}} खाते से काम करता है, किसी दूसरे संगठन के खाते से भी।"
+    },
+    "joining": "जुड़ रहे हैं…",
+    "invalid": {
+      "title": "यह आमंत्रण लिंक अब मान्य नहीं है",
+      "hint": "हो सकता है इसकी अवधि समाप्त हो गई हो, इसे रद्द कर दिया गया हो, या मीटिंग पहले ही समाप्त हो चुकी हो। आयोजक से नया लिंक माँगें।",
+      "backToApp": "{{brand}} पर वापस जाएँ"
+    },
+    "timeout": {
+      "title": "उम्मीद से ज़्यादा समय लग रहा है",
+      "hint": "पेज दोबारा लोड करने से आमतौर पर यह ठीक हो जाता है।",
+      "reload": "रीलोड करें"
+    },
+    "handoff": {
+      "joining": "मीटिंग से जुड़ रहे हैं…"
+    }
+  },
+  "chat": {
+    "disclaimer": "यहाँ के संदेश मीटिंग के सभी सदस्यों को दिखते हैं — निजी तौर पर भेजने के लिए नीचे से कोई नाम चुनें।",
+    "empty": "अभी कोई संदेश नहीं। यहाँ भेजा गया सब कुछ मीटिंग की अवधि तक ही रहता है — सहेजना हो तो हेडर से डाउनलोड करें।",
+    "toLabel": "प्रति:",
+    "toAriaLabel": "यह संदेश किसे जाएगा",
+    "everyone": "सभी",
+    "privateOption": "{{name}} (निजी)",
+    "attachmentsUnsupported": "मीटिंग चैट में अटैचमेंट समर्थित नहीं हैं",
+    "privatePlaceholder": "{{name}} को निजी संदेश…",
+    "everyonePlaceholder": "सभी को संदेश भेजें…",
+    "privateAriaLabel": "{{name}} को निजी संदेश",
+    "everyoneAriaLabel": "सभी को संदेश भेजें",
+    "send": "भेजें",
+    "onlyWillSee": "इसे केवल {{name}} देखेंगे",
+    "you": "आप",
+    "privateToName": "{{name}} के लिए निजी",
+    "privateToYou": "आपके लिए निजी"
+  },
+  "members": {
+    "pagesAriaLabel": "सदस्य पृष्ठ",
+    "previous": "पिछले सदस्य",
+    "pageAriaLabel": "सदस्य पृष्ठ {{page}} / {{pages}}",
+    "more": "और सदस्य"
+  },
+  "menu": {
+    "call": "कॉल",
+    "voiceCall": "वॉइस कॉल",
+    "videoCall": "वीडियो कॉल",
+    "sendCallLink": "कॉल लिंक भेजें",
+    "scheduleCall": "कॉल शेड्यूल करें"
+  },
+  "notes": {
+    "empty": "अभी कोई बिंदु नहीं। यहाँ लिखा गया सब कुछ मीटिंग में सभी के साथ साझा होता है।",
+    "placeholder": "कोई ज़रूरी बात लिखें…",
+    "ariaLabel": "कोई ज़रूरी बात लिखें",
+    "enterToAdd": "जोड़ने के लिए Enter दबाएँ",
+    "addPoint": "बिंदु जोड़ें"
+  },
+  "sidebar": {
+    "controlsAriaLabel": "मीटिंग नियंत्रण",
+    "mute": "म्यूट",
+    "muted": "म्यूट है",
+    "camera": "कैमरा",
+    "share": "साझा करें",
+    "raise": "हाथ उठाएँ",
+    "people": "लोग",
+    "add": "जोड़ें",
+    "addPeople": "लोग जोड़ें",
+    "chats": "चैट",
+    "notes": "नोट्स",
+    "record": "रिकॉर्ड",
+    "recordUnsupported": "यह ब्राउज़र मीटिंग रिकॉर्ड नहीं कर सकता",
+    "copyLink": "लिंक कॉपी करें",
+    "copyInviteLink": "आमंत्रण लिंक कॉपी करें",
+    "pip": "PiP",
+    "exitPip": "PiP से बाहर",
+    "pictureInPicture": "पिक्चर-इन-पिक्चर",
+    "exitPictureInPicture": "पिक्चर-इन-पिक्चर से बाहर निकलें",
+    "pictureInPictureNoVideo": "पिक्चर-इन-पिक्चर के लिए किसी का वीडियो ज़रूरी है — किसी का कैमरा या स्क्रीन शेयर चालू नहीं है",
+    "minimize": "छोटा करें",
+    "minimise": "छोटा करें",
+    "end": "समाप्त",
+    "endCall": "कॉल समाप्त करें"
+  },
+  "sidePanel": {
+    "tabNames": {
+      "chat": "चैट",
+      "notes": "नोट्स",
+      "participants": "प्रतिभागी"
+    },
+    "regionAriaLabel": "मीटिंग: {{tab}}",
+    "tablistAriaLabel": "चैट, नोट्स या प्रतिभागी",
+    "chatTab": "चैट",
+    "notesTab": "नोट्स",
+    "peopleTab": "लोग",
+    "saveAsFile": "{{tab}} को फ़ाइल के रूप में सहेजें",
+    "closeTab": "{{tab}} बंद करें"
+  },
+  "filmstrip": {
+    "ariaLabel": "अन्य प्रतिभागी",
+    "moreMembers": "+{{count}} और सदस्य"
+  },
+  "roomLazy": {
+    "connecting": "कनेक्ट हो रहा है…",
+    "error": {
+      "title": "मीटिंग रूम खोलते समय कुछ गड़बड़ हो गई।",
+      "hint": "पेज दोबारा लोड करने से आमतौर पर यह ठीक हो जाता है।",
+      "reload": "रीलोड करें"
+    }
+  },
+  "incomingNotice": {
+    "untitledMeeting": "मीटिंग",
+    "ariaLabel": "आने वाली मीटिंग: {{title}}",
+    "hostedBy": "{{organizer}} द्वारा आयोजित",
+    "video": "वीडियो",
+    "joinWithCamera": "कैमरा चालू करके जुड़ें",
+    "voice": "आवाज़",
+    "joinVoiceOnly": "केवल आवाज़ से जुड़ें",
+    "leave": "छोड़ें"
+  },
+  "scheduledNotice": {
+    "untitledMeeting": "मीटिंग",
+    "ariaLabel": "मीटिंग शेड्यूल हुई: {{title}}",
+    "heading": "मीटिंग शेड्यूल हुई",
+    "hostedBy": "{{organizer}} द्वारा आयोजित",
+    "join": "मीटिंग से जुड़ें",
+    "dismiss": "खारिज करें"
+  },
+  "miniMeeting": {
+    "ariaLabel": "{{title}} — मीटिंग जारी है",
+    "reconnecting": "दोबारा कनेक्ट हो रहा है…",
+    "connecting": "कनेक्ट हो रहा है…",
+    "backToMeeting": "मीटिंग पर वापस जाएँ",
+    "nobodySpeaking": "कोई नहीं बोल रहा",
+    "mute": "म्यूट करें",
+    "unmute": "अनम्यूट करें",
+    "turnCameraOff": "कैमरा बंद करें",
+    "turnCameraOn": "कैमरा चालू करें",
+    "newChatMessages_one": "{{count}} नया चैट संदेश",
+    "newChatMessages_other": "{{count}} नए चैट संदेश",
+    "leaveMeeting": "मीटिंग छोड़ें"
+  },
+  "sendLinkDialog": {
+    "title": "कॉल लिंक भेजें",
+    "description": "लिंक {{peerName}} के साथ आपकी चैट में पोस्ट होगा। यहाँ जिन्हें आप जोड़ेंगे उन्हें यह सीधे संदेश के रूप में मिलेगा, और मीटिंग में कॉल के अंतर्गत उनकी जगह सुरक्षित रहेगी।",
+    "alsoSendTo": "इन्हें भी भेजें",
+    "selectedCount": "— {{count}} चुने गए",
+    "optional": "— वैकल्पिक",
+    "cancel": "रद्द करें",
+    "sendLink": "लिंक भेजें"
+  },
+  "screenShare": {
+    "showControls": "स्क्रीन शेयरिंग नियंत्रण दिखाएँ",
+    "sharingYourScreen": "आप अपनी स्क्रीन साझा कर रहे हैं",
+    "stopSharingTitle": "साझा करना बंद करें",
+    "stop": "रोकें",
+    "slideOutOfTheWay": "रास्ते से हटाएँ"
+  }
+}

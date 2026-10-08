@@ -1,0 +1,203 @@
+{
+  "profile": {
+    "header": {
+      "title": "Mi perfil",
+      "subtitle": "Administra cómo te ve tu equipo."
+    },
+    "photo": {
+      "changePhoto": "Cambiar foto",
+      "addPhoto": "Agregar foto",
+      "changePhotoAria": "Cambiar foto de perfil",
+      "addPhotoAria": "Agregar foto de perfil"
+    },
+    "form": {
+      "displayNameLabel": "Nombre visible",
+      "displayNamePlaceholder": "Tu nombre",
+      "emailLabel": "Correo electrónico",
+      "usernameLabel": "Nombre de usuario",
+      "cancel": "Cancelar",
+      "saveChanges": "Guardar cambios"
+    },
+    "toasts": {
+      "profileUpdated": "Perfil actualizado",
+      "updateFailed": "No se pudo actualizar el perfil",
+      "photoUpdated": "Foto de perfil actualizada",
+      "photoUpdateFailed": "No se pudo actualizar tu foto",
+      "unsupportedFileType": {
+        "title": "Tipo de archivo no compatible",
+        "description": "Elige una imagen JPG, PNG o WebP."
+      },
+      "processFailed": {
+        "title": "No se pudo procesar esa imagen",
+        "description": "Prueba con otra foto."
+      }
+    }
+  },
+  "activeSessions": {
+    "header": {
+      "title": "Sesiones activas",
+      "subtitle": "Dónde tienes la sesión iniciada. Cierra la sesión en cualquier dispositivo que no reconozcas."
+    },
+    "empty": {
+      "title": "No hay sesiones activas",
+      "hint": "Aquí verás todos los dispositivos con sesión iniciada."
+    },
+    "signOutAllOthers": "Cerrar todas las demás sesiones",
+    "confirmOne": {
+      "title": "¿Cerrar esta sesión?",
+      "message": "Se cerrará la sesión de <bold>{{device}}</bold> de inmediato y tendrá que volver a iniciar sesión.",
+      "confirmLabel": "Cerrar sesión"
+    },
+    "confirmAllOthers": {
+      "title": "¿Cerrar todas las demás sesiones?",
+      "message_one": "Este dispositivo seguirá con la sesión iniciada. Se cerrará de inmediato {{count}} otra sesión.",
+      "message_many": "Este dispositivo seguirá con la sesión iniciada. Se cerrarán de inmediato {{count}} de otras sesiones.",
+      "message_other": "Este dispositivo seguirá con la sesión iniciada. Se cerrarán de inmediato {{count}} otras sesiones.",
+      "confirmLabel": "Cerrar las demás"
+    },
+    "toasts": {
+      "signedOutOf": "Sesión cerrada en {{device}}",
+      "revokeFailed": {
+        "title": "No se pudo cerrar esa sesión",
+        "description": "Inténtalo de nuevo."
+      },
+      "noOtherSessions": "No hay otras sesiones que cerrar",
+      "signedOutOfOthers_one": "Se cerró {{count}} otra sesión",
+      "signedOutOfOthers_many": "Se cerraron {{count}} de otras sesiones",
+      "signedOutOfOthers_other": "Se cerraron {{count}} otras sesiones",
+      "revokeOthersFailed": {
+        "title": "No se pudieron cerrar las otras sesiones",
+        "description": "Inténtalo de nuevo."
+      }
+    }
+  },
+  "activeSessionsList": {
+    "thisDevice": "Este dispositivo",
+    "active": "Activa {{time}}",
+    "signedIn": "Sesión iniciada {{time}}",
+    "approximateNetwork": "Red aproximada",
+    "signOut": "Cerrar sesión"
+  },
+  "mfaSettings": {
+    "header": {
+      "title": "Autenticación en dos pasos",
+      "subtitle": "Agrega un segundo paso al inicio de sesión con una aplicación de autenticación."
+    },
+    "enrolled": {
+      "status": {
+        "title": "La autenticación en dos pasos está activada",
+        "description": "Se te pedirá un segundo factor cuando inicies sesión."
+      },
+      "backupCodes": {
+        "title": "Códigos de respaldo",
+        "description": "Al regenerarlos se reemplazan todos los códigos sin usar; los anteriores dejan de funcionar de inmediato.",
+        "action": "Regenerar"
+      },
+      "disable": {
+        "title": "Desactivar la autenticación en dos pasos",
+        "description": "Elimina tu aplicación de autenticación y tus códigos de respaldo.",
+        "action": "Desactivar"
+      }
+    },
+    "notEnrolled": {
+      "totp": {
+        "title": "Aplicación de autenticación",
+        "description": "Google Authenticator, 1Password, Authy o cualquier aplicación TOTP."
+      },
+      "setUp": "Configurar"
+    },
+    "backupCodesModal": {
+      "title": "Guarda tus códigos de respaldo"
+    },
+    "stepUp": {
+      "titles": {
+        "disable": "Confirma que eres tú",
+        "regenerate": "Confirma que eres tú para regenerar los códigos"
+      },
+      "passwordPlaceholder": "Tu contraseña",
+      "backupCodePlaceholder": "Código de respaldo",
+      "authCodePlaceholder": "Código de autenticación",
+      "useAuthCodeInstead": "Usar un código de autenticación",
+      "useBackupCodeInstead": "Usar un código de respaldo",
+      "submitLabels": {
+        "regenerate": "Regenerar códigos de respaldo"
+      },
+      "toasts": {
+        "tooManyAttemptsTitle": "Demasiados intentos",
+        "verificationFailedTitle": "Error de verificación",
+        "verificationFailedDescription": "Revisa tu contraseña y el código, e inténtalo de nuevo."
+      }
+    },
+    "toasts": {
+      "refreshFailed": {
+        "title": "No se pudo actualizar tu cuenta",
+        "description": "Es posible que el estado de tu autenticación en dos pasos en esta página esté desactualizado; actualiza para ver lo más reciente."
+      },
+      "mfaTurnedOff": "Autenticación en dos pasos desactivada"
+    }
+  },
+  "passwordField": {
+    "hidePassword": "Ocultar contraseña",
+    "showPassword": "Mostrar contraseña",
+    "strength": {
+      "veryWeak": "Muy débil",
+      "weak": "Débil",
+      "fair": "Aceptable",
+      "good": "Buena",
+      "strong": "Fuerte"
+    },
+    "requirements": {
+      "minLength": "Al menos 10 caracteres",
+      "letter": "Una letra",
+      "digit": "Un número",
+      "special": "Un carácter especial (!@#$…)"
+    }
+  },
+  "backupCodesView": {
+    "description": "Guarda estos códigos de respaldo en un lugar seguro. Cada uno te permite iniciar sesión UNA vez si pierdes el acceso a tu aplicación de autenticación; no se volverán a mostrar.",
+    "copied": "Copiado",
+    "copyFailed": "No se pudieron copiar los códigos de respaldo. Selecciónalos y cópialos manualmente.",
+    "copyAll": "Copiar todo",
+    "acknowledgeLabel": "He guardado estos códigos en un lugar seguro.",
+    "done": "Listo"
+  },
+  "totpEnroll": {
+    "toasts": {
+      "startFailed": {
+        "title": "No se pudo iniciar el registro",
+        "description": "Inténtalo de nuevo."
+      },
+      "tooManyAttempts": {
+        "title": "Demasiados intentos",
+        "description": "Espera un minuto antes de intentarlo de nuevo."
+      },
+      "incorrectCode": {
+        "title": "Código incorrecto",
+        "description": "Revisa la hora de tu dispositivo e inténtalo de nuevo."
+      }
+    },
+    "startError": {
+      "message": "No se pudo iniciar el registro.",
+      "retry": "Reintentar"
+    },
+    "preparing": "Preparando el registro…",
+    "instructions": "Escanea esto con una aplicación de autenticación (Google Authenticator, 1Password, Authy, …) o ingresa la clave de configuración manualmente.",
+    "qrAlt": "Escanea con tu aplicación de autenticación",
+    "setupKeyLabel": "Clave de configuración",
+    "codeLabel": "Ingresa el código de 6 dígitos",
+    "verifying": "Verificando…",
+    "confirmAndEnable": "Confirmar y activar"
+  },
+  "mfaPolicy": {
+    "title": "Exigir autenticación en dos pasos a los administradores",
+    "descriptionWithDeadline": "Se advierte a los administradores sin registrar hasta el {{deadline}}; después se les bloqueará el inicio de sesión hasta que se registren.",
+    "descriptionNoDeadline": "Los administradores deciden por sí mismos si la activan.",
+    "turnOff": "Desactivar",
+    "turnOn": "Activar",
+    "toasts": {
+      "enabled": "Ahora se exige la autenticación en dos pasos a los administradores",
+      "disabled": "Ya no se exige la autenticación en dos pasos",
+      "updateFailed": "No se pudo actualizar la política"
+    }
+  }
+}

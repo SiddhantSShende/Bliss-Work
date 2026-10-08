@@ -73,7 +73,30 @@ type Store interface {
 	// trusting the caller's — it is the whole path-traversal boundary for this
 	// route.
 	OpenKey(key string) (Reader, error)
+
+	// PutDerived / OpenDerived hold a SERVER-generated derivative of one stored
+	// attachment blob — today, the converted preview of an Office file (a PDF,
+	// or the JSON of a spreadsheet's cell text).
+	//
+	// A derivative is user content, so unlike CachePut it IS org-scoped: it is
+	// stored beside its original (`blobs/{org}/ab/cd/{sha}.v1.pdf`). That one
+	// placement is what makes Remove (the attachment reaper) and RemoveOrg
+	// (org erasure) take it along with no extra bookkeeping.
+	//
+	// `variant` comes from a closed set (see ValidVariant). PutDerived is atomic:
+	// a derivative is either complete or absent, never partial. It returns
+	// ErrTooLarge, storing nothing, when r yields more than max bytes.
+	PutDerived(orgID, sha, variant string, r io.Reader, max int64) error
+	OpenDerived(orgID, sha, variant string) (Reader, error)
 }
+
+// variantRe is the closed set of derivative names: a converter-version tag and
+// one of the artifact extensions. Bumping the tag (v1 → v2) when the converter
+// changes invalidates every cached derivative without deleting anything.
+var variantRe = regexp.MustCompile(`^v[0-9]{1,3}\.(pdf|json)$`)
+
+// ValidVariant reports whether v names an allowed derivative.
+func ValidVariant(v string) bool { return variantRe.MatchString(v) }
 
 // RecordingKey is where a call's recording is written and read back.
 //

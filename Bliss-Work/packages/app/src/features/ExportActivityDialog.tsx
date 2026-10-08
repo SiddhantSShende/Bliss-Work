@@ -6,7 +6,7 @@ import { Download } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { ACTIVITY_RANGES, computeRange, localDay, type RangeKey } from "../lib/dateRange";
+import { activityRanges, computeRange, localDay, type RangeKey } from "../lib/dateRange";
 import { exportAllMembersActivityToXlsx, exportMemberActivityToXlsx } from "../lib/xlsxTelemetry";
 import { Modal } from "./Modal";
 
@@ -33,11 +33,10 @@ export function ExportActivityDialog({
   const [range, setRange] = useState<RangeKey>("30d");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  // ACTIVITY_RANGES' own labels are defined in lib/dateRange.ts, outside this
-  // migration's file list — left as-is; only this dialog's own "custom" label
-  // is translated here.
+  // The fixed windows come from lib/dateRange.ts (shared with the activity
+  // views); only this dialog adds a "custom" option on top.
   const ranges: ReadonlyArray<{ key: RangeKey; label: string }> = [
-    ...ACTIVITY_RANGES,
+    ...activityRanges(),
     { key: "custom", label: t("exportActivity.customRange") },
   ];
 

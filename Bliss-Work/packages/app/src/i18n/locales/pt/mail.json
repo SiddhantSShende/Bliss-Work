@@ -1,0 +1,213 @@
+{
+  "liveEvents": {
+    "newMailInInbox": "Novo e-mail na sua caixa de entrada"
+  },
+  "shared": {
+    "tryAgain": "Tentar novamente",
+    "noSubject": "(sem assunto)",
+    "restoreMailTitle": "Restaurar — devolve este e-mail à pasta de onde veio",
+    "deleteMailTitle": "Excluir — remove apenas a sua cópia; a de mais ninguém é afetada",
+    "restoreLabel": "Restaurar",
+    "deleteLabel": "Excluir",
+    "loading": "Carregando…"
+  },
+  "fields": {
+    "to": "Para",
+    "cc": "Cc",
+    "bcc": "Cco"
+  },
+  "layout": {
+    "backToList": "Voltar à lista",
+    "welcome": {
+      "title": "Nada aberto",
+      "hint": "Escolha uma mensagem na lista para lê-la aqui ou selecione Novo e-mail para escrever uma."
+    }
+  },
+  "folders": {
+    "title": "E-mail",
+    "unreadAriaLabel": "{{folder}}, {{count}} não lido(s)",
+    "box": {
+      "inbox": "Caixa de entrada",
+      "sent": "Itens enviados",
+      "drafts": "Rascunhos",
+      "deleted": "Itens excluídos",
+      "favorites": "Favoritos"
+    }
+  },
+  "list": {
+    "tabs": {
+      "all": "Todos",
+      "unread": "Não lidos"
+    },
+    "newMail": {
+      "title": "Novo e-mail — escrever um e-mail",
+      "label": "Novo e-mail"
+    },
+    "checkForNewMail": "Verificar novos e-mails",
+    "unknownPeer": "esta pessoa",
+    "emptyStates": {
+      "unreadTitle": "Nada não lido",
+      "deletedTitle": "Nada excluído",
+      "favoritesTitle": "Nenhum favorito ainda",
+      "defaultTitle": "Nada aqui ainda",
+      "unreadHint": "Tudo nesta pasta já foi lido.",
+      "peerHint": "Nenhum e-mail com {{peer}} em {{folder}}.",
+      "deletedHint": "Os e-mails que você exclui ficam aqui por 90 dias, para que você possa recuperá-los.",
+      "favoritesHint": "Marque um e-mail com estrela em qualquer pasta e ele será reunido aqui. As estrelas ficam salvas neste dispositivo.",
+      "defaultHint": "Selecione Novo e-mail para escrever um."
+    },
+    "messageCount_one": "{{shown}} mensagem",
+    "messageCount_many": "{{shown}} de mensagens",
+    "messageCount_other": "{{shown}} mensagens",
+    "loadingMore": "Carregando mais…",
+    "showAllMailTitle": "Mostrar e-mails de todas as pessoas",
+    "errors": {
+      "couldNotRemoveItem": "Não foi possível remover esse item",
+      "couldNotRestoreItem": "Não foi possível restaurar esse e-mail",
+      "couldNotDeleteMessage": "Não foi possível excluir essa mensagem",
+      "couldNotAcknowledgeTask": "Não foi possível confirmar essa tarefa",
+      "couldNotCompleteTask": "Não foi possível concluir essa tarefa"
+    }
+  },
+  "detail": {
+    "loadingMail": "Carregando e-mail…",
+    "loadError": "Não foi possível abrir este e-mail. Ele pode ter sido removido.",
+    "unknownSender": "Remetente desconhecido",
+    "restoredToast": "Restaurado na sua caixa de e-mail",
+    "movedToDeletedToast": "Movido para Itens excluídos",
+    "couldNotRestoreToast": "Não foi possível restaurar",
+    "couldNotRemoveToast": "Não foi possível remover",
+    "statusSent": "enviado",
+    "statusInbox": "recebido",
+    "noMessageBody": "(sem corpo de mensagem)",
+    "toolbar": {
+      "reply": "Responder",
+      "replyTitle": "Responder ao remetente",
+      "replyAll": "Responder a todos",
+      "replyAllTitle": "Responder a todas as pessoas deste e-mail",
+      "forward": "Encaminhar",
+      "forwardTitle": "Encaminhar este e-mail para outra pessoa"
+    }
+  },
+  "thread": {
+    "defaultSubject": "Conversa",
+    "ignoreTitle": "Ignorar — oculta para os dois lados",
+    "messageFailedToast": "Falha ao enviar a mensagem",
+    "couldNotRemoveThreadToast": "Não foi possível remover esta conversa"
+  },
+  "task": {
+    "couldNotUpdateToast": "Não foi possível atualizar essa tarefa",
+    "notFoundTitle": "Tarefa não encontrada",
+    "notFoundHint": "Ela pode ter sido removida."
+  },
+  "row": {
+    "externalSender": "Remetente externo",
+    "untitledTask": "(tarefa sem título)",
+    "noPreview": "(sem prévia)",
+    "taskLabel": "Tarefa",
+    "threadLabel": "conversa",
+    "newBadge": "novo",
+    "favorite": {
+      "add": "Adicionar aos Favoritos",
+      "remove": "Remover dos Favoritos"
+    },
+    "acknowledgeTitle": "Confirmar — aceitar esta tarefa",
+    "acknowledgeLabel": "Confirmar",
+    "completeTitle": "Marcar como concluída",
+    "completeLabel": "Concluir",
+    "ignoreTitleTask": "Ignorar — remover da sua caixa de e-mail",
+    "ignoreTitleThread": "Ignorar — oculta para os dois",
+    "ignoreLabel": "Ignorar",
+    "dismissTitle": "Excluir da sua caixa de e-mail"
+  },
+  "addressField": {
+    "invalidAddressTitle": "Isto não parece um endereço de e-mail",
+    "removeAddress": "Remover {{address}}"
+  },
+  "attachments": {
+    "heading": "Anexos ({{count}})",
+    "couldNotAttachToast": "Não foi possível anexar {{filename}}",
+    "tooLargeToast": "{{filename}} é maior que {{maxSize}}.",
+    "couldNotRemoveToast": "Não foi possível remover esse arquivo",
+    "tray": {
+      "uploading": "Enviando… {{progress}}%",
+      "remove": "Remover {{filename}}"
+    },
+    "preview": "Visualizar",
+    "previewFile": "Visualizar {{filename}}",
+    "open": "Abrir",
+    "openFile": "Abrir {{filename}}",
+    "download": "Baixar",
+    "downloadFile": "Baixar {{filename}}",
+    "preparing": "Preparando…",
+    "unavailable": "Indisponível"
+  },
+  "draftList": {
+    "discardedToast": "Rascunho descartado",
+    "couldNotDiscardToast": "Não foi possível descartar",
+    "loading": "Carregando rascunhos…",
+    "errorTitle": "Não foi possível carregar os rascunhos",
+    "errorHint": "Verifique sua conexão e selecione Verificar novos e-mails acima.",
+    "emptyTitle": "Nenhum rascunho",
+    "emptyHint": "Um e-mail que você começa e deixa sem enviar fica guardado aqui até você terminá-lo.",
+    "noRecipient": "Ainda sem destinatário",
+    "addressedMore": "{{first}} + mais {{count}}",
+    "attachments_one": "{{count}} arquivo",
+    "attachments_many": "{{count}} de arquivos",
+    "attachments_other": "{{count}} arquivos",
+    "discardTitle": "Descartar este rascunho — ele não foi enviado a ninguém",
+    "discardAriaLabel": "Descartar rascunho"
+  },
+  "compose": {
+    "headings": {
+      "draft": "Rascunho",
+      "forward": "Encaminhar",
+      "reply": "Responder",
+      "newMail": "Novo e-mail"
+    },
+    "closeTitle": "Fechar — mantém isto em Rascunhos",
+    "startErrorBanner": "Não foi possível iniciar um rascunho. Verifique sua conexão e tente novamente.",
+    "retry": "Tentar novamente",
+    "openingDraft": "Abrindo rascunho…",
+    "loadErrorText": "Não foi possível abrir este rascunho. Ele pode ter sido enviado ou descartado.",
+    "ccBccButton": "Cc / Cco",
+    "toPlaceholder": "nome@empresa.com",
+    "ccPlaceholder": "Copiar alguém",
+    "bccPlaceholder": "Cópia oculta — invisível para as demais pessoas",
+    "subjectLabel": "Assunto",
+    "subjectPlaceholder": "Sobre o que é?",
+    "messageLabel": "Mensagem",
+    "messagePlaceholder": "Escreva seu e-mail…",
+    "attachTitleReady": "Anexar arquivos",
+    "attachTitlePreparing": "Preparando rascunho…",
+    "attachLabel": "Anexar",
+    "removeAll": "Remover tudo",
+    "preparing": "Preparando…",
+    "discardButton": "Descartar",
+    "discardTitle": "Descartar — exclui este rascunho; ele não foi enviado a ninguém",
+    "closeButton": "Fechar",
+    "sendButton": "Enviar",
+    "sendingButton": "Enviando…",
+    "draftDiscardedToast": "Rascunho descartado",
+    "couldNotDiscardToast": "Não foi possível descartar o rascunho",
+    "couldNotSendToast": "Não foi possível enviar",
+    "errors": {
+      "draftNotReady": "rascunho não está pronto",
+      "invalidAddress": "\"{{address}}\" não parece um endereço de e-mail.",
+      "subjectTooLong": "O assunto tem {{length}} caracteres — o limite é {{limit}}."
+    },
+    "sentSummary": {
+      "sent": "Enviado",
+      "sentToPeople": "Enviado para {{count}} pessoas",
+      "delivering": "Enviado — entregando",
+      "deliveringToCount": "Enviado — entregando para {{count}}",
+      "sentAndDelivering": "Enviado para {{inApp}} aqui, entregando para mais {{external}}"
+    }
+  },
+  "quote": {
+    "wrote": "Em {{when}}, {{sender}} escreveu:"
+  },
+  "recipients": {
+    "summaryMore": "{{list}} + mais {{count}}"
+  }
+}

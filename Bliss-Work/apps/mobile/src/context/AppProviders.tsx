@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, View } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RuntimeProvider } from '@taskboard/app/lib/runtime';
 import { clearCacheOnIdentityChange } from '@taskboard/app/lib/clearCacheOnIdentityChange';
-import { refreshSession } from '@taskboard/app/lib/refresh';
+import { isSessionDead, refreshSession } from '@taskboard/app/lib/refresh';
 import { queryRetryDelay, shouldRetryQuery } from '@taskboard/app/lib/retryPolicy';
 import { useSession } from '@taskboard/app/store/session';
 import type { PlatformConfig } from '@taskboard/app/platform';
@@ -13,6 +13,7 @@ import { ThemeProvider, useThemeColors } from '../theme/ThemeProvider';
 import { CallProvider } from '../calls/CallProvider';
 import { getRefreshToken, initAuthCookie, persistRefreshToken, syncRefreshTokenFromJar } from '../services/authCookie';
 import { usePushRegistration } from '../hooks/usePushRegistration';
+import { shouldRetrySessionBootstrap, sessionBootstrapRetryDelay } from './sessionBootstrapPolicy';
 
 // Same retry/staleness tuning apps/web and apps/desktop both use (see
 // packages/app/src/lib/retryPolicy.ts's own doc comment for why transport
@@ -120,13 +121,38 @@ function SessionBootstrap({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    (async () => {
-      const s = await refreshSession(config.authBase, config.persistToken, config.getRefreshToken);
-      if (!s) useSession.getState().clear();
-      if (alive) setReady(true);
-    })();
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempt = 0;
+    let refreshing = false;
+    let unresolved = true;
+    const restore = async () => {
+      if (!alive || refreshing) return;
+      refreshing = true;
+      try {
+        const session = await refreshSession(config.authBase, config.persistToken, config.getRefreshToken);
+        if (!alive) return;
+        setReady(true);
+        if (!shouldRetrySessionBootstrap(session, isSessionDead())) {
+          unresolved = false;
+          return;
+        }
+
+        retryAttempt += 1;
+        retryTimer = setTimeout(() => void restore(), sessionBootstrapRetryDelay(retryAttempt));
+      } finally {
+        refreshing = false;
+      }
+    };
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active' || !alive || !unresolved) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      void restore();
+    });
+    void restore();
     return () => {
       alive = false;
+      appStateSub.remove();
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, []);
 

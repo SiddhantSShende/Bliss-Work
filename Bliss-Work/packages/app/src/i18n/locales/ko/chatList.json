@@ -1,0 +1,296 @@
+{
+  "preview": {
+    "linkReceived": "링크를 받았어요",
+    "linkSent": "링크를 보냈어요",
+    "locationShared": "위치를 공유했어요",
+    "fileSent": "파일을 보냈어요",
+    "imageSent": "이미지를 보냈어요",
+    "videoSent": "동영상을 보냈어요",
+    "imagesSent_other": "이미지 {{count}}장을 보냈어요",
+    "filesSent_other": "파일 {{count}}개를 보냈어요"
+  },
+  "common": {
+    "cancel": "취소",
+    "join": "참여",
+    "pinnedLabel": "고정됨",
+    "mutedLabel": "알림 꺼짐",
+    "muteNotifications": "알림 끄기",
+    "unmuteNotifications": "알림 켜기",
+    "memberCount_other": "멤버 {{count}}명"
+  },
+  "chatsList": {
+    "title": "채팅",
+    "newChat": "새 채팅",
+    "searchAriaLabel": "채팅 검색",
+    "searchPlaceholder": "채팅 검색...",
+    "filtersAriaLabel": "채팅 필터",
+    "filters": {
+      "all": "전체",
+      "unread": "읽지 않음",
+      "mentions": "멘션"
+    },
+    "you": "나",
+    "startChatting": "채팅 시작",
+    "empty": {
+      "title": "아직 채팅이 없어요",
+      "hint": "+를 눌러 대화를 시작하세요."
+    },
+    "emptySearch": {
+      "title": "일치하는 채팅이 없어요",
+      "hint": "다른 검색어나 필터를 사용해 보세요."
+    },
+    "menu": {
+      "optionsLabel": "채팅 옵션",
+      "pin": "채팅 고정",
+      "unpin": "채팅 고정 해제",
+      "delete": "채팅 삭제"
+    },
+    "deleteDialog": {
+      "title": "채팅 기록을 삭제할까요?",
+      "message": "내 쪽의 채팅 기록만 삭제돼요. 상대방에게는 그대로 남아 있어요.",
+      "confirmLabel": "채팅 삭제"
+    },
+    "deleteErrorToast": "채팅을 삭제하지 못했어요"
+  },
+  "channelsList": {
+    "title": "채널",
+    "addChannel": "채널 추가",
+    "searchAriaLabel": "채널 검색",
+    "searchPlaceholder": "채널 검색...",
+    "filtersAriaLabel": "채널 필터",
+    "filters": {
+      "all": "전체",
+      "unread": "읽지 않음"
+    },
+    "tabs": {
+      "mine": "내 채널",
+      "browse": "탐색"
+    },
+    "empty": {
+      "title": "아직 채널이 없어요",
+      "hint": "+를 눌러 채널을 만들거나, 탐색에서 공개 채널을 찾아보세요."
+    },
+    "emptySearch": {
+      "title": "일치하는 채널이 없어요",
+      "hint": "다른 검색어나 필터를 사용해 보세요."
+    },
+    "loadError": {
+      "title": "공개 채널을 불러오지 못했어요",
+      "hint": "디렉터리를 가져오는 중 문제가 발생했어요.",
+      "retry": "다시 시도"
+    },
+    "emptyOpen": {
+      "title": "참여할 수 있는 공개 채널이 없어요",
+      "hint": "팀원이 만든 공개 채널이 여기에 표시돼요."
+    },
+    "loadMore": "더 불러오기",
+    "leaveSuccessToast": "채널에서 나갔어요.",
+    "leaveErrorToast": "나가지 못했어요",
+    "menu": {
+      "optionsLabel": "채널 옵션",
+      "pin": "채널 고정",
+      "unpin": "채널 고정 해제",
+      "leave": "채널 나가기",
+      "leaving": "나가는 중…"
+    }
+  },
+  "leaveChannel": {
+    "titleNamed": "#{{channel}}에서 나갈까요?",
+    "titleGeneric": "채널에서 나갈까요?",
+    "messageLocked": "잠금 채널이에요. 다시 들어오려면 멤버의 초대가 필요해요.",
+    "messageOpen": "탐색 탭에서 언제든지 다시 참여할 수 있어요.",
+    "confirmLabel": "채널 나가기"
+  },
+  "newChat": {
+    "title": "새 채팅",
+    "searchPlaceholder": "사람 검색…",
+    "emptyTitle": "검색된 사람이 없어요",
+    "errorToast": {
+      "title": "대화를 시작하지 못했어요",
+      "description": "다시 시도해 주세요."
+    }
+  },
+  "addChannel": {
+    "title": "채널 추가",
+    "tabs": {
+      "create": "새 채널 만들기",
+      "browse": "채널 추가"
+    },
+    "searchPlaceholder": "채널 검색…",
+    "loading": "채널 불러오는 중…",
+    "empty": {
+      "title": "아직 채널이 없어요",
+      "hint": "다른 탭에서 만들어 보세요."
+    },
+    "emptySearch": {
+      "title": "일치하는 채널이 없어요",
+      "hint": "다른 검색어를 사용해 보세요."
+    },
+    "loadError": "전체 채널 디렉터리를 불러오지 못했어요.",
+    "retry": "다시 시도",
+    "row": {
+      "private": "비공개",
+      "public": "공개",
+      "joined": "참여 중"
+    }
+  },
+  "createChannel": {
+    "channelNameLabel": "채널 이름",
+    "channelNamePlaceholder": "design-team",
+    "visibilityLabel": "공개 범위",
+    "openOption": {
+      "label": "공개",
+      "hint": "조직의 누구나 참여할 수 있어요"
+    },
+    "lockedOption": {
+      "label": "잠금",
+      "hint": "초대로만 참여할 수 있어요"
+    },
+    "membersLabel": "멤버",
+    "membersLabelWithCount": "멤버 ({{count}})",
+    "noMembers": "아직 추가된 멤버가 없어요.",
+    "removeMemberAriaLabel": "{{name}} 제거",
+    "removeMemberFallback": "멤버",
+    "addMember": "멤버 추가",
+    "createButton": "채널 만들기",
+    "creating": "만드는 중…",
+    "nameRequiredToast": "채널 이름을 입력해 주세요",
+    "createErrorToast": "채널을 만들지 못했어요"
+  },
+  "renameChannel": {
+    "title": "채널 이름 변경",
+    "placeholder": "채널 이름",
+    "save": "저장",
+    "saving": "저장하는 중…",
+    "successToast": "채널 이름을 변경했어요",
+    "errorToast": "채널 이름을 변경하지 못했어요"
+  },
+  "channelMembers": {
+    "addPeople": "사람 추가",
+    "addedToast": "채널에 추가했어요",
+    "actionFailed": "작업을 완료하지 못했어요",
+    "youSuffix": " (나)",
+    "roles": {
+      "owner": "소유자",
+      "admin": "관리자",
+      "member": "멤버"
+    },
+    "workspaceAdmin": "워크스페이스 관리자",
+    "unknownUsername": "알 수 없음",
+    "actions": {
+      "makeAdmin": "채널 관리자로 지정",
+      "removeAdmin": "채널 관리자 해제",
+      "transferOwnership": "소유권 이전",
+      "removeFromChannel": "채널에서 제거",
+      "blockFromChannel": "채널에서 차단"
+    },
+    "blockedHeading": "차단됨",
+    "unblock": "차단 해제",
+    "fallbackThem": "해당 사용자",
+    "transferConfirm": {
+      "title": "소유권을 이전할까요?",
+      "message": "#{{channel}}의 소유자를 {{name}}님으로 변경할까요? 나는 관리자가 돼요.",
+      "confirmLabel": "이전"
+    },
+    "blockConfirm": {
+      "title": "채널에서 차단할까요?",
+      "message": "#{{channel}}에서 {{name}}님을 차단할까요? 채널에서 제거되며 다시 참여할 수 없어요.",
+      "confirmLabel": "차단"
+    }
+  },
+  "chatSearchBar": {
+    "placeholder": "이 대화에서 검색…",
+    "ariaLabel": "이 대화에서 검색",
+    "noMatches": "일치하는 항목 없음",
+    "matchesOfLoaded": "불러온 {{loaded}}개 중 {{matches}}개",
+    "clearSearch": "검색어 지우기",
+    "closeSearch": "검색 닫기"
+  },
+  "chatAssets": {
+    "tabs": {
+      "media": "미디어",
+      "docs": "문서",
+      "links": "링크"
+    },
+    "scopeNote_other": "여기에 불러온 메시지 {{count}}개 기준이에요. 더 많은 항목을 보려면 대화에서 이전 메시지를 불러오세요.",
+    "emptyMedia": {
+      "title": "아직 사진이나 동영상이 없어요",
+      "hint": "이 대화에서 공유한 이미지와 클립이 여기에 모여요."
+    },
+    "unavailable": "사용할 수 없음",
+    "openItem": "{{name}} 열기",
+    "downloadItem": "{{name}} 다운로드",
+    "emptyDocs": {
+      "title": "아직 문서가 없어요",
+      "hint": "PDF, 스프레드시트, 압축 파일처럼 사진이나 동영상이 아닌 파일이 여기에 모여요."
+    },
+    "previewUnavailable": "이 파일 형식은 미리 볼 수 없어요",
+    "emptyLinks": {
+      "title": "아직 링크가 없어요",
+      "hint": "이 대화에 올라온 웹 주소가 여기에 모여요."
+    }
+  },
+  "pinButton": {
+    "pin": "바탕화면에 고정",
+    "unpin": "바탕화면에서 고정 해제"
+  },
+  "selectionToolbar": {
+    "selectedCount_other": "{{count}}개 선택됨",
+    "cannotDelete_other": "· {{count}}개는 삭제할 수 없어요",
+    "forward": "전달",
+    "delete": "삭제"
+  },
+  "messageStatus": {
+    "pending": "보내는 중…",
+    "sent": "전송됨",
+    "delivered": "전달됨",
+    "seen": "읽음"
+  },
+  "forwardBadge": {
+    "titleWithPlatform": "{{brand}}에서 메시지가 미리 입력된 {{platform}} 화면을 열었어요. 실제로 전송되었는지는 확인할 수 없어요.",
+    "titleWhatsapp": "{{brand}}에서 메시지가 미리 입력된 WhatsApp 화면을 열었어요. 실제로 전송되었는지는 확인할 수 없어요.",
+    "notConfirmed": "· 확인되지 않음",
+    "messageForwardedTo": "{{platform}}에 메시지를 전달했어요"
+  },
+  "forwardTo": {
+    "titleSingle": "전달 대상…",
+    "titleMultiple": "메시지 {{count}}개 전달",
+    "messagesPrefix": "메시지 {{count}}개 · ",
+    "searchPlaceholder": "사람과 채널 검색…",
+    "selectedCount_other": "{{count}}개 선택됨",
+    "clearSelection": "선택 해제",
+    "noMatches": "일치하는 사람이나 채널이 없어요.",
+    "peopleHeading": "사람",
+    "channelsHeading": "채널",
+    "forwardToOne": "{{name}}에 전달",
+    "forwardToMany": "{{count}}곳에 전달",
+    "forwardDefault": "전달",
+    "fallbackChannel": "채널",
+    "fallbackPerson": "사람",
+    "toasts": {
+      "openAction": "열기",
+      "oneSuccess": "{{destination}}에 전달했어요",
+      "allSuccess": "{{count}}곳에 전달했어요.",
+      "allFailed_other": "{{count}}곳에 전달하지 못했어요.",
+      "partialSuccess_other": "{{count}}곳에 전달했어요.",
+      "partialFailedDescription": "{{count}}곳에 전달하지 못했어요: {{list}}",
+      "genericError": {
+        "title": "전달하지 못했어요",
+        "description": "다시 시도해 주세요."
+      }
+    }
+  },
+  "chatsEmpty": {
+    "welcomeWithName": "{{name}}님, 환영해요 👋",
+    "welcome": "환영해요 👋",
+    "hint": "왼쪽에서 채팅을 선택하거나 +를 눌러 새 대화를 시작하세요."
+  },
+  "channelsEmpty": {
+    "title": "채널",
+    "hint": "왼쪽에서 채널을 선택하거나 +를 눌러 새로 만드세요."
+  },
+  "joinChannel": {
+    "joined": "채널에 참여했어요.",
+    "couldNotJoin": "참여하지 못했어요"
+  }
+}

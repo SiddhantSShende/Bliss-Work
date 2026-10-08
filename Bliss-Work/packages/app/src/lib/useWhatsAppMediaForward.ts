@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useRuntime } from "./runtime";
 import { canShareFiles, handoffMediaFiles } from "./waMediaForward";
+import { downloadBlob } from "./download";
 
 // Mirrors useAttachmentLinks.ts's MAX_LINK_BATCH: the server caps one
 // /attachments/links mint at 50 ids (maxLinkBatch, attachments.go) and 400s
@@ -76,7 +77,10 @@ export function useWhatsAppMediaForward() {
           return;
         }
 
-        const outcome = await handoffMediaFiles(files, { text: caption, download: downloadFile });
+        const outcome = await handoffMediaFiles(files, {
+          text: caption,
+          download: (file) => downloadBlob(file, file.name),
+        });
         switch (outcome.kind) {
           case "shared":
             toast.success(t("whatsAppForward.sharedToast"), {
@@ -100,15 +104,4 @@ export function useWhatsAppMediaForward() {
     },
     [api, t],
   );
-}
-
-function downloadFile(file: File): void {
-  const url = URL.createObjectURL(file);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = file.name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }

@@ -1,0 +1,162 @@
+{
+  "errors": {
+    "accessRevoked": "你已无权访问此通话",
+    "notConfigured": "此服务器未启用群组通话",
+    "couldNotJoin": "无法加入通话",
+    "couldNotStart": "无法发起通话",
+    "couldNotShareScreen": "无法共享你的屏幕"
+  },
+  "notify": {
+    "screenShareStopped": "屏幕共享已停止",
+    "screenShareStoppedDescription": "重新连接通话导致共享中断，如果你仍在演示，请重新开始共享。",
+    "meetingEnded": "此会议已结束",
+    "micBlocked": "麦克风已被禁用",
+    "micBlockedHint": "请检查此应用的麦克风权限。",
+    "micUnavailable": "麦克风不可用",
+    "micUnavailableHint": "请检查是否已连接麦克风，且未被其他程序占用。",
+    "cameraBlocked": "摄像头已被禁用",
+    "cameraBlockedHint": "请检查此应用的摄像头权限。",
+    "cameraUnavailable": "摄像头不可用",
+    "cameraUnavailableHint": "请检查是否已连接摄像头，且未被其他程序占用。"
+  },
+  "preJoin": {
+    "readyToJoinLabel": "准备加入",
+    "leave": "离开",
+    "cameraOffPlaceholder": "你的摄像头已关闭",
+    "error": {
+      "deniedTitle": "摄像头和麦克风已被禁用",
+      "otherTitle": "无法访问你的摄像头或麦克风",
+      "deniedHint": "请检查此应用的摄像头和麦克风权限，然后重试。",
+      "otherHint": "请确认已连接摄像头和麦克风，且未被其他程序占用，然后重试。",
+      "tryAgain": "重试",
+      "openCameraSettings": "打开摄像头设置",
+      "openMicrophoneSettings": "打开麦克风设置"
+    },
+    "muteMic": "静音麦克风",
+    "unmuteMic": "取消麦克风静音",
+    "cameraOff": "关闭摄像头",
+    "cameraOn": "开启摄像头",
+    "heading": "准备好加入了吗？",
+    "description": "进入会议前，请先检查摄像头和麦克风。",
+    "joinButton": "加入会议"
+  },
+  "waitingRoom": {
+    "canStartHint": "你是第一个到场的人。开始会议后，其他人才能加入。",
+    "waitingHint": "会议尚未开始。开始后你将自动加入。",
+    "leave": "离开",
+    "starting": "正在开始…",
+    "startNow": "立即开始"
+  },
+  "joinFailed": {
+    "anotherDeviceTitle": "你已在另一台设备上加入此会议",
+    "anotherDeviceHint": "你当前正通过另一台设备连接此会议。",
+    "switchHere": "切换到此设备",
+    "displacedTitle": "你已在另一台设备上加入此会议",
+    "displacedHint": "此会议现在在另一台设备上进行。",
+    "tokenTitle": "无法获取会议凭据",
+    "disconnectedTitle": "已断开与会议的连接",
+    "genericTitle": "无法连接会议",
+    "tokenHint": "凭据请求未成功。请检查网络后重试。",
+    "disconnectedHint": "与会议的连接已断开且无法恢复。请检查网络后重新加入。",
+    "genericHint": "无法连接会议服务器。请检查网络后重试。",
+    "leave": "离开",
+    "retrying": "正在重试…",
+    "retry": "重试"
+  },
+  "room": {
+    "defaultTitleChannel": "频道通话",
+    "defaultTitleMeeting": "会议",
+    "youFallbackName": "你",
+    "addPeopleDefaultTitle": "添加成员",
+    "channelAlreadyInvited": "频道中的所有人都已受邀",
+    "header": {
+      "participantsPresent_other": "{{count}} 位参会者在场",
+      "external": "{{count}} 位外部人员",
+      "recording": "录制中",
+      "reconnecting": "正在重新连接…",
+      "connecting": "正在连接…"
+    },
+    "stage": {
+      "speaking": "正在发言",
+      "presenting": "正在演示",
+      "connectingPlaceholder": "正在连接…"
+    },
+    "toasts": {
+      "recordingSaved": "录制内容已保存到下载文件夹",
+      "recordingUnsupported": "此浏览器不支持录制会议",
+      "recordingStarted": "已开始录制，将保存到此设备",
+      "inviteLinkCopied": "邀请链接已复制"
+    }
+  },
+  "controls": {
+    "addPeopleDefault": "添加成员",
+    "stopSharing": "停止共享屏幕",
+    "startSharing": "共享屏幕",
+    "callDurationAriaLabel": "通话时长",
+    "mute": "静音",
+    "unmute": "取消静音",
+    "cameraOff": "关闭摄像头",
+    "cameraOn": "开启摄像头",
+    "endCall": "结束通话"
+  },
+  "roster": {
+    "ariaLabel": "参会者",
+    "title": "参会者",
+    "searchPlaceholder": "搜索成员…",
+    "searchAriaLabel": "搜索成员",
+    "inMeetingCount": "会议中 · {{count}}",
+    "youSuffix": "（你）",
+    "sharing": "正在共享",
+    "handUp": "已举手",
+    "pin": "固定 {{name}}",
+    "unpin": "取消固定 {{name}}",
+    "showMore": "另外 {{count}} 位成员",
+    "showLess": "收起",
+    "noMatches": "没有与“{{query}}”匹配的成员。",
+    "inviteMembers": "邀请成员"
+  },
+  "tile": {
+    "presentingScreen": "你正在演示屏幕",
+    "pin": "固定 {{name}}",
+    "unpin": "取消固定 {{name}}",
+    "handRaisedTitle": "{{name}} 已举手",
+    "youSuffix": "（你）",
+    "unpinStageTitle": "将 {{name}} 从主画面取消固定",
+    "unpinStageAriaLabel": "取消固定主画面",
+    "unpinStageButton": "取消固定"
+  },
+  "callUi": {
+    "couldNotOpenRoom": "无法打开通话房间",
+    "movingToRoom": "正在将所有人转入房间…",
+    "decline": "拒绝",
+    "accept": "接听",
+    "incomingVideo": "视频来电…",
+    "incomingVoice": "语音来电…",
+    "peerFallbackName": "用户",
+    "subtitle": {
+      "sharing": "{{peer}} 正在共享屏幕",
+      "connected": "已连接",
+      "callEnded": "通话已结束",
+      "calling": "正在呼叫…"
+    },
+    "audioBlocked": {
+      "title": "点击以收听通话",
+      "description": "浏览器在你操作之前会阻止音频播放。"
+    }
+  },
+  "addPeopleDialog": {
+    "shareTitle": "分享会议链接",
+    "shareDescription": "通过安全链接邀请成员加入此会议。",
+    "cancel": "取消",
+    "sendLink": "发送链接",
+    "sendTitle": "发送会议链接",
+    "linkSentWithExceptions": "链接已发送，部分未送达",
+    "linkSentWithExceptionsDescription": "{{sent}} 人已发送，{{failed}} 人无法送达。",
+    "linkSent": "链接已发送",
+    "linkSentToMembers": "链接已发送给 {{count}} 位成员",
+    "addedToCall": "已加入通话",
+    "addedPeople": "已添加 {{count}} 人",
+    "couldNotAdd": "无法将任何人添加到此通话",
+    "groupCallingUnavailable": "此服务器可能不支持群组通话。"
+  }
+}

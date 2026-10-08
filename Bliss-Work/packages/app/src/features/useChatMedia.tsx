@@ -19,10 +19,11 @@ import { useAttachmentLinks } from "../lib/useAttachmentLinks";
 import { useAttachmentActivity } from "../lib/useAttachmentActivity";
 import { downloadAttachment } from "../lib/download";
 import { hasOutsideOpen, openOutsideApp } from "../lib/openAttachment";
+import { attachmentCapability } from "../lib/attachmentCapability";
 import { useFileTransfers } from "../lib/fileTransfer";
 import { MediaBubble, type UploadProgress } from "./MediaBubble";
 import { LocationBubble } from "./LocationBubble";
-import { Lightbox } from "./Lightbox";
+import { AttachmentViewer } from "./AttachmentViewer";
 import { FileAttachmentBubble } from "./FileAttachmentBubble";
 import { DropConfirm } from "./DropConfirm";
 
@@ -536,28 +537,48 @@ export function useChatMedia(opts: ChatMediaOptions) {
   const links = useAttachmentLinks(allIds);
   const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId, channelLocked);
 
-  // A click on an attachment. A file with no in-app view leaves the app the way
-  // an email attachment's Open does — the desktop's own application on desktop,
-  // a browser tab on web. Everything else (images, video, PDF, plain text, and
-  // any host with neither) opens in the Lightbox.
+  // A click on an attachment, routed by `attachmentCapability` (the one place that
+  // decides, shared with Mail and the assets panel):
   //
-  // Every branch is the user invoking the app's OPEN action — never a render, a
-  // viewport entry or a hover — so every branch reports exactly one
+  //   native    → the Lightbox, with the message's drawable files as a gallery.
+  //   external  → audio: out of the app the way an email attachment's Open does
+  //               (the desktop's own application, a browser tab on web); a host
+  //               with neither falls through to the Lightbox. Exactly the old path.
+  //   document  → Word / PowerPoint / Excel / CSV / .txt, in the in-app document
+  //               viewer, shown ALONE so ←/→ can never land on a file the
+  //               Lightbox cannot draw.
+  //   download  → nothing opens. FileCard offers only Download for these, so a
+  //               click never gets here; the guard is for any other caller.
+  //
+  // Every opening branch is the user invoking the app's OPEN action — never a
+  // render, a viewport entry or a hover — so it reports exactly one
   // "attachment_opened", and never "attachment_downloaded": that kind belongs to
-  // the explicit 3-dot → Download (downloadItem below) alone. What the browser or
-  // OS then does with a type it cannot render (e.g. saving a .docx) is its own
-  // native handling, outside the app's control, and does not change what the user
-  // asked for here.
+  // the explicit Download (downloadItem below) alone.
   const openItem = useCallback(
     (items: MediaItem[], index: number) => {
       const item = items[index];
-      const url = item ? links.urlFor(item.id) : undefined;
-      if (item && url && openOutsideApp(config, item.mime, url, item.name)) {
+      if (!item) return;
+      const cap = attachmentCapability({ name: item.name, mime: item.mime, size: item.size });
+      if (cap.kind === "download") return;
+      const url = links.urlFor(item.id);
+      if (cap.kind === "external" && url && openOutsideApp(config, item.mime, url, item.name)) {
         reportAttachmentActivity("attachment_opened", item);
         return;
       }
-      if (item) reportAttachmentActivity("attachment_opened", item);
-      setLightbox({ items, index });
+      reportAttachmentActivity("attachment_opened", item);
+      if (cap.kind === "document") {
+        setLightbox({ items: [item], index: 0 });
+        return;
+      }
+      // The Lightbox's gallery holds only what it can draw (or, for audio on a host
+      // with no outside open, explain): ←/→ must never carry the user onto a
+      // document — which would swap the viewer and start a conversion — or onto a
+      // download-only file, which has nothing to show.
+      const gallery = items.filter((i) => {
+        const k = attachmentCapability({ name: i.name, mime: i.mime, size: i.size }).kind;
+        return k === "native" || k === "external";
+      });
+      setLightbox({ items: gallery, index: gallery.indexOf(item) });
     },
     [config, links, reportAttachmentActivity],
   );
@@ -596,6 +617,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
             isResolved={links.isResolved}
             opensOutside={hasOutsideOpen(config)}
             onOpen={(index) => openItem(env.items, index)}
+            onDownload={downloadItem}
           />
         );
       }
@@ -615,7 +637,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
         />
       );
     },
-    [meId, links, noteIds, ft, config, openItem],
+    [meId, links, noteIds, ft, config, openItem, downloadItem],
   );
 
   // ── drag & drop / paste ───────────────────────────────────────────────────
@@ -690,12 +712,13 @@ export function useChatMedia(opts: ChatMediaOptions) {
   const overlay = (
     <>
       {lightbox && (
-        <Lightbox
+        <AttachmentViewer
           items={lightbox.items}
           index={lightbox.index}
           urlFor={links.urlFor}
           onClose={() => setLightbox(null)}
           onIndexChange={(index) => setLightbox((l) => (l ? { ...l, index } : l))}
+          onDownload={downloadItem}
         />
       )}
       <DropConfirm

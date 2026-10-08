@@ -1,0 +1,174 @@
+{
+  "availablePeople": {
+    "searchPlaceholder": "チームメンバーを検索…",
+    "empty": {
+      "noMatchesTitle": "一致するメンバーがいません",
+      "allBusyTitle": "全員が対応中です",
+      "noMatchesHint": "その検索に一致する対応可能なメンバーはいません。",
+      "allBusyHint": "確認済みのタスクがないメンバーがここに表示されます。"
+    },
+    "toasts": {
+      "hideFailed": "このメンバーを非表示にできませんでした",
+      "restoreFailed": "このメンバーを元に戻せませんでした"
+    },
+    "hiddenToggle": "一覧から非表示({{count}})",
+    "hiddenBusyNote": "進行中のタスクがあるため、手が空くまで再表示されません",
+    "restoreTitle": "対応可能に戻す",
+    "card": {
+      "selfTitle": "自分にタスクを割り当てることはできません",
+      "assignTitle": "{{name}}にタスクを割り当てる",
+      "youSuffix": "(自分)",
+      "pendingBadge": "保留中{{count}}件・未確認",
+      "onCall": "通話中",
+      "hiddenFromOthers": "他のメンバーには非表示",
+      "hideTitle": "対応可能から非表示にする"
+    }
+  },
+  "memberPicker": {
+    "searchPlaceholder": "チームメンバーを検索…",
+    "clearAll": "すべて解除",
+    "selectAll": "すべて選択",
+    "emptyHint": "該当するメンバーはすでに全員追加されています。",
+    "cancelButton": "キャンセル",
+    "addButton": "追加",
+    "sendOrganization": "組織全体に送信"
+  },
+  "inviteePicker": {
+    "searchPlaceholder": "組織内を検索…",
+    "searchAriaLabel": "組織内を検索",
+    "empty": {
+      "noMatches": "一致するメンバーがいません。",
+      "noneToInvite": "招待できるメンバーがいません。"
+    },
+    "loading": "メンバーを読み込み中…",
+    "you": "(自分)"
+  },
+  "orgPage": {
+    "header": {
+      "title": "組織",
+      "subtitle": "所属しているワークスペースを切り替えたり、現在のワークスペースを管理したりできます。"
+    },
+    "toasts": {
+      "switched": "組織を切り替えました",
+      "switchFailedTitle": "組織を切り替えられませんでした",
+      "switchFailedDescription": "もう一度お試しください。"
+    },
+    "yourOrganizations": "所属している組織",
+    "loading": "読み込み中…",
+    "currentBadge": "現在",
+    "roleLabel": {
+      "admin": "管理者",
+      "member": "メンバー"
+    },
+    "activeLabel": "使用中",
+    "switchButton": "切り替える",
+    "switchingLabel": "切り替え中…",
+    "manageHeading": "{{name}}を管理",
+    "manageFallbackName": "この組織",
+    "membersButton": "メンバー",
+    "invitePeopleButton": "メンバーを招待"
+  },
+  "orgActivity": {
+    "adminsOnly": {
+      "title": "管理者のみ",
+      "hint": "自分のアクティビティは「設定」→「アクティビティ」で確認できます。"
+    },
+    "backToMembers": "メンバー",
+    "header": {
+      "title": "ワークスペースのアクティビティ",
+      "subtitle": "チームの時間の使われ方です。"
+    },
+    "exportButton": "エクスポート",
+    "empty": {
+      "title": "この期間のアクティビティはありません",
+      "hint": "チームが{{brand}}を1日使うと、グラフが表示されます。"
+    },
+    "stats": {
+      "teamActiveTime": "チームのアクティブ時間",
+      "peopleActive": "アクティブな人数",
+      "perPerson": "1人あたり",
+      "perPersonHint": "期間中の平均",
+      "sessions": "セッション"
+    },
+    "sections": {
+      "teamActiveTimePerDay": "チームの1日あたりのアクティブ時間",
+      "activeTimeByMember": "メンバー別のアクティブ時間",
+      "allMembers": "すべてのメンバー"
+    },
+    "table": {
+      "member": "メンバー",
+      "active": "アクティブ",
+      "idle": "アイドル",
+      "sessions": "セッション",
+      "actions": "操作"
+    },
+    "chart": {
+      "active": "アクティブ",
+      "idle": "アイドル"
+    }
+  },
+  "orgSwitcher": {
+    "switchTitle": "組織を切り替える",
+    "workspaceFallback": "ワークスペース",
+    "yourOrganizations": "所属している組織",
+    "searchPlaceholder": "組織を検索...",
+    "loadMore": "さらに読み込む",
+    "loading": "組織を読み込み中...",
+    "empty": "組織が見つかりません",
+    "loadFailed": "組織を読み込めませんでした。クリックして再試行してください。",
+    "roleLabel": {
+      "admin": "管理者",
+      "member": "メンバー"
+    },
+    "switchingLabel": "切り替え中…",
+    "toasts": {
+      "switchFailedTitle": "組織を切り替えられませんでした",
+      "switchFailedDescription": "もう一度お試しください。"
+    }
+  },
+  "deleteOrgSection": {
+    "toasts": {
+      "scheduledTitle": "ワークスペースの削除を予約しました",
+      "scheduledDescription": "全員がログアウトされました。期限まではキャンセルできます。",
+      "scheduleFailedTitle": "削除を予約できませんでした",
+      "cancelled": "削除をキャンセルしました",
+      "cancelFailedTitle": "削除をキャンセルできませんでした"
+    },
+    "scheduled": {
+      "heading": "このワークスペースは削除が予約されています",
+      "message": "<bold>{{orgName}}</bold>内のすべてのメッセージ、ファイル、タスク、アクティビティが、<bold>{{when}}</bold>に完全に削除されます。それまでは元に戻せます。",
+      "cancelButton": "削除をキャンセル"
+    },
+    "dangerZone": {
+      "heading": "危険な操作",
+      "description": "このワークスペースを削除すると、中のメッセージ、ファイル、タスク、アクティビティの記録がすべて、全員分完全に削除されます。",
+      "openButton": "このワークスペースを削除…"
+    },
+    "confirm": {
+      "instructions": "猶予期間が終了すると元に戻せません。全員が直ちにログアウトされます。確認のため、ワークスペースの識別子<code>{{slug}}</code>を下に入力してください。",
+      "ariaLabel": "確認のためワークスペースの識別子を入力",
+      "deleteButton": "ワークスペースを削除",
+      "cancelButton": "キャンセル"
+    }
+  },
+  "leaveOrgButton": {
+    "leaveButton": "退出",
+    "toasts": {
+      "failedTitle": "組織から退出できませんでした",
+      "failedDescriptionFallback": "もう一度お試しください。",
+      "left": "{{orgName}}から退出しました",
+      "signedOutTitle": "ログアウトしました",
+      "signedOutDescription": "続けるには、もう一度ログインしてください。"
+    },
+    "confirmDialog": {
+      "title": "{{orgName}}から退出しますか?",
+      "message": "<bold>{{orgName}}</bold>のすべてのチャンネル、メッセージ、タスクにアクセスできなくなります。投稿した内容は削除されず、そこの管理者が再び招待することもできます。",
+      "movedMessage": "<bold>{{orgName}}</bold>に移動します。",
+      "confirmLabel": "組織から退出"
+    },
+    "stepUp": {
+      "title": "退出するには本人確認が必要です",
+      "description": "アカウントで2段階認証を使用しているため、組織から退出するにはパスワードと現在のコードが必要です。"
+    }
+  }
+}

@@ -1,0 +1,310 @@
+{
+  "list": {
+    "title": "멤버",
+    "workspaceActivity": "워크스페이스 활동",
+    "searchPlaceholder": "팀원 검색…",
+    "selfRow": {
+      "name": "{{name}} (나)",
+      "subtitle": "내 활동과 세션"
+    },
+    "empty": {
+      "title": "팀원을 찾을 수 없어요"
+    },
+    "status": {
+      "online": "온라인",
+      "idle": "유휴",
+      "lastSeen": "마지막 접속 {{time}}"
+    },
+    "messageButton": "{{name}}님에게 메시지"
+  },
+  "detail": {
+    "notFound": {
+      "title": "멤버를 찾을 수 없어요",
+      "hint": "왼쪽에서 다른 팀원을 선택하세요."
+    },
+    "backButton": "멤버로 돌아가기",
+    "tabs": {
+      "overview": "개요",
+      "activity": "활동",
+      "analytics": "분석",
+      "sessions": "세션",
+      "admin": "관리",
+      "security": "보안"
+    },
+    "roleLabel": {
+      "admin": "관리자",
+      "member": "멤버"
+    },
+    "fields": {
+      "email": "이메일",
+      "username": "사용자 이름",
+      "role": "역할",
+      "status": "상태",
+      "lastSeen": "마지막 접속",
+      "emailVerified": "이메일 인증",
+      "joined": "가입일",
+      "removed": "제거일"
+    },
+    "emailVerified": {
+      "yes": "완료",
+      "no": "아직 안 함"
+    },
+    "lastSeen": {
+      "now": "지금",
+      "noRecentActivity": "최근 활동 없음"
+    },
+    "exportButton": "내보내기",
+    "exportTooltip": "이 멤버의 활동 내보내기",
+    "messageButton": "메시지",
+    "selfActivityBanner": "내 활동 기록이에요. 워크스페이스 관리자도 볼 수 있어요."
+  },
+  "status": {
+    "active": "활성",
+    "suspended": "정지됨",
+    "removed": "제거됨"
+  },
+  "admin": {
+    "toasts": {
+      "actionFailed": "작업을 완료하지 못했어요",
+      "nowAdmin": "{{name}}님이 이제 관리자예요",
+      "nowMember": "{{name}}님이 이제 멤버예요",
+      "reactivated": "{{name}}님이 다시 로그인할 수 있어요",
+      "suspended": "{{name}}님이 정지되었어요",
+      "removed": "{{name}}님이 워크스페이스에서 제거되었어요"
+    },
+    "selfGuard": "내 역할이나 멤버십은 직접 변경할 수 없어요. 다른 관리자에게 요청하세요. 마지막 관리자가 자신을 포함한 모두를 워크스페이스에서 잠그는 일을 막기 위한 규칙이에요.",
+    "sections": {
+      "role": {
+        "title": "역할",
+        "hint": "관리자는 사람을 초대하고, 멤버를 관리하고, 감사 기록을 볼 수 있어요. 역할을 변경하면 새 권한이 바로 적용되도록 멤버가 모든 기기에서 로그아웃돼요."
+      },
+      "access": {
+        "title": "접근 권한",
+        "hint": "정지해도 모든 내용은 유지되며 언제든 되돌릴 수 있어요. 제거하면 멤버십이 취소되지만 작성한 메시지, 태스크, 기록은 그대로 남고 나중에 다시 초대할 수 있어요."
+      },
+      "activeSessions": {
+        "title": "활성 세션",
+        "hint": "세션을 로그아웃하면 즉시 종료되며, 해당 기기는 다시 로그인해야 해요."
+      }
+    },
+    "actions": {
+      "demote": "멤버로 변경",
+      "makeAdmin": "관리자로 지정",
+      "suspend": "정지",
+      "remove": "제거",
+      "reactivate": "다시 활성화"
+    },
+    "reactivateFirst": "역할을 변경하기 전에 이 멤버를 다시 활성화하세요.",
+    "confirmDialog": {
+      "removeTitle": "워크스페이스에서 제거할까요?",
+      "suspendTitle": "멤버를 정지할까요?",
+      "removeMessage": "<bold>{{name}}</bold>님은 즉시 이 워크스페이스에 접근할 수 없게 되고 디렉터리에서 사라져요. 작성한 내용은 모두 남아 있어요. 언제든 다시 초대할 수 있어요.",
+      "suspendMessage": "<bold>{{name}}</bold>님은 모든 기기에서 로그아웃되며, 다시 활성화하기 전까지 로그인할 수 없어요. 삭제되는 내용은 없어요."
+    },
+    "sessions": {
+      "loadError": {
+        "title": "세션을 불러오지 못했어요",
+        "hint": "연결 상태를 확인하고 다시 시도해 주세요."
+      },
+      "none": "활성 세션이 없어요.",
+      "signedOutToast": "{{device}} 로그아웃 완료",
+      "revokeFailedToast": {
+        "title": "해당 세션을 로그아웃하지 못했어요",
+        "description": "다시 시도해 주세요."
+      },
+      "confirmDialog": {
+        "title": "이 세션을 로그아웃할까요?",
+        "message": "다음 기기가 바로 로그아웃되며, 다시 로그인해야 해요: <bold>{{device}}</bold>",
+        "confirmLabel": "로그아웃"
+      }
+    }
+  },
+  "analytics": {
+    "empty": {
+      "title": "이 기간에는 활동이 없어요",
+      "hint": "그래프로 나타낼 하루치 활동이 쌓이면 차트가 표시돼요."
+    },
+    "summary": {
+      "activeTime": "활성 시간",
+      "acrossDays_other": "{{count}}일간",
+      "sessions": "세션",
+      "sessionsHint": "기록된 로그인",
+      "events": "이벤트",
+      "eventsHint": "기록된 이벤트",
+      "lastActive": "마지막 활동",
+      "lastActiveHint": "가장 최근에 기록된 활동",
+      "lastActiveNone": "기록된 활동 없음",
+      "vsPrevious": "이전 기간 대비"
+    },
+    "overview": {
+      "title": "활동 개요",
+      "hint": "선택한 기간의 총 활동 시간과 분포",
+      "activeOfSignedIn": "로그인 시간 중 활성 상태",
+      "active": "활성",
+      "idle": "유휴",
+      "idleHint": "로그인했지만 입력 없음"
+    },
+    "topApps": {
+      "title": "많이 쓴 앱",
+      "hint": "이 기간에 가장 많이 사용한 앱",
+      "empty": "이 기간의 앱 데이터가 없어요."
+    },
+    "recent": {
+      "title": "최근 활동",
+      "hint": "최근 앱 및 시스템 활동",
+      "empty": "기록된 최근 활동이 없어요.",
+      "viewAll": "모든 활동 보기"
+    },
+    "work": {
+      "title": "작업 시간대",
+      "hint": "활동 히트맵 — 진할수록 활동이 많아요",
+      "less": "적음",
+      "more": "많음",
+      "outsideHours": "이 시간대 밖에서 {{time}} 더 활동"
+    },
+    "trend": {
+      "title": "활동 추이",
+      "hint": "요일별 평균 활성 시간과 유휴 시간",
+      "active": "활성",
+      "idle": "유휴"
+    }
+  },
+  "auditLog": {
+    "labels": {
+      "org": { "created": "워크스페이스를 만들었어요" },
+      "user": { "profile_updated": "프로필을 수정했어요" },
+      "invite": {
+        "created": "누군가를 초대했어요",
+        "accepted": "초대를 수락했어요",
+        "revoked": "초대를 취소했어요"
+      },
+      "password": {
+        "reset_requested": "비밀번호 재설정을 요청했어요",
+        "reset_completed": "비밀번호 재설정을 완료했어요"
+      },
+      "email": { "verified": "이메일을 인증했어요" },
+      "member": {
+        "role_changed": "역할을 변경했어요",
+        "deactivated": "멤버를 정지했어요",
+        "reactivated": "멤버를 다시 활성화했어요",
+        "removed": "멤버를 제거했어요"
+      }
+    },
+    "error": {
+      "title": "감사 기록을 불러오지 못했어요",
+      "hint": "연결 상태를 확인하고 다시 시도해 주세요."
+    },
+    "empty": {
+      "title": "아직 기록된 내용이 없어요",
+      "hintScoped": "이 멤버에 대한 관리자 작업이 여기에 표시돼요.",
+      "hintAll": "워크스페이스 전체의 관리자 작업이 여기에 표시돼요."
+    },
+    "systemActor": "시스템"
+  },
+  "sessions": {
+    "empty": {
+      "title": "기록된 세션이 없어요",
+      "hint": "기기에서 로그인하면 세션이 여기에 표시돼요."
+    },
+    "activeNow": "현재 활성",
+    "endReason": {
+      "disconnect": "앱을 닫음",
+      "timeout": "활동 없음"
+    },
+    "durations": {
+      "total": "총 {{duration}}",
+      "active": "활성 {{duration}}",
+      "idle": "유휴 {{duration}}"
+    },
+    "approximateNetworkTooltip": "대략적인 네트워크",
+    "retentionNote": "최근 7일만 표시돼요. 이전 세션은 보관되지만 여기에서는 볼 수 없어요."
+  },
+  "timeline": {
+    "filters": {
+      "all": "전체",
+      "engagement": "업무",
+      "navigation": "앱 내",
+      "outside": "외부 활동",
+      "auth": "로그인",
+      "security": "보안"
+    },
+    "empty": {
+      "title": "아직 기록된 활동이 없어요",
+      "hint": "{{brand}} 사용 내역이 여기에 표시돼요."
+    },
+    "error": {
+      "title": "활동을 불러오지 못했어요",
+      "hint": "연결 상태를 확인하고 다시 시도해 주세요."
+    },
+    "verifiedTooltip": "{{brand}}가 직접 기록한 내용이에요. 본인이 입력한 것이 아니에요",
+    "retentionNote": "최근 7일만 표시돼요. 이전 활동은 보관되지만 여기에서는 볼 수 없어요."
+  },
+  "loadOlder": {
+    "button": "이전 항목 불러오기"
+  },
+  "activityLabels": {
+    "actions": {
+      "login": "로그인",
+      "logout": "로그아웃",
+      "org": { "switched": "워크스페이스 전환" },
+      "message": { "sent": "메시지 전송" },
+      "mail": { "attachment": { "downloaded": "메일 첨부 파일 다운로드" } },
+      "attachment": { "opened": "파일 열기", "downloaded": "파일 다운로드" },
+      "channel": { "message": { "sent": "채널에 게시" } },
+      "conversation": { "ignored": "대화 무시" },
+      "user": { "blocked": "사용자 차단", "unblocked": "사용자 차단 해제" },
+      "task": {
+        "allocated": "태스크 할당",
+        "acknowledged": "태스크 확인",
+        "completed": "태스크 완료",
+        "ignored": "태스크 무시",
+        "left": "태스크 나가기",
+        "reviewed": "태스크 리뷰"
+      },
+      "route": { "enter": "이동:", "dwell": "머문 곳:" },
+      "focus": "{{brand}}로 돌아옴",
+      "blur": "{{brand}}에서 벗어남",
+      "idle": { "start": "유휴 시작", "end": "활동 재개" },
+      "screenshot": { "attempted": "스크린샷 시도 차단됨" },
+      "app": { "focus": "사용한 앱:" },
+      "os": { "idle": "자리 비움" }
+    },
+    "surfaces": {
+      "mail": "메일",
+      "inbox": "받은 편지함",
+      "chats": "채팅",
+      "channels": "채널",
+      "tasks": "태스크",
+      "members": "멤버",
+      "integrations": "연동",
+      "search": "검색",
+      "settings": "설정",
+      "profile": "프로필",
+      "org": "조직"
+    },
+    "theApp": "앱",
+    "source": {
+      "verified": "검증됨",
+      "desktop": "데스크톱 앱",
+      "extension": "브라우저 확장 프로그램",
+      "web": "웹 앱"
+    }
+  },
+  "myActivity": {
+    "settingsBack": "설정",
+    "title": "내 활동",
+    "subtitle": "{{brand}}가 기록하는 내 업무 활동이에요.",
+    "whatsRecorded": "기록되는 내용과 볼 수 있는 사람",
+    "bullets": {
+      "signInOut": "로그인과 로그아웃 시점, 그리고 온라인, 유휴, 오프라인 상태.",
+      "appUsage": "{{brand}}의 어떤 부분을 얼마나 오래 사용하는지.",
+      "messagesAndTasks": "보낸 메시지와 처리한 태스크. 메시지는 첫 줄만 기록되며 대화 전체는 기록되지 않아요.",
+      "deviceAndLocation": "로그인에 사용하는 브라우저와 기기, 그리고 IP로 추정한 대략적인 위치."
+    },
+    "retentionNote": "워크스페이스 관리자가 이 기록을 볼 수 있어요. 여기에는 최근 7일만 표시돼요. 상세 활동은 90일간, 일별 합계는 더 오래 보관되며, 둘 다 보고서에 사용되고 요청 시 제공되지만 앱에서는 볼 수 없어요."
+  },
+  "membersEmpty": {
+    "title": "멤버",
+    "hint": "왼쪽에서 팀원을 선택해 프로필을 보거나, 채팅 아이콘을 눌러 메시지를 보내세요."
+  }
+}

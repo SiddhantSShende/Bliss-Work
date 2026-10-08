@@ -1,0 +1,96 @@
+{
+  "loading": "लोड हो रहा है…",
+  "unknownUser": "अज्ञात उपयोगकर्ता",
+  "screenshotBlocked": "स्क्रीनशॉट लेने का प्रयास पकड़ा गया। स्क्रीनशॉट लेने की अनुमति नहीं है।",
+  "date": {
+    "today": "आज",
+    "yesterday": "बीता कल",
+    "tomorrow": "आने वाला कल"
+  },
+  "buttons": {
+    "dismiss": "खारिज करें",
+    "view": "देखें",
+    "manage": "प्रबंधित करें",
+    "save": "सहेजें",
+    "cancel": "रद्द करें",
+    "edit": "संपादित करें"
+  },
+  "language": {
+    "changeLanguage": "भाषा बदलें",
+    "switcherTitle": "भाषा: {{name}}",
+    "switchFailed": "वह भाषा लोड नहीं हो सकी। कृपया फिर से प्रयास करें।"
+  },
+  "relativeTime": {
+    "justNow": "अभी-अभी",
+    "minutesAgo_one": "{{count}} मि. पहले",
+    "minutesAgo_other": "{{count}} मि. पहले",
+    "hoursAgo_one": "{{count}} घं. पहले",
+    "hoursAgo_other": "{{count}} घं. पहले",
+    "daysAgo_one": "{{count}} दिन पहले",
+    "daysAgo_other": "{{count}} दिन पहले"
+  },
+  "confirmDialog": {
+    "confirmDefault": "पुष्टि करें",
+    "cancel": "रद्द करें"
+  },
+  "modal": {
+    "close": "बंद करें"
+  },
+  "lightbox": {
+    "close": "बंद करें",
+    "previous": "पिछला",
+    "next": "अगला",
+    "loading": "लोड हो रहा है…",
+    "previewNotAvailable": "इस फ़ाइल प्रकार का प्रीव्यू उपलब्ध नहीं है",
+    "openInBrowser": "इसके बजाय ब्राउज़र में खोलें",
+    "loadingPreview": "प्रीव्यू लोड हो रहा है…",
+    "itemCount": " · {{total}} में से {{current}}"
+  },
+  "documentViewer": {
+    "converting": "प्रीव्यू तैयार किया जा रहा है… बड़े दस्तावेज़ों में एक मिनट लग सकता है।",
+    "failed": "इस दस्तावेज़ का प्रीव्यू नहीं दिखाया जा सकता।",
+    "failedHint": "आप इसे अब भी डाउनलोड कर सकते हैं।",
+    "unavailable": "प्रीव्यू अस्थायी रूप से उपलब्ध नहीं हैं।",
+    "busy": "एक साथ बहुत सारे प्रीव्यू। कृपया थोड़ी देर में फिर कोशिश करें।",
+    "tooLarge": "यह फ़ाइल प्रीव्यू के लिए बहुत बड़ी है।",
+    "timedOut": "इसमें अपेक्षा से अधिक समय लग रहा है।",
+    "network": "प्रीव्यू लोड नहीं हो सका। अपना कनेक्शन जाँचें।",
+    "download": "डाउनलोड करें",
+    "sheetNotice": "सरल डेटा दृश्य। फ़ॉर्मैटिंग, मर्ज की गई सेल, चार्ट और चित्र नहीं दिखाए जाते — फ़ाइल को ठीक वैसे देखने के लिए डाउनलोड करें जैसी वह बनाई गई थी।",
+    "csvNotice": "सरल डेटा दृश्य। स्प्रेडशीट ऐप में खोलने के लिए फ़ाइल डाउनलोड करें।",
+    "showingRowsOf": "{{total}} में से पहली {{shown}} पंक्तियाँ दिखाई जा रही हैं।",
+    "showingRows": "पहली {{shown}} पंक्तियाँ दिखाई जा रही हैं।",
+    "moreSheets": "केवल पहली {{count}} शीट दिखाई जा रही हैं।",
+    "showMoreRows": "और पंक्तियाँ दिखाएँ",
+    "emptySheet": "यह शीट खाली है।",
+    "sheets": "शीट",
+    "textTruncated": "इस फ़ाइल का केवल पहला भाग दिखाया जा रहा है।",
+    "emptyFile": "यह फ़ाइल खाली है।"
+  },
+  "errorBoundary": {
+    "title": "कुछ गड़बड़ हो गई।",
+    "unexpectedError": "एक अनपेक्षित त्रुटि हुई।",
+    "reference": "संदर्भ: {{requestId}}",
+    "retry": "फिर कोशिश करें",
+    "goHome": "होम पर जाएँ"
+  },
+  "globalError": {
+    "title": "कुछ गड़बड़ हो गई"
+  },
+  "attachment": {
+    "couldNotOpen": "{{filename}} नहीं खुल सकी"
+  },
+  "ui": {
+    "back": "वापस",
+    "onCall": "कॉल पर",
+    "nothingRecorded": "इस अवधि में कुछ दर्ज नहीं हुआ।",
+    "chartValue": "मान",
+    "chartPeakAria": "दिन के अनुसार {{value}}, अधिकतम {{peak}}",
+    "chartActiveIdle": "{{active}} सक्रिय, {{idle}} निष्क्रिय"
+  },
+  "activityRange": {
+    "last7": "पिछले 7 दिन",
+    "last30": "पिछले 30 दिन",
+    "last90": "पिछले 90 दिन"
+  }
+}

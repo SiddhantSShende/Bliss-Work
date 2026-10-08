@@ -13,6 +13,7 @@ import (
 	"github.com/task-board/region-bridge/internal/health"
 	"github.com/task-board/region-bridge/internal/loop"
 	"github.com/task-board/region-bridge/internal/metrics"
+	"github.com/task-board/region-bridge/internal/streams"
 	"github.com/task-board/shared-backoff"
 )
 
@@ -23,6 +24,21 @@ import (
 // when something is poison and records why, and a server limit that fired first
 // would stop delivery with nothing written down.
 const maxRedeliveries = 8
+
+// redeliveryLimit is how many deliveries an event gets before it is terminated.
+//
+// With a DLQ the event is parked after maxRedeliveries and a human can replay
+// it, so giving up early is cheap. WITHOUT one there is nowhere to park it, so
+// giving up early is just loss: the full server-side budget is spent retrying
+// the WRITE (a Kafka outage must be survivable), and the event is terminated —
+// loudly, by us — on its last delivery instead of being NAK'd into the
+// server's own silent drop at MaxDeliver.
+func (i *Importer) redeliveryLimit() uint64 {
+	if i.dlq == nil {
+		return streams.MaxDeliver - 1
+	}
+	return maxRedeliveries
+}
 
 // fetchWait is how long a fetch waits for messages before returning empty. It
 // bounds shutdown latency — the loop cannot notice cancellation while parked in
@@ -186,7 +202,7 @@ func (i *Importer) classify(msg jetstream.Msg) (kafka.Message, bool) {
 		i.terminate(msg, "topic not in BRIDGE_TOPICS: "+topic)
 		return kafka.Message{}, false
 	}
-	if md, err := msg.Metadata(); err == nil && md.NumDelivered > maxRedeliveries {
+	if md, err := msg.Metadata(); err == nil && md.NumDelivered > i.redeliveryLimit() {
 		metrics.DLQ.WithLabelValues("import", "redelivery-exhausted").Inc()
 		i.log.Error("dead-lettering an event that will not write",
 			"subject", msg.Subject(), "deliveries", md.NumDelivered)
@@ -227,19 +243,25 @@ func (i *Importer) bridged(topic string) bool {
 }
 
 // terminate settles a message that must never be redelivered, and parks a copy
-// where a human can find it — UNLESS dead-lettering is disabled, in which case
-// there is nowhere to park it: this NAKs the message back for redelivery
-// instead of Term()-ing it away, so a poison event keeps recycling rather than
-// being silently dropped. See Config.DLQTopic's "disabled makes a poison event
-// block its partition" contract.
+// where a human can find it when dead-lettering is enabled.
 //
-// Term rather than Nak (when a DLQ IS configured): everything routed here
-// fails for a reason redelivery cannot change, and a permanent failure on an
-// infinite retry is how a consumer stops making progress at all.
+// ALWAYS Term, whether or not a DLQ is configured. Everything routed here fails
+// for a reason redelivery cannot change, and a permanent failure on a retry is
+// how a consumer stops making progress at all. With the DLQ disabled this used
+// to NAK instead, which only deferred the loss: the poison event was recycled
+// until JetStream's MaxDeliver (64) and then vanished with nothing recorded.
+// Callers have already logged and counted the reason; with no DLQ that log line
+// and metric are all the record there is, which is what "disabled" means.
+//
+// (Config.DLQTopic's "disabled makes a poison event block its partition" is the
+// EXPORT side's contract — see export.go. The importer has no partition to
+// block, and recycling a poison event never helped the events behind it.)
 func (i *Importer) terminate(msg jetstream.Msg, reason string) {
 	if i.dlq == nil {
-		if err := msg.Nak(); err != nil {
-			i.log.Warn("nak failed; the event will be redelivered on ack-wait timeout regardless", "err", err)
+		i.log.Error("no dead-letter topic configured; terminating the event without a copy",
+			"subject", msg.Subject(), "reason", reason)
+		if err := msg.Term(); err != nil {
+			i.log.Warn("terminate failed; the event will be redelivered", "err", err)
 		}
 		return
 	}

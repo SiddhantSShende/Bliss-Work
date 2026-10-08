@@ -14,14 +14,50 @@ export interface SentTaskFilter {
   statuses: ReadonlySet<SentStatus>;
   /** OR within the set, by assigneeId; empty = everyone. */
   personIds: ReadonlySet<string>;
+  /** The channels ticked in the filter. Each stands for ALL of its members (see
+   *  `selectedMemberIds`); this set never writes into `personIds`. */
+  channelIds: ReadonlySet<string>;
   /** Local start-of-day the assignment must fall on; null = any day. */
   day: number | null;
 }
 
-export const NO_SENT_FILTER: SentTaskFilter = { statuses: new Set(), personIds: new Set(), day: null };
+export const NO_SENT_FILTER: SentTaskFilter = { statuses: new Set(), personIds: new Set(), channelIds: new Set(), day: null };
 
 export function isFiltering(f: SentTaskFilter): boolean {
-  return f.statuses.size > 0 || f.personIds.size > 0 || f.day !== null;
+  return f.statuses.size > 0 || f.personIds.size > 0 || f.channelIds.size > 0 || f.day !== null;
+}
+
+/** What is known about each ticked channel's members, by channel id:
+ *  - an array: loaded;
+ *  - absent: still loading — the channel is already an ACTIVE restriction that just
+ *    has no members yet, so nothing matches until they arrive (never "everything");
+ *  - null: could not be loaded (request failed, or the channel is gone). Still an
+ *    ACTIVE restriction, exactly like loading — a channel that is ticked in the UI
+ *    must never silently stop filtering — and flagged so the UI can offer a retry. */
+export type ChannelMembers = ReadonlyMap<string, readonly string[] | null>;
+
+const NO_CHANNEL_MEMBERS: ChannelMembers = new Map();
+
+/** Everyone the ticked channels contribute so far — loaded ones only. Never includes
+ *  the explicit people, which is what lets the People list tell the two apart. */
+export function channelMemberIds(f: SentTaskFilter, members: ChannelMembers): Set<string> {
+  const out = new Set<string>();
+  for (const id of f.channelIds) for (const m of members.get(id) ?? []) out.add(m);
+  return out;
+}
+
+/**
+ * Who the filter selects: the people ticked explicitly UNION every member of every
+ * ticked channel (a Set, so someone in two channels counts once). Derived on every
+ * call from the two selections, so unticking a channel drops only what that channel
+ * alone contributed. null = no person restriction (nothing ticked); an empty set
+ * = something is ticked but selects nobody yet (a channel with no members, or whose
+ * members are still loading, or failed to load), so nothing matches. A ticked channel
+ * is never left out of the restriction, whatever state its members are in.
+ */
+export function selectedMemberIds(f: SentTaskFilter, members: ChannelMembers): ReadonlySet<string> | null {
+  if (f.personIds.size === 0 && f.channelIds.size === 0) return null;
+  return new Set([...f.personIds, ...channelMemberIds(f, members)]);
 }
 
 /** The calendar day an assignment sits on — `assignedAt`, the only timestamp
@@ -30,15 +66,12 @@ function assignedDay(a: SentAssignee): number {
   return a.assignedAt ? startOfDay(Date.parse(a.assignedAt)) : NaN;
 }
 
-function matchesStatusAndPerson(a: SentAssignee, f: SentTaskFilter): boolean {
-  return (
-    (f.statuses.size === 0 || f.statuses.has(a.status)) &&
-    (f.personIds.size === 0 || f.personIds.has(a.assigneeId))
-  );
+function matchesStatusAndPerson(a: SentAssignee, f: SentTaskFilter, who: ReadonlySet<string> | null): boolean {
+  return (f.statuses.size === 0 || f.statuses.has(a.status)) && (who === null || who.has(a.assigneeId));
 }
 
-function matches(a: SentAssignee, f: SentTaskFilter): boolean {
-  return matchesStatusAndPerson(a, f) && (f.day === null || assignedDay(a) === f.day);
+function matches(a: SentAssignee, f: SentTaskFilter, who: ReadonlySet<string> | null): boolean {
+  return matchesStatusAndPerson(a, f, who) && (f.day === null || assignedDay(a) === f.day);
 }
 
 /** A task that passed the filter, with the assignee rows that matched it. `task`
@@ -54,11 +87,16 @@ export interface SentTaskMatch {
  * rows so a filtered card never shows someone the filter excluded. Unfiltered,
  * every task is returned with all of its rows.
  */
-export function filterSentTasks(tasks: readonly SentTaskDTO[], f: SentTaskFilter): SentTaskMatch[] {
+export function filterSentTasks(
+  tasks: readonly SentTaskDTO[],
+  f: SentTaskFilter,
+  members: ChannelMembers = NO_CHANNEL_MEMBERS,
+): SentTaskMatch[] {
   if (!isFiltering(f)) return tasks.map((task) => ({ task, assignees: task.assignees }));
+  const who = selectedMemberIds(f, members);
   const out: SentTaskMatch[] = [];
   for (const task of tasks) {
-    const assignees = task.assignees.filter((a) => matches(a, f));
+    const assignees = task.assignees.filter((a) => matches(a, f, who));
     if (assignees.length > 0) out.push({ task, assignees });
   }
   return out;
@@ -67,11 +105,16 @@ export function filterSentTasks(tasks: readonly SentTaskDTO[], f: SentTaskFilter
 /** Days the calendar should mark: where an assignment matching the status and
  *  person filters lands. The day filter itself is ignored so the selected day
  *  doesn't erase every other mark. */
-export function markedDays(tasks: readonly SentTaskDTO[], f: SentTaskFilter): Set<number> {
+export function markedDays(
+  tasks: readonly SentTaskDTO[],
+  f: SentTaskFilter,
+  members: ChannelMembers = NO_CHANNEL_MEMBERS,
+): Set<number> {
+  const who = selectedMemberIds(f, members);
   const days = new Set<number>();
   for (const t of tasks)
     for (const a of t.assignees) {
-      if (!matchesStatusAndPerson(a, f)) continue;
+      if (!matchesStatusAndPerson(a, f, who)) continue;
       const day = assignedDay(a);
       if (!Number.isNaN(day)) days.add(day);
     }

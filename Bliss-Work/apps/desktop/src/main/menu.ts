@@ -1,5 +1,6 @@
 import { app, Menu, shell, dialog, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
 import { appIcon } from "./assets";
+import { mainT } from "./i18n";
 
 /**
  * Standard application menu. Hidden behind autoHideMenuBar on Windows/Linux
@@ -12,11 +13,15 @@ export function buildAppMenu(opts: { onShow: () => void; onQuit: () => void }): 
   const about = () => {
     void dialog.showMessageBox({
       type: "info",
-      title: "About BlissWork",
-      message: "BlissWork",
-      detail: `Version ${app.getVersion()}\nElectron ${process.versions.electron} · Chromium ${process.versions.chrome}\n\nTeam messaging + tasks with always-on-top sticky notes.`,
+      title: mainT("menu.aboutTitle"),
+      message: mainT("menu.aboutMessage"),
+      detail: mainT("menu.aboutDetail", {
+        version: app.getVersion(),
+        electron: process.versions.electron,
+        chrome: process.versions.chrome,
+      }),
       icon: appIcon(),
-      buttons: ["OK"],
+      buttons: [mainT("menu.ok")],
     });
   };
 
@@ -25,16 +30,16 @@ export function buildAppMenu(opts: { onShow: () => void; onQuit: () => void }): 
       ? [{ role: "appMenu" as const }]
       : []),
     {
-      label: "File",
+      label: mainT("menu.file"),
       submenu: [
-        { label: "Show BlissWork", click: opts.onShow },
+        { label: mainT("menu.showApp"), click: opts.onShow },
         { type: "separator" },
-        { label: "Quit", accelerator: isMac ? "Cmd+Q" : "Ctrl+Q", click: opts.onQuit },
+        { label: mainT("menu.quit"), accelerator: isMac ? "Cmd+Q" : "Ctrl+Q", click: opts.onQuit },
       ],
     },
     { role: "editMenu" },
     {
-      label: "View",
+      label: mainT("menu.view"),
       submenu: [
         { role: "reload" },
         { role: "forceReload" },
@@ -56,9 +61,9 @@ export function buildAppMenu(opts: { onShow: () => void; onQuit: () => void }): 
     {
       role: "help",
       submenu: [
-        { label: "BlissWork on the Web", click: () => void shell.openExternal("https://communication.rnrtechs.com") },
+        { label: mainT("menu.webHelp"), click: () => void shell.openExternal("https://communication.rnrtechs.com") },
         { type: "separator" },
-        { label: "About BlissWork", click: about },
+        { label: mainT("menu.aboutItem"), click: about },
       ],
     },
   ];

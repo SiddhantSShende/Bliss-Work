@@ -1,0 +1,70 @@
+{
+  "card": {
+    "from": "{{name}}から",
+    "assigned": "割り当て日",
+    "deadline": "期限",
+    "missedOn": "期限切れ",
+    "collapseToPill": "ピルに折りたたむ",
+    "unpinNoteTitle": "ピン留めを解除(タスクは残ります)",
+    "unpin": "ピン留め解除",
+    "dismissIgnore": "閉じる(無視)",
+    "acknowledge": "確認",
+    "ignore": "無視",
+    "complete": "完了",
+    "leave": "辞退",
+    "untitledTask": "無題のタスク",
+    "expand": "展開",
+    "expandLabel": "付箋を展開",
+    "dismiss": "閉じる",
+    "dismissLabel": "付箋を閉じる",
+    "collapse": "折りたたむ",
+    "collapseLabel": "付箋を折りたたむ",
+    "ignoreTitle": "無視 — 送信者に通知されます",
+    "acknowledgeTitle": "確認 — 完了するまでこの付箋を画面に表示します",
+    "unpinFromDesktopTitle": "デスクトップのピン留めを解除 — タスクはタスク一覧に残ります",
+    "navPrevious": "前のピン留めタスク",
+    "navNext": "次のピン留めタスク"
+  },
+  "overlay": {
+    "ariaLabel": "フローティング付箋"
+  },
+  "toasts": {
+    "acknowledgeFailed": "確認できませんでした",
+    "ignoreFailed": "無視できませんでした",
+    "taskIgnored": "タスクを無視しました。送信者に通知しました。",
+    "noteUnpinned": "付箋のピン留めを解除しました",
+    "noteUnpinnedDescription": "タスク一覧には残っています。そこから完了できます。",
+    "unpinFailed": "付箋のピン留めを解除できませんでした",
+    "desktopFull": "このタスクをデスクトップにピン留めできませんでした。"
+  },
+  "window": {
+    "loading": "読み込み中…",
+    "expand": "展開",
+    "previousTask": "前のピン留めタスク",
+    "nextTask": "次のピン留めタスク",
+    "chat": {
+      "loadingThread": "スレッドを読み込み中…",
+      "pinnedChat": "ピン留めしたチャット",
+      "unpin": "ピン留め解除",
+      "unpinTitle": "デスクトップのピン留めを解除",
+      "noMessages": "最近のメッセージはまだありません。",
+      "replyPlaceholder": "返信…",
+      "send": "送信"
+    },
+    "invite": {
+      "meetingFallback": "ミーティング",
+      "hostedBy": "ホスト:{{name}}",
+      "video": "ビデオ",
+      "videoTitle": "カメラをオンにして参加",
+      "voice": "音声",
+      "voiceTitle": "音声のみで参加",
+      "leave": "退出",
+      "dismiss": "閉じる"
+    },
+    "titles": {
+      "task": "タスク",
+      "chat": "チャット",
+      "invite": "ミーティングの招待"
+    }
+  }
+}

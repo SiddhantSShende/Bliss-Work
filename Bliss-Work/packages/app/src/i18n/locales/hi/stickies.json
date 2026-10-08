@@ -1,0 +1,70 @@
+{
+  "card": {
+    "from": "{{name}} की ओर से",
+    "assigned": "असाइन किया",
+    "deadline": "समय-सीमा",
+    "missedOn": "छूटा",
+    "collapseToPill": "पिल में समेटें",
+    "unpinNoteTitle": "अनपिन करें (टास्क बना रहेगा)",
+    "unpin": "अनपिन करें",
+    "dismissIgnore": "खारिज करें (अनदेखा करें)",
+    "acknowledge": "स्वीकार करें",
+    "ignore": "अनदेखा करें",
+    "complete": "पूरा करें",
+    "leave": "छोड़ें",
+    "untitledTask": "बिना शीर्षक का टास्क",
+    "expand": "फैलाएँ",
+    "expandLabel": "स्टिकी नोट फैलाएँ",
+    "dismiss": "खारिज करें",
+    "dismissLabel": "स्टिकी नोट खारिज करें",
+    "collapse": "समेटें",
+    "collapseLabel": "स्टिकी नोट समेटें",
+    "ignoreTitle": "अनदेखा करें — भेजने वाले को सूचित किया जाएगा",
+    "acknowledgeTitle": "स्वीकार करें — पूरा करने तक यह नोट स्क्रीन पर बना रहेगा",
+    "unpinFromDesktopTitle": "डेस्कटॉप से अनपिन करें — टास्क आपकी टास्क सूची में बना रहेगा",
+    "navPrevious": "पिछला पिन किया टास्क",
+    "navNext": "अगला पिन किया टास्क"
+  },
+  "overlay": {
+    "ariaLabel": "तैरते स्टिकी नोट"
+  },
+  "toasts": {
+    "acknowledgeFailed": "स्वीकार नहीं किया जा सका",
+    "ignoreFailed": "अनदेखा नहीं किया जा सका",
+    "taskIgnored": "टास्क अनदेखा किया गया — भेजने वाले को सूचित कर दिया गया है।",
+    "noteUnpinned": "नोट अनपिन हुआ",
+    "noteUnpinnedDescription": "वह अब भी आपकी टास्क सूची में है — उसे वहीं से पूरा करें।",
+    "unpinFailed": "नोट अनपिन नहीं हो सका",
+    "desktopFull": "इस टास्क को डेस्कटॉप पर पिन नहीं किया जा सका।"
+  },
+  "window": {
+    "loading": "लोड हो रहा है…",
+    "expand": "फैलाएँ",
+    "previousTask": "पिछला पिन किया टास्क",
+    "nextTask": "अगला पिन किया टास्क",
+    "chat": {
+      "loadingThread": "थ्रेड लोड हो रहा है…",
+      "pinnedChat": "पिन की गई चैट",
+      "unpin": "अनपिन करें",
+      "unpinTitle": "डेस्कटॉप से अनपिन करें",
+      "noMessages": "अभी कोई हाल का संदेश नहीं।",
+      "replyPlaceholder": "उत्तर दें…",
+      "send": "भेजें"
+    },
+    "invite": {
+      "meetingFallback": "मीटिंग",
+      "hostedBy": "{{name}} द्वारा आयोजित",
+      "video": "वीडियो",
+      "videoTitle": "कैमरा चालू करके जुड़ें",
+      "voice": "आवाज़",
+      "voiceTitle": "केवल आवाज़ से जुड़ें",
+      "leave": "छोड़ें",
+      "dismiss": "खारिज करें"
+    },
+    "titles": {
+      "task": "टास्क",
+      "chat": "चैट",
+      "invite": "मीटिंग आमंत्रण"
+    }
+  }
+}

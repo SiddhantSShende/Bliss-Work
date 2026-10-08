@@ -1,3 +1,4 @@
+import { useUiStrings } from "../../strings";
 import { domainMax, formatMs, normalize } from "./scale";
 
 export interface RankedDatum {
@@ -23,16 +24,17 @@ export function RankedBars({
   data,
   max: maxRows = 8,
   format = formatMs,
-  emptyHint = "Nothing recorded in this period.",
+  emptyHint,
 }: {
   data: RankedDatum[];
   max?: number;
   format?: (v: number) => string;
   emptyHint?: string;
 }) {
+  const strings = useUiStrings();
   const rows = data.filter((d) => d.value > 0).slice(0, maxRows);
   if (rows.length === 0) {
-    return <p className="py-3 text-sm text-muted">{emptyHint}</p>;
+    return <p className="py-3 text-sm text-muted">{emptyHint ?? strings.nothingRecorded}</p>;
   }
   const max = domainMax(rows.map((d) => d.value));
 

@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { StickyWidget, type StickyTaskDTO, type TaskAction } from "@taskboard/app";
+import { followStoredLocale, useTranslation } from "@taskboard/app/i18n/windowLocale";
 import { CUSTOM_THEME_CLASS, customThemeStyle, isCustomThemeActive, isThemeId, readStoredCustomTheme, themeClasses, defaultThemeFor, ALL_THEME_CLASSES } from "@taskboard/ui";
 import { Pin, Maximize2, ChevronLeft, ChevronRight } from "lucide-react";
 import "@taskboard/ui/styles.css";
 import "./index.css";
+import { StickyResizeHandles, useManualMove } from "./StickyResizeHandles";
 
 interface StickyTasksPayload {
   tasks: StickyTaskDTO[];
@@ -15,6 +17,9 @@ declare global {
   interface Window {
     sticky: {
       collapsed: boolean;
+      manualResize: boolean;
+      dragStart: (drag: string) => void;
+      dragEnd: () => void;
       onTasks: (cb: (payload: StickyTasksPayload) => void) => () => void;
       act: (taskId: string, action: string) => void;
       next: () => void;
@@ -95,6 +100,11 @@ function useSyncedTheme(): void {
 
 function StickyApp() {
   useSyncedTheme();
+  const moveProps = useManualMove();
+  const { t } = useTranslation("stickies");
+  useEffect(() => {
+    document.title = t("window.titles.task");
+  }, [t]);
   // The whole floating set + which page is shown — one shared window carries
   // every pinned task now, instead of one window per task.
   const [payload, setPayload] = useState<StickyTasksPayload>({ tasks: [], index: 0 });
@@ -127,16 +137,16 @@ function StickyApp() {
   // expand it to reach Unpin.
   if (collapsed) {
     return (
-      <div className="app-drag flex h-full items-center gap-2 rounded-2xl border border-border bg-surface px-3 shadow-widget">
+      <div {...moveProps} className="app-drag flex h-full items-center gap-2 rounded-2xl border border-border bg-surface px-3 shadow-widget">
         <Pin size={15} className="shrink-0 text-accent" />
         <span
           className={`min-w-0 flex-1 truncate text-sm font-medium ${task ? "text-fg" : "text-muted"}`}
         >
-          {task ? task.title : "Loading…"}
+          {task ? task.title : t("window.loading")}
         </span>
         <button
           className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-          title="Expand"
+          title={t("window.expand")}
           onClick={expand}
         >
           <Maximize2 size={15} />
@@ -145,10 +155,14 @@ function StickyApp() {
     );
   }
 
+  // Linux only: the OS can't resize this window, so the note draws its own handles.
+  const resizeHandles = window.sticky.manualResize ? <StickyResizeHandles /> : null;
+
   if (!task)
     return (
       <div className="flex h-full items-center justify-center text-sm text-[var(--color-muted)]">
-        Loading…
+        {t("window.loading")}
+        {resizeHandles}
       </div>
     );
 
@@ -159,7 +173,8 @@ function StickyApp() {
   // zero floating tasks, so a single pinned task looks exactly like the old
   // one-note widget, with no dead controls.
   return (
-    <div className="flex h-full items-stretch p-1">
+    <div {...moveProps} className="flex h-full items-stretch p-1">
+      {resizeHandles}
       {/* w-4, no gap: every pixel here comes straight out of the card's own
           width budget (see windows.ts's FULL_W/minWidth, sized to compensate),
           and the Acknowledge/Ignore row was already once broken by too little
@@ -167,8 +182,8 @@ function StickyApp() {
       {hasMultiple && (
         <button
           className="app-no-drag flex w-4 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
-          title="Previous pinned task"
-          aria-label="Previous pinned task"
+          title={t("window.previousTask")}
+          aria-label={t("window.previousTask")}
           onClick={() => window.sticky.prev()}
         >
           <ChevronLeft size={14} />
@@ -187,8 +202,8 @@ function StickyApp() {
       {hasMultiple && (
         <button
           className="app-no-drag flex w-4 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
-          title="Next pinned task"
-          aria-label="Next pinned task"
+          title={t("window.nextTask")}
+          aria-label={t("window.nextTask")}
           onClick={() => window.sticky.next()}
         >
           <ChevronRight size={14} />
@@ -197,6 +212,10 @@ function StickyApp() {
     </div>
   );
 }
+
+// Follow the main window's language (shared localStorage); renders English until
+// the catalog lands, then re-renders in place.
+void followStoredLocale();
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

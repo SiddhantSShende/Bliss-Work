@@ -46,9 +46,11 @@ def main() -> int:
     try:
         # Timeout on every leg: a hung SMTP connection would otherwise pin the
         # systemd unit open until the next run collides with it.
-        with smtplib.SMTP(os.environ["SMTP_HOST"], port, timeout=30) as smtp:
-            smtp.ehlo()
-            if (os.environ.get("SMTP_STARTTLS", "true").lower() != "false") and port != 465:
+        smtp_factory = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
+        with smtp_factory(os.environ["SMTP_HOST"], port, timeout=30) as smtp:
+            if port != 465:
+                smtp.ehlo()
+            if port != 465 and os.environ.get("SMTP_STARTTLS", "true").lower() != "false":
                 smtp.starttls(context=ssl.create_default_context())
                 smtp.ehlo()
             smtp.login(os.environ["SMTP_USERNAME"], os.environ["SMTP_PASSWORD"])

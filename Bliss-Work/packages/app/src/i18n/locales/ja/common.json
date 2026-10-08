@@ -1,0 +1,93 @@
+{
+  "loading": "読み込み中…",
+  "unknownUser": "不明なユーザー",
+  "screenshotBlocked": "スクリーンショットの操作を検出しました。スクリーンショットは許可されていません。",
+  "date": {
+    "today": "今日",
+    "yesterday": "昨日",
+    "tomorrow": "明日"
+  },
+  "buttons": {
+    "dismiss": "閉じる",
+    "view": "表示",
+    "manage": "管理",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "edit": "編集"
+  },
+  "language": {
+    "changeLanguage": "言語を変更",
+    "switcherTitle": "言語:{{name}}",
+    "switchFailed": "この言語を読み込めませんでした。もう一度お試しください。"
+  },
+  "relativeTime": {
+    "justNow": "たった今",
+    "minutesAgo_other": "{{count}}分前",
+    "hoursAgo_other": "{{count}}時間前",
+    "daysAgo_other": "{{count}}日前"
+  },
+  "confirmDialog": {
+    "confirmDefault": "確認",
+    "cancel": "キャンセル"
+  },
+  "modal": {
+    "close": "閉じる"
+  },
+  "lightbox": {
+    "close": "閉じる",
+    "previous": "前へ",
+    "next": "次へ",
+    "loading": "読み込み中…",
+    "previewNotAvailable": "このファイル形式はプレビューできません",
+    "openInBrowser": "ブラウザーで開く",
+    "loadingPreview": "プレビューを読み込み中…",
+    "itemCount": " · {{current}}/{{total}}"
+  },
+  "documentViewer": {
+    "converting": "プレビューを準備しています… サイズの大きいドキュメントは1分ほどかかることがあります。",
+    "failed": "このドキュメントはプレビューできません。",
+    "failedHint": "ダウンロードは引き続き可能です。",
+    "unavailable": "プレビューは一時的にご利用いただけません。",
+    "busy": "同時にプレビューする数が多すぎます。しばらくしてからもう一度お試しください。",
+    "tooLarge": "このファイルはサイズが大きすぎてプレビューできません。",
+    "timedOut": "予想より時間がかかっています。",
+    "network": "プレビューを読み込めませんでした。接続を確認してください。",
+    "download": "ダウンロード",
+    "sheetNotice": "シンプルなデータ表示です。書式、セルの結合、グラフ、画像は表示されません。作成時のとおりに見るにはファイルをダウンロードしてください。",
+    "csvNotice": "シンプルなデータ表示です。表計算アプリで開くにはファイルをダウンロードしてください。",
+    "showingRowsOf": "{{total}} 行のうち先頭の {{shown}} 行を表示しています。",
+    "showingRows": "先頭の {{shown}} 行を表示しています。",
+    "moreSheets": "先頭の {{count}} シートのみ表示しています。",
+    "showMoreRows": "さらに行を表示",
+    "emptySheet": "このシートは空です。",
+    "sheets": "シート",
+    "textTruncated": "このファイルの先頭部分のみ表示しています。",
+    "emptyFile": "このファイルは空です。"
+  },
+  "errorBoundary": {
+    "title": "問題が発生しました。",
+    "unexpectedError": "予期しないエラーが発生しました。",
+    "reference": "参照番号:{{requestId}}",
+    "retry": "再試行",
+    "goHome": "ホームへ戻る"
+  },
+  "globalError": {
+    "title": "問題が発生しました"
+  },
+  "attachment": {
+    "couldNotOpen": "{{filename}}を開けませんでした"
+  },
+  "ui": {
+    "back": "戻る",
+    "onCall": "通話中",
+    "nothingRecorded": "この期間の記録はありません。",
+    "chartValue": "値",
+    "chartPeakAria": "日別{{value}}、ピーク{{peak}}",
+    "chartActiveIdle": "アクティブ{{active}}、アイドル{{idle}}"
+  },
+  "activityRange": {
+    "last7": "過去7日間",
+    "last30": "過去30日間",
+    "last90": "過去90日間"
+  }
+}

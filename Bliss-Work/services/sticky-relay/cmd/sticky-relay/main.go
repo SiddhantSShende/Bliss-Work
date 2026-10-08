@@ -77,35 +77,72 @@ func main() {
 	ticker := time.NewTicker(cfg.SweepInterval)
 	defer ticker.Stop()
 
+	rl := &relay{cfg: cfg, src: client, sink: producer, log: log}
+
 	for {
 		select {
 		case <-ctx.Done():
 			log.Info("sticky_relay_stopped")
 			return
 		case <-ticker.C:
-			runSweep(ctx, cfg, client, producer, log)
+			rl.runSweep(ctx)
 		}
 	}
+}
+
+// pinSource and refreshSink are what a sweep needs from sticky-svc and Kafka,
+// as interfaces so the sweep's failure handling can be tested without either.
+type pinSource interface {
+	Undelivered(ctx context.Context, olderThan time.Duration, limit int) ([]sweep.Pin, error)
+}
+
+type refreshSink interface {
+	Publish(ctx context.Context, refreshes []sweep.Refresh, now time.Time) error
+	DryRun() bool
+}
+
+// relay is the sweep loop's state: its dependencies and the one thing it must
+// remember between ticks.
+type relay struct {
+	cfg  *config.Config
+	src  pinSource
+	sink refreshSink
+	log  *slog.Logger
+
+	// pending holds nudges whose pins sticky-svc has ALREADY claimed (each spent
+	// one delivery attempt) but whose publish failed. Dropping them would walk
+	// those pins up the 5-60 minute backoff ladder, and toward MaxNudges, with
+	// nothing ever sent — a Kafka outage would quietly use up the budget. They
+	// are re-published first on the next tick, and nothing new is claimed until
+	// they go out. In memory only: a restart loses them, which costs exactly what
+	// a crash after the claim always did.
+	pending []sweep.Refresh
 }
 
 // runSweep performs one pass. Every failure is logged and swallowed: a sweep
 // that cannot reach sticky-svc or Kafka must not take the process down, because
 // the next tick is a minute away and the condition is usually transient.
-func runSweep(
-	ctx context.Context,
-	cfg *config.Config,
-	client *pins.Client,
-	producer *emit.Producer,
-	log *slog.Logger,
-) {
+func (r *relay) runSweep(ctx context.Context) {
 	// Bounded independently of the ticker so a hung dependency cannot stall the
 	// loop past its next tick.
 	sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	undelivered, err := client.Undelivered(sweepCtx, cfg.StaleAfter, cfg.BatchLimit)
+	// Nudges already claimed on an earlier tick go out before anything new is
+	// claimed: while Kafka is unreachable, claiming more would only spend more
+	// attempts on pins nobody can be told about.
+	if len(r.pending) > 0 {
+		if err := r.sink.Publish(sweepCtx, r.pending, time.Now()); err != nil {
+			r.log.Warn("sweep_publish_retry_failed", "error", err, "refreshes", len(r.pending))
+			return
+		}
+		r.log.Info("sweep_published_pending", "refreshes", len(r.pending), "dry_run", r.sink.DryRun())
+		r.pending = nil
+	}
+
+	undelivered, err := r.src.Undelivered(sweepCtx, r.cfg.StaleAfter, r.cfg.BatchLimit)
 	if err != nil {
-		log.Warn("sweep_fetch_failed", "error", err)
+		r.log.Warn("sweep_fetch_failed", "error", err)
 		return
 	}
 	if len(undelivered) == 0 {
@@ -118,19 +155,21 @@ func runSweep(
 		// Every pin claimed this pass was inside its backoff or past the cap.
 		// Worth saying, because it is the difference between "nothing to do"
 		// and "we are giving up on these".
-		log.Info("sweep_no_nudges_due", "claimed", len(undelivered))
+		r.log.Info("sweep_no_nudges_due", "claimed", len(undelivered))
 		return
 	}
 
-	if err := producer.Publish(sweepCtx, refreshes, now); err != nil {
-		log.Warn("sweep_publish_failed", "error", err, "refreshes", len(refreshes))
+	if err := r.sink.Publish(sweepCtx, refreshes, now); err != nil {
+		// The pins are claimed already; keep the nudges for the next tick.
+		r.pending = refreshes
+		r.log.Warn("sweep_publish_failed", "error", err, "refreshes", len(refreshes))
 		return
 	}
 
-	log.Info("sweep_published",
+	r.log.Info("sweep_published",
 		"refreshes", len(refreshes),
 		"pins_claimed", len(undelivered),
-		"dry_run", producer.DryRun(),
+		"dry_run", r.sink.DryRun(),
 	)
 }
 

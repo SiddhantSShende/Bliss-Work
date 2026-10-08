@@ -23,6 +23,7 @@ import { TaskTimes } from "./TaskTimes";
 import { MiniTaskCalendar } from "./MiniTaskCalendar";
 import { MyTaskCard } from "./MyTaskCard";
 import { MyTasksFilters } from "./MyTasksFilters";
+import { useChannelMemberIds } from "./useChannelMemberIds";
 import { useMySentTasks } from "./useMySentTasks";
 
 const VISIBLE_BATCH_SIZE = 4;
@@ -55,10 +56,12 @@ export function MyTasksBoard() {
     [people, tasks],
   );
   const { nameOf, avatarUrlOf } = useUserLabels(labelIds);
-  const visible = useMemo(() => filterSentTasks(tasks, filter), [tasks, filter]);
+  const channelList = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
+  const { members: channelMembers, retry: retryChannel } = useChannelMemberIds(filter.channelIds);
+  const visible = useMemo(() => filterSentTasks(tasks, filter, channelMembers), [tasks, filter, channelMembers]);
   const visibleSchedules = filter.statuses.has("SCHEDULED") ? schedules.data ?? [] : [];
   const visibleTasks = useMemo(() => visible.slice(0, visibleCount), [visible, visibleCount]);
-  const marks = useMemo(() => markedDays(tasks, filter), [tasks, filter]);
+  const marks = useMemo(() => markedDays(tasks, filter, channelMembers), [tasks, filter, channelMembers]);
 
   useEffect(() => {
     setVisibleCount(VISIBLE_BATCH_SIZE);
@@ -109,7 +112,7 @@ export function MyTasksBoard() {
         {/* Filters and calendar share a row, and the calendar stretches to the
             filters' height. The cards below start under BOTH, never beside either. */}
         <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-          <MyTasksFilters filter={filter} onChange={setFilter} people={people} nameOf={nameOf} avatarUrlOf={avatarUrlOf} />
+          <MyTasksFilters filter={filter} onChange={setFilter} people={people} nameOf={nameOf} avatarUrlOf={avatarUrlOf} channels={channelList.data} channelMembers={channelMembers} onRetryChannel={retryChannel} />
           <GlassCard className="flex min-w-0 flex-col p-4">
             <MiniTaskCalendar
               markedDays={marks}
@@ -239,11 +242,11 @@ function ScheduledTaskCard({
           <div className="mt-3 flex flex-wrap gap-2">
             {editing ? (
               <>
-                <Button variant="secondary" size="sm" disabled={update.isPending} onClick={() => update.mutate()}>Save</Button>
-                <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+                <Button variant="secondary" size="sm" disabled={update.isPending} onClick={() => update.mutate()}>{t("common:buttons.save")}</Button>
+                <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>{t("common:buttons.cancel")}</Button>
               </>
             ) : (
-              <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+              <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>{t("common:buttons.edit")}</Button>
             )}
             <Button variant="ghost" size="sm" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
               {schedule.kind === "RECURRING" ? t("myTasksBoard.cancelRecurring") : t("myTasksBoard.cancelSchedule")}

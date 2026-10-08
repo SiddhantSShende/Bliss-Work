@@ -281,6 +281,14 @@ export interface PlatformConfig {
     getDesktopEnabled: () => Promise<boolean>;
     setDesktopEnabled: (enabled: boolean) => Promise<void>;
   };
+  /** Present only in Electron: mirrors the effective UI language to the main
+   *  process, which owns the application menu, the tray and OS notifications and
+   *  has no access to this renderer's localStorage (same reason as
+   *  `notificationPrefs`). Called whenever the active language is applied —
+   *  see i18n/LanguageProvider.tsx. Absent on web. */
+  localePrefs?: {
+    setLocale: (locale: string) => Promise<void>;
+  };
   /** Present only in Electron: open (or focus, if already open) a meeting in
    *  its own OS window instead of rendering it as an overlay in this one —
    *  see lib/MeetingSession.tsx's `enter()`, which calls this when present

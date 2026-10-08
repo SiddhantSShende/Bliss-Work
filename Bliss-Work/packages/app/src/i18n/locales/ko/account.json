@@ -1,0 +1,199 @@
+{
+  "profile": {
+    "header": {
+      "title": "내 프로필",
+      "subtitle": "팀에 표시되는 내 모습을 관리하세요."
+    },
+    "photo": {
+      "changePhoto": "사진 변경",
+      "addPhoto": "사진 추가",
+      "changePhotoAria": "프로필 사진 변경",
+      "addPhotoAria": "프로필 사진 추가"
+    },
+    "form": {
+      "displayNameLabel": "표시 이름",
+      "displayNamePlaceholder": "내 이름",
+      "emailLabel": "이메일",
+      "usernameLabel": "사용자 이름",
+      "cancel": "취소",
+      "saveChanges": "변경사항 저장"
+    },
+    "toasts": {
+      "profileUpdated": "프로필을 수정했어요",
+      "updateFailed": "프로필을 수정하지 못했어요",
+      "photoUpdated": "프로필 사진을 변경했어요",
+      "photoUpdateFailed": "사진을 변경하지 못했어요",
+      "unsupportedFileType": {
+        "title": "지원하지 않는 파일 형식이에요",
+        "description": "JPG, PNG 또는 WebP 이미지를 선택해 주세요."
+      },
+      "processFailed": {
+        "title": "이미지를 처리하지 못했어요",
+        "description": "다른 사진으로 시도해 주세요."
+      }
+    }
+  },
+  "activeSessions": {
+    "header": {
+      "title": "활성 세션",
+      "subtitle": "로그인된 기기 목록이에요. 모르는 기기는 로그아웃하세요."
+    },
+    "empty": {
+      "title": "활성 세션이 없어요",
+      "hint": "로그인된 모든 기기가 여기에 표시돼요."
+    },
+    "signOutAllOthers": "다른 모든 세션 로그아웃",
+    "confirmOne": {
+      "title": "이 세션을 로그아웃할까요?",
+      "message": "다음 기기가 바로 로그아웃되며, 다시 로그인해야 해요: <bold>{{device}}</bold>",
+      "confirmLabel": "로그아웃"
+    },
+    "confirmAllOthers": {
+      "title": "다른 모든 세션을 로그아웃할까요?",
+      "message_other": "이 기기는 로그인 상태를 유지해요. 다른 세션 {{count}}개는 바로 로그아웃돼요.",
+      "confirmLabel": "다른 세션 로그아웃"
+    },
+    "toasts": {
+      "signedOutOf": "{{device}} 로그아웃 완료",
+      "revokeFailed": {
+        "title": "해당 세션을 로그아웃하지 못했어요",
+        "description": "다시 시도해 주세요."
+      },
+      "noOtherSessions": "로그아웃할 다른 세션이 없어요",
+      "signedOutOfOthers_other": "다른 세션 {{count}}개를 로그아웃했어요",
+      "revokeOthersFailed": {
+        "title": "다른 세션을 로그아웃하지 못했어요",
+        "description": "다시 시도해 주세요."
+      }
+    }
+  },
+  "activeSessionsList": {
+    "thisDevice": "이 기기",
+    "active": "{{time}} 활동",
+    "signedIn": "{{time}} 로그인",
+    "approximateNetwork": "대략적인 네트워크",
+    "signOut": "로그아웃"
+  },
+  "mfaSettings": {
+    "header": {
+      "title": "2단계 인증",
+      "subtitle": "인증 앱으로 로그인에 두 번째 단계를 추가하세요."
+    },
+    "enrolled": {
+      "status": {
+        "title": "2단계 인증이 켜져 있어요",
+        "description": "로그인할 때 두 번째 인증을 요청해요."
+      },
+      "backupCodes": {
+        "title": "백업 코드",
+        "description": "다시 생성하면 사용하지 않은 코드가 모두 교체되며, 이전 코드는 즉시 사용할 수 없어요.",
+        "action": "다시 생성"
+      },
+      "disable": {
+        "title": "2단계 인증 끄기",
+        "description": "인증 앱과 백업 코드가 삭제돼요.",
+        "action": "끄기"
+      }
+    },
+    "notEnrolled": {
+      "totp": {
+        "title": "인증 앱",
+        "description": "Google Authenticator, 1Password, Authy 등 TOTP 앱을 사용할 수 있어요."
+      },
+      "setUp": "설정"
+    },
+    "backupCodesModal": {
+      "title": "백업 코드 저장"
+    },
+    "stepUp": {
+      "titles": {
+        "disable": "본인 확인",
+        "regenerate": "코드를 다시 생성하려면 본인 확인이 필요해요"
+      },
+      "passwordPlaceholder": "비밀번호",
+      "backupCodePlaceholder": "백업 코드",
+      "authCodePlaceholder": "인증 코드",
+      "useAuthCodeInstead": "인증 코드 사용",
+      "useBackupCodeInstead": "백업 코드 사용",
+      "submitLabels": {
+        "regenerate": "백업 코드 다시 생성"
+      },
+      "toasts": {
+        "tooManyAttemptsTitle": "시도 횟수가 너무 많아요",
+        "verificationFailedTitle": "확인하지 못했어요",
+        "verificationFailedDescription": "비밀번호와 코드를 확인한 뒤 다시 시도해 주세요."
+      }
+    },
+    "toasts": {
+      "refreshFailed": {
+        "title": "계정 정보를 새로 고치지 못했어요",
+        "description": "이 페이지의 2단계 인증 상태가 최신이 아닐 수 있어요. 새로 고침해서 확인하세요."
+      },
+      "mfaTurnedOff": "2단계 인증을 껐어요"
+    }
+  },
+  "passwordField": {
+    "hidePassword": "비밀번호 숨기기",
+    "showPassword": "비밀번호 표시",
+    "strength": {
+      "veryWeak": "매우 약함",
+      "weak": "약함",
+      "fair": "보통",
+      "good": "좋음",
+      "strong": "강함"
+    },
+    "requirements": {
+      "minLength": "10자 이상",
+      "letter": "문자 포함",
+      "digit": "숫자 포함",
+      "special": "특수문자 포함(!@#$…)"
+    }
+  },
+  "backupCodesView": {
+    "description": "이 백업 코드를 안전한 곳에 보관하세요. 인증 앱을 사용할 수 없을 때 코드마다 딱 한 번 로그인할 수 있으며, 다시 표시되지 않아요.",
+    "copied": "복사됨",
+    "copyFailed": "백업 코드를 복사하지 못했어요. 직접 선택해서 복사해 주세요.",
+    "copyAll": "모두 복사",
+    "acknowledgeLabel": "이 코드를 안전한 곳에 저장했어요.",
+    "done": "완료"
+  },
+  "totpEnroll": {
+    "toasts": {
+      "startFailed": {
+        "title": "설정을 시작하지 못했어요",
+        "description": "다시 시도해 주세요."
+      },
+      "tooManyAttempts": {
+        "title": "시도 횟수가 너무 많아요",
+        "description": "1분 후에 다시 시도해 주세요."
+      },
+      "incorrectCode": {
+        "title": "코드가 올바르지 않아요",
+        "description": "기기의 시간을 확인한 뒤 다시 시도해 주세요."
+      }
+    },
+    "startError": {
+      "message": "설정을 시작하지 못했어요.",
+      "retry": "다시 시도"
+    },
+    "preparing": "설정을 준비하는 중…",
+    "instructions": "인증 앱(Google Authenticator, 1Password, Authy 등)으로 스캔하거나 설정 키를 직접 입력하세요.",
+    "qrAlt": "인증 앱으로 스캔하세요",
+    "setupKeyLabel": "설정 키",
+    "codeLabel": "6자리 코드를 입력하세요",
+    "verifying": "확인 중…",
+    "confirmAndEnable": "확인 후 사용"
+  },
+  "mfaPolicy": {
+    "title": "관리자에게 2단계 인증 요구",
+    "descriptionWithDeadline": "설정하지 않은 관리자에게는 {{deadline}}까지 경고가 표시되고, 이후에는 설정할 때까지 로그인이 차단돼요.",
+    "descriptionNoDeadline": "2단계 인증 사용 여부는 관리자가 직접 선택해요.",
+    "turnOff": "끄기",
+    "turnOn": "켜기",
+    "toasts": {
+      "enabled": "이제 관리자는 2단계 인증이 필수예요",
+      "disabled": "더 이상 2단계 인증을 요구하지 않아요",
+      "updateFailed": "정책을 업데이트하지 못했어요"
+    }
+  }
+}

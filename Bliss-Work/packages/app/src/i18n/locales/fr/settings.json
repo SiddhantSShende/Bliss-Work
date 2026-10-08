@@ -1,0 +1,60 @@
+{
+  "header": {
+    "title": "Paramètres",
+    "subtitle": "Préférences de comportement de l'application sur cet appareil."
+  },
+  "theme": {
+    "title": "Thème",
+    "description": "Thème actuel : {{theme}}.",
+    "changeTheme": "Changer de thème",
+    "menuLabel": "Thème",
+    "syncFailed": "Le thème personnalisé n'a été modifié que sur cet appareil. Nous n'avons pas pu l'enregistrer sur votre compte et allons réessayer.",
+    "light": "Clair",
+    "dark": "Sombre",
+    "custom": {
+      "title": "Thème personnalisé",
+      "label": "Personnalisé",
+      "colors": "Couleurs",
+      "color": "Couleur {{number}}",
+      "preview": "Aperçu du thème personnalisé",
+      "create": "Créer un thème personnalisé",
+      "edit": "Modifier le thème personnalisé",
+      "cancel": "Annuler",
+      "save": "Enregistrer"
+    }
+  },
+  "twoFactor": {
+    "title": "Authentification à deux facteurs",
+    "description": "Ajoutez une application d'authentification comme seconde étape de connexion."
+  },
+  "activeSessions": {
+    "title": "Connexions actuelles",
+    "description": "Consultez tous les appareils actuellement connectés à votre compte et déconnectez-les à distance."
+  },
+  "activity": {
+    "title": "Votre activité",
+    "description": "Consultez tout ce que {{brand}} enregistre sur votre façon de travailler — le même relevé que celui que voient les administrateurs de votre espace de travail."
+  },
+  "desktopNotifications": {
+    "title": "Notifications du bureau",
+    "onDescription": "Afficher des alertes à l'arrivée de nouveaux messages et de nouvelles tâches.",
+    "offDescription": "Les alertes sont suspendues. Vous pouvez toujours voir les notifications dans le menu de la cloche.",
+    "turnOn": "Activer",
+    "turnOff": "Désactiver"
+  },
+  "about": {
+    "title": "À propos",
+    "versionDesktop": "{{brand}} {{version}} · bureau",
+    "versionBuild": "{{brand}} · build {{sha}}",
+    "checkForUpdates": "Rechercher des mises à jour",
+    "checking": "Vérification…",
+    "toasts": {
+      "updateDownloading": "Téléchargement de la mise à jour vers {{version}}",
+      "updateDownloadingDescription": "Il vous sera demandé de redémarrer lorsqu'elle sera prête.",
+      "upToDate": "Vous êtes à jour",
+      "upToDateDescription": "Version {{version}}",
+      "updateDownloadFailed": "Échec du téléchargement de la mise à jour",
+      "checkFailedFallback": "Impossible de rechercher les mises à jour"
+    }
+  }
+}

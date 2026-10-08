@@ -1,0 +1,16 @@
+{
+  "replyingTo": "{{who}}に返信中",
+  "thisMessage": "このメッセージ",
+  "cancelReply": "返信をキャンセル",
+  "removeAttachment": "{{name}}を削除",
+  "preparingFiles_other": "{{count}}件のファイルを準備中…",
+  "attachTitle": "写真、動画、ファイルを添付",
+  "attachAriaLabel": "ファイルを添付",
+  "shareLocation": "現在地を共有",
+  "send": "送信",
+  "placeholder": {
+    "default": "メッセージを入力…",
+    "dropFiles": "ファイルをドロップして添付…",
+    "addMessageOrSend": "メッセージを追加するか、送信を押してください…"
+  }
+}

@@ -21,6 +21,7 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { dayLabel, timeLabel } from "../lib/meetingTime";
 import { localDateTimeWithOffset } from "../lib/taskDates";
+import { localDay } from "../lib/dateRange";
 import { deadlineProblem, deadlineRequest, emptyDeadline, type Allocation, type DeadlineForm, type DeadlineProblem } from "../lib/taskDeadline";
 import { Modal } from "./Modal";
 import { Field } from "../routes/Onboarding";
@@ -338,7 +339,7 @@ export function CreateTaskDialog({
               <div className="mt-2 flex flex-col gap-2.5 rounded-xl border border-border/60 p-2.5">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label={t("createTaskDialog.allocation.startDate")}>
-                    <Input type="date" value={scheduledDate} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setScheduledDate(e.target.value)} required className="h-9" />
+                    <Input type="date" value={scheduledDate} min={localDay(new Date())} onChange={(e) => setScheduledDate(e.target.value)} required className="h-9" />
                   </Field>
                   <Field label={t("createTaskDialog.allocation.startTime")}>
                     <TimePicker
@@ -380,15 +381,15 @@ export function CreateTaskDialog({
                     {frequency === "MONTHLY" && (
                       <div className="flex flex-wrap items-center gap-2 text-sm">
                         <select className="rounded-lg border border-border bg-surface px-2 py-1.5" value={monthlyRule} onChange={(e) => setMonthlyRule(e.target.value as typeof monthlyRule)}>
-                          <option value="DAY_OF_MONTH">Day of month</option>
-                          <option value="WEEKDAY_PATTERN">Weekday pattern</option>
+                          <option value="DAY_OF_MONTH">{t("createTaskDialog.allocation.dayOfMonth")}</option>
+                          <option value="WEEKDAY_PATTERN">{t("createTaskDialog.allocation.weekdayPattern")}</option>
                         </select>
                         {monthlyRule === "DAY_OF_MONTH" ? (
                           <Input className="h-9 w-20" type="number" min={1} max={31} value={monthlyDay} onChange={(e) => setMonthlyDay(e.target.value)} />
                         ) : (
                           <>
                             <select className="rounded-lg border border-border bg-surface px-2 py-1.5" value={monthlyOrdinal} onChange={(e) => setMonthlyOrdinal(e.target.value)}>
-                              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{["First", "Second", "Third", "Fourth", "Fifth"][n - 1]}</option>)}
+                              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{t(`createTaskDialog.allocation.ordinal.${n}`)}</option>)}
                             </select>
                             <select className="rounded-lg border border-border bg-surface px-2 py-1.5" value={monthlyWeekday} onChange={(e) => setMonthlyWeekday(e.target.value)}>
                               {weekdayLabels.map((label, day) => <option key={label} value={day}>{label}</option>)}

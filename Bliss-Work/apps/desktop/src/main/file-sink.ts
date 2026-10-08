@@ -1,8 +1,9 @@
 import { app, ipcMain, shell, type BrowserWindow } from "electron";
-import { createWriteStream, existsSync, type WriteStream } from "node:fs";
-import { unlink } from "node:fs/promises";
+import { createWriteStream, openSync, type WriteStream } from "node:fs";
+import { statfs, unlink } from "node:fs/promises";
 import { createHash, type Hash } from "node:crypto";
 import { join } from "node:path";
+import { sanitize } from "./attachment-open";
 
 /**
  * Phase 10 disk-backed receiver sink. The renderer's WebRTC receiver streams
@@ -25,6 +26,10 @@ interface Sink {
   // past what was ever agreed to, regardless of what the renderer forwards.
   size: number;
   bytesWritten: number;
+  // First error the stream raised on its own (disk full, device gone, …).
+  // Without a listener it would be an uncaughtException; kept so the next
+  // write/finish reports it to the renderer instead.
+  error?: Error;
 }
 
 const sinks = new Map<string, Sink>();
@@ -42,25 +47,40 @@ const hashTimes = new Map<string, number>();
 const IDLE_SWEEP_MS = 60_000;
 const IDLE_MAX_MS = 5 * 60_000;
 
-/** Strip path separators / leading dots from a peer-supplied filename. */
-function sanitize(name: string): string {
-  const base = name.replace(/[/\\]/g, "_").replace(/^\.+/, "").trim();
-  return base || "download";
+// The size arrives from the renderer (a peer's offer), so it bounds what a peer
+// may stream to disk and must not be taken at face value. 1 TiB is far past any
+// real P2P transfer; the free-space check below is the tighter limit in practice.
+export const MAX_SINK_BYTES = 1024 ** 4;
+
+/** Free space in `dir` in bytes, or null when the platform cannot say. */
+async function freeBytes(dir: string): Promise<number | null> {
+  try {
+    const s = await statfs(dir);
+    return Number(s.bavail) * Number(s.bsize);
+  } catch {
+    return null;
+  }
 }
 
-/** A non-colliding path in the user's Downloads dir (name, "name (1)", …). */
-function uniquePath(fileName: string): string {
+/**
+ * Create the file in the user's Downloads dir under the first free name
+ * (name, "name (1)", …). The create is exclusive ("wx"), so a file that appears
+ * between the check and the create is never overwritten — the next name is tried.
+ * The open descriptor is returned so the stream writes to the file we made.
+ */
+function createUniqueFile(fileName: string): { path: string; fd: number } {
   const dir = app.getPath("downloads");
   const dot = fileName.lastIndexOf(".");
   const stem = dot > 0 ? fileName.slice(0, dot) : fileName;
   const ext = dot > 0 ? fileName.slice(dot) : "";
-  let candidate = join(dir, fileName);
-  let n = 1;
-  while (existsSync(candidate)) {
-    candidate = join(dir, `${stem} (${n})${ext}`);
-    n += 1;
+  for (let n = 0; ; n++) {
+    const path = join(dir, n === 0 ? fileName : `${stem} (${n})${ext}`);
+    try {
+      return { path, fd: openSync(path, "wx") };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
   }
-  return candidate;
 }
 
 export function registerFileSink(getMainWindow: () => BrowserWindow | null): void {
@@ -74,8 +94,16 @@ export function registerFileSink(getMainWindow: () => BrowserWindow | null): voi
 
   ipcMain.handle(
     "filesink:open",
-    (e, { id, fileName, size }: { id: string; fileName: string; size: number }) => {
+    async (e, { id, fileName, size }: { id: string; fileName: string; size: number }) => {
       if (!fromMainWindow(e)) return;
+      // A malformed or absurd size (never a legitimate offer) is refused, and so
+      // is one the disk cannot hold — otherwise a peer could "reserve" any amount
+      // and then stream it into Downloads.
+      if (!Number.isSafeInteger(size) || size < 0 || size > MAX_SINK_BYTES) {
+        throw new Error("filesink: invalid transfer size");
+      }
+      const free = await freeBytes(app.getPath("downloads"));
+      if (free !== null && size > free) throw new Error("filesink: not enough free disk space");
       // A reused transfer id (e.g. a rapid double-open before the first call's
       // WriteStream was ever closed) must not orphan the earlier sink: its fd
       // would never close and its partial file would sit in Downloads forever
@@ -88,20 +116,22 @@ export function registerFileSink(getMainWindow: () => BrowserWindow | null): voi
         stale.stream.destroy();
         void unlink(stale.path).catch(() => {});
       }
-      // The negotiated size used to be silently dropped here — nothing ever
-      // bounded filesink:write, so a peer offering a small file could stream
-      // indefinitely past it. Guard against a malformed/negative value
-      // (never a legitimate offer) rather than trust it blindly either.
-      const bound = Number.isFinite(size) && size >= 0 ? size : 0;
-      const path = uniquePath(sanitize(fileName));
-      sinks.set(id, {
-        stream: createWriteStream(path),
+      // The negotiated size bounds filesink:write, so a peer offering a small
+      // file cannot stream indefinitely past it (validated above).
+      const { path, fd } = createUniqueFile(sanitize(fileName));
+      const sink: Sink = {
+        stream: createWriteStream(path, { fd }),
         path,
         hash: createHash("sha256"),
         lastActivity: Date.now(),
-        size: bound,
+        size,
         bytesWritten: 0,
+      };
+      sink.stream.on("error", (err) => {
+        sink.error = err;
+        console.error("[filesink] stream error", id, err.message);
       });
+      sinks.set(id, sink);
     },
   );
 
@@ -109,6 +139,7 @@ export function registerFileSink(getMainWindow: () => BrowserWindow | null): voi
     if (!fromMainWindow(e)) return;
     const s = sinks.get(id);
     if (!s) return;
+    if (s.error) throw s.error;
     const buf = Buffer.from(data);
     // The size cap this handler exists to enforce: reject outright rather
     // than truncate-and-accept, which would leave a corrupted file that
@@ -140,8 +171,11 @@ export function registerFileSink(getMainWindow: () => BrowserWindow | null): voi
       if (!s) return false;
       sinks.delete(id);
       return new Promise<boolean>((resolve) => {
-        s.stream.end(async () => {
-          if (s.hash.digest("hex") === expectedSha256) {
+        s.stream.end(async (err?: Error | null) => {
+          if (err || s.error) {
+            await unlink(s.path).catch(() => {});
+            resolve(false);
+          } else if (s.hash.digest("hex") === expectedSha256) {
             shell.showItemInFolder(s.path);
             resolve(true);
           } else {

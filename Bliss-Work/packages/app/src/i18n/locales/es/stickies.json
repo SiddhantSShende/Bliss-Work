@@ -1,0 +1,70 @@
+{
+  "card": {
+    "from": "de {{name}}",
+    "assigned": "Asignada",
+    "deadline": "Fecha límite",
+    "missedOn": "Vencida",
+    "collapseToPill": "Contraer en una cápsula",
+    "unpinNoteTitle": "Dejar de fijar (la tarea se conserva)",
+    "unpin": "Desfijar",
+    "dismissIgnore": "Descartar (ignorar)",
+    "acknowledge": "Confirmar",
+    "ignore": "Ignorar",
+    "complete": "Completar",
+    "leave": "Abandonar",
+    "untitledTask": "Tarea sin título",
+    "expand": "Expandir",
+    "expandLabel": "Expandir nota adhesiva",
+    "dismiss": "Descartar",
+    "dismissLabel": "Descartar nota adhesiva",
+    "collapse": "Contraer",
+    "collapseLabel": "Contraer nota adhesiva",
+    "ignoreTitle": "Ignorar: se avisará al remitente",
+    "acknowledgeTitle": "Confirmar: la nota seguirá en pantalla hasta que completes la tarea",
+    "unpinFromDesktopTitle": "Quitar del escritorio: la tarea se conserva en tu lista de tareas",
+    "navPrevious": "Tarea fijada anterior",
+    "navNext": "Tarea fijada siguiente"
+  },
+  "overlay": {
+    "ariaLabel": "Notas adhesivas flotantes"
+  },
+  "toasts": {
+    "acknowledgeFailed": "No se pudo confirmar",
+    "ignoreFailed": "No se pudo ignorar",
+    "taskIgnored": "Tarea ignorada: se avisó al remitente.",
+    "noteUnpinned": "Nota desfijada",
+    "noteUnpinnedDescription": "Sigue en tu lista de tareas: complétala desde allí.",
+    "unpinFailed": "No se pudo desfijar la nota",
+    "desktopFull": "No se pudo fijar esta tarea en el escritorio."
+  },
+  "window": {
+    "loading": "Cargando…",
+    "expand": "Expandir",
+    "previousTask": "Tarea fijada anterior",
+    "nextTask": "Tarea fijada siguiente",
+    "chat": {
+      "loadingThread": "Cargando conversación…",
+      "pinnedChat": "Chat fijado",
+      "unpin": "Desfijar",
+      "unpinTitle": "Quitar del escritorio",
+      "noMessages": "Aún no hay mensajes recientes.",
+      "replyPlaceholder": "Responder…",
+      "send": "Enviar"
+    },
+    "invite": {
+      "meetingFallback": "Reunión",
+      "hostedBy": "Organiza {{name}}",
+      "video": "Video",
+      "videoTitle": "Unirse con la cámara encendida",
+      "voice": "Voz",
+      "voiceTitle": "Unirse solo con voz",
+      "leave": "Salir",
+      "dismiss": "Descartar"
+    },
+    "titles": {
+      "task": "Tarea",
+      "chat": "Chat",
+      "invite": "Invitación a reunión"
+    }
+  }
+}

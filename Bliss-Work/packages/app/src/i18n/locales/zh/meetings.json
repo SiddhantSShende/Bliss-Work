@@ -1,0 +1,398 @@
+{
+  "layout": {
+    "backToCalendar": "返回日历"
+  },
+  "list": {
+    "loading": "加载中…",
+    "error": {
+      "title": "无法加载你的会议。",
+      "retry": "重试"
+    },
+    "empty": {
+      "upcomingTitle": "暂无安排",
+      "liveTitle": "目前没有进行中的会议",
+      "pastTitle": "没有过往会议",
+      "startHint": "立即开始一场会议，或将其安排到日历中。",
+      "pastHint": "你参加过的会议结束后会列在这里。"
+    },
+    "loadMore": "加载更多",
+    "allLoaded": "已经到底了。",
+    "bucket": {
+      "upcoming": "即将开始",
+      "live": "进行中",
+      "past": "已结束"
+    }
+  },
+  "calendar": {
+    "title": "会议日历",
+    "subtitle": "在一处查看和管理你的所有会议。",
+    "newMeeting": "新建会议",
+    "today": "今天",
+    "previousWeek": "上一周",
+    "previousMonth": "上个月",
+    "nextWeek": "下一周",
+    "nextMonth": "下个月",
+    "scale": {
+      "week": "周",
+      "month": "月"
+    },
+    "loading": "正在加载你的日历…",
+    "error": {
+      "title": "无法加载你的日历。",
+      "retry": "重试"
+    }
+  },
+  "detail": {
+    "loading": "加载中…",
+    "error": {
+      "title": "无法打开此会议。",
+      "retry": "重试"
+    },
+    "kindLabel": {
+      "meeting": "会议",
+      "channelCall": "频道通话",
+      "call": "通话"
+    },
+    "noTitleSet": "未设置标题",
+    "join": "加入",
+    "open": "打开",
+    "tabs": {
+      "overview": "概览",
+      "chat": "聊天",
+      "notes": "笔记"
+    },
+    "live": "进行中",
+    "overview": {
+      "when": {
+        "sectionTitle": "时间",
+        "date": "日期",
+        "start": "开始",
+        "end": "结束",
+        "scheduledEnd": "预定结束",
+        "runningFor": "已进行",
+        "duration": "时长"
+      },
+      "people": {
+        "sectionTitle": "成员 · {{total}} 人中 {{joined}} 人已加入",
+        "empty": "此会议没有记录参会名单。",
+        "host": "主持人",
+        "external": "外部",
+        "attendance": {
+          "joinedAndLeft": "{{joinedAt}} 加入 · {{leftAt}} 离开",
+          "joined": "{{joinedAt}} 加入",
+          "waiting": "等待准入",
+          "invited": "已邀请",
+          "didNotJoin": "未加入"
+        }
+      },
+      "meeting": {
+        "sectionTitle": "会议",
+        "organisedBy": "组织者",
+        "openedBy": "发起人",
+        "media": "媒体",
+        "audioOnly": "仅音频",
+        "video": "视频",
+        "recording": "录制",
+        "recordingAvailable": "可观看",
+        "recordingInProgress": "录制中",
+        "recordingNotRecorded": "未录制",
+        "channelCall": "频道通话",
+        "channelCallValue": "参会名单即频道成员",
+        "beingRecorded": "此通话正在录制",
+        "sharingOne": "{{name}} 正在共享屏幕",
+        "sharingMany": "{{count}} 人正在共享",
+        "repeats": "重复",
+        "channels": "频道",
+        "channelsUnavailable_other": "{{count}} 个频道"
+      }
+    },
+    "recording": {
+      "preparing": "正在准备播放…",
+      "watch": "观看录制"
+    }
+  },
+  "row": {
+    "live": "进行中",
+    "inviteJoinTitle": "已邀请 {{invited}} 人 · 已加入 {{joined}} 人",
+    "organiser": "组织者",
+    "join": "加入",
+    "open": "打开",
+    "recording": "录制",
+    "details": "详情",
+    "menu": {
+      "actionsFor": "{{title}} 的操作",
+      "untitledMeeting": "此会议",
+      "viewDetails": "查看详情",
+      "joinMeeting": "加入会议",
+      "openRoom": "打开会议室",
+      "watchRecording": "观看录制"
+    }
+  },
+  "monthGrid": {
+    "openThisWeek": "打开本周",
+    "more": "另有 {{count}} 项"
+  },
+  "newMeeting": {
+    "title": "新建会议",
+    "close": "关闭",
+    "titleLabel": "会议标题",
+    "titlePlaceholder": "输入会议标题",
+    "startTimeLabel": "开始时间",
+    "endTimeLabel": "结束时间",
+    "errors": {
+      "titleRequired": "请填写会议标题。",
+      "startRequired": "请填写开始日期和时间。",
+      "startInPast": "开始时间不能早于当前时间。",
+      "endRequired": "请填写结束日期和时间。",
+      "endBeforeStart": "结束时间必须晚于开始时间。",
+      "peopleUnavailable": "你选择的部分成员或频道已不可用。"
+    },
+    "cancel": "取消",
+    "scheduleMeeting": "预约会议",
+    "startMeeting": "开始会议",
+    "starting": "正在开始…",
+    "scheduling": "正在预约…",
+    "scheduleError": "无法预约该会议",
+    "membersLabel": "成员",
+    "membersAdd": "添加成员",
+    "membersDone": "完成",
+    "membersNone": "尚未添加成员。",
+    "membersRemove": "移除 {{name}}",
+    "unknownMember": "未知成员",
+    "channelsLabel": "频道",
+    "channelsAdd": "添加频道",
+    "channelsDone": "完成",
+    "channelsNone": "尚未添加频道。",
+    "channelsRemove": "移除 {{name}}",
+    "channelsHint": "频道中的所有人都会收到邀请。",
+    "unknownChannel": "不可用的频道",
+    "channelPicker": {
+      "searchPlaceholder": "搜索频道…",
+      "searchAriaLabel": "搜索你的频道",
+      "loading": "正在加载频道…",
+      "error": "无法加载你的频道。",
+      "retry": "重试",
+      "members_other": "{{count}} 位成员",
+      "empty": {
+        "none": "你尚未加入任何频道。",
+        "noMatches": "无匹配结果。"
+      }
+    },
+    "repeat": {
+      "label": "重复",
+      "none": "不重复",
+      "daily": "每天",
+      "weekly": "每周",
+      "monthly": "每月",
+      "every": "每",
+      "intervalAria": "重复间隔",
+      "unit": {
+        "day_other": "天",
+        "week_other": "周",
+        "month_other": "个月"
+      },
+      "on": "于",
+      "ends": "结束",
+      "endNever": "永不",
+      "endOnDate": "指定日期",
+      "endAfter": "指定次数后",
+      "endDateAria": "结束日期",
+      "occurrenceCountAria": "重复次数",
+      "occurrences_other": "次",
+      "errors": {
+        "interval": "请输入 1 到 {{max}} 之间的整数。",
+        "weekdays": "请至少选择一天。",
+        "endDateRequired": "请选择结束日期。",
+        "endDateBeforeStart": "结束日期不能早于首次会议。",
+        "occurrenceCount": "请输入 1 到 {{max}} 之间的整数。"
+      },
+      "monthlyHint": "每月 {{day}} 日重复。没有该日期的月份会被跳过。"
+    },
+    "time": {
+      "chooseHour": "选择小时",
+      "chooseMinutes": "选择分钟",
+      "am": "上午",
+      "pm": "下午",
+      "hourAria": "{{hour}} 点",
+      "minuteAria": "{{minute}} 分",
+      "pickerAriaLabel": "{{label}}时间选择器",
+      "cancel": "取消",
+      "ok": "确定",
+      "dateAriaLabel": "{{label}}日期",
+      "triggerAriaLabel": "{{label}}时间"
+    },
+    "preview": {
+      "sectionTitle": "会议预览",
+      "untitled": "未命名会议",
+      "pickATime": "选择日期和时间",
+      "noInvitees": "尚未邀请任何人",
+      "onlineMeeting": "线上会议",
+      "repeatLabel": "重复",
+      "members_other": "{{count}} 位成员",
+      "channels_other": "{{count}} 个频道",
+      "endsOn": "{{date}} 结束",
+      "duration": {
+        "days_other": "{{count}} 天",
+        "hours_other": "{{count}} 小时",
+        "minutes_other": "{{count}} 分钟"
+      },
+      "dateLabel": "日期",
+      "timeLabel": "时间",
+      "peopleLabel": "成员",
+      "channelsLabel": "频道",
+      "videoLabel": "视频"
+    },
+    "confirmation": {
+      "title": "会议已预约！",
+      "subtitle": "你的会议已添加到日历。",
+      "dismiss": "关闭",
+      "close": "关闭",
+      "copyLink": "复制链接",
+      "linkCopied": "已复制！",
+      "generatingLink": "正在生成链接…",
+      "viewInCalendar": "在日历中查看",
+      "startNow": "立即开始会议"
+    },
+    "detailsTitle": "会议详情",
+    "membersDescription": "将成员添加到此会议",
+    "membersEmptyHint": "邀请成员参加你的会议",
+    "channelsDescription": "将频道添加到此会议"
+  },
+  "schedule": {
+    "error": "无法预约该通话",
+    "titleChannel": "发起频道通话",
+    "titleDirect": "预约通话",
+    "descriptionChannel": "此频道中的所有人都可以加入。没有邀请链接，频道成员身份就是邀请。",
+    "descriptionDirect": "{{peerName}} 可在你选定的时间加入。由预约人负责开启通话。",
+    "titleLabel": "标题",
+    "placeholderChannel": "设计同步会",
+    "placeholderDirect": "每周回顾",
+    "typeLabel": "类型",
+    "video": "视频",
+    "audio": "音频",
+    "whenLabel": "时间",
+    "whenRequired": "— 必填",
+    "whenOptional": "— 留空则立即开始",
+    "lengthLabel": "时长",
+    "lengthHint": "— 时间用完后通话自动结束",
+    "durations": {
+      "m15": "15 分钟",
+      "m30": "30 分钟",
+      "h1": "1 小时",
+      "h2": "2 小时",
+      "noEnd": "无结束时间"
+    },
+    "cancel": "取消",
+    "submitSchedule": "预约",
+    "submitStartNow": "立即开始",
+    "untitled": "未命名",
+    "startedNow": "已开始",
+    "endsAt": " — {{time}} 结束",
+    "done": "完成",
+    "joinNow": "立即加入"
+  },
+  "filterMenu": {
+    "trigger": "筛选",
+    "ariaLabel": "筛选会议",
+    "typeHeading": "类型",
+    "onlyMine": "仅我组织的",
+    "clear": "清除筛选"
+  },
+  "handoff": {
+    "title": "加入会议",
+    "subtitle": "你可以使用桌面应用加入此会议，也可以直接在浏览器中继续。",
+    "notOpened": "未自动打开。",
+    "openingApp": "正在打开 {{brand}} 桌面应用…",
+    "continueInBrowser": "在浏览器中继续"
+  },
+  "inviteLink": {
+    "label": "邀请链接",
+    "copy": "复制会议链接",
+    "couldNotCreate": "无法创建邀请链接",
+    "copyFailed": "复制失败",
+    "copyManually": "请选中链接并手动复制。"
+  },
+  "host": {
+    "openFailed": "无法打开该会议",
+    "rejoin": {
+      "ariaLabel": "重新加入你之前所在的会议",
+      "untitled": "会议",
+      "description": "页面刷新前，你正在参加此会议。",
+      "notNow": "暂不",
+      "rejoinButton": "重新加入"
+    }
+  },
+  "transcript": {
+    "chat": {
+      "emptyTitle": "此会议没有聊天记录",
+      "emptyHint": "发给会议室所有人的消息会保存在这里。私聊消息只会送达一人，且不会被保存。"
+    },
+    "notes": {
+      "emptyTitle": "没有会议笔记",
+      "emptyHint": "在会议“笔记”面板中写下的要点会保存在这里。"
+    },
+    "loading": "加载中…",
+    "error": "无法加载此内容。",
+    "retry": "重试",
+    "loadMore": "加载更多"
+  },
+  "statusBar": {
+    "micOn": "麦克风已开启",
+    "micOff": "麦克风已关闭",
+    "leaveMeeting": "离开会议"
+  },
+  "series": {
+    "badge": "重复会议",
+    "summary": {
+      "day_other": "每 {{count}} 天重复",
+      "week_other": "每 {{count}} 周的{{days}}重复",
+      "month_other": "每 {{count}} 个月重复",
+      "withEnd": "{{repeat}}，{{end}}",
+      "until": "至 {{date}}",
+      "times_other": "共 {{count}} 场会议"
+    },
+    "edit": {
+      "button": "编辑系列",
+      "title": "编辑重复会议",
+      "close": "关闭",
+      "loading": "加载中…",
+      "error": "无法加载此系列。",
+      "retry": "重试",
+      "first": "首场会议：{{when}}。其日期和时间无法在此修改。",
+      "note": "保存后会更新此系列中即将举行的会议。日期和时间不变的会议会保留其加入链接和嘉宾，已举行的会议保持原样。",
+      "cancel": "取消",
+      "save": "保存更改",
+      "saving": "正在保存…",
+      "saveError": "无法保存你的更改"
+    },
+    "cancelSeries": {
+      "button": "取消系列",
+      "title": "取消此系列？",
+      "message": "此系列中所有即将举行的会议都将为所有人移除，已举行的会议会保留。",
+      "confirm": "取消系列",
+      "error": "无法取消该系列",
+      "done": "系列已取消"
+    }
+  },
+  "view": {
+    "untitled": "未命名会议",
+    "scope": {
+      "channelCall": "频道通话",
+      "directCall": "私人通话"
+    },
+    "kind": {
+      "MEETING": "会议",
+      "CHANNEL": "频道通话",
+      "DIRECT": "私人通话"
+    },
+    "status": {
+      "cancelled": "已取消",
+      "live": "进行中",
+      "upcoming": "即将开始",
+      "ended": "已结束"
+    },
+    "listSeparator": "、",
+    "namesAnd": "{{list}}和{{last}}",
+    "namesAndOthers_other": "{{list}}等另外 {{count}} 人"
+  }
+}

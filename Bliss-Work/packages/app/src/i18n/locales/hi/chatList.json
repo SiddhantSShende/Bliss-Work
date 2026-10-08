@@ -1,0 +1,305 @@
+{
+  "preview": {
+    "linkReceived": "लिंक मिला",
+    "linkSent": "लिंक भेजा गया",
+    "locationShared": "लोकेशन साझा की गई",
+    "fileSent": "फ़ाइल भेजी गई",
+    "imageSent": "छवि भेजी गई",
+    "videoSent": "वीडियो भेजा गया",
+    "imagesSent_one": "{{count}} छवि भेजी गई",
+    "imagesSent_other": "{{count}} छवियाँ भेजी गईं",
+    "filesSent_one": "{{count}} फ़ाइल भेजी गई",
+    "filesSent_other": "{{count}} फ़ाइलें भेजी गईं"
+  },
+  "common": {
+    "cancel": "रद्द करें",
+    "join": "जुड़ें",
+    "pinnedLabel": "पिन किया",
+    "mutedLabel": "म्यूट",
+    "muteNotifications": "नोटिफ़िकेशन म्यूट करें",
+    "unmuteNotifications": "नोटिफ़िकेशन अनम्यूट करें",
+    "memberCount_one": "{{count}} सदस्य",
+    "memberCount_other": "{{count}} सदस्य"
+  },
+  "chatsList": {
+    "title": "चैट",
+    "newChat": "नई चैट",
+    "searchAriaLabel": "चैट खोजें",
+    "searchPlaceholder": "चैट खोजें...",
+    "filtersAriaLabel": "चैट फ़िल्टर",
+    "filters": {
+      "all": "सभी",
+      "unread": "अपठित",
+      "mentions": "मेंशन"
+    },
+    "you": "आप",
+    "startChatting": "चैट शुरू करें",
+    "empty": {
+      "title": "अभी कोई चैट नहीं",
+      "hint": "बातचीत शुरू करने के लिए + दबाएँ।"
+    },
+    "emptySearch": {
+      "title": "कोई चैट मेल नहीं खाती",
+      "hint": "कोई दूसरी खोज या फ़िल्टर आज़माएँ।"
+    },
+    "menu": {
+      "optionsLabel": "चैट विकल्प",
+      "pin": "चैट पिन करें",
+      "unpin": "चैट अनपिन करें",
+      "delete": "चैट हटाएँ"
+    },
+    "deleteDialog": {
+      "title": "चैट इतिहास हटाएँ?",
+      "message": "यह चैट इतिहास केवल आपके लिए हटेगा। दूसरे व्यक्ति के पास उसकी प्रति बनी रहेगी।",
+      "confirmLabel": "चैट हटाएँ"
+    },
+    "deleteErrorToast": "यह चैट हटाई नहीं जा सकी"
+  },
+  "channelsList": {
+    "title": "चैनल",
+    "addChannel": "चैनल जोड़ें",
+    "searchAriaLabel": "चैनल खोजें",
+    "searchPlaceholder": "चैनल खोजें...",
+    "filtersAriaLabel": "चैनल फ़िल्टर",
+    "filters": {
+      "all": "सभी",
+      "unread": "अपठित"
+    },
+    "tabs": {
+      "mine": "मेरे चैनल",
+      "browse": "ब्राउज़ करें"
+    },
+    "empty": {
+      "title": "अभी कोई चैनल नहीं",
+      "hint": "नया बनाने के लिए + दबाएँ, या खुले चैनल खोजने के लिए ब्राउज़ करें।"
+    },
+    "emptySearch": {
+      "title": "कोई चैनल मेल नहीं खाता",
+      "hint": "कोई दूसरी खोज या फ़िल्टर आज़माएँ।"
+    },
+    "loadError": {
+      "title": "खुले चैनल लोड नहीं हो सके",
+      "hint": "डायरेक्टरी लाते समय कुछ गड़बड़ हो गई।",
+      "retry": "फिर कोशिश करें"
+    },
+    "emptyOpen": {
+      "title": "जुड़ने के लिए कोई खुला चैनल नहीं",
+      "hint": "आपके साथियों के बनाए खुले चैनल यहाँ दिखेंगे।"
+    },
+    "loadMore": "और लोड करें",
+    "leaveSuccessToast": "आपने चैनल छोड़ दिया।",
+    "leaveErrorToast": "चैनल छोड़ा नहीं जा सका",
+    "menu": {
+      "optionsLabel": "चैनल विकल्प",
+      "pin": "चैनल पिन करें",
+      "unpin": "चैनल अनपिन करें",
+      "leave": "चैनल छोड़ें",
+      "leaving": "छोड़ रहे हैं…"
+    }
+  },
+  "leaveChannel": {
+    "titleNamed": "#{{channel}} छोड़ें?",
+    "titleGeneric": "चैनल छोड़ें?",
+    "messageLocked": "यह लॉक्ड चैनल है। वापस आने के लिए किसी सदस्य को आपको दोबारा आमंत्रित करना होगा।",
+    "messageOpen": "आप जब चाहें, ब्राउज़ टैब से दोबारा जुड़ सकते हैं।",
+    "confirmLabel": "चैनल छोड़ें"
+  },
+  "newChat": {
+    "title": "नई चैट",
+    "searchPlaceholder": "लोग खोजें…",
+    "emptyTitle": "कोई व्यक्ति नहीं मिला",
+    "errorToast": {
+      "title": "बातचीत शुरू नहीं हो सकी",
+      "description": "कृपया फिर से कोशिश करें।"
+    }
+  },
+  "addChannel": {
+    "title": "चैनल जोड़ें",
+    "tabs": {
+      "create": "नया चैनल बनाएँ",
+      "browse": "चैनल जोड़ें"
+    },
+    "searchPlaceholder": "चैनल खोजें…",
+    "loading": "चैनल लोड हो रहे हैं…",
+    "empty": {
+      "title": "अभी कोई चैनल नहीं",
+      "hint": "दूसरे टैब से एक बनाएँ।"
+    },
+    "emptySearch": {
+      "title": "कोई चैनल मेल नहीं खाता",
+      "hint": "कोई दूसरी खोज आज़माएँ।"
+    },
+    "loadError": "पूरी चैनल डायरेक्टरी लोड नहीं हो सकी।",
+    "retry": "फिर कोशिश करें",
+    "row": {
+      "private": "निजी",
+      "public": "सार्वजनिक",
+      "joined": "जुड़ चुके हैं"
+    }
+  },
+  "createChannel": {
+    "channelNameLabel": "चैनल का नाम",
+    "channelNamePlaceholder": "design-team",
+    "visibilityLabel": "दृश्यता",
+    "openOption": {
+      "label": "खुला",
+      "hint": "संगठन का कोई भी व्यक्ति जुड़ सकता है"
+    },
+    "lockedOption": {
+      "label": "लॉक्ड",
+      "hint": "केवल आमंत्रण से"
+    },
+    "membersLabel": "सदस्य",
+    "membersLabelWithCount": "सदस्य ({{count}})",
+    "noMembers": "अभी कोई सदस्य नहीं जोड़ा गया।",
+    "removeMemberAriaLabel": "{{name}} हटाएँ",
+    "removeMemberFallback": "सदस्य",
+    "addMember": "सदस्य जोड़ें",
+    "createButton": "चैनल बनाएँ",
+    "creating": "बनाया जा रहा है…",
+    "nameRequiredToast": "चैनल को नाम दें",
+    "createErrorToast": "चैनल नहीं बनाया जा सका"
+  },
+  "renameChannel": {
+    "title": "चैनल का नाम बदलें",
+    "placeholder": "चैनल का नाम",
+    "save": "सहेजें",
+    "saving": "सहेजा जा रहा है…",
+    "successToast": "चैनल का नाम बदला गया",
+    "errorToast": "चैनल का नाम नहीं बदला जा सका"
+  },
+  "channelMembers": {
+    "addPeople": "लोग जोड़ें",
+    "addedToast": "चैनल में जोड़ा गया",
+    "actionFailed": "कार्रवाई विफल रही",
+    "youSuffix": " (आप)",
+    "roles": {
+      "owner": "स्वामी",
+      "admin": "एडमिन",
+      "member": "सदस्य"
+    },
+    "workspaceAdmin": "वर्कस्पेस एडमिन",
+    "unknownUsername": "अज्ञात",
+    "actions": {
+      "makeAdmin": "चैनल एडमिन बनाएँ",
+      "removeAdmin": "चैनल एडमिन से हटाएँ",
+      "transferOwnership": "स्वामित्व सौंपें",
+      "removeFromChannel": "चैनल से हटाएँ",
+      "blockFromChannel": "चैनल से ब्लॉक करें"
+    },
+    "blockedHeading": "ब्लॉक किए गए",
+    "unblock": "अनब्लॉक करें",
+    "fallbackThem": "उन्हें",
+    "transferConfirm": {
+      "title": "स्वामित्व सौंपें?",
+      "message": "क्या {{name}} को #{{channel}} का स्वामी बनाना है? आप एडमिन बन जाएँगे।",
+      "confirmLabel": "सौंपें"
+    },
+    "blockConfirm": {
+      "title": "चैनल से ब्लॉक करें?",
+      "message": "क्या {{name}} को #{{channel}} से ब्लॉक करना है? उन्हें हटा दिया जाएगा और वे दोबारा नहीं जुड़ सकेंगे।",
+      "confirmLabel": "ब्लॉक करें"
+    }
+  },
+  "chatSearchBar": {
+    "placeholder": "इस बातचीत में खोजें…",
+    "ariaLabel": "इस बातचीत में खोजें",
+    "noMatches": "कोई मिलान नहीं",
+    "matchesOfLoaded": "लोड हुए {{loaded}} में {{matches}} मिले",
+    "clearSearch": "खोज साफ़ करें",
+    "closeSearch": "खोज बंद करें"
+  },
+  "chatAssets": {
+    "tabs": {
+      "media": "मीडिया",
+      "docs": "दस्तावेज़",
+      "links": "लिंक"
+    },
+    "scopeNote_one": "यहाँ लोड हुए {{count}} संदेश से — और शामिल करने के लिए बातचीत में पुराने संदेश लोड करें।",
+    "scopeNote_other": "यहाँ लोड हुए {{count}} संदेशों से — और शामिल करने के लिए बातचीत में पुराने संदेश लोड करें।",
+    "emptyMedia": {
+      "title": "अभी कोई फ़ोटो या वीडियो नहीं",
+      "hint": "इस बातचीत में साझा की गई छवियाँ और क्लिप यहाँ जमा होती हैं।"
+    },
+    "unavailable": "उपलब्ध नहीं",
+    "openItem": "{{name}} खोलें",
+    "downloadItem": "{{name}} डाउनलोड करें",
+    "emptyDocs": {
+      "title": "अभी कोई दस्तावेज़ नहीं",
+      "hint": "फ़ोटो या वीडियो के अलावा की फ़ाइलें — PDF, स्प्रेडशीट, आर्काइव — यहाँ जमा होती हैं।"
+    },
+    "previewUnavailable": "इस फ़ाइल प्रकार का प्रीव्यू उपलब्ध नहीं है",
+    "emptyLinks": {
+      "title": "अभी कोई लिंक नहीं",
+      "hint": "इस बातचीत में पोस्ट किए गए वेब पते यहाँ जमा होते हैं।"
+    }
+  },
+  "pinButton": {
+    "pin": "डेस्कटॉप पर पिन करें",
+    "unpin": "डेस्कटॉप से अनपिन करें"
+  },
+  "selectionToolbar": {
+    "selectedCount_one": "{{count}} चुना गया",
+    "selectedCount_other": "{{count}} चुने गए",
+    "cannotDelete_one": "· {{count}} हटाया नहीं जा सकता",
+    "cannotDelete_other": "· {{count}} हटाए नहीं जा सकते",
+    "forward": "फ़ॉरवर्ड करें",
+    "delete": "हटाएँ"
+  },
+  "messageStatus": {
+    "pending": "भेजा जा रहा है…",
+    "sent": "भेजा गया",
+    "delivered": "पहुँच गया",
+    "seen": "देखा गया"
+  },
+  "forwardBadge": {
+    "titleWithPlatform": "{{brand}} ने संदेश पहले से भरकर {{platform}} खोला। वह भेजा गया या नहीं, यह हम नहीं देख सकते।",
+    "titleWhatsapp": "{{brand}} ने संदेश पहले से भरकर WhatsApp खोला। वह भेजा गया या नहीं, यह हम नहीं देख सकते।",
+    "notConfirmed": "· पुष्टि नहीं",
+    "messageForwardedTo": "संदेश {{platform}} पर फ़ॉरवर्ड किया गया"
+  },
+  "forwardTo": {
+    "titleSingle": "इन्हें फ़ॉरवर्ड करें…",
+    "titleMultiple": "{{count}} संदेश फ़ॉरवर्ड करें",
+    "messagesPrefix": "{{count}} संदेश · ",
+    "searchPlaceholder": "लोग और चैनल खोजें…",
+    "selectedCount_one": "{{count}} चुना गया",
+    "selectedCount_other": "{{count}} चुने गए",
+    "clearSelection": "साफ़ करें",
+    "noMatches": "कोई व्यक्ति या चैनल मेल नहीं खाता।",
+    "peopleHeading": "लोग",
+    "channelsHeading": "चैनल",
+    "forwardToOne": "{{name}} को फ़ॉरवर्ड करें",
+    "forwardToMany": "{{count}} जगह फ़ॉरवर्ड करें",
+    "forwardDefault": "फ़ॉरवर्ड करें",
+    "fallbackChannel": "एक चैनल",
+    "fallbackPerson": "एक व्यक्ति",
+    "toasts": {
+      "openAction": "खोलें",
+      "oneSuccess": "{{destination}} को फ़ॉरवर्ड किया गया",
+      "allSuccess": "{{count}} जगह सफलतापूर्वक फ़ॉरवर्ड किया गया।",
+      "allFailed_one": "{{count}} जगह फ़ॉरवर्ड नहीं हो सका।",
+      "allFailed_other": "{{count}} जगह फ़ॉरवर्ड नहीं हो सका।",
+      "partialSuccess_one": "{{count}} जगह सफलतापूर्वक फ़ॉरवर्ड किया गया।",
+      "partialSuccess_other": "{{count}} जगह सफलतापूर्वक फ़ॉरवर्ड किया गया।",
+      "partialFailedDescription": "{{count}} जगह फ़ॉरवर्ड नहीं हो सका: {{list}}",
+      "genericError": {
+        "title": "वह फ़ॉरवर्ड नहीं हो सका",
+        "description": "कृपया फिर से कोशिश करें।"
+      }
+    }
+  },
+  "chatsEmpty": {
+    "welcomeWithName": "स्वागत है, {{name}} 👋",
+    "welcome": "स्वागत है 👋",
+    "hint": "बाईं ओर से कोई चैट चुनें, या नई बातचीत शुरू करने के लिए + दबाएँ।"
+  },
+  "channelsEmpty": {
+    "title": "चैनल",
+    "hint": "बाईं ओर से कोई चैनल चुनें, या नया बनाने के लिए + दबाएँ।"
+  },
+  "joinChannel": {
+    "joined": "आप चैनल से जुड़ गए।",
+    "couldNotJoin": "जुड़ा नहीं जा सका"
+  }
+}

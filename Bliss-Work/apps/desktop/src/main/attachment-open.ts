@@ -5,6 +5,7 @@ import { extname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { safeExternalUrl } from "../shared/external-url";
+import { mainT } from "./i18n";
 
 /**
  * Desktop-native counterpart of MailAttachmentCards' non-previewable
@@ -17,10 +18,16 @@ import { safeExternalUrl } from "../shared/external-url";
  * Downloads, then hand the FILE ITSELF to the OS's native default app via
  * `shell.openPath` — never `shell.openExternal` on the browser-openable URL.
  *
- * sanitize/uniquePath are deliberately duplicated from file-sink.ts's
- * versions rather than importing them — zero blast radius on the working
- * Phase 10 P2P-transfer code for what is otherwise a two-line helper.
+ * sanitize is the one file-name sanitiser for everything this app writes to
+ * Downloads — file-sink.ts (P2P receive) imports it from here rather than
+ * keeping a weaker copy of its own.
  */
+
+const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i;
+// Well under the 255-byte file-name limit of NTFS/ext4/APFS, leaving room for
+// the " (n)" suffix uniquePath may add.
+const MAX_NAME_LENGTH = 200;
+const MAX_EXT_LENGTH = 20;
 
 /**
  * Strip path separators, leading dots, characters Windows will not keep in a
@@ -39,7 +46,17 @@ export function sanitize(name: string): string {
     .replace(/^\.+/, "")
     .replace(/[. ]+$/, "")
     .trim();
-  return base || "download";
+  let out = base || "download";
+  // Windows device names ("CON", "nul.txt", …) are not files: creating one
+  // opens the device (or fails), whatever the extension.
+  if (WINDOWS_RESERVED_NAME.test(out)) out = `_${out}`;
+  if (out.length > MAX_NAME_LENGTH) {
+    // Keep a sane extension: the executable check below keys on it.
+    const ext = extname(out);
+    const keep = ext.length <= MAX_EXT_LENGTH ? ext : "";
+    out = (out.slice(0, MAX_NAME_LENGTH - keep.length).replace(/[. ]+$/, "") || "download") + keep;
+  }
+  return out;
 }
 
 /** A non-colliding path in the user's Downloads dir (name, "name (1)", …). */
@@ -73,6 +90,14 @@ const EXECUTABLE_EXTENSIONS = new Set([
   ".lnk", ".hta", ".msc", ".jar",
   ".iso", ".img", ".vhd", ".vhdx",
   ".url", ".chm", ".appref-ms", ".settingcontent-ms", ".website",
+  // Launchers the OS default handler runs or installs on macOS/Linux and newer
+  // Windows: shell/script types, app bundles and installers, desktop entries,
+  // Java Web Start, MSIX/AppX, and search/library shortcuts.
+  ".sh", ".command", ".py", ".pl", ".terminal", ".workflow", ".app",
+  ".pkg", ".dmg", ".deb", ".rpm", ".appimage", ".desktop", ".jnlp",
+  ".msix", ".appx", ".msp", ".gadget", ".scf", ".library-ms",
+  // Office add-ins and macro-enabled documents run code on open.
+  ".xll", ".docm", ".xlsm", ".pptm", ".dotm", ".xltm", ".potm", ".xlam", ".ppam", ".sldm",
 ]);
 
 /** Checked against the SAVED/sanitized path, not the sender-supplied
@@ -106,19 +131,19 @@ export function registerAttachmentOpen(getMainWindow: () => BrowserWindow | null
       e,
       { url, fileName }: { url: string; fileName: string },
     ): Promise<{ ok: boolean; error?: string }> => {
-      if (!fromMainWindow(e)) return { ok: false, error: "Refused: not the main window." };
+      if (!fromMainWindow(e)) return { ok: false, error: mainT("attachment.notMainWindow") };
 
       // Validate BEFORE ever touching the network — the renderer is treated
       // as hostile input for anything that reaches the OS, same rule as
       // openExternal/setWindowOpenHandler in harden.ts.
       const safe = safeExternalUrl(url);
-      if (!safe) return { ok: false, error: "Refused an unsafe URL." };
+      if (!safe) return { ok: false, error: mainT("attachment.unsafeUrl") };
 
       let path: string | undefined;
       try {
         const res = await fetch(safe, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-        if (!res.ok) return { ok: false, error: `Download failed (${res.status}).` };
-        if (!res.body) return { ok: false, error: "Empty response body." };
+        if (!res.ok) return { ok: false, error: mainT("attachment.downloadFailed", { status: res.status }) };
+        if (!res.body) return { ok: false, error: mainT("attachment.emptyBody") };
         path = uniquePath(sanitize(fileName || "download"));
         // Streamed straight to disk rather than buffered whole into memory
         // first (the previous `Buffer.from(await res.arrayBuffer())`): this is
@@ -148,7 +173,7 @@ export function registerAttachmentOpen(getMainWindow: () => BrowserWindow | null
         return { ok: true };
       } catch (err) {
         if (path) await unlink(path).catch(() => {});
-        return { ok: false, error: err instanceof Error ? err.message : "Could not open the file." };
+        return { ok: false, error: err instanceof Error ? err.message : mainT("attachment.couldNotOpen") };
       }
     },
   );

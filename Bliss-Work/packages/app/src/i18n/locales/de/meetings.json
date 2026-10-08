@@ -1,0 +1,414 @@
+{
+  "layout": {
+    "backToCalendar": "Zurück zum Kalender"
+  },
+  "list": {
+    "loading": "Wird geladen…",
+    "error": {
+      "title": "Ihre Meetings konnten nicht geladen werden.",
+      "retry": "Erneut versuchen"
+    },
+    "empty": {
+      "upcomingTitle": "Nichts geplant",
+      "liveTitle": "Gerade läuft nichts",
+      "pastTitle": "Keine vergangenen Meetings",
+      "startHint": "Starten Sie jetzt ein Meeting oder tragen Sie eines in den Kalender ein.",
+      "pastHint": "Meetings, an denen Sie teilgenommen haben, werden hier aufgelistet, sobald sie beendet sind."
+    },
+    "loadMore": "Mehr laden",
+    "allLoaded": "Das ist alles.",
+    "bucket": {
+      "upcoming": "Anstehend",
+      "live": "Live",
+      "past": "Vergangen"
+    }
+  },
+  "calendar": {
+    "title": "Meeting-Kalender",
+    "subtitle": "Sehen und verwalten Sie alle Ihre Meetings an einem Ort.",
+    "newMeeting": "Neues Meeting",
+    "today": "Heute",
+    "previousWeek": "Vorherige Woche",
+    "previousMonth": "Vorheriger Monat",
+    "nextWeek": "Nächste Woche",
+    "nextMonth": "Nächster Monat",
+    "scale": {
+      "week": "Woche",
+      "month": "Monat"
+    },
+    "loading": "Ihr Kalender wird geladen…",
+    "error": {
+      "title": "Ihr Kalender konnte nicht geladen werden.",
+      "retry": "Erneut versuchen"
+    }
+  },
+  "detail": {
+    "loading": "Wird geladen…",
+    "error": {
+      "title": "Dieses Meeting konnte nicht geöffnet werden.",
+      "retry": "Erneut versuchen"
+    },
+    "kindLabel": {
+      "meeting": "Meeting",
+      "channelCall": "Kanalanruf",
+      "call": "Anruf"
+    },
+    "noTitleSet": "kein Titel festgelegt",
+    "join": "Beitreten",
+    "open": "Öffnen",
+    "tabs": {
+      "overview": "Übersicht",
+      "chat": "Chat",
+      "notes": "Notizen"
+    },
+    "live": "Live",
+    "overview": {
+      "when": {
+        "sectionTitle": "Wann",
+        "date": "Datum",
+        "start": "Beginn",
+        "end": "Ende",
+        "scheduledEnd": "Geplantes Ende",
+        "runningFor": "Läuft seit",
+        "duration": "Dauer"
+      },
+      "people": {
+        "sectionTitle": "Personen · {{joined}} von {{total}} beigetreten",
+        "empty": "Für dieses Meeting wurde keine Teilnehmerliste erfasst.",
+        "host": "Host",
+        "external": "Extern",
+        "attendance": {
+          "joinedAndLeft": "Beigetreten {{joinedAt}} · verlassen {{leftAt}}",
+          "joined": "Beigetreten {{joinedAt}}",
+          "waiting": "Wartet auf Einlass",
+          "invited": "Eingeladen",
+          "didNotJoin": "Nicht beigetreten"
+        }
+      },
+      "meeting": {
+        "sectionTitle": "Meeting",
+        "organisedBy": "Organisiert von",
+        "openedBy": "Geöffnet von",
+        "media": "Medien",
+        "audioOnly": "Nur Audio",
+        "video": "Video",
+        "recording": "Aufnahme",
+        "recordingAvailable": "Verfügbar",
+        "recordingInProgress": "Läuft",
+        "recordingNotRecorded": "Nicht aufgenommen",
+        "channelCall": "Kanalanruf",
+        "channelCallValue": "Teilnehmerliste ist der Kanal",
+        "beingRecorded": "Dieser Anruf wird aufgenommen",
+        "sharingOne": "{{name}} teilt den Bildschirm",
+        "sharingMany": "{{count}} Personen teilen",
+        "repeats": "Wiederholung",
+        "channels": "Kanäle",
+        "channelsUnavailable_one": "{{count}} Kanal",
+        "channelsUnavailable_other": "{{count}} Kanäle"
+      }
+    },
+    "recording": {
+      "preparing": "Wiedergabe wird vorbereitet…",
+      "watch": "Aufnahme ansehen"
+    }
+  },
+  "row": {
+    "live": "Live",
+    "inviteJoinTitle": "{{invited}} eingeladen · {{joined}} beigetreten",
+    "organiser": "Host",
+    "join": "Beitreten",
+    "open": "Öffnen",
+    "recording": "Aufnahme",
+    "details": "Details",
+    "menu": {
+      "actionsFor": "Aktionen für {{title}}",
+      "untitledMeeting": "dieses Meeting",
+      "viewDetails": "Details ansehen",
+      "joinMeeting": "Meeting beitreten",
+      "openRoom": "Raum öffnen",
+      "watchRecording": "Aufnahme ansehen"
+    }
+  },
+  "monthGrid": {
+    "openThisWeek": "Diese Woche öffnen",
+    "more": "+{{count}} weitere"
+  },
+  "newMeeting": {
+    "title": "Neues Meeting",
+    "close": "Schließen",
+    "titleLabel": "Meeting-Titel",
+    "titlePlaceholder": "Meeting-Titel eingeben",
+    "startTimeLabel": "Beginn",
+    "endTimeLabel": "Ende",
+    "errors": {
+      "titleRequired": "Ein Meeting-Titel ist erforderlich.",
+      "startRequired": "Startdatum und Startzeit sind erforderlich.",
+      "startInPast": "Die Startzeit darf nicht in der Vergangenheit liegen.",
+      "endRequired": "Enddatum und Endzeit sind erforderlich.",
+      "endBeforeStart": "Die Endzeit muss nach der Startzeit liegen.",
+      "peopleUnavailable": "Einige der gewählten Mitglieder oder Kanäle sind nicht mehr verfügbar."
+    },
+    "cancel": "Abbrechen",
+    "scheduleMeeting": "Meeting planen",
+    "startMeeting": "Meeting starten",
+    "starting": "Wird gestartet…",
+    "scheduling": "Wird geplant…",
+    "scheduleError": "Dieses Meeting konnte nicht geplant werden",
+    "membersLabel": "Mitglieder",
+    "membersAdd": "Mitglieder hinzufügen",
+    "membersDone": "Fertig",
+    "membersNone": "Noch keine Mitglieder hinzugefügt.",
+    "membersRemove": "{{name}} entfernen",
+    "unknownMember": "Unbekanntes Mitglied",
+    "channelsLabel": "Kanäle",
+    "channelsAdd": "Kanäle hinzufügen",
+    "channelsDone": "Fertig",
+    "channelsNone": "Noch keine Kanäle hinzugefügt.",
+    "channelsRemove": "{{name}} entfernen",
+    "channelsHint": "Alle in einem Kanal werden eingeladen.",
+    "unknownChannel": "Nicht verfügbarer Kanal",
+    "channelPicker": {
+      "searchPlaceholder": "Kanäle suchen…",
+      "searchAriaLabel": "Ihre Kanäle durchsuchen",
+      "loading": "Kanäle werden geladen…",
+      "error": "Ihre Kanäle konnten nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "members_one": "{{count}} Mitglied",
+      "members_other": "{{count}} Mitglieder",
+      "empty": {
+        "none": "Sie sind in keinem Kanal.",
+        "noMatches": "Keine Treffer."
+      }
+    },
+    "repeat": {
+      "label": "Wiederholung",
+      "none": "Keine Wiederholung",
+      "daily": "Täglich",
+      "weekly": "Wöchentlich",
+      "monthly": "Monatlich",
+      "every": "Alle",
+      "intervalAria": "Wiederholen alle",
+      "unit": {
+        "day_one": "Tag",
+        "day_other": "Tage",
+        "week_one": "Woche",
+        "week_other": "Wochen",
+        "month_one": "Monat",
+        "month_other": "Monate"
+      },
+      "on": "Am",
+      "ends": "Endet",
+      "endNever": "Nie",
+      "endOnDate": "Am Datum",
+      "endAfter": "Nach Terminen",
+      "endDateAria": "Enddatum",
+      "occurrenceCountAria": "Anzahl der Termine",
+      "occurrences_one": "Termin",
+      "occurrences_other": "Termine",
+      "errors": {
+        "interval": "Geben Sie eine ganze Zahl von 1 bis {{max}} ein.",
+        "weekdays": "Wählen Sie mindestens einen Tag.",
+        "endDateRequired": "Wählen Sie ein Enddatum.",
+        "endDateBeforeStart": "Das Enddatum darf nicht vor dem ersten Meeting liegen.",
+        "occurrenceCount": "Geben Sie eine ganze Zahl von 1 bis {{max}} ein."
+      },
+      "monthlyHint": "Wiederholt sich am {{day}}. Tag des Monats. Monate ohne diesen Tag werden übersprungen."
+    },
+    "time": {
+      "chooseHour": "Stunde wählen",
+      "chooseMinutes": "Minuten wählen",
+      "am": "AM",
+      "pm": "PM",
+      "hourAria": "{{hour}} Uhr",
+      "minuteAria": "{{minute}} Minuten",
+      "pickerAriaLabel": "Zeitauswahl: {{label}}",
+      "cancel": "Abbrechen",
+      "ok": "OK",
+      "dateAriaLabel": "Datum: {{label}}",
+      "triggerAriaLabel": "Uhrzeit: {{label}}"
+    },
+    "preview": {
+      "sectionTitle": "Meeting-Vorschau",
+      "untitled": "Meeting ohne Titel",
+      "pickATime": "Datum und Uhrzeit wählen",
+      "noInvitees": "Noch niemand eingeladen",
+      "onlineMeeting": "Online-Meeting",
+      "repeatLabel": "Wiederholung",
+      "members_one": "{{count}} Mitglied",
+      "members_other": "{{count}} Mitglieder",
+      "channels_one": "{{count}} Kanal",
+      "channels_other": "{{count}} Kanäle",
+      "endsOn": "endet {{date}}",
+      "duration": {
+        "days_one": "{{count}} Tag",
+        "days_other": "{{count}} Tage",
+        "hours_one": "{{count}} Std.",
+        "hours_other": "{{count}} Std.",
+        "minutes_one": "{{count}} Min.",
+        "minutes_other": "{{count}} Min."
+      },
+      "dateLabel": "Datum",
+      "timeLabel": "Uhrzeit",
+      "peopleLabel": "Personen",
+      "channelsLabel": "Kanäle",
+      "videoLabel": "Video"
+    },
+    "confirmation": {
+      "title": "Meeting geplant!",
+      "subtitle": "Ihr Meeting wurde dem Kalender hinzugefügt.",
+      "dismiss": "Schließen",
+      "close": "Schließen",
+      "copyLink": "Link kopieren",
+      "linkCopied": "Kopiert!",
+      "generatingLink": "Link wird erstellt…",
+      "viewInCalendar": "Im Kalender ansehen",
+      "startNow": "Meeting jetzt starten"
+    },
+    "detailsTitle": "Meeting-Details",
+    "membersDescription": "Personen zu diesem Meeting hinzufügen",
+    "membersEmptyHint": "Personen zu Ihrem Meeting einladen",
+    "channelsDescription": "Kanäle zu diesem Meeting hinzufügen"
+  },
+  "schedule": {
+    "error": "Dieser Anruf konnte nicht geplant werden",
+    "titleChannel": "Kanalanruf starten",
+    "titleDirect": "Anruf planen",
+    "descriptionChannel": "Alle in diesem Kanal können beitreten. Es gibt keinen Einladungslink – die Kanalmitgliedschaft ist die Einladung.",
+    "descriptionDirect": "{{peerName}} kann zur gewählten Zeit beitreten. Wer den Anruf plant, eröffnet ihn.",
+    "titleLabel": "Titel",
+    "placeholderChannel": "Design-Abstimmung",
+    "placeholderDirect": "Wochenrückblick",
+    "typeLabel": "Art",
+    "video": "Video",
+    "audio": "Audio",
+    "whenLabel": "Wann",
+    "whenRequired": "– erforderlich",
+    "whenOptional": "– leer lassen, um sofort zu starten",
+    "lengthLabel": "Dauer",
+    "lengthHint": "– der Anruf endet automatisch, wenn die Zeit abläuft",
+    "durations": {
+      "m15": "15 Min.",
+      "m30": "30 Min.",
+      "h1": "1 Std.",
+      "h2": "2 Std.",
+      "noEnd": "Kein Ende"
+    },
+    "cancel": "Abbrechen",
+    "submitSchedule": "Planen",
+    "submitStartNow": "Jetzt starten",
+    "untitled": "Ohne Titel",
+    "startedNow": "Jetzt gestartet",
+    "endsAt": " – endet {{time}}",
+    "done": "Fertig",
+    "joinNow": "Jetzt beitreten"
+  },
+  "filterMenu": {
+    "trigger": "Filter",
+    "ariaLabel": "Meetings filtern",
+    "typeHeading": "Art",
+    "onlyMine": "Nur von mir organisierte",
+    "clear": "Filter zurücksetzen"
+  },
+  "handoff": {
+    "title": "Meeting beitreten",
+    "subtitle": "Sie können diesem Meeting über die Desktop-App beitreten oder direkt im Browser fortfahren.",
+    "notOpened": "Nicht automatisch geöffnet.",
+    "openingApp": "Die {{brand}}-Desktop-App wird geöffnet…",
+    "continueInBrowser": "Im Browser fortfahren"
+  },
+  "inviteLink": {
+    "label": "Einladungslink",
+    "copy": "Meeting-Link kopieren",
+    "couldNotCreate": "Ein Einladungslink konnte nicht erstellt werden",
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "copyManually": "Markieren Sie den Link und kopieren Sie ihn manuell."
+  },
+  "host": {
+    "openFailed": "Dieses Meeting konnte nicht geöffnet werden",
+    "rejoin": {
+      "ariaLabel": "Dem Meeting erneut beitreten, in dem Sie waren",
+      "untitled": "Meeting",
+      "description": "Sie waren in diesem Meeting, bevor die Seite neu geladen wurde.",
+      "notNow": "Jetzt nicht",
+      "rejoinButton": "Erneut beitreten"
+    }
+  },
+  "transcript": {
+    "chat": {
+      "emptyTitle": "Kein Chat in diesem Meeting",
+      "emptyHint": "An alle im Raum gesendete Nachrichten werden hier aufbewahrt. Private Nachrichten gehen nur an eine Person und werden nie gespeichert."
+    },
+    "notes": {
+      "emptyTitle": "Keine Notizen gemacht",
+      "emptyHint": "Punkte, die im Notizenbereich des Meetings geschrieben wurden, werden hier aufbewahrt."
+    },
+    "loading": "Wird geladen…",
+    "error": "Das konnte nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "loadMore": "Mehr laden"
+  },
+  "statusBar": {
+    "micOn": "Mikrofon an",
+    "micOff": "Mikrofon aus",
+    "leaveMeeting": "Meeting verlassen"
+  },
+  "series": {
+    "badge": "Wiederkehrendes Meeting",
+    "summary": {
+      "day_one": "Wiederholt sich täglich",
+      "day_other": "Wiederholt sich alle {{count}} Tage",
+      "week_one": "Wiederholt sich wöchentlich ({{days}})",
+      "week_other": "Wiederholt sich alle {{count}} Wochen ({{days}})",
+      "month_one": "Wiederholt sich monatlich",
+      "month_other": "Wiederholt sich alle {{count}} Monate",
+      "withEnd": "{{repeat}}, {{end}}",
+      "until": "bis {{date}}",
+      "times_one": "{{count}} Meeting insgesamt",
+      "times_other": "{{count}} Meetings insgesamt"
+    },
+    "edit": {
+      "button": "Serie bearbeiten",
+      "title": "Wiederkehrendes Meeting bearbeiten",
+      "close": "Schließen",
+      "loading": "Wird geladen…",
+      "error": "Diese Serie konnte nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "first": "Erstes Meeting: {{when}}. Datum und Uhrzeit lassen sich hier nicht ändern.",
+      "note": "Beim Speichern werden die kommenden Meetings dieser Serie aktualisiert. Meetings, deren Datum und Uhrzeit gleich bleiben, behalten ihre Beitrittslinks und Gäste; bereits stattgefundene Meetings bleiben unverändert.",
+      "cancel": "Abbrechen",
+      "save": "Änderungen speichern",
+      "saving": "Wird gespeichert…",
+      "saveError": "Ihre Änderungen konnten nicht gespeichert werden"
+    },
+    "cancelSeries": {
+      "button": "Serie absagen",
+      "title": "Diese Serie absagen?",
+      "message": "Alle kommenden Meetings dieser Serie werden für alle entfernt. Bereits stattgefundene Meetings bleiben erhalten.",
+      "confirm": "Serie absagen",
+      "error": "Die Serie konnte nicht abgesagt werden",
+      "done": "Serie abgesagt"
+    }
+  },
+  "view": {
+    "untitled": "Meeting ohne Titel",
+    "scope": {
+      "channelCall": "Kanalanruf",
+      "directCall": "Direktanruf"
+    },
+    "kind": {
+      "MEETING": "Meetings",
+      "CHANNEL": "Kanalanrufe",
+      "DIRECT": "Direktanrufe"
+    },
+    "status": {
+      "cancelled": "Abgesagt",
+      "live": "Live",
+      "upcoming": "Anstehend",
+      "ended": "Beendet"
+    },
+    "listSeparator": ", ",
+    "namesAnd": "{{list}} und {{last}}",
+    "namesAndOthers_one": "{{list}} und {{count}} weitere Person",
+    "namesAndOthers_other": "{{list}} und {{count}} weitere Personen"
+  }
+}

@@ -22,8 +22,14 @@ interface BlobPreview {
  * The signed URL carries its own authorization in the query string (see
  * useAttachmentLinks), so a plain `fetch` needs no Authorization header —
  * same as the `<img src>`/`<video src>` it sits alongside.
+ *
+ * `mime` is the type the caller has decided it is willing to render. A `blob:`
+ * URL inherits the app's origin, so bytes the server labelled `text/html` and
+ * showed in an iframe would run as script in the app; when `mime` is given the
+ * bytes are re-wrapped with exactly that type, whatever the response said.
+ * The `error` text is diagnostic only — callers show their own localised copy.
  */
-export function useBlobUrl(source: string | undefined): BlobPreview {
+export function useBlobUrl(source: string | undefined, mime?: string): BlobPreview {
   const [state, setState] = useState<{ url?: string; error?: string }>({});
 
   useEffect(() => {
@@ -32,15 +38,17 @@ export function useBlobUrl(source: string | undefined): BlobPreview {
 
     let objectUrl: string | undefined;
     let cancelled = false;
+    // Closing the preview mid-download must stop the download, not just ignore it.
+    const abort = new AbortController();
 
-    fetch(source)
+    fetch(source, { signal: abort.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`Preview failed to load (${res.status})`);
         return res.blob();
       })
       .then((blob) => {
         if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
+        objectUrl = URL.createObjectURL(mime ? new Blob([blob], { type: mime }) : blob);
         setState({ url: objectUrl });
       })
       .catch((err: unknown) => {
@@ -50,9 +58,10 @@ export function useBlobUrl(source: string | undefined): BlobPreview {
 
     return () => {
       cancelled = true;
+      abort.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [source]);
+  }, [source, mime]);
 
   return {
     url: state.url,

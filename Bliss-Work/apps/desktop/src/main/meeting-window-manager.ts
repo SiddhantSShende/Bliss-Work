@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain, screen, type IpcMainEvent } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
+import { mainT } from "./i18n";
 import { hardenWindow } from "./harden";
 
 /** How long a meeting window is given to disconnect the room and post its
@@ -187,7 +188,7 @@ export class MeetingWindowManager {
       show: false,
       autoHideMenuBar: true,
       backgroundColor: "#16181f",
-      title: "Meeting · BlissWork",
+      title: mainT("windows.meetingTitle"),
       icon: appIcon(),
       webPreferences: {
         preload: preloadMain,

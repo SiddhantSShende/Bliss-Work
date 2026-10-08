@@ -1,0 +1,271 @@
+{
+  "shared": {
+    "you": "你",
+    "emptyMessages": "还没有消息，打个招呼吧 👋",
+    "sending": "发送中…",
+    "callMissedNoAnswer": "{{body}} · 无人接听",
+    "messageFailedToSend": "消息发送失败",
+    "loadOlderMessagesFailed": "无法加载更早的消息"
+  },
+  "thread": {
+    "composerPlaceholder": "输入消息…",
+    "loadHistory": {
+      "loading": "正在加载更早的消息…",
+      "load": "加载更早的消息"
+    },
+    "pinned": "已置顶",
+    "forwarded": "已转发",
+    "tombstone": "此消息已被删除",
+    "deletedMessage": "已删除的消息",
+    "originalMessage": "原消息",
+    "selectMessage": "选择消息",
+    "selectMessageFrom": "选择 {{name}} 的消息",
+    "seenBy": {
+      "label": "已读成员",
+      "count": "{{count}} 人已读",
+      "ariaLabel_other": "{{count}} 人已读",
+      "unknownReader": "未知"
+    },
+    "typing": {
+      "peer": "{{name}} 正在输入…",
+      "generic": "正在输入…"
+    },
+    "disabledNotice": "你无法在此对话中发送消息。"
+  },
+  "threadView": {
+    "loadOlder": {
+      "loading": "正在加载更早的消息…",
+      "button": "加载前 12 条",
+      "title": "加载前 12 条消息"
+    }
+  },
+  "dmView": {
+    "errors": {
+      "reactionSave": "无法保存该表情回应",
+      "hideMessage": "无法隐藏该消息",
+      "markUnread": "无法将该聊天标为未读",
+      "deleteMessage": "无法删除该消息",
+      "deleteMessages": "无法删除这些消息",
+      "clearChat": "无法清空此聊天记录",
+      "removeConversation": "无法移除此对话",
+      "createCallLink": "无法创建通话链接",
+      "noneDeletable": "所选消息均无法为所有人删除",
+      "updateBlock": {
+        "title": "无法更新屏蔽设置",
+        "description": "请重试。"
+      }
+    },
+    "bulkDelete": {
+      "deletedToast_other": "已删除 {{count}} 条消息",
+      "partialToast": "已删除 {{total}} 条中的 {{deleted}} 条",
+      "partialDescription": "{{count}} 条无法删除，只有发送者本人才能删除。"
+    },
+    "clearChatToast": "已为你清空聊天记录",
+    "callLink": {
+      "messageBody": "加入我的通话：{{link}}",
+      "failedToast": "{{total}} 人中有 {{failed}} 人无法送达",
+      "failedDescription": "链接已发布在此聊天中，其他人均已收到。",
+      "sentToast": "通话链接已发送",
+      "sentDescription": {
+        "withOthers_other": "同时已发送给另外 {{count}} 人。通话现已开启，准备好后可在“会议”中加入。",
+        "aloneOnly": "通话现已开启，准备好后可在“会议”中加入。"
+      }
+    },
+    "notFound": {
+      "title": "未找到对话",
+      "hint": "请从侧边栏选择其他对话。"
+    },
+    "startCall": {
+      "blockedNotice": {
+        "title": "无法发起通话",
+        "unblockToCall": "请先取消屏蔽该用户，才能呼叫对方。",
+        "cannotCall": "你无法呼叫该用户。"
+      },
+      "mustBeOnline": "{{name}} 需要在线才能接听通话。",
+      "onAnotherCall": {
+        "title": "{{name}} 正在通话中",
+        "description": "仍会呼叫对方，但对方可能无法接听。"
+      }
+    },
+    "exportedToast_other": "已导出 {{count}} 条消息",
+    "header": {
+      "backToChats": "返回聊天",
+      "status": {
+        "busy": "通话中",
+        "online": "在线",
+        "offline": "离线"
+      },
+      "unblockTitle": "取消屏蔽该用户",
+      "blockTitle": "屏蔽该用户",
+      "unblockLabel": "取消屏蔽",
+      "blockLabel": "屏蔽",
+      "removeFromInboxes": "从双方收件箱中移除",
+      "ignore": "忽略"
+    },
+    "search": {
+      "placeholder": "搜索你与 {{name}} 的聊天…"
+    },
+    "composer": {
+      "placeholder": "发消息给 {{name}}…"
+    },
+    "notice": {
+      "blockedByMe": "你已屏蔽该用户。取消屏蔽后才能发送消息。",
+      "blockedByPeer": "你已被对方屏蔽。"
+    },
+    "clearChatDialog": {
+      "title": "清空聊天记录？",
+      "message": "这将为你删除此聊天记录，对方仍会保留自己的副本。",
+      "confirmLabel": "清空聊天"
+    },
+    "bulkDeleteDialog": {
+      "title_other": "删除 {{count}} 条消息？",
+      "messageAll": "这将为此聊天中的所有人删除这些消息，且无法撤销。",
+      "messagePartial": "所选 {{total}} 条消息中，有 {{remaining}} 条无法为所有人删除，只有发送者本人才能删除。其余 {{deletable}} 条将为所有人删除，且无法撤销。",
+      "confirmLabel": "删除"
+    }
+  },
+  "channelView": {
+    "errors": {
+      "reactionSave": "无法保存该表情回应",
+      "hideMessage": "无法隐藏该消息",
+      "markUnread": "无法将该频道标为未读",
+      "clearMessages": "无法清空频道消息",
+      "deleteMessage": "无法删除该消息",
+      "deleteMessages": "无法删除这些消息",
+      "changePin": "无法更改置顶状态",
+      "startCall": "无法发起通话",
+      "leave": "无法退出",
+      "deleteChannel": "无法删除频道",
+      "noneDeletable": "所选消息均无法为所有人删除"
+    },
+    "clearMessagesToast": "已为你清空频道消息",
+    "bulkDelete": {
+      "deletedToast_other": "已删除 {{count}} 条消息",
+      "partialToast": "已删除 {{total}} 条中的 {{deleted}} 条",
+      "partialDescription": "{{count}} 条无法删除，只有发送者本人或频道管理者才能删除。"
+    },
+    "pinToggle": {
+      "pinned": "已为所有人置顶",
+      "unpinned": "已取消置顶"
+    },
+    "leftChannelToast": "你已退出 #{{name}}",
+    "deletedChannelToast": "频道已删除",
+    "notFound": {
+      "title": "未找到频道",
+      "hint": "请从侧边栏选择其他频道。"
+    },
+    "exportedToast_other": "已导出 {{count}} 条消息",
+    "header": {
+      "backToChannels": "返回频道",
+      "locked": "私密",
+      "membersTitle": "频道成员",
+      "membersAriaLabel": "{{count}} 位成员，查看并管理"
+    },
+    "search": {
+      "placeholder": "搜索 #{{name}}…"
+    },
+    "composer": {
+      "placeholder": "发消息到 #{{name}}…"
+    },
+    "clearMessagesDialog": {
+      "title": "清空频道消息？",
+      "message": "这将为你清空已加载的消息，其他成员仍会保留各自的副本。",
+      "confirmLabel": "清空消息"
+    },
+    "deleteChannelDialog": {
+      "titleNamed": "删除 #{{name}}？",
+      "titleFallback": "删除频道？",
+      "message": "此操作无法撤销，频道及其消息都将被删除。",
+      "confirmLabel": "删除频道"
+    },
+    "bulkDeleteDialog": {
+      "title_other": "删除 {{count}} 条消息？",
+      "messageAll": "这将为此频道中的所有人删除这些消息，且无法撤销。",
+      "messagePartial": "所选 {{total}} 条消息中，有 {{remaining}} 条无法为所有人删除，只有发送者本人或频道管理者才能删除。其余 {{deletable}} 条将为所有人删除，且无法撤销。",
+      "confirmLabel": "删除"
+    }
+  },
+  "conversationMenu": {
+    "unavailableHint": "暂不可用，需要服务器端支持",
+    "label": {
+      "channel": "频道选项",
+      "chat": "聊天选项"
+    },
+    "items": {
+      "viewProfile": "查看资料",
+      "search": "搜索",
+      "media": "媒体、链接和文档",
+      "selectMessages": "选择消息",
+      "mute": "静音通知",
+      "unmute": "取消静音通知",
+      "more": "更多",
+      "clearChat": "清空聊天",
+      "exportChat": "导出聊天",
+      "pin": "置顶{{scope}}",
+      "unpin": "取消置顶{{scope}}",
+      "rename": "重命名",
+      "delete": "删除",
+      "leaving": "正在退出…",
+      "leave": "退出"
+    },
+    "scope": {
+      "channel": "频道",
+      "chat": "聊天"
+    }
+  },
+  "whatsAppForward": {
+    "forwardedToast": "已通过 WhatsApp 转发",
+    "forwardedDescription": "收件人由你在 WhatsApp 中选择，因此此聊天仅记录转交操作。",
+    "logFailedToast": "无法记录此次转发",
+    "logFailedDescription": "WhatsApp 已正常打开，只是未记录在此聊天中。",
+    "shareFailedGeneric": "分享失败",
+    "mediaPrepareFailed": "无法为 WhatsApp 准备附件",
+    "mediaNoLongerAvailable": "附件可能已不可用。",
+    "sharedToast": "已打开分享面板并附上附件",
+    "sharedDescription": "请在其中选择 WhatsApp，之后的情况 BlissWork 无法确认。",
+    "downloadedToast_other": "已为 WhatsApp 下载 {{count}} 个附件",
+    "downloadedDescription": "此设备无法自动将文件交给 WhatsApp，请在 WhatsApp 中手动添加已下载的文件。",
+    "mediaShareFailed": "无法向 WhatsApp 分享附件"
+  },
+  "export": {
+    "header": "{{brand}} 对话记录",
+    "exportedSummary_other": "导出时间 {{timestamp}} · 已加载 {{count}} 条消息",
+    "unknownSender": "未知",
+    "deletedMessage": "（已删除）",
+    "noText": "（无文字）"
+  },
+  "messageActions": {
+    "react": {
+      "title": "表情回应",
+      "ariaLabel": "对这条消息添加表情回应"
+    },
+    "more": {
+      "title": "更多",
+      "ariaLabel": "消息操作"
+    },
+    "menu": {
+      "reply": "回复",
+      "download": "下载",
+      "downloadNamed": "下载 {{name}}",
+      "forwardTo": "转发到聊天或频道…",
+      "forwardWhatsApp": "转发到 WhatsApp",
+      "markUnread": "标为未读",
+      "deleteForMe": "仅为我删除",
+      "unpinForEveryone": "为所有人取消置顶",
+      "pinForEveryone": "为所有人置顶",
+      "deleteForEveryone": "为所有人删除"
+    },
+    "confirmDialog": {
+      "title": "删除消息？",
+      "deleteAllMessage": "确定要删除这条消息吗？此对话中的所有人都将看不到它。",
+      "deleteMeMessage": "确定要删除这条消息吗？这只会将其从你的视图中移除。",
+      "confirmLabel": "删除"
+    },
+    "reactions": {
+      "clickToRemove": "点击撤销你的表情回应",
+      "clickToReact": "点击添加表情回应",
+      "andMore": "{{names}} 等 {{hidden}} 人",
+      "tooltip": "{{who}} 回应了 {{emoji}}，{{action}}"
+    }
+  }
+}

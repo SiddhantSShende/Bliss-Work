@@ -44,6 +44,27 @@ describe("sanitize", () => {
   it("strips control characters", () => {
     expect(sanitize("a\u0000b\nc.txt")).toBe("a_b_c.txt");
   });
+
+  it.each(["con", "CON.txt", "nul.tar.gz", "Aux", "com1.log", "LPT9.txt"])(
+    "does not leave the Windows device name %j as a file name",
+    (name) => {
+      expect(sanitize(name)).toBe(`_${name}`);
+    },
+  );
+
+  it("leaves names that merely start with a device name alone", () => {
+    for (const name of ["console.log", "nullable.txt", "com10.txt", "auxiliary.pdf"]) {
+      expect(sanitize(name)).toBe(name);
+    }
+  });
+
+  it("caps an over-long name but keeps its extension, so the executable check still sees it", () => {
+    const out = sanitize(`${"a".repeat(400)}.exe`);
+    expect(out.length).toBeLessThanOrEqual(200);
+    expect(out.endsWith(".exe")).toBe(true);
+    expect(isExecutableAttachment(out)).toBe(true);
+    expect(sanitize("b".repeat(400)).length).toBeLessThanOrEqual(200);
+  });
 });
 
 describe("isExecutableAttachment", () => {
@@ -53,8 +74,16 @@ describe("isExecutableAttachment", () => {
     }
   });
 
+  it.each([
+    ".sh", ".command", ".app", ".pkg", ".dmg", ".desktop", ".AppImage", ".deb", ".rpm", ".jnlp", ".msix", ".appx",
+    ".msp", ".gadget", ".scf", ".library-ms", ".xll", ".docm", ".xlsm", ".pptm", ".py", ".pl", ".terminal",
+    ".workflow",
+  ])("flags the launcher extension %s, so it is revealed rather than opened", (ext) => {
+    expect(isExecutableAttachment(`/downloads/thing${ext}`)).toBe(true);
+  });
+
   it("lets ordinary documents through", () => {
-    for (const name of ["a.pdf", "a.png", "notes.txt", "archive.tar.gz"]) {
+    for (const name of ["a.pdf", "a.png", "notes.txt", "archive.tar.gz", "a.docx", "a.xlsx", "a.pptx", "a.zip", "a.csv"]) {
       expect(isExecutableAttachment(`/downloads/${name}`)).toBe(false);
     }
   });

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CUSTOM_THEME_CLASS, customThemeStyle, isCustomThemeActive, isThemeId, readStoredCustomTheme, Logo, themeClasses, defaultThemeFor, ALL_THEME_CLASSES } from "@taskboard/ui";
 import { Phone, Video, X } from "lucide-react";
+import { followStoredLocale, useTranslation } from "@taskboard/app/i18n/windowLocale";
 import "@taskboard/ui/styles.css";
 import "./index.css";
 
@@ -55,6 +56,10 @@ function useSyncedTheme(): void {
 
 function MeetingInviteApp() {
   useSyncedTheme();
+  const { t } = useTranslation("stickies");
+  useEffect(() => {
+    document.title = t("window.titles.invite");
+  }, [t]);
   const bridge = window.meetingInvite;
   const [invite, setInvite] = useState<Invite>({
     callId: bridge.callId,
@@ -75,27 +80,27 @@ function MeetingInviteApp() {
   return (
     <div className="app-drag flex h-full flex-col items-center justify-center gap-3 bg-surface p-4 text-center">
       <Logo size={30} />
-      <div className="line-clamp-2 text-sm font-semibold text-fg">{invite.title || "Meeting"}</div>
-      {invite.organizer && <div className="text-xs text-muted">Hosted by {invite.organizer}</div>}
+      <div className="line-clamp-2 text-sm font-semibold text-fg">{invite.title || t("window.invite.meetingFallback")}</div>
+      {invite.organizer && <div className="text-xs text-muted">{t("window.invite.hostedBy", { name: invite.organizer })}</div>}
       <div className="app-no-drag mt-1 flex items-center justify-center gap-5">
         <InviteAction
           icon={<Video size={18} />}
-          label="Video"
-          title="Join with camera on"
+          label={t("window.invite.video")}
+          title={t("window.invite.videoTitle")}
           tone="accent"
           onClick={() => bridge.act("video")}
         />
         <InviteAction
           icon={<Phone size={18} />}
-          label="Voice"
-          title="Join with voice only"
+          label={t("window.invite.voice")}
+          title={t("window.invite.voiceTitle")}
           tone="accent"
           onClick={() => bridge.act("voice")}
         />
         <InviteAction
           icon={<X size={18} />}
-          label="Leave"
-          title="Dismiss"
+          label={t("window.invite.leave")}
+          title={t("window.invite.dismiss")}
           tone="danger"
           onClick={() => bridge.act("leave")}
         />
@@ -130,6 +135,8 @@ function InviteAction({
     </button>
   );
 }
+
+void followStoredLocale();
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

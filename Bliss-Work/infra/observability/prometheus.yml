@@ -34,23 +34,45 @@ scrape_configs:
 
   - job_name: auth-svc
     metrics_path: /metrics
-    static_configs:
-      - targets: ["auth-svc:8001"]
+    dns_sd_configs:
+      - names: ["auth-svc"]
+        type: A
+        port: 8001
+    # Each DNS A record becomes a distinct target. Preserve the resolved
+    # address as instance so every replica has independent time series.
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
 
   - job_name: task-svc
     metrics_path: /metrics
-    static_configs:
-      - targets: ["task-svc:8002"]
+    dns_sd_configs:
+      - names: ["task-svc"]
+        type: A
+        port: 8002
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
 
   - job_name: notification-svc
     metrics_path: /metrics
-    static_configs:
-      - targets: ["notification-svc:8003"]
+    dns_sd_configs:
+      - names: ["notification-svc"]
+        type: A
+        port: 8003
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
 
   - job_name: messaging-svc
     metrics_path: /metrics
-    static_configs:
-      - targets: ["messaging-svc:8004"]
+    dns_sd_configs:
+      - names: ["messaging-svc"]
+        type: A
+        port: 8004
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
 
   - job_name: ws-gateway
     metrics_path: /metrics
@@ -63,18 +85,33 @@ scrape_configs:
   # more than the client-side joins it replaced.
   - job_name: graph-gw
     metrics_path: /metrics
-    static_configs:
-      - targets: ["graph-gw:8007"]
+    dns_sd_configs:
+      - names: ["graph-gw"]
+        type: A
+        port: 8007
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
 
   - job_name: integrations-svc
     metrics_path: /metrics
-    static_configs:
-      - targets: ["integrations-svc:8005"]
+    dns_sd_configs:
+      - names: ["integrations-svc"]
+        type: A
+        port: 8005
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
 
   - job_name: telemetry-svc
     metrics_path: /metrics
-    static_configs:
-      - targets: ["telemetry-svc:8006"]
+    dns_sd_configs:
+      - names: ["telemetry-svc"]
+        type: A
+        port: 8006
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
 
   # NOT SCRAPED: email-worker. It is a Kafka consumer with no HTTP listener and
   # no Prometheus client, so there is nothing to scrape — adding a job here would

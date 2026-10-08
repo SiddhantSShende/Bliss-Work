@@ -9,12 +9,15 @@
  */
 import { WebSocket as NodeWebSocket } from "ws";
 import { ApiClient, ApiError, WsClient, type ServerEvent, type StickyTaskDTO, type ClientFrame, type WsEventMeta } from "@taskboard/shared";
+import type { Endpoints } from "../shared/endpoints";
+import { buildApiConfig } from "./ws-api-config";
 import {
   createRefreshGate,
   overlayPendingPins,
   shouldRefreshSticky,
   type PinStates,
 } from "./sticky-refresh";
+import { sendStickyChatReply, toStickyChatMessage } from "../shared/sticky-chat-messages";
 
 const parent = (process as unknown as { parentPort: NodeJS.EventEmitter & { postMessage: (m: unknown) => void } }).parentPort;
 
@@ -63,28 +66,17 @@ function requestToken(): Promise<string> {
   });
 }
 
-function build(cfg: {
-  authBase: string;
-  taskBase: string;
-  messagingBase: string;
-  telemetryBase: string;
-  notificationBase: string;
-  wsUrl: string;
-}) {
-  api = new ApiClient({
-    authBase: cfg.authBase,
-    taskBase: cfg.taskBase,
-    messagingBase: cfg.messagingBase,
-    telemetryBase: cfg.telemetryBase,
-    notificationBase: cfg.notificationBase,
-    presenceBase: cfg.wsUrl.replace(/^ws/, "http").replace(/\/ws\/?$/, ""),
-    getToken: () => token,
-    // On a 401 (expired token), ask main for a fresh one — same path the WS uses
-    // (need-token → renderer refreshes via single-flight refreshSession → forwards
-    // the new token back here). Lets sticky-button actions self-heal instead of
-    // silently failing once the token ages out.
-    refreshToken: async () => (await requestToken()) || null,
-  });
+function build(cfg: Endpoints) {
+  api = new ApiClient(
+    buildApiConfig(cfg, {
+      getToken: () => token,
+      // On a 401 (expired token), ask main for a fresh one — same path the WS uses
+      // (need-token → renderer refreshes via single-flight refreshSession → forwards
+      // the new token back here). Lets sticky-button actions self-heal instead of
+      // silently failing once the token ages out.
+      refreshToken: async () => (await requestToken()) || null,
+    }),
+  );
   ws = new WsClient({
     url: cfg.wsUrl,
     getToken: () => token ?? "",
@@ -271,12 +263,9 @@ function onEvent(e: ServerEvent, meta: WsEventMeta) {
       send({
         type: "sticky-chat-message",
         threadId: bucket,
-        payload: {
-          id: e.messageId,
-          senderId: e.senderId,
-          body: e.body,
-          createdAt: e.occurredAt,
-        },
+        // clientMsgId rides along so the window can match this echo to the
+        // optimistic bubble of a reply it sent itself.
+        payload: toStickyChatMessage(e),
       });
     }
   }
@@ -342,14 +331,12 @@ parent.on("message", async (raw: unknown) => {
       // clientMsgId so the sticky's optimistic bubble dedupes cleanly with
       // the server echo (the WS MessageCreated handler in the bridge will
       // see the same clientMsgId).
-      if (!api) break;
-      try {
-        await api.replyToThread(m.threadId as string, m.body as string, {
-          clientMsgId: m.clientMsgId as string,
-        });
-      } catch {
-        /* swallow; user can retry */
-      }
+      // A failure is reported back so the window can show the bubble as unsent.
+      await sendStickyChatReply(
+        api ? api.replyToThread.bind(api) : undefined,
+        { threadId: m.threadId as string, body: m.body as string, clientMsgId: m.clientMsgId as string },
+        (threadId, clientMsgId) => send({ type: "sticky-chat-send-failed", threadId, clientMsgId }),
+      );
       break;
     }
   }

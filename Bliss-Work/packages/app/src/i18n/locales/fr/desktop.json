@@ -1,0 +1,56 @@
+{
+  "menu": {
+    "file": "Fichier",
+    "showApp": "Afficher BlissWork",
+    "quit": "Quitter",
+    "view": "Affichage",
+    "aboutItem": "À propos de BlissWork",
+    "aboutTitle": "À propos de BlissWork",
+    "aboutMessage": "BlissWork",
+    "aboutDetail": "Version {{version}}\nElectron {{electron}} · Chromium {{chrome}}\n\nMessagerie d'équipe et tâches avec notes adhésives toujours au premier plan.",
+    "ok": "OK",
+    "webHelp": "BlissWork sur le Web"
+  },
+  "tray": {
+    "tooltipIdle": "BlissWork",
+    "tooltipTasks_one": "BlissWork — {{count}} tâche active",
+    "tooltipTasks_many": "BlissWork — {{count}} de tâches actives",
+    "tooltipTasks_other": "BlissWork — {{count}} tâches actives",
+    "activeTasks": "Tâches actives : {{count}}",
+    "show": "Afficher BlissWork",
+    "quit": "Quitter"
+  },
+  "notifications": {
+    "brand": "BlissWork",
+    "newMessage": "Nouveau message",
+    "taskUpdate": "Mise à jour de tâche",
+    "meeting": "Réunion",
+    "channelUpdate": "Mise à jour du canal",
+    "attachment": "A envoyé une pièce jointe",
+    "incomingVideoCall": "📹 Appel vidéo entrant",
+    "incomingVoiceCall": "📞 Appel vocal entrant",
+    "accept": "Accepter",
+    "decline": "Refuser"
+  },
+  "updater": {
+    "restartNow": "Redémarrer maintenant",
+    "later": "Plus tard",
+    "updateReady": "Mise à jour prête",
+    "readyMessage": "BlissWork {{version}} est prêt à être installé.",
+    "readyDetail": "Redémarrez l'application pour appliquer la mise à jour. Elle s'installera aussi automatiquement à la prochaine fermeture de l'application.",
+    "devUnsupported": "Les mises à jour ne s'appliquent qu'aux versions installées.",
+    "storeManaged": "Le Microsoft Store gère les mises à jour de cette application.",
+    "unreachable": "Impossible de joindre le serveur de mises à jour."
+  },
+  "attachment": {
+    "notMainWindow": "Refusé : il ne s'agit pas de la fenêtre principale.",
+    "unsafeUrl": "URL non sécurisée refusée.",
+    "downloadFailed": "Échec du téléchargement ({{status}}).",
+    "emptyBody": "Corps de réponse vide.",
+    "couldNotOpen": "Impossible d'ouvrir le fichier."
+  },
+  "windows": {
+    "meetingTitle": "Réunion · BlissWork",
+    "loading": "Chargement…"
+  }
+}

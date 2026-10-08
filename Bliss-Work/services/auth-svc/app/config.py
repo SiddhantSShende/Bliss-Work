@@ -108,15 +108,6 @@ class Settings(BaseSettings):
     redis_url: str = ""
     slowapi_storage_uri: str = ""
 
-    # Dynamic UI translation (routes/i18n_proxy.py). auth-svc holds NO Google
-    # credential and no translation logic: it authenticates the caller and
-    # forwards to translate-gw (services/translate-gw, Go), the one component that
-    # talks to Cloud Translation, using Application Default Credentials. Either
-    # value empty disables translation: /i18n/languages then returns no languages
-    # and the app stays on its bundled English catalog.
-    translate_gw_url: str = ""
-    translate_internal_token: str = ""
-
     # Refresh-cookie security. `secure` MUST be True in production so the cookie
     # is only sent over TLS; driven by env (COOKIE_SECURE) so a prod deploy flips
     # it without a code change instead of relying on someone remembering to edit

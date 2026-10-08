@@ -1,0 +1,66 @@
+{
+  "mediaBubble": {
+    "openFile": "Abrir {{name}}",
+    "download": "Baixar",
+    "downloadFile": "Baixar {{name}}",
+    "uploading": "Enviando… {{percent}}%",
+    "notAvailable": "Indisponível para você",
+    "previewUnavailable": "A visualização não está disponível para este tipo de arquivo"
+  },
+  "fileAttachment": {
+    "downloadsOff": "Os downloads de arquivos estão desativados.",
+    "decline": "Recusar",
+    "cancel": "Cancelar",
+    "retry": "Tentar novamente",
+    "directTransfer": "Transferência direta — ponto a ponto.",
+    "establishingConnection": "Estabelecendo conexão ponto a ponto…",
+    "transferComplete": "Transferência concluída.",
+    "cancelledByPeer": "Cancelado pela outra pessoa",
+    "couldNotReadFile": "Não foi possível ler o arquivo",
+    "couldNotAnnounceFile": "Não foi possível anunciar o arquivo",
+    "declined": "Recusado",
+    "couldNotSend": "Não foi possível enviar {{name}}",
+    "transferUnavailable": "Transferência direta indisponível",
+    "badAnswer": "Resposta inválida",
+    "peerUnreachable": "Destino inacessível",
+    "offerCreationFailed": "Falha ao criar a oferta",
+    "checksumMismatch": "Soma de verificação não confere",
+    "cancelled": "Cancelado",
+    "sinkWriteFailed": "Falha ao gravar o destino: {{message}}",
+    "answerCreationFailed": "Falha ao criar a resposta",
+    "receiverSetupFailed": "Falha ao configurar o recebimento"
+  },
+  "location": {
+    "sharedLocation": "Localização compartilhada",
+    "openInMapsAriaLabel": "Abrir {{title}} no Mapas",
+    "mapAlt": "Mapa mostrando {{title}}",
+    "accuracySuffix": " · ±{{accuracy}} m",
+    "openInMapsTitle": "Abrir no Mapas",
+    "open": "Abrir"
+  },
+  "emojiPicker": {
+    "insertEmoji": "Inserir um emoji"
+  },
+  "attachments": {
+    "tooManyFiles": "Você pode enviar até {{max}} arquivos por vez.",
+    "overSizePeerToPeer": "{{name}} tem mais de {{size}} — enviando ponto a ponto. Vocês dois precisam ficar on-line até o fim do envio.",
+    "tooLarge": "{{name}} é maior que {{size}}.",
+    "uploadFailed": "Falha no envio",
+    "attachFailedSingle": "Não foi possível anexar {{name}}: {{message}}",
+    "attachFailedMultiple": "Não foi possível anexar {{count}} arquivos: {{names}}",
+    "attachFailedGeneric": "Não foi possível anexar esse arquivo. Tente novamente."
+  },
+  "shareLocation": {
+    "gettingLocation": "Obtendo sua localização…",
+    "approximateShared": "Compartilhou uma localização aproximada",
+    "reasons": {
+      "desktopAccessOff": "O acesso à localização está desativado para apps de desktop, então esta é baseada na sua rede.",
+      "noPreciseFix": "Seu dispositivo não conseguiu obter uma localização precisa, então esta é baseada na sua rede.",
+      "noProvider": "Esta versão não tem um provedor de localização precisa, então esta é baseada na sua rede."
+    },
+    "openSettings": "Abrir configurações",
+    "notAvailable": "O compartilhamento de localização não está disponível neste dispositivo.",
+    "permissionDenied": "Permissão de localização negada. Ative-a nas configurações do site para compartilhar sua localização.",
+    "determineFailed": "Não foi possível determinar sua localização. Tente novamente ou verifique se os serviços de localização estão ativados."
+  }
+}

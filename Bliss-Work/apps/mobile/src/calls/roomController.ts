@@ -185,6 +185,8 @@ export class RoomController {
   /** Bumped by every join/leave so a slow token request cannot resurrect a call
    *  the user already walked away from. */
   private attempt = 0;
+  /** The current/last join began with mic and camera off (see join). */
+  private startMuted = false;
   private left = false;
   private hands = new Set<string>();
 
@@ -267,14 +269,17 @@ export class RoomController {
   }
 
   // ── join / leave ─────────────────────────────────────────────────────────
-  /** Enter a call: from accepting an invite, a Join button, or a link. */
-  async join(callId: string, media: CallMedia = 'video', title?: string): Promise<void> {
+  /** Enter a call: from accepting an invite, a Join button, or a link.
+   *  `startMuted` joins with microphone AND camera off (nothing is published until
+   *  the user turns them on) — for a link, which the user did not choose to open. */
+  async join(callId: string, media: CallMedia = 'video', title?: string, opts?: { startMuted?: boolean }): Promise<void> {
     if (this.busy) return;
     if (this.ringTimer) clearTimeout(this.ringTimer);
     if (this.lingerTimer) clearTimeout(this.lingerTimer);
     if (this.snap.phase === 'ringing') this.d.onRingingDone?.(this.snap.callId ?? callId, 'joined');
     const attempt = ++this.attempt;
     this.left = false;
+    this.startMuted = opts?.startMuted === true;
     this.seen.add(callId);
     this.replace({
       ...IDLE,
@@ -282,11 +287,14 @@ export class RoomController {
       callId,
       title: title ?? this.snap.title,
       media,
-      camOn: media === 'video',
+      micOn: !this.startMuted,
+      camOn: media === 'video' && !this.startMuted,
       speakerOn: media === 'video',
     });
     this.d.applySpeaker?.(media === 'video');
-    if (!(await this.d.ensurePermissions(media))) {
+    // Muted: only the microphone permission is asked up front (to unmute later);
+    // the camera asks for its own when the user turns it on (toggleCam).
+    if (!(await this.d.ensurePermissions(this.startMuted ? 'audio' : media))) {
       if (attempt === this.attempt) this.fail('Microphone or camera permission is needed for calls');
       return;
     }
@@ -403,8 +411,8 @@ export class RoomController {
         await room.disconnect().catch(() => { });
         return;
       }
-      await room.setMic(true);
-      await room.setCam(this.snap.media === 'video').catch(() => {
+      await room.setMic(this.snap.micOn);
+      await room.setCam(this.snap.camOn).catch(() => {
         this.set({ camOn: false });
         this.d.cameraFailed?.();
       });
@@ -417,7 +425,7 @@ export class RoomController {
     this.set({
       phase: 'connected',
       isHost: grant.role === 'HOST',
-      micOn: true,
+      micOn: this.snap.micOn,
       camOn: this.snap.media === 'video' && this.snap.camOn,
       participants: this.participantsOf(room),
       connectedAt: this.snap.connectedAt ?? Date.now(),
@@ -539,7 +547,7 @@ export class RoomController {
     const { callId, media, title, phase } = this.snap;
     if (phase !== 'failed' || !callId) return;
     this.replace({ ...IDLE });
-    void this.join(callId, media, title);
+    void this.join(callId, media, title, { startMuted: this.startMuted });
   }
 
   /** Add member to a live room call (web useCallRoom `addPeople`): one request

@@ -193,7 +193,7 @@ export function TimePicker({
       <Clock size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent" />
       <button
         type="button"
-        aria-label={`${label} time`}
+        aria-label={t("newMeeting.time.triggerAriaLabel", { label })}
         aria-haspopup="true"
         aria-expanded={open}
         onClick={() => (open ? cancel() : openPicker())}

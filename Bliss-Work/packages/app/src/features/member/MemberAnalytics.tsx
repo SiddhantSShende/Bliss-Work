@@ -6,52 +6,79 @@ import {
   BarChart3,
   CalendarClock,
   Clock,
+  History,
   Layers,
+  LayoutGrid,
   LogIn,
-  Sparkles,
-  Timer,
   TrendingUp,
   Zap,
 } from "lucide-react";
-import {
-  BarChart,
-  Card,
-  EmptyState,
-  Heatmap,
-  RankedBars,
-  Sparkline,
-  Spinner,
-  formatMs,
-} from "@taskboard/ui";
+import { EmptyState, Spinner } from "@taskboard/ui";
+import { formatMs } from "../../i18n/format";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
+import { relativeTime } from "../../lib/relativeTime";
 import { Tabs } from "../Tabs";
-import { ACTIVITY_RANGES, computeRange, parseLocalDay, type RangeKey } from "../../lib/dateRange";
-import { surfaceLabel } from "./activityLabels";
+import { activityRanges, computeRange, type RangeKey } from "../../lib/dateRange";
+import { ActivityTrendChart, WorkHeatmap } from "./MemberAnalyticsCharts";
+import {
+  ActivityOverviewBody,
+  RecentActivityBody,
+  SectionCard,
+  SummaryCard,
+  TopAppsBody,
+} from "./MemberAnalyticsParts";
+import { percentChange, previousRange, weekdayAverages } from "./memberAnalyticsData";
 
-/** Charts for one member. `userId` may be "me" — the server resolves it. */
-export function MemberAnalytics({ userId }: { userId: string }) {
-  const { t, i18n } = useTranslation("members");
+/** Analytics for one member. `userId` may be "me" — the server resolves it.
+ *  `onViewAllActivity` lets the host switch to its Activity tab. */
+export function MemberAnalytics({
+  userId,
+  onViewAllActivity,
+}: {
+  userId: string;
+  onViewAllActivity?: () => void;
+}) {
+  const { t } = useTranslation("members");
   const { api } = useRuntime();
   const [range, setRange] = useState<RangeKey>("30d");
   const { from, to } = computeRange(range);
+  const prev = previousRange(from, to);
 
   const { data, isLoading } = useQuery({
     queryKey: qk.activitySummary(userId, from, to),
     queryFn: () => api.activitySummary(userId, { from, to }),
   });
+  // The same window one period earlier, only to put a real "vs previous period"
+  // figure under the totals. Absent or empty → no comparison is drawn.
+  const { data: previous } = useQuery({
+    queryKey: qk.activitySummary(userId, prev.from, prev.to),
+    queryFn: () => api.activitySummary(userId, prev),
+  });
+  // Newest rows of the Activity tab's own timeline: they feed both the Recent
+  // Activity list and the Last Active card.
+  const { data: recent } = useQuery({
+    queryKey: [...qk.activityTimeline(userId), "analytics-recent"],
+    queryFn: () => api.activityTimeline(userId, { limit: 5 }),
+  });
+
+  const rangePicker = (
+    <div className="flex justify-end">
+      <Tabs tabs={activityRanges()} active={range} onChange={setRange} />
+    </div>
+  );
 
   if (isLoading)
     return (
       <div className="space-y-6">
-        <AnalyticsHeader range={range} onRangeChange={setRange} />
+        {rangePicker}
         <div className="flex justify-center p-8"><Spinner /></div>
       </div>
     );
   if (!data || data.days.length === 0)
     return (
       <div className="space-y-6">
-        <AnalyticsHeader range={range} onRangeChange={setRange} />
+        {rangePicker}
         <EmptyState
           icon={<BarChart3 size={22} />}
           title={t("members:analytics.empty.title")}
@@ -60,238 +87,91 @@ export function MemberAnalytics({ userId }: { userId: string }) {
       </div>
     );
 
-  const days = data.days;
-  const activeDays = days.filter((d) => d.activeMs > 0).length;
-  const bars = days.map((d) => ({
-    label: parseLocalDay(d.day).toLocaleDateString(i18n.language, { day: "numeric", month: "short" }),
-    title: parseLocalDay(d.day).toLocaleDateString(i18n.language, { weekday: "long", day: "numeric", month: "long" }),
-    value: d.activeMs,
-    context: d.idleMs,
-  }));
-
-  const avgSessionMs = data.sessions > 0 ? data.totalActiveMs / data.sessions : 0;
-
-  // The single busiest calendar day in the range — a highlight, not a new
-  // metric: it is the same `days` series the bar chart already draws.
-  const peakDay = days.reduce(
-    (best, d) => (d.activeMs > (best?.activeMs ?? -1) ? d : best),
-    undefined as (typeof days)[number] | undefined,
-  );
-  const peakDayLabel = peakDay
-    ? parseLocalDay(peakDay.day).toLocaleDateString(i18n.language, { day: "numeric", month: "short" })
-    : null;
-
-  // The busiest hour-of-day, summed across every day in the range — the same
-  // `hourly` grid the heatmap below renders, collapsed to its one loudest column.
-  const hourTotals = Array.from({ length: 24 }, (_, h) =>
-    data.hourly.reduce((sum, row) => sum + (row[h] ?? 0), 0),
-  );
-  let peakHour = 0;
-  let peakHourMs = 0;
-  hourTotals.forEach((ms, h) => {
-    if (ms > peakHourMs) {
-      peakHourMs = ms;
-      peakHour = h;
-    }
-  });
-  const hourLabel = (h: number) => `${String(h % 24).padStart(2, "0")}:00`;
+  const activeDays = data.days.filter((d) => d.activeMs > 0).length;
+  const entries = recent?.entries ?? [];
+  const lastActiveAt = entries[0]?.occurredAt;
+  const change = (cur: number, before: number | undefined) =>
+    previous ? percentChange(cur, before ?? 0) : null;
 
   return (
-    <div className="space-y-6">
-      <AnalyticsHeader range={range} onRangeChange={setRange} />
+    <div className="space-y-5">
+      {rangePicker}
 
-      {/* A KPI row, not a chart: current totals are numbers, and drawing them
-          as bars would add axes around a handful of facts. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <KpiCard
-          featured
-          icon={<Clock size={15} />}
-          label={t("members:analytics.kpi.activeTime")}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <SummaryCard
+          icon={<Clock size={16} />}
+          label={t("members:analytics.summary.activeTime")}
           value={formatMs(data.totalActiveMs)}
-          hint={t("members:analytics.kpi.acrossDays", { count: activeDays })}
-          trend={days.map((d) => d.activeMs)}
+          hint={t("members:analytics.summary.acrossDays", { count: activeDays })}
+          change={change(data.totalActiveMs, previous?.totalActiveMs)}
         />
-        <KpiCard
-          icon={<LogIn size={15} />}
-          label={t("members:analytics.kpi.sessions")}
+        <SummaryCard
+          icon={<LogIn size={16} />}
+          label={t("members:analytics.summary.sessions")}
           value={String(data.sessions)}
-          hint={t("members:analytics.kpi.sessionsHint")}
+          hint={t("members:analytics.summary.sessionsHint")}
+          change={change(data.sessions, previous?.sessions)}
         />
-        <KpiCard
-          icon={<Timer size={15} />}
-          label={t("members:analytics.kpi.avgSession")}
-          value={formatMs(avgSessionMs)}
-          hint={t("members:analytics.kpi.avgSessionHint")}
-        />
-        <KpiCard
-          icon={<Zap size={15} />}
-          label={t("members:analytics.kpi.actions")}
+        <SummaryCard
+          icon={<Zap size={16} />}
+          label={t("members:analytics.summary.events")}
           value={String(data.events)}
-          hint={t("members:analytics.kpi.actionsHint")}
+          hint={t("members:analytics.summary.eventsHint")}
+          change={change(data.events, previous?.events)}
+        />
+        <SummaryCard
+          icon={<History size={16} />}
+          label={t("members:analytics.summary.lastActive")}
+          value={lastActiveAt ? relativeTime(lastActiveAt) : "—"}
+          hint={
+            lastActiveAt
+              ? new Date(lastActiveAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+              : t("members:analytics.summary.lastActiveNone")
+          }
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <SectionCard
-          className="lg:col-span-2"
-          icon={<TrendingUp size={16} />}
-          title={t("members:analytics.sections.activeTimePerDay.title")}
-          hint={t("members:analytics.sections.activeTimePerDay.hint")}
+          className="lg:col-span-2 xl:col-span-1"
+          icon={<Activity size={17} />}
+          title={t("members:analytics.overview.title")}
+          hint={t("members:analytics.overview.hint")}
         >
-          <BarChart data={bars} valueLabel={t("members:analytics.chart.active")} contextLabel={t("members:analytics.chart.idle")} />
+          <ActivityOverviewBody data={data} />
         </SectionCard>
-
         <SectionCard
-          icon={<Sparkles size={16} />}
-          title={t("members:analytics.sections.highlights.title")}
-          hint={t("members:analytics.sections.highlights.hint")}
+          icon={<LayoutGrid size={17} />}
+          title={t("members:analytics.topApps.title")}
+          hint={t("members:analytics.topApps.hint")}
         >
-          <ul className="space-y-3 text-sm">
-            <HighlightRow
-              label={t("members:analytics.highlights.bestDay")}
-              value={peakDay && peakDay.activeMs > 0 ? `${peakDayLabel} · ${formatMs(peakDay.activeMs)}` : "—"}
-            />
-            <HighlightRow
-              label={t("members:analytics.highlights.peakHours")}
-              value={peakHourMs > 0 ? `${hourLabel(peakHour)}–${hourLabel(peakHour + 1)}` : t("members:analytics.highlights.noHourlyData")}
-            />
-            <HighlightRow label={t("members:analytics.highlights.idleSignedIn")} value={formatMs(data.totalIdleMs)} />
-          </ul>
+          <TopAppsBody apps={data.topApps} />
+        </SectionCard>
+        <SectionCard
+          icon={<Layers size={17} />}
+          title={t("members:analytics.recent.title")}
+          hint={t("members:analytics.recent.hint")}
+        >
+          <RecentActivityBody entries={entries} onViewAll={onViewAllActivity} />
         </SectionCard>
       </div>
 
-      <SectionCard
-        icon={<CalendarClock size={16} />}
-        title={t("members:analytics.sections.whenTheyWork.title")}
-        hint={t("members:analytics.sections.whenTheyWork.hint")}
-      >
-        <Heatmap grid={data.hourly} />
-      </SectionCard>
-
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <SectionCard
-          icon={<Layers size={16} />}
-          title={t("members:analytics.sections.whereTheySpendTime.title")}
-          hint={t("members:analytics.sections.whereTheySpendTime.hint", { brand: "BlissWork" })}
+          icon={<CalendarClock size={17} />}
+          title={t("members:analytics.work.title")}
+          hint={t("members:analytics.work.hint")}
         >
-          <RankedBars
-            data={data.bySurface.map((s) => ({
-              key: s.key, label: surfaceLabel(s.key, t) ?? s.key, value: s.valueMs,
-            }))}
-          />
+          <WorkHeatmap grid={data.hourly} />
         </SectionCard>
         <SectionCard
-          icon={<Activity size={16} />}
-          title={t("members:analytics.sections.whatTheyDo.title")}
-          hint={t("members:analytics.sections.whatTheyDo.hint")}
+          icon={<TrendingUp size={17} />}
+          title={t("members:analytics.trend.title")}
+          hint={t("members:analytics.trend.hint")}
         >
-          <RankedBars
-            data={data.byAction.map((a) => ({ key: a.key, label: a.label, value: a.count }))}
-            format={(v) => String(v)}
-          />
+          <ActivityTrendChart points={weekdayAverages(data.days, from, to)} />
         </SectionCard>
       </div>
     </div>
-  );
-}
-
-/** Section intro + the range switch — shared across the loading, empty and
- *  loaded states so the controls don't pop in only once data resolves. */
-function AnalyticsHeader({
-  range,
-  onRangeChange,
-}: {
-  range: RangeKey;
-  onRangeChange: (range: RangeKey) => void;
-}) {
-  const { t } = useTranslation("members");
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h3 className="text-base font-semibold text-fg">{t("members:analytics.header.title")}</h3>
-        <p className="text-sm text-muted">{t("members:analytics.header.subtitle")}</p>
-      </div>
-      <Tabs tabs={ACTIVITY_RANGES} active={range} onChange={onRangeChange} />
-    </div>
-  );
-}
-
-/** One headline number in its own card — an icon for scanability, and an
- *  accent ring on the `featured` tile so the primary metric of the row (active
- *  time) reads first without giving it a different card shape or color. */
-function KpiCard({
-  icon,
-  label,
-  value,
-  hint,
-  trend,
-  featured,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  hint?: string;
-  trend?: number[];
-  featured?: boolean;
-}) {
-  return (
-    <Card className={`flex flex-col gap-2 p-4 ${featured ? "ring-1 ring-accent/30" : ""}`}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted">{label}</span>
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-          {icon}
-        </span>
-      </div>
-      <div className={`font-semibold tabular-nums text-fg ${featured ? "text-2xl" : "text-xl"}`}>{value}</div>
-      {hint && <div className="text-[11px] text-muted">{hint}</div>}
-      {trend && trend.length > 1 && <Sparkline values={trend} />}
-    </Card>
-  );
-}
-
-/** A titled card for one analytical section — the card is what gives every
- *  section below the KPI row its rounded-border, soft-shadow structure. */
-function SectionCard({
-  icon,
-  title,
-  hint,
-  meta,
-  children,
-  className = "",
-}: {
-  icon?: React.ReactNode;
-  title: string;
-  hint?: string;
-  meta?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <Card className={`p-5 ${className}`}>
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div className="flex items-start gap-2.5">
-          {icon && (
-            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-              {icon}
-            </span>
-          )}
-          <div>
-            <h4 className="text-sm font-semibold text-fg">{title}</h4>
-            {hint && <p className="text-xs text-muted">{hint}</p>}
-          </div>
-        </div>
-        {meta}
-      </div>
-      {children}
-    </Card>
-  );
-}
-
-function HighlightRow({ label, value }: { label: string; value: string }) {
-  return (
-    <li className="flex items-center justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
-      <span className="text-muted">{label}</span>
-      <span className="font-medium tabular-nums text-fg">{value}</span>
-    </li>
   );
 }

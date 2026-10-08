@@ -26,7 +26,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/task-board/shared-backoff"
+	"github.com/task-board/ws-gateway/internal/safego"
 )
 
 // flushInterval bounds the per-recipient batching window.
@@ -69,6 +71,16 @@ const (
 // second; the per-frame cap (64) is not enough on its own. New ids beyond the
 // cap are silently dropped — losing a "delivered" status is a soft failure.
 const maxPendingPerRecipient = 1024
+
+// maxIDsPerPost is messaging-svc's per-request cap on messageIds
+// (internal_delivery.go truncates anything beyond it and still answers 204), so
+// a larger pending set is sent as several POSTs instead of losing the tail.
+const maxIDsPerPost = 256
+
+// maxParallelFlushes bounds how many recipients' batches flushDue POSTs at the
+// same time, so one slow recipient's retry budget (up to
+// maxAttempts*httpTimeout) no longer serialises every other recipient's flush.
+const maxParallelFlushes = 8
 
 // Dispatcher batches delivery acks per recipient and ships them to messaging-svc.
 type Dispatcher struct {
@@ -122,9 +134,11 @@ func (d *Dispatcher) Run(ctx context.Context) {
 }
 
 // Ack queues a (recipient, messageId) pair for the next flush. Safe to call
-// from multiple goroutines.
+// from multiple goroutines. Ids that are not UUIDs are dropped here: messaging-svc
+// 400s a whole batch on one bad id, so a single garbage id from a client would
+// otherwise fail every other ack batched with it.
 func (d *Dispatcher) Ack(recipientID, messageID string) {
-	if recipientID == "" || messageID == "" {
+	if !isUUID(recipientID) || !isUUID(messageID) {
 		return
 	}
 	d.mu.Lock()
@@ -151,9 +165,20 @@ func (d *Dispatcher) flushDue(ctx context.Context) {
 	}
 	d.mu.Unlock()
 
+	// Send concurrently (bounded) so one recipient's retries/timeouts don't
+	// hold up everyone else's acks. Waiting keeps ticks from overlapping.
+	sem := make(chan struct{}, maxParallelFlushes)
+	var wg sync.WaitGroup
 	for _, b := range due {
-		d.send(ctx, b)
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(b *batch) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			safego.Guard(d.log, "ws-gateway.delivery-flush", func() { d.send(ctx, b) })
+		}(b)
 	}
+	wg.Wait()
 }
 
 func (d *Dispatcher) flushAll(ctx context.Context) {
@@ -187,7 +212,19 @@ func (d *Dispatcher) send(ctx context.Context, b *batch) {
 	for id := range b.msgIDs {
 		ids = append(ids, id)
 	}
-	payload, err := json.Marshal(ackBody{RecipientID: b.recipientID, MessageIDs: ids})
+	// messaging-svc silently truncates a request to maxIDsPerPost ids, so send
+	// the rest as further requests rather than dropping them.
+	for start := 0; start < len(ids); start += maxIDsPerPost {
+		end := start + maxIDsPerPost
+		if end > len(ids) {
+			end = len(ids)
+		}
+		d.sendChunk(ctx, b.recipientID, ids[start:end])
+	}
+}
+
+func (d *Dispatcher) sendChunk(ctx context.Context, recipientID string, ids []string) {
+	payload, err := json.Marshal(ackBody{RecipientID: recipientID, MessageIDs: ids})
 	if err != nil {
 		return
 	}
@@ -195,7 +232,7 @@ func (d *Dispatcher) send(ctx context.Context, b *batch) {
 	// Fail fast while the breaker is open: messaging-svc is (recently) down,
 	// so don't spend httpTimeout*maxAttempts only to drop the batch anyway.
 	if d.breakerOpen() {
-		d.log.Warn("delivery ack skipped: circuit open", "recipient", b.recipientID, "count", len(ids))
+		d.log.Warn("delivery ack skipped: circuit open", "recipient", recipientID, "count", len(ids))
 		return
 	}
 
@@ -203,8 +240,9 @@ func (d *Dispatcher) send(ctx context.Context, b *batch) {
 	reqID := requestIDFromContext(ctx)
 
 	var lastErr error
+	retryable := false
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		retryable, err := d.postOnce(ctx, url, payload, reqID)
+		retryable, err = d.postOnce(ctx, url, payload, reqID)
 		if err == nil {
 			d.recordSuccess()
 			return
@@ -223,9 +261,20 @@ func (d *Dispatcher) send(ctx context.Context, b *batch) {
 		}
 	}
 
-	d.recordFailure()
+	// A non-retryable failure (a 4xx other than 429) means messaging-svc is up
+	// and rejected this particular request; it says nothing about the service's
+	// health, so it must not count toward the breaker (otherwise a handful of
+	// rejected batches would drop everyone's acks for cbCooldown).
+	if retryable {
+		d.recordFailure()
+	}
 	d.log.Warn("delivery ack POST failed after retries",
-		"recipient", b.recipientID, "count", len(ids), "attempts", maxAttempts, "err", lastErr)
+		"recipient", recipientID, "count", len(ids), "attempts", maxAttempts, "retryable", retryable, "err", lastErr)
+}
+
+func isUUID(s string) bool {
+	_, err := uuid.Parse(s)
+	return err == nil
 }
 
 // postOnce performs a single POST attempt. It returns (retryable, err): err is

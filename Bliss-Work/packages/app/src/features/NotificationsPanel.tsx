@@ -1,8 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { CheckCheck, Bell, CalendarDays, Hash, MessageSquare } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
-import type { NotificationDTO } from "@taskboard/shared";
-import { useNotificationActions } from "../lib/openNotification";
+import { useQueryClient } from "@tanstack/react-query";
+import type { ChannelDTO, ConversationDTO, NotificationDTO } from "@taskboard/shared";
+import { isReadInFlight, useNotificationActions } from "../lib/openNotification";
+import { qk } from "../lib/queryKeys";
+import { resolveMessageNotification } from "../lib/messageNotificationLabel";
+import { useMarkPanelNotificationsReadOnClose } from "../lib/useMarkPanelNotificationsReadOnClose";
 import { notificationCategory, notificationDestination, type NotificationCategory } from "../lib/notificationDestination";
 
 // Kept exported from here: it is where callers have always imported it from.
@@ -49,11 +53,17 @@ export function NotificationsPanel({
   onRetry?: () => void;
 }) {
   const { t, i18n } = useTranslation("shell");
-  // Opening or closing the panel never changes read state. A notification only
-  // becomes read when the user acts on it (clicks the row or "Mark read"); the
-  // badge is the server's unread count and moves only through those actions.
-  // Both go through the same functions the toast and the desktop popup use.
+  // A notification becomes read when the user acts on it (clicks the row or "Mark
+  // read") — and when the panel is closed, for every unread row it had loaded
+  // (see useMarkPanelNotificationsReadOnClose). All of it goes through the same
+  // server call the toast and the desktop popup use; the badge is the server's
+  // unread count and follows it.
   const { markRead, open: openNotification } = useNotificationActions();
+  useMarkPanelNotificationsReadOnClose(open, notifications);
+  const qc = useQueryClient();
+  // Names come from what the app already holds, by id — never a request of their own.
+  const conversations = qc.getQueryData<ConversationDTO[]>(qk.conversations);
+  const channels = qc.getQueryData<ChannelDTO[]>(qk.channels);
   const onOpen = (notification: NotificationDTO) => {
     onClose();
     openNotification(notification);
@@ -65,8 +75,12 @@ export function NotificationsPanel({
   // each id is in exactly one of the two groups, so a row is never drawn twice and
   // marking one read changes how it looks and where it sits, never whether it is
   // there.
-  const unread = notifications.filter((n) => !n.read);
-  const read = notifications.filter((n) => n.read);
+  //
+  // A row whose read request is still on the wire counts as read: a panel
+  // reopened right after it was closed must not light those rows up again.
+  const isRead = (n: NotificationDTO) => n.read || isReadInFlight(n.id);
+  const unread = notifications.filter((n) => !isRead(n));
+  const read = notifications.filter(isRead);
   const shown = [...unread, ...read];
 
   // "Nothing here" is only established once both feeds have answered: neither
@@ -117,7 +131,7 @@ export function NotificationsPanel({
             <li
               key={n.id}
               className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${
-                n.read ? "border-border opacity-70" : "border-accent/30 bg-accent-soft/50"
+                isRead(n) ? "border-border opacity-70" : "border-accent/30 bg-accent-soft/50"
               }`}
             >
               <div
@@ -132,13 +146,13 @@ export function NotificationsPanel({
                   className="block w-full text-left"
                   onClick={() => onOpen(n)}
                 >
-                  <NotificationText notification={n} />
+                  <NotificationText notification={n} conversations={conversations} channels={channels} />
                   <span className="mt-0.5 block text-xs text-muted">
                     {new Date(n.createdAt).toLocaleString(i18n.language)}
                   </span>
                 </button>
               </div>
-              {!n.read && (
+              {!isRead(n) && (
                 <button className="shrink-0 text-xs font-medium text-accent hover:underline" onClick={() => markRead(n.id)}>
                   {t("notifications.row.markRead")}
                 </button>
@@ -190,33 +204,26 @@ function CategoryIcon({ category }: { category: NotificationCategory }) {
   }
 }
 
-function NotificationText({ notification }: { notification: NotificationDTO }) {
-  const text = notification.text;
-  if (notification.kind === "DM_MESSAGE") {
-    const separator = text.indexOf(": ");
-    if (separator > 0) {
-      return (
-        <span className="block text-sm text-fg">
-          <span className="font-medium">{text.slice(0, separator)}</span>
-          <span className="block">{text.slice(separator + 2)}</span>
-        </span>
-      );
-    }
+function NotificationText({
+  notification,
+  conversations,
+  channels,
+}: {
+  notification: NotificationDTO;
+  conversations?: ConversationDTO[];
+  channels?: ChannelDTO[];
+}) {
+  const { t } = useTranslation("shell");
+  if (notification.kind === "DM_MESSAGE" || notification.kind === "CHANNEL_MESSAGE") {
+    const { sender, channel } = resolveMessageNotification(notification, conversations, channels);
+    const where = notification.kind === "CHANNEL_MESSAGE" ? ` · ${channel ? `#${channel}` : t("notifications.message.aChannel")}` : "";
+    return (
+      <span className="block break-words text-sm">
+        <span className="block font-semibold text-fg">{t("notifications.message.title")}</span>
+        <span className="block font-medium text-accent">{`${sender ?? t("notifications.message.someone")}${where}`}</span>
+        <span className="block text-muted">{t("notifications.message.body")}</span>
+      </span>
+    );
   }
-  if (notification.kind === "CHANNEL_MESSAGE") {
-    const separator = text.indexOf(": ");
-    const channelMarker = text.indexOf(" in #");
-    if (separator > 0 && channelMarker > 0 && channelMarker < separator) {
-      return (
-        <span className="block text-sm text-fg">
-          <span className="font-medium">
-            {text.slice(0, channelMarker)}
-            <span className="font-normal text-muted"> · {text.slice(channelMarker + 5, separator)}</span>
-          </span>
-          <span className="block">{text.slice(separator + 2)}</span>
-        </span>
-      );
-    }
-  }
-  return <span className="block break-words text-sm text-fg">{text}</span>;
+  return <span className="block break-words text-sm text-fg">{notification.text}</span>;
 }

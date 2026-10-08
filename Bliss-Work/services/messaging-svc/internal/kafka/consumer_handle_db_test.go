@@ -290,6 +290,12 @@ func (fakeBlobStore) CachePut(string, string, io.Reader, int64) error {
 	panic("unused in this test")
 }
 func (fakeBlobStore) OpenKey(string) (blob.Reader, error) { panic("unused in this test") }
+func (fakeBlobStore) PutDerived(string, string, string, io.Reader, int64) error {
+	panic("unused in this test")
+}
+func (fakeBlobStore) OpenDerived(string, string, string) (blob.Reader, error) {
+	panic("unused in this test")
+}
 
 func TestPurgeOrg_BlobFailure_ReturnsFalse(t *testing.T) {
 	s, _ := handleTestStore(t)

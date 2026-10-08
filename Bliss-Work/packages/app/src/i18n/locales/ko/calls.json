@@ -1,0 +1,197 @@
+{
+  "notify": {
+    "incomingVideo": "영상 통화 수신",
+    "incomingVoice": "음성 통화 수신",
+    "incomingBody": "발신: {{caller}}",
+    "missedTitle": "부재중 통화",
+    "missedBody": "부재중 전화: {{caller}}",
+    "cameraUnavailable": "카메라를 사용할 수 없어요",
+    "cameraUnavailableDescription": "이 앱의 카메라 권한을 확인해 주세요.",
+    "couldNotShareScreen": "화면을 공유하지 못했어요",
+    "ringtoneMuted": "브라우저에서 벨소리가 음소거되었어요",
+    "ringtoneMutedDescription": "통화 소리를 허용하려면 화면 아무 곳이나 클릭하세요.",
+    "unknownCaller": "알 수 없는 발신자"
+  },
+  "endedReasons": {
+    "noAnswer": "응답 없음",
+    "mediaBlocked": "카메라/마이크 차단됨",
+    "declined": "통화 거절됨",
+    "callEnded": "통화 종료",
+    "userUnavailable": "상대방과 연결할 수 없음",
+    "connectionFailed": "연결 실패"
+  },
+  "window": {
+    "tabTitle": "{{title}} · {{brand}}",
+    "untitledMeeting": "미팅",
+    "loading": "미팅 불러오는 중…",
+    "loadError": {
+      "title": "이 미팅을 불러오지 못했어요.",
+      "hint": "연결 상태를 확인하고 다시 시도해 주세요.",
+      "returnToMeetings": "미팅 목록으로 돌아가기",
+      "retrying": "다시 시도하는 중…",
+      "retry": "다시 시도"
+    },
+    "unavailable": {
+      "title": "이 미팅을 사용할 수 없어요",
+      "hint": "미팅이 종료되었거나 참가자 명단에서 제외되었을 수 있어요.",
+      "close": "닫기"
+    }
+  },
+  "join": {
+    "signIn": {
+      "title": "로그인 후 참여",
+      "hint": "이 미팅 링크는 다른 조직의 계정을 포함해 모든 {{brand}} 계정으로 사용할 수 있어요."
+    },
+    "joining": "참여하는 중…",
+    "invalid": {
+      "title": "이 초대 링크는 더 이상 유효하지 않아요",
+      "hint": "링크가 만료되었거나 취소되었거나, 미팅이 이미 종료되었을 수 있어요. 주최자에게 새 링크를 요청하세요.",
+      "backToApp": "{{brand}}로 돌아가기"
+    },
+    "timeout": {
+      "title": "예상보다 오래 걸리고 있어요",
+      "hint": "페이지를 새로 고치면 대부분 해결돼요.",
+      "reload": "새로 고침"
+    },
+    "handoff": {
+      "joining": "미팅에 참여하는 중…"
+    }
+  },
+  "chat": {
+    "disclaimer": "여기에 보낸 메시지는 모든 미팅 멤버에게 보여요. 비공개로 보내려면 아래에서 이름을 선택하세요.",
+    "empty": "아직 메시지가 없어요. 여기에 보낸 내용은 미팅이 진행되는 동안만 유지돼요. 보관하려면 상단에서 다운로드하세요.",
+    "toLabel": "받는 사람:",
+    "toAriaLabel": "메시지를 받을 사람",
+    "everyone": "모두",
+    "privateOption": "{{name}}(비공개)",
+    "attachmentsUnsupported": "미팅 채팅에서는 첨부 파일을 지원하지 않아요",
+    "privatePlaceholder": "{{name}}님에게 비공개 메시지…",
+    "everyonePlaceholder": "모두에게 메시지…",
+    "privateAriaLabel": "{{name}}님에게 비공개 메시지",
+    "everyoneAriaLabel": "모두에게 메시지",
+    "send": "보내기",
+    "onlyWillSee": "{{name}}님만 볼 수 있어요",
+    "you": "나",
+    "privateToName": "{{name}}님에게 비공개",
+    "privateToYou": "나에게만 비공개"
+  },
+  "members": {
+    "pagesAriaLabel": "멤버 페이지",
+    "previous": "이전 멤버",
+    "pageAriaLabel": "멤버 {{page}} / {{pages}} 페이지",
+    "more": "멤버 더 보기"
+  },
+  "menu": {
+    "call": "통화",
+    "voiceCall": "음성 통화",
+    "videoCall": "영상 통화",
+    "sendCallLink": "통화 링크 보내기",
+    "scheduleCall": "통화 예약"
+  },
+  "notes": {
+    "empty": "아직 항목이 없어요. 여기에 적은 내용은 미팅의 모든 참가자와 공유돼요.",
+    "placeholder": "중요한 내용을 적어 보세요…",
+    "ariaLabel": "중요한 내용 작성",
+    "enterToAdd": "Enter로 추가",
+    "addPoint": "항목 추가"
+  },
+  "sidebar": {
+    "controlsAriaLabel": "미팅 컨트롤",
+    "mute": "음소거",
+    "muted": "음소거됨",
+    "camera": "카메라",
+    "share": "공유",
+    "raise": "손들기",
+    "people": "참가자",
+    "add": "추가",
+    "addPeople": "참가자 추가",
+    "chats": "채팅",
+    "notes": "노트",
+    "record": "녹화",
+    "recordUnsupported": "이 브라우저에서는 미팅을 녹화할 수 없어요",
+    "copyLink": "링크 복사",
+    "copyInviteLink": "초대 링크 복사",
+    "pip": "PiP",
+    "exitPip": "PiP 종료",
+    "pictureInPicture": "화면 속 화면",
+    "exitPictureInPicture": "화면 속 화면 종료",
+    "pictureInPictureNoVideo": "화면 속 화면에는 누군가의 영상이 필요해요. 카메라나 화면 공유를 켠 사람이 없어요",
+    "minimize": "최소화",
+    "minimise": "최소화",
+    "end": "종료",
+    "endCall": "통화 종료"
+  },
+  "sidePanel": {
+    "tabNames": {
+      "chat": "채팅",
+      "notes": "노트",
+      "participants": "참가자"
+    },
+    "regionAriaLabel": "미팅 {{tab}}",
+    "tablistAriaLabel": "채팅, 노트 또는 참가자",
+    "chatTab": "채팅",
+    "notesTab": "노트",
+    "peopleTab": "참가자",
+    "saveAsFile": "{{tab}} 파일로 저장",
+    "closeTab": "{{tab}} 닫기"
+  },
+  "filmstrip": {
+    "ariaLabel": "다른 참가자",
+    "moreMembers": "멤버 +{{count}}명"
+  },
+  "roomLazy": {
+    "connecting": "연결하는 중…",
+    "error": {
+      "title": "미팅 룸을 여는 중 문제가 발생했어요.",
+      "hint": "페이지를 새로 고치면 대부분 해결돼요.",
+      "reload": "새로 고침"
+    }
+  },
+  "incomingNotice": {
+    "untitledMeeting": "미팅",
+    "ariaLabel": "수신 미팅: {{title}}",
+    "hostedBy": "호스트: {{organizer}}",
+    "video": "영상",
+    "joinWithCamera": "카메라를 켜고 참여",
+    "voice": "음성",
+    "joinVoiceOnly": "음성으로만 참여",
+    "leave": "나가기"
+  },
+  "scheduledNotice": {
+    "untitledMeeting": "미팅",
+    "ariaLabel": "예약된 미팅: {{title}}",
+    "heading": "미팅이 예약되었어요",
+    "hostedBy": "호스트: {{organizer}}",
+    "join": "미팅 참여",
+    "dismiss": "닫기"
+  },
+  "miniMeeting": {
+    "ariaLabel": "{{title}} — 미팅 진행 중",
+    "reconnecting": "다시 연결하는 중…",
+    "connecting": "연결하는 중…",
+    "backToMeeting": "미팅으로 돌아가기",
+    "nobodySpeaking": "말하는 사람이 없어요",
+    "mute": "음소거",
+    "unmute": "음소거 해제",
+    "turnCameraOff": "카메라 끄기",
+    "turnCameraOn": "카메라 켜기",
+    "newChatMessages_other": "새 채팅 메시지 {{count}}개",
+    "leaveMeeting": "미팅 나가기"
+  },
+  "sendLinkDialog": {
+    "title": "통화 링크 보내기",
+    "description": "링크는 {{peerName}}님과의 채팅에 게시돼요. 여기에서 추가한 사람은 링크를 다이렉트 메시지로 받으며, 미팅 메뉴의 통화에 자리가 생겨요.",
+    "alsoSendTo": "추가로 보낼 사람",
+    "selectedCount": "— {{count}}명 선택됨",
+    "optional": "— 선택 사항",
+    "cancel": "취소",
+    "sendLink": "링크 보내기"
+  },
+  "screenShare": {
+    "showControls": "화면 공유 컨트롤 표시",
+    "sharingYourScreen": "화면을 공유하고 있어요",
+    "stopSharingTitle": "공유 중지",
+    "stop": "중지",
+    "slideOutOfTheWay": "옆으로 치우기"
+  }
+}

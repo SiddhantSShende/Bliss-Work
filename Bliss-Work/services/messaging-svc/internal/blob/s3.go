@@ -302,10 +302,74 @@ func (s *S3Store) Remove(orgID, sha string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), s3ControlTimeout)
 	defer cancel()
 	err = s.c.RemoveObject(ctx, s.bucket, k, minio.RemoveObjectOptions{})
-	if isNotFound(err) {
-		return nil
+	if err != nil && !isNotFound(err) {
+		return err
 	}
-	return err
+	return s.removeDerived(ctx, k)
+}
+
+func (s *S3Store) derivedKey(orgID, sha, variant string) (string, error) {
+	if !ValidVariant(variant) {
+		return "", ErrBadKey
+	}
+	k, err := s.key(orgID, sha)
+	if err != nil {
+		return "", err
+	}
+	return k + "." + variant, nil
+}
+
+// removeDerived deletes every "{key}.v*" sibling of the blob at key k.
+func (s *S3Store) removeDerived(ctx context.Context, k string) error {
+	for obj := range s.c.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: k + ".v"}) {
+		if obj.Err != nil {
+			return obj.Err
+		}
+		if !ValidVariant(strings.TrimPrefix(obj.Key, k+".")) {
+			continue
+		}
+		if err := s.c.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil && !isNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+// PutDerived streams a derivative to its key. An S3 object only becomes visible
+// when its upload completes, so a derivative is complete or absent. The size cap
+// is enforced by reading at most max+1 bytes; an over-size upload is deleted
+// again so nothing oversize survives. Streaming (size -1), not buffered: a
+// converted PDF can be tens of MB and this service is memory-capped.
+func (s *S3Store) PutDerived(orgID, sha, variant string, r io.Reader, max int64) error {
+	k, err := s.derivedKey(orgID, sha, variant)
+	if err != nil {
+		return err
+	}
+	if max <= 0 {
+		return errors.New("blob: max must be positive")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s3WriteTimeout)
+	defer cancel()
+	info, err := s.c.PutObject(ctx, s.bucket, k, io.LimitReader(r, max+1), -1, minio.PutObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("blob: upload derived: %w", err)
+	}
+	if info.Size > max {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), s3ControlTimeout)
+		defer cleanupCancel()
+		_ = s.c.RemoveObject(cleanupCtx, s.bucket, k, minio.RemoveObjectOptions{})
+		return ErrTooLarge
+	}
+	return nil
+}
+
+// OpenDerived returns a stored derivative, or a not-found error.
+func (s *S3Store) OpenDerived(orgID, sha, variant string) (Reader, error) {
+	k, err := s.derivedKey(orgID, sha, variant)
+	if err != nil {
+		return nil, err
+	}
+	return s.open(k)
 }
 
 // RemoveOrg deletes every object under one org's prefix.

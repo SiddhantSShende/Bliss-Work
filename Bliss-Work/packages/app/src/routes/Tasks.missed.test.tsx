@@ -42,6 +42,7 @@ vi.mock("../lib/runtime", () => ({
     ws: {
       connect: () => Promise.resolve(),
       close: () => {},
+      onStatus: () => () => {},
       on: (cb: (e: unknown, meta?: WsEventMeta) => void) => {
         h.emit = cb;
         return () => {};

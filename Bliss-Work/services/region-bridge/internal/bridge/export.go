@@ -114,8 +114,8 @@ func (e *Exporter) runTopic(ctx context.Context, topic string) {
 				return
 			}
 			metrics.Failures.WithLabelValues("export", "fetch").Inc()
-			e.state.SetKafka(false)
-			e.state.Fault(health.Export, err)
+			e.state.SetKafkaFor("export:"+topic, false)
+			e.state.FaultTopic(health.Export, topic, err)
 			e.log.Warn("kafka fetch failed", "topic", topic, "err", err)
 			if !backoff.Default.Sleep(ctx.Done(), 1) {
 				return
@@ -124,7 +124,12 @@ func (e *Exporter) runTopic(ctx context.Context, topic string) {
 		}
 		// A successful fetch is the cheapest honest signal that the local
 		// cluster is reachable, and it costs nothing extra.
-		e.state.SetKafka(true)
+		e.state.SetKafkaFor("export:"+topic, true)
+		// This topic's loop only gets back to fetching once its previous batch has
+		// been resolved, so a fault recorded for it is over. Without this an idle
+		// topic that hit one fetch error would read as stalled until its next
+		// publish — and, now that faults are per topic, nothing else clears it.
+		e.state.ClearFaultTopic(health.Export, topic)
 		if len(batch) == 0 {
 			continue
 		}
@@ -263,7 +268,7 @@ func (e *Exporter) publishAll(ctx context.Context, topic string, batch []kafka.M
 			return false
 		}
 		metrics.Failures.WithLabelValues("export", "publish").Inc()
-		e.state.Fault(health.Export, err)
+		e.state.FaultTopic(health.Export, topic, err)
 
 		if attempt >= maxPublishAttempts && e.dlq != nil {
 			// Set the stragglers aside so the topic moves again. Dead-lettering
@@ -336,7 +341,7 @@ func (e *Exporter) awaitAcks(ctx context.Context, futures []jetstream.PubAckFutu
 			pending[i] = nil
 			metrics.Bridged.WithLabelValues("export", topicOf(f.Msg())).Inc()
 			metrics.LastSuccess.WithLabelValues("export").Set(float64(time.Now().Unix()))
-			e.state.Progress(health.Export)
+			e.state.ProgressTopic(health.Export, topicOf(f.Msg()))
 		case err := <-f.Err():
 			if firstErr == nil {
 				firstErr = err

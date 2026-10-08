@@ -1,0 +1,398 @@
+{
+  "layout": {
+    "backToCalendar": "カレンダーに戻る"
+  },
+  "list": {
+    "loading": "読み込み中…",
+    "error": {
+      "title": "ミーティングを読み込めませんでした。",
+      "retry": "再試行"
+    },
+    "empty": {
+      "upcomingTitle": "予定はありません",
+      "liveTitle": "現在進行中のものはありません",
+      "pastTitle": "過去のミーティングはありません",
+      "startHint": "今すぐミーティングを開始するか、カレンダーに予定を入れましょう。",
+      "pastHint": "参加したミーティングは、終了後にここに表示されます。"
+    },
+    "loadMore": "さらに読み込む",
+    "allLoaded": "以上がすべてです。",
+    "bucket": {
+      "upcoming": "今後の予定",
+      "live": "進行中",
+      "past": "過去"
+    }
+  },
+  "calendar": {
+    "title": "ミーティングカレンダー",
+    "subtitle": "すべてのミーティングを一か所で確認・管理できます。",
+    "newMeeting": "新規ミーティング",
+    "today": "今日",
+    "previousWeek": "前の週",
+    "previousMonth": "前の月",
+    "nextWeek": "次の週",
+    "nextMonth": "次の月",
+    "scale": {
+      "week": "週",
+      "month": "月"
+    },
+    "loading": "カレンダーを読み込み中…",
+    "error": {
+      "title": "カレンダーを読み込めませんでした。",
+      "retry": "再試行"
+    }
+  },
+  "detail": {
+    "loading": "読み込み中…",
+    "error": {
+      "title": "このミーティングを開けませんでした。",
+      "retry": "再試行"
+    },
+    "kindLabel": {
+      "meeting": "ミーティング",
+      "channelCall": "チャンネル通話",
+      "call": "通話"
+    },
+    "noTitleSet": "タイトル未設定",
+    "join": "参加",
+    "open": "開く",
+    "tabs": {
+      "overview": "概要",
+      "chat": "チャット",
+      "notes": "メモ"
+    },
+    "live": "進行中",
+    "overview": {
+      "when": {
+        "sectionTitle": "日時",
+        "date": "日付",
+        "start": "開始",
+        "end": "終了",
+        "scheduledEnd": "終了予定",
+        "runningFor": "経過時間",
+        "duration": "所要時間"
+      },
+      "people": {
+        "sectionTitle": "参加者 · {{total}}人中{{joined}}人が参加",
+        "empty": "このミーティングの参加者リストは記録されていません。",
+        "host": "ホスト",
+        "external": "外部",
+        "attendance": {
+          "joinedAndLeft": "参加:{{joinedAt}} · 退出:{{leftAt}}",
+          "joined": "参加:{{joinedAt}}",
+          "waiting": "入室待ち",
+          "invited": "招待済み",
+          "didNotJoin": "不参加"
+        }
+      },
+      "meeting": {
+        "sectionTitle": "ミーティング",
+        "organisedBy": "主催者",
+        "openedBy": "開始者",
+        "media": "メディア",
+        "audioOnly": "音声のみ",
+        "video": "ビデオ",
+        "recording": "録画",
+        "recordingAvailable": "利用可能",
+        "recordingInProgress": "録画中",
+        "recordingNotRecorded": "録画なし",
+        "channelCall": "チャンネル通話",
+        "channelCallValue": "チャンネルのメンバー全員が対象",
+        "beingRecorded": "この通話は録画中です",
+        "sharingOne": "{{name}}が画面を共有中です",
+        "sharingMany": "{{count}}人が共有中です",
+        "repeats": "繰り返し",
+        "channels": "チャンネル",
+        "channelsUnavailable_other": "{{count}}件のチャンネル"
+      }
+    },
+    "recording": {
+      "preparing": "再生を準備中…",
+      "watch": "録画を見る"
+    }
+  },
+  "row": {
+    "live": "進行中",
+    "inviteJoinTitle": "招待{{invited}}人 · 参加{{joined}}人",
+    "organiser": "主催者",
+    "join": "参加",
+    "open": "開く",
+    "recording": "録画",
+    "details": "詳細",
+    "menu": {
+      "actionsFor": "{{title}}の操作",
+      "untitledMeeting": "このミーティング",
+      "viewDetails": "詳細を表示",
+      "joinMeeting": "ミーティングに参加",
+      "openRoom": "ルームを開く",
+      "watchRecording": "録画を見る"
+    }
+  },
+  "monthGrid": {
+    "openThisWeek": "この週を開く",
+    "more": "他{{count}}件"
+  },
+  "newMeeting": {
+    "title": "新規ミーティング",
+    "close": "閉じる",
+    "titleLabel": "ミーティングのタイトル",
+    "titlePlaceholder": "ミーティングのタイトルを入力",
+    "startTimeLabel": "開始時刻",
+    "endTimeLabel": "終了時刻",
+    "errors": {
+      "titleRequired": "ミーティングのタイトルを入力してください。",
+      "startRequired": "開始の日付と時刻を入力してください。",
+      "startInPast": "開始時刻を過去に設定することはできません。",
+      "endRequired": "終了の日付と時刻を入力してください。",
+      "endBeforeStart": "終了時刻は開始時刻より後にしてください。",
+      "peopleUnavailable": "選択したメンバーまたはチャンネルの一部が利用できなくなりました。"
+    },
+    "cancel": "キャンセル",
+    "scheduleMeeting": "ミーティングを予約",
+    "startMeeting": "ミーティングを開始",
+    "starting": "開始中…",
+    "scheduling": "予約中…",
+    "scheduleError": "ミーティングを予約できませんでした",
+    "membersLabel": "メンバー",
+    "membersAdd": "メンバーを追加",
+    "membersDone": "完了",
+    "membersNone": "メンバーはまだ追加されていません。",
+    "membersRemove": "{{name}}を削除",
+    "unknownMember": "不明なメンバー",
+    "channelsLabel": "チャンネル",
+    "channelsAdd": "チャンネルを追加",
+    "channelsDone": "完了",
+    "channelsNone": "チャンネルはまだ追加されていません。",
+    "channelsRemove": "{{name}}を削除",
+    "channelsHint": "チャンネルのメンバー全員が招待されます。",
+    "unknownChannel": "利用できないチャンネル",
+    "channelPicker": {
+      "searchPlaceholder": "チャンネルを検索…",
+      "searchAriaLabel": "参加中のチャンネルを検索",
+      "loading": "チャンネルを読み込み中…",
+      "error": "チャンネルを読み込めませんでした。",
+      "retry": "再試行",
+      "members_other": "{{count}}人のメンバー",
+      "empty": {
+        "none": "参加しているチャンネルはありません。",
+        "noMatches": "一致するチャンネルがありません。"
+      }
+    },
+    "repeat": {
+      "label": "繰り返し",
+      "none": "繰り返さない",
+      "daily": "毎日",
+      "weekly": "毎週",
+      "monthly": "毎月",
+      "every": "間隔",
+      "intervalAria": "繰り返しの間隔",
+      "unit": {
+        "day_other": "日ごと",
+        "week_other": "週ごと",
+        "month_other": "か月ごと"
+      },
+      "on": "曜日",
+      "ends": "終了",
+      "endNever": "なし",
+      "endOnDate": "指定日",
+      "endAfter": "指定回数",
+      "endDateAria": "終了日",
+      "occurrenceCountAria": "繰り返す回数",
+      "occurrences_other": "回",
+      "errors": {
+        "interval": "1〜{{max}}の整数を入力してください。",
+        "weekdays": "曜日を1つ以上選択してください。",
+        "endDateRequired": "終了日を選択してください。",
+        "endDateBeforeStart": "終了日を最初のミーティングより前にすることはできません。",
+        "occurrenceCount": "1〜{{max}}の整数を入力してください。"
+      },
+      "monthlyHint": "毎月{{day}}日に繰り返します。その日がない月はスキップされます。"
+    },
+    "time": {
+      "chooseHour": "時を選択",
+      "chooseMinutes": "分を選択",
+      "am": "午前",
+      "pm": "午後",
+      "hourAria": "{{hour}}時",
+      "minuteAria": "{{minute}}分",
+      "pickerAriaLabel": "{{label}}の時刻ピッカー",
+      "cancel": "キャンセル",
+      "ok": "OK",
+      "dateAriaLabel": "{{label}}の日付",
+      "triggerAriaLabel": "{{label}}の時刻"
+    },
+    "preview": {
+      "sectionTitle": "ミーティングのプレビュー",
+      "untitled": "無題のミーティング",
+      "pickATime": "日付と時刻を選択してください",
+      "noInvitees": "招待されたメンバーはまだいません",
+      "onlineMeeting": "オンラインミーティング",
+      "repeatLabel": "繰り返し",
+      "members_other": "{{count}}人のメンバー",
+      "channels_other": "{{count}}件のチャンネル",
+      "endsOn": "{{date}}に終了",
+      "duration": {
+        "days_other": "{{count}}日",
+        "hours_other": "{{count}}時間",
+        "minutes_other": "{{count}}分"
+      },
+      "dateLabel": "日付",
+      "timeLabel": "時刻",
+      "peopleLabel": "メンバー",
+      "channelsLabel": "チャンネル",
+      "videoLabel": "ビデオ"
+    },
+    "confirmation": {
+      "title": "ミーティングを予約しました!",
+      "subtitle": "ミーティングをカレンダーに追加しました。",
+      "dismiss": "閉じる",
+      "close": "閉じる",
+      "copyLink": "リンクをコピー",
+      "linkCopied": "コピーしました!",
+      "generatingLink": "リンクを生成中…",
+      "viewInCalendar": "カレンダーで見る",
+      "startNow": "今すぐミーティングを開始"
+    },
+    "detailsTitle": "ミーティングの詳細",
+    "membersDescription": "このミーティングにメンバーを追加します",
+    "membersEmptyHint": "ミーティングにメンバーを招待しましょう",
+    "channelsDescription": "このミーティングにチャンネルを追加します"
+  },
+  "schedule": {
+    "error": "通話を予約できませんでした",
+    "titleChannel": "チャンネル通話を開始",
+    "titleDirect": "通話を予約",
+    "descriptionChannel": "このチャンネルのメンバー全員が参加できます。招待リンクはなく、チャンネルのメンバーであることが招待になります。",
+    "descriptionDirect": "{{peerName}}は、指定した時刻に参加できるようになります。予約した人が通話を開始します。",
+    "titleLabel": "タイトル",
+    "placeholderChannel": "デザイン定例",
+    "placeholderDirect": "週次レビュー",
+    "typeLabel": "種類",
+    "video": "ビデオ",
+    "audio": "音声",
+    "whenLabel": "日時",
+    "whenRequired": "— 必須",
+    "whenOptional": "— 空欄にすると今すぐ開始",
+    "lengthLabel": "長さ",
+    "lengthHint": "— 時間になると通話は自動的に終了します",
+    "durations": {
+      "m15": "15分",
+      "m30": "30分",
+      "h1": "1時間",
+      "h2": "2時間",
+      "noEnd": "終了時刻なし"
+    },
+    "cancel": "キャンセル",
+    "submitSchedule": "予約",
+    "submitStartNow": "今すぐ開始",
+    "untitled": "無題",
+    "startedNow": "今開始しました",
+    "endsAt": " — {{time}}に終了",
+    "done": "完了",
+    "joinNow": "今すぐ参加"
+  },
+  "filterMenu": {
+    "trigger": "フィルター",
+    "ariaLabel": "ミーティングをフィルター",
+    "typeHeading": "種類",
+    "onlyMine": "自分が主催したもののみ",
+    "clear": "フィルターをクリア"
+  },
+  "handoff": {
+    "title": "ミーティングに参加",
+    "subtitle": "デスクトップアプリで参加するか、このままブラウザーで続けられます。",
+    "notOpened": "自動的に開きませんでした。",
+    "openingApp": "{{brand}}デスクトップアプリを開いています…",
+    "continueInBrowser": "ブラウザーで続ける"
+  },
+  "inviteLink": {
+    "label": "招待リンク",
+    "copy": "ミーティングリンクをコピー",
+    "couldNotCreate": "招待リンクを作成できませんでした",
+    "copyFailed": "コピーに失敗しました",
+    "copyManually": "リンクを選択して、手動でコピーしてください。"
+  },
+  "host": {
+    "openFailed": "このミーティングを開けませんでした",
+    "rejoin": {
+      "ariaLabel": "参加していたミーティングに再参加",
+      "untitled": "ミーティング",
+      "description": "ページが再読み込みされる前に、このミーティングに参加していました。",
+      "notNow": "今はしない",
+      "rejoinButton": "再参加"
+    }
+  },
+  "transcript": {
+    "chat": {
+      "emptyTitle": "このミーティングにチャットはありません",
+      "emptyHint": "ルームの全員に送信されたメッセージはここに保管されます。個別メッセージは1人にのみ配信され、保存されません。"
+    },
+    "notes": {
+      "emptyTitle": "メモは取られていません",
+      "emptyHint": "ミーティングのメモパネルに書かれたポイントがここに保管されます。"
+    },
+    "loading": "読み込み中…",
+    "error": "読み込めませんでした。",
+    "retry": "再試行",
+    "loadMore": "さらに読み込む"
+  },
+  "statusBar": {
+    "micOn": "マイクはオンです",
+    "micOff": "マイクはオフです",
+    "leaveMeeting": "ミーティングを退出"
+  },
+  "series": {
+    "badge": "繰り返しミーティング",
+    "summary": {
+      "day_other": "{{count}}日ごとに繰り返し",
+      "week_other": "{{count}}週間ごとの{{days}}に繰り返し",
+      "month_other": "{{count}}か月ごとに繰り返し",
+      "withEnd": "{{repeat}}、{{end}}",
+      "until": "{{date}}まで",
+      "times_other": "合計{{count}}回のミーティング"
+    },
+    "edit": {
+      "button": "シリーズを編集",
+      "title": "繰り返しミーティングを編集",
+      "close": "閉じる",
+      "loading": "読み込み中…",
+      "error": "このシリーズを読み込めませんでした。",
+      "retry": "再試行",
+      "first": "最初のミーティング:{{when}}。日時はここでは変更できません。",
+      "note": "保存すると、このシリーズの今後のミーティングが更新されます。日時が変わらないミーティングは、参加リンクとゲストがそのまま維持されます。すでに終了したミーティングは変更されません。",
+      "cancel": "キャンセル",
+      "save": "変更を保存",
+      "saving": "保存中…",
+      "saveError": "変更を保存できませんでした"
+    },
+    "cancelSeries": {
+      "button": "シリーズを取り消す",
+      "title": "このシリーズを取り消しますか?",
+      "message": "このシリーズの今後のミーティングはすべて、全員分が削除されます。すでに終了したミーティングは残ります。",
+      "confirm": "シリーズを取り消す",
+      "error": "シリーズを取り消せませんでした",
+      "done": "シリーズを取り消しました"
+    }
+  },
+  "view": {
+    "untitled": "無題のミーティング",
+    "scope": {
+      "channelCall": "チャンネル通話",
+      "directCall": "ダイレクト通話"
+    },
+    "kind": {
+      "MEETING": "ミーティング",
+      "CHANNEL": "チャンネル通話",
+      "DIRECT": "ダイレクト通話"
+    },
+    "status": {
+      "cancelled": "取り消し済み",
+      "live": "進行中",
+      "upcoming": "今後の予定",
+      "ended": "終了"
+    },
+    "listSeparator": "、",
+    "namesAnd": "{{list}}、{{last}}",
+    "namesAndOthers_other": "{{list}}ほか{{count}}人"
+  }
+}

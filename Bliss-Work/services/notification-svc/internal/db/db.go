@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"embed"
 	"fmt"
-	"log/slog"
 	"sort"
 	"time"
 
@@ -14,6 +13,20 @@ import (
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
+
+func migrationAlreadyApplied(name, checksum string, applied map[string]string) (bool, error) {
+	previous, exists := applied[name]
+	if !exists {
+		return false, nil
+	}
+	if previous != checksum {
+		return false, fmt.Errorf(
+			"migration %s checksum changed after it was applied; add a new numbered migration",
+			name,
+		)
+	}
+	return true, nil
+}
 
 // Connect opens a pgx connection pool to the given database URL with explicit
 // pool sizing and lifetimes so the service behaves predictably under load.
@@ -150,17 +163,12 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 		sum := fmt.Sprintf("%x", sha256.Sum256(sqlBytes))
-		if prev, seen := applied[name]; seen {
-			if prev == sum {
-				continue
-			}
-			// Re-runs, which is what happened before this ledger existed — but
-			// no longer silently. Editing an applied migration is nearly always
-			// a mistake: the change never reaches databases that already ran it.
-			slog.Warn("migration file changed after it was applied; re-running it",
-				"file", name,
-				"detail", "prefer a new migration file — databases that already "+
-					"applied the old version will not receive the difference")
+		alreadyApplied, err := migrationAlreadyApplied(name, sum, applied)
+		if err != nil {
+			return err
+		}
+		if alreadyApplied {
+			continue
 		}
 		if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
 			return fmt.Errorf("exec migration %s: %w", name, err)

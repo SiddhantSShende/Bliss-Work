@@ -1,0 +1,16 @@
+{
+  "replyingTo": "{{who}}님에게 답장 중",
+  "thisMessage": "이 메시지",
+  "cancelReply": "답장 취소",
+  "removeAttachment": "{{name}} 제거",
+  "preparingFiles_other": "파일 {{count}}개 준비 중…",
+  "attachTitle": "사진, 동영상, 파일 첨부",
+  "attachAriaLabel": "파일 첨부",
+  "shareLocation": "내 위치 공유",
+  "send": "보내기",
+  "placeholder": {
+    "default": "메시지 입력…",
+    "dropFiles": "첨부할 파일을 여기에 놓으세요…",
+    "addMessageOrSend": "메시지를 추가하거나 보내기를 누르세요…"
+  }
+}

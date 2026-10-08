@@ -138,7 +138,7 @@ function DraftRow({
         {draft.attachmentCount > 0 && (
           <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-muted/80">
             <Paperclip size={10} />
-            {draft.attachmentCount} {draft.attachmentCount === 1 ? t("draftList.file") : t("draftList.files")}
+            {t("draftList.attachments", { count: draft.attachmentCount })}
           </div>
         )}
       </div>

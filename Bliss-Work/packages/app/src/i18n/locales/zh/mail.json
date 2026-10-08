@@ -1,0 +1,209 @@
+{
+  "liveEvents": {
+    "newMailInInbox": "收件箱收到新邮件"
+  },
+  "shared": {
+    "tryAgain": "重试",
+    "noSubject": "（无主题）",
+    "restoreMailTitle": "恢复，将此邮件放回原文件夹",
+    "deleteMailTitle": "删除，仅移除你的副本，不影响其他人",
+    "restoreLabel": "恢复",
+    "deleteLabel": "删除",
+    "loading": "加载中…"
+  },
+  "fields": {
+    "to": "收件人",
+    "cc": "抄送",
+    "bcc": "密送"
+  },
+  "layout": {
+    "backToList": "返回列表",
+    "welcome": {
+      "title": "未打开任何邮件",
+      "hint": "从列表中选择一封邮件即可在此阅读，或点击“写邮件”新建。"
+    }
+  },
+  "folders": {
+    "title": "邮件",
+    "unreadAriaLabel": "{{folder}}，{{count}} 封未读",
+    "box": {
+      "inbox": "收件箱",
+      "sent": "已发送",
+      "drafts": "草稿",
+      "deleted": "已删除",
+      "favorites": "收藏"
+    }
+  },
+  "list": {
+    "tabs": {
+      "all": "全部",
+      "unread": "未读"
+    },
+    "newMail": {
+      "title": "写邮件，新建一封电子邮件",
+      "label": "写邮件"
+    },
+    "checkForNewMail": "检查新邮件",
+    "unknownPeer": "此人",
+    "emptyStates": {
+      "unreadTitle": "没有未读邮件",
+      "deletedTitle": "没有已删除邮件",
+      "favoritesTitle": "暂无收藏",
+      "defaultTitle": "这里还没有内容",
+      "unreadHint": "此文件夹中的邮件都已读。",
+      "peerHint": "{{folder}}中没有与 {{peer}} 的邮件。",
+      "deletedHint": "你删除的邮件会在此保留 90 天，可随时恢复。",
+      "favoritesHint": "在任意文件夹中为邮件加星标，就会收集到这里。星标保存在此设备上。",
+      "defaultHint": "点击“写邮件”新建一封。"
+    },
+    "messageCount_other": "{{shown}} 条消息",
+    "loadingMore": "正在加载更多…",
+    "showAllMailTitle": "显示所有人的邮件",
+    "errors": {
+      "couldNotRemoveItem": "无法移除该项",
+      "couldNotRestoreItem": "无法恢复该邮件",
+      "couldNotDeleteMessage": "无法删除该消息",
+      "couldNotAcknowledgeTask": "无法知悉该任务",
+      "couldNotCompleteTask": "无法完成该任务"
+    }
+  },
+  "detail": {
+    "loadingMail": "正在加载邮件…",
+    "loadError": "无法打开此邮件，它可能已被移除。",
+    "unknownSender": "未知发件人",
+    "restoredToast": "已恢复到你的邮箱",
+    "movedToDeletedToast": "已移至已删除",
+    "couldNotRestoreToast": "无法恢复",
+    "couldNotRemoveToast": "无法移除",
+    "statusSent": "已发送",
+    "statusInbox": "收件箱",
+    "noMessageBody": "（无正文）",
+    "toolbar": {
+      "reply": "回复",
+      "replyTitle": "回复发件人",
+      "replyAll": "全部回复",
+      "replyAllTitle": "回复此邮件的所有人",
+      "forward": "转发",
+      "forwardTitle": "将此邮件转发给其他人"
+    }
+  },
+  "thread": {
+    "defaultSubject": "会话",
+    "ignoreTitle": "忽略，双方都将隐藏",
+    "messageFailedToast": "消息发送失败",
+    "couldNotRemoveThreadToast": "无法移除此会话"
+  },
+  "task": {
+    "couldNotUpdateToast": "无法更新该任务",
+    "notFoundTitle": "未找到任务",
+    "notFoundHint": "它可能已被移除。"
+  },
+  "row": {
+    "externalSender": "外部发件人",
+    "untitledTask": "（未命名任务）",
+    "noPreview": "（无预览）",
+    "taskLabel": "任务",
+    "threadLabel": "会话",
+    "newBadge": "新",
+    "favorite": {
+      "add": "添加到收藏",
+      "remove": "取消收藏"
+    },
+    "acknowledgeTitle": "知悉，接受此任务",
+    "acknowledgeLabel": "知悉",
+    "completeTitle": "标记为完成",
+    "completeLabel": "完成",
+    "ignoreTitleTask": "忽略，从你的邮箱中移除",
+    "ignoreTitleThread": "忽略，双方都将隐藏",
+    "ignoreLabel": "忽略",
+    "dismissTitle": "从你的邮箱中删除"
+  },
+  "addressField": {
+    "invalidAddressTitle": "这看起来不像邮箱地址",
+    "removeAddress": "移除 {{address}}"
+  },
+  "attachments": {
+    "heading": "附件（{{count}}）",
+    "couldNotAttachToast": "无法添加 {{filename}}",
+    "tooLargeToast": "{{filename}} 超过 {{maxSize}}。",
+    "couldNotRemoveToast": "无法移除该文件",
+    "tray": {
+      "uploading": "正在上传… {{progress}}%",
+      "remove": "移除 {{filename}}"
+    },
+    "preview": "预览",
+    "previewFile": "预览 {{filename}}",
+    "open": "打开",
+    "openFile": "打开 {{filename}}",
+    "download": "下载",
+    "downloadFile": "下载 {{filename}}",
+    "preparing": "正在准备…",
+    "unavailable": "不可用"
+  },
+  "draftList": {
+    "discardedToast": "草稿已丢弃",
+    "couldNotDiscardToast": "无法丢弃",
+    "loading": "正在加载草稿…",
+    "errorTitle": "无法加载草稿",
+    "errorHint": "请检查网络，然后点击上方的“检查新邮件”。",
+    "emptyTitle": "没有草稿",
+    "emptyHint": "已开始写但未发送的邮件会保存在这里，直到你写完。",
+    "noRecipient": "尚无收件人",
+    "addressedMore": "{{first}} 等另外 {{count}} 人",
+    "attachments_other": "{{count}} 个文件",
+    "discardTitle": "丢弃此草稿，它尚未发送给任何人",
+    "discardAriaLabel": "丢弃草稿"
+  },
+  "compose": {
+    "headings": {
+      "draft": "草稿",
+      "forward": "转发",
+      "reply": "回复",
+      "newMail": "写邮件"
+    },
+    "closeTitle": "关闭，内容会保存在草稿中",
+    "startErrorBanner": "无法创建草稿。请检查网络后重试。",
+    "retry": "重试",
+    "openingDraft": "正在打开草稿…",
+    "loadErrorText": "无法打开此草稿，它可能已发送或被丢弃。",
+    "ccBccButton": "抄送 / 密送",
+    "toPlaceholder": "name@company.com",
+    "ccPlaceholder": "抄送给其他人",
+    "bccPlaceholder": "密送，对其他人不可见",
+    "subjectLabel": "主题",
+    "subjectPlaceholder": "写什么内容？",
+    "messageLabel": "正文",
+    "messagePlaceholder": "撰写邮件…",
+    "attachTitleReady": "添加文件",
+    "attachTitlePreparing": "正在准备草稿…",
+    "attachLabel": "附件",
+    "removeAll": "全部移除",
+    "preparing": "正在准备…",
+    "discardButton": "丢弃",
+    "discardTitle": "丢弃，删除此草稿，它尚未发送给任何人",
+    "closeButton": "关闭",
+    "sendButton": "发送",
+    "sendingButton": "正在发送…",
+    "draftDiscardedToast": "草稿已丢弃",
+    "couldNotDiscardToast": "无法丢弃草稿",
+    "couldNotSendToast": "无法发送",
+    "errors": {
+      "draftNotReady": "草稿尚未就绪",
+      "invalidAddress": "“{{address}}”看起来不像邮箱地址。",
+      "subjectTooLong": "主题有 {{length}} 个字符，上限为 {{limit}}。"
+    },
+    "sentSummary": {
+      "sent": "已发送",
+      "sentToPeople": "已发送给 {{count}} 人",
+      "delivering": "已发送，投递中",
+      "deliveringToCount": "已发送，正在投递给 {{count}} 人",
+      "sentAndDelivering": "已发送给此处的 {{inApp}} 人，另有 {{external}} 人正在投递"
+    }
+  },
+  "quote": {
+    "wrote": "{{when}}，{{sender}} 写道："
+  },
+  "recipients": {
+    "summaryMore": "{{list}} 等另外 {{count}} 人"
+  }
+}

@@ -1,0 +1,281 @@
+{
+  "shared": {
+    "you": "आप",
+    "emptyMessages": "अभी कोई संदेश नहीं — नमस्ते कहें 👋",
+    "sending": "भेजा जा रहा है…",
+    "callMissedNoAnswer": "{{body}} · कोई उत्तर नहीं",
+    "messageFailedToSend": "वह संदेश भेजा नहीं जा सका",
+    "loadOlderMessagesFailed": "पिछले संदेश लोड नहीं हो सके"
+  },
+  "thread": {
+    "composerPlaceholder": "संदेश लिखें…",
+    "loadHistory": {
+      "loading": "पिछले संदेश लोड हो रहे हैं…",
+      "load": "पिछले संदेश लोड करें"
+    },
+    "pinned": "पिन किया",
+    "forwarded": "फ़ॉरवर्ड किया गया",
+    "tombstone": "यह संदेश हटा दिया गया",
+    "deletedMessage": "हटाया गया संदेश",
+    "originalMessage": "मूल संदेश",
+    "selectMessage": "संदेश चुनें",
+    "selectMessageFrom": "{{name}} का संदेश चुनें",
+    "seenBy": {
+      "label": "इन्होंने देखा",
+      "count": "{{count}} ने देखा",
+      "ariaLabel_one": "{{count}} व्यक्ति ने देखा",
+      "ariaLabel_other": "{{count}} लोगों ने देखा",
+      "unknownReader": "अज्ञात"
+    },
+    "typing": {
+      "peer": "{{name}} टाइप कर रहे हैं…",
+      "generic": "टाइप कर रहे हैं…"
+    },
+    "disabledNotice": "आप इस बातचीत में संदेश नहीं भेज सकते।"
+  },
+  "threadView": {
+    "loadOlder": {
+      "loading": "पुराने संदेश लोड हो रहे हैं…",
+      "button": "पिछले 12 लोड करें",
+      "title": "पिछले 12 संदेश लोड करें"
+    }
+  },
+  "dmView": {
+    "errors": {
+      "reactionSave": "वह प्रतिक्रिया सहेजी नहीं जा सकी",
+      "hideMessage": "वह संदेश छिपाया नहीं जा सका",
+      "markUnread": "वह चैट अपठित चिह्नित नहीं हो सकी",
+      "deleteMessage": "वह संदेश हटाया नहीं जा सका",
+      "deleteMessages": "वे संदेश हटाए नहीं जा सके",
+      "clearChat": "इस चैट का इतिहास साफ़ नहीं हो सका",
+      "removeConversation": "यह बातचीत हटाई नहीं जा सकी",
+      "createCallLink": "कॉल लिंक नहीं बनाया जा सका",
+      "noneDeletable": "चुने गए संदेशों में से कोई भी सबके लिए नहीं हटाया जा सकता",
+      "updateBlock": {
+        "title": "ब्लॉक अपडेट नहीं हो सका",
+        "description": "कृपया फिर से कोशिश करें।"
+      }
+    },
+    "bulkDelete": {
+      "deletedToast_one": "{{count}} संदेश हटाया गया",
+      "deletedToast_other": "{{count}} संदेश हटाए गए",
+      "partialToast": "{{total}} में से {{deleted}} हटाए गए",
+      "partialDescription": "{{count}} हटाए नहीं जा सके — केवल उन्हें भेजने वाला ही हटा सकता है।"
+    },
+    "clearChatToast": "चैट आपके लिए साफ़ कर दी गई",
+    "callLink": {
+      "messageBody": "मेरी कॉल से जुड़ें: {{link}}",
+      "failedToast": "{{total}} में से {{failed}} तक नहीं पहुँचा जा सका",
+      "failedDescription": "लिंक इस चैट में पोस्ट है, और बाकी सभी के पास है।",
+      "sentToast": "कॉल लिंक भेजा गया",
+      "sentDescription": {
+        "withOthers_one": "{{count}} व्यक्ति को भी भेजा गया। कॉल अभी खुली है — जब चाहें, मीटिंग से जुड़ें।",
+        "withOthers_other": "{{count}} लोगों को भी भेजा गया। कॉल अभी खुली है — जब चाहें, मीटिंग से जुड़ें।",
+        "aloneOnly": "कॉल अभी खुली है — जब चाहें, मीटिंग से जुड़ें।"
+      }
+    },
+    "notFound": {
+      "title": "बातचीत नहीं मिली",
+      "hint": "साइडबार से कोई दूसरी चुनें।"
+    },
+    "startCall": {
+      "blockedNotice": {
+        "title": "कॉल शुरू नहीं हो सकती",
+        "unblockToCall": "कॉल करने के लिए इस उपयोगकर्ता को अनब्लॉक करें।",
+        "cannotCall": "आप इस उपयोगकर्ता को कॉल नहीं कर सकते।"
+      },
+      "mustBeOnline": "कॉल पाने के लिए {{name}} का ऑनलाइन होना ज़रूरी है।",
+      "onAnotherCall": {
+        "title": "{{name}} दूसरी कॉल पर हैं",
+        "description": "फिर भी रिंग कर रहे हैं — वे शायद न उठाएँ।"
+      }
+    },
+    "exportedToast_one": "{{count}} संदेश एक्सपोर्ट हुआ",
+    "exportedToast_other": "{{count}} संदेश एक्सपोर्ट हुए",
+    "header": {
+      "backToChats": "चैट पर वापस",
+      "status": {
+        "busy": "कॉल पर",
+        "online": "ऑनलाइन",
+        "offline": "ऑफ़लाइन"
+      },
+      "unblockTitle": "इस उपयोगकर्ता को अनब्लॉक करें",
+      "blockTitle": "इस उपयोगकर्ता को ब्लॉक करें",
+      "unblockLabel": "अनब्लॉक करें",
+      "blockLabel": "ब्लॉक करें",
+      "removeFromInboxes": "दोनों इनबॉक्स से हटाएँ",
+      "ignore": "अनदेखा करें"
+    },
+    "search": {
+      "placeholder": "{{name}} के साथ अपनी चैट खोजें…"
+    },
+    "composer": {
+      "placeholder": "{{name}} को संदेश भेजें…"
+    },
+    "notice": {
+      "blockedByMe": "आपने इस उपयोगकर्ता को ब्लॉक किया है। संदेश भेजने के लिए अनब्लॉक करें।",
+      "blockedByPeer": "आपको ब्लॉक कर दिया गया है।"
+    },
+    "clearChatDialog": {
+      "title": "चैट इतिहास साफ़ करें?",
+      "message": "यह चैट इतिहास केवल आपके लिए हटेगा। दूसरे व्यक्ति के पास उसकी प्रति बनी रहेगी।",
+      "confirmLabel": "चैट साफ़ करें"
+    },
+    "bulkDeleteDialog": {
+      "title_one": "{{count}} संदेश हटाएँ?",
+      "title_other": "{{count}} संदेश हटाएँ?",
+      "messageAll": "ये इस चैट में सबके लिए हट जाएँगे। इसे पूर्ववत नहीं किया जा सकता।",
+      "messagePartial": "चुने गए {{total}} में से {{remaining}} सबके लिए नहीं हटाए जा सकते — केवल उन्हें भेजने वाला ही हटा सकता है। बाकी {{deletable}} सबके लिए हट जाएँगे, और इसे पूर्ववत नहीं किया जा सकता।",
+      "confirmLabel": "हटाएँ"
+    }
+  },
+  "channelView": {
+    "errors": {
+      "reactionSave": "वह प्रतिक्रिया सहेजी नहीं जा सकी",
+      "hideMessage": "वह संदेश छिपाया नहीं जा सका",
+      "markUnread": "वह चैनल अपठित चिह्नित नहीं हो सका",
+      "clearMessages": "चैनल के संदेश साफ़ नहीं हो सके",
+      "deleteMessage": "वह संदेश हटाया नहीं जा सका",
+      "deleteMessages": "वे संदेश हटाए नहीं जा सके",
+      "changePin": "पिन बदला नहीं जा सका",
+      "startCall": "कॉल शुरू नहीं हो सकी",
+      "leave": "चैनल छोड़ा नहीं जा सका",
+      "deleteChannel": "चैनल हटाया नहीं जा सका",
+      "noneDeletable": "चुने गए संदेशों में से कोई भी सबके लिए नहीं हटाया जा सकता"
+    },
+    "clearMessagesToast": "चैनल के संदेश आपके लिए साफ़ कर दिए गए",
+    "bulkDelete": {
+      "deletedToast_one": "{{count}} संदेश हटाया गया",
+      "deletedToast_other": "{{count}} संदेश हटाए गए",
+      "partialToast": "{{total}} में से {{deleted}} हटाए गए",
+      "partialDescription": "{{count}} हटाए नहीं जा सके — केवल उन्हें भेजने वाला या चैनल मैनेजर ही हटा सकता है।"
+    },
+    "pinToggle": {
+      "pinned": "सबके लिए पिन किया गया",
+      "unpinned": "अनपिन किया गया"
+    },
+    "leftChannelToast": "आपने #{{name}} छोड़ दिया",
+    "deletedChannelToast": "चैनल हटाया गया",
+    "notFound": {
+      "title": "चैनल नहीं मिला",
+      "hint": "साइडबार से कोई दूसरा चुनें।"
+    },
+    "exportedToast_one": "{{count}} संदेश एक्सपोर्ट हुआ",
+    "exportedToast_other": "{{count}} संदेश एक्सपोर्ट हुए",
+    "header": {
+      "backToChannels": "चैनल पर वापस",
+      "locked": "लॉक्ड",
+      "membersTitle": "चैनल के सदस्य",
+      "membersAriaLabel": "{{count}} सदस्य — देखें और प्रबंधित करें"
+    },
+    "search": {
+      "placeholder": "#{{name}} में खोजें…"
+    },
+    "composer": {
+      "placeholder": "#{{name}} में संदेश भेजें…"
+    },
+    "clearMessagesDialog": {
+      "title": "चैनल के संदेश साफ़ करें?",
+      "message": "लोड हुए संदेश केवल आपके लिए साफ़ होंगे। बाकी सदस्यों के पास उनकी प्रतियाँ बनी रहेंगी।",
+      "confirmLabel": "संदेश साफ़ करें"
+    },
+    "deleteChannelDialog": {
+      "titleNamed": "#{{name}} हटाएँ?",
+      "titleFallback": "चैनल हटाएँ?",
+      "message": "इसे पूर्ववत नहीं किया जा सकता। चैनल और उसके संदेश हटा दिए जाएँगे।",
+      "confirmLabel": "चैनल हटाएँ"
+    },
+    "bulkDeleteDialog": {
+      "title_one": "{{count}} संदेश हटाएँ?",
+      "title_other": "{{count}} संदेश हटाएँ?",
+      "messageAll": "ये इस चैनल में सबके लिए हट जाएँगे। इसे पूर्ववत नहीं किया जा सकता।",
+      "messagePartial": "चुने गए {{total}} में से {{remaining}} सबके लिए नहीं हटाए जा सकते — केवल उन्हें भेजने वाला या चैनल मैनेजर ही हटा सकता है। बाकी {{deletable}} सबके लिए हट जाएँगे, और इसे पूर्ववत नहीं किया जा सकता।",
+      "confirmLabel": "हटाएँ"
+    }
+  },
+  "conversationMenu": {
+    "unavailableHint": "अभी उपलब्ध नहीं — सर्वर एंडपॉइंट चाहिए",
+    "label": {
+      "channel": "चैनल विकल्प",
+      "chat": "चैट विकल्प"
+    },
+    "items": {
+      "viewProfile": "प्रोफ़ाइल देखें",
+      "search": "खोजें",
+      "media": "मीडिया, लिंक और दस्तावेज़",
+      "selectMessages": "संदेश चुनें",
+      "mute": "नोटिफ़िकेशन म्यूट करें",
+      "unmute": "नोटिफ़िकेशन अनम्यूट करें",
+      "more": "और",
+      "clearChat": "चैट साफ़ करें",
+      "exportChat": "चैट एक्सपोर्ट करें",
+      "pin": "{{scope}} पिन करें",
+      "unpin": "{{scope}} अनपिन करें",
+      "rename": "नाम बदलें",
+      "delete": "हटाएँ",
+      "leaving": "छोड़ रहे हैं…",
+      "leave": "छोड़ें"
+    },
+    "scope": {
+      "channel": "चैनल",
+      "chat": "चैट"
+    }
+  },
+  "whatsAppForward": {
+    "forwardedToast": "WhatsApp के ज़रिए फ़ॉरवर्ड किया गया",
+    "forwardedDescription": "प्राप्तकर्ता आपने WhatsApp में चुना, इसलिए यह चैट केवल हैंडऑफ़ दर्ज करती है।",
+    "logFailedToast": "फ़ॉरवर्ड दर्ज नहीं हो सका",
+    "logFailedDescription": "WhatsApp फिर भी खुल गया — बस वह इस चैट में दर्ज नहीं हुआ।",
+    "shareFailedGeneric": "साझा करना विफल रहा",
+    "mediaPrepareFailed": "WhatsApp के लिए अटैचमेंट तैयार नहीं हो सका",
+    "mediaNoLongerAvailable": "हो सकता है वह अब उपलब्ध न हो।",
+    "sharedToast": "अटैचमेंट के साथ शेयर शीट खुल गई",
+    "sharedDescription": "वहाँ WhatsApp चुनें — उसके बाद क्या होता है, यह BlissWork पुष्ट नहीं कर सकता।",
+    "downloadedToast_one": "WhatsApp के लिए अटैचमेंट डाउनलोड हुआ",
+    "downloadedToast_other": "WhatsApp के लिए {{count}} अटैचमेंट डाउनलोड हुए",
+    "downloadedDescription": "यह डिवाइस फ़ाइलें अपने-आप WhatsApp को नहीं सौंप सकता — डाउनलोड की गई फ़ाइल WhatsApp में खुद जोड़ें।",
+    "mediaShareFailed": "अटैचमेंट WhatsApp के साथ साझा नहीं हो सका"
+  },
+  "export": {
+    "header": "{{brand}} बातचीत का ट्रांसक्रिप्ट",
+    "exportedSummary_one": "{{timestamp}} को एक्सपोर्ट किया गया · {{count}} संदेश लोड हुआ",
+    "exportedSummary_other": "{{timestamp}} को एक्सपोर्ट किया गया · {{count}} संदेश लोड हुए",
+    "unknownSender": "अज्ञात",
+    "deletedMessage": "(हटाया गया)",
+    "noText": "(कोई टेक्स्ट नहीं)"
+  },
+  "messageActions": {
+    "react": {
+      "title": "प्रतिक्रिया दें",
+      "ariaLabel": "इस संदेश पर प्रतिक्रिया दें"
+    },
+    "more": {
+      "title": "और",
+      "ariaLabel": "संदेश की कार्रवाइयाँ"
+    },
+    "menu": {
+      "reply": "उत्तर दें",
+      "download": "डाउनलोड करें",
+      "downloadNamed": "{{name}} डाउनलोड करें",
+      "forwardTo": "चैट या चैनल में फ़ॉरवर्ड करें…",
+      "forwardWhatsApp": "WhatsApp पर फ़ॉरवर्ड करें",
+      "markUnread": "अपठित चिह्नित करें",
+      "deleteForMe": "मेरे लिए हटाएँ",
+      "unpinForEveryone": "सबके लिए अनपिन करें",
+      "pinForEveryone": "सबके लिए पिन करें",
+      "deleteForEveryone": "सबके लिए हटाएँ"
+    },
+    "confirmDialog": {
+      "title": "संदेश हटाएँ?",
+      "deleteAllMessage": "क्या आप यह संदेश हटाना चाहते हैं? यह इस बातचीत में सबके लिए हट जाएगा।",
+      "deleteMeMessage": "क्या आप यह संदेश हटाना चाहते हैं? यह केवल आपके दृश्य से हटेगा।",
+      "confirmLabel": "हटाएँ"
+    },
+    "reactions": {
+      "clickToRemove": "अपनी प्रतिक्रिया हटाने के लिए क्लिक करें",
+      "clickToReact": "प्रतिक्रिया देने के लिए क्लिक करें",
+      "andMore": "{{names}} और {{hidden}} अन्य",
+      "tooltip": "{{who}} ने {{emoji}} से प्रतिक्रिया दी — {{action}}"
+    }
+  }
+}

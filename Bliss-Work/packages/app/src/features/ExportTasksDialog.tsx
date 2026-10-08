@@ -16,7 +16,7 @@ import { Download } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { subtractDays, subtractMonthsClamped } from "../lib/dateRange";
+import { localDay, subtractDays, subtractMonthsClamped } from "../lib/dateRange";
 import { exportTaskRowsToXlsx } from "../lib/xlsxExport";
 import { Modal } from "./Modal";
 import { Tabs, type TabSpec } from "./Tabs";
@@ -85,7 +85,7 @@ export function ExportTasksDialog({ open, onClose }: { open: boolean; onClose: (
         queryKey: qk.directory,
         queryFn: () => api.directory(),
       });
-      const stamp = new Date().toISOString().slice(0, 10);
+      const stamp = localDay(new Date());
       const n = await exportTaskRowsToXlsx(
         rows,
         directory,

@@ -1,0 +1,99 @@
+{
+  "loading": "Chargement…",
+  "unknownUser": "Utilisateur inconnu",
+  "screenshotBlocked": "Tentative de capture d'écran détectée. Les captures d'écran ne sont pas autorisées.",
+  "date": {
+    "today": "Aujourd'hui",
+    "yesterday": "Hier",
+    "tomorrow": "Demain"
+  },
+  "buttons": {
+    "dismiss": "Ignorer",
+    "view": "Afficher",
+    "manage": "Gérer",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "edit": "Modifier"
+  },
+  "language": {
+    "changeLanguage": "Changer de langue",
+    "switcherTitle": "Langue : {{name}}",
+    "switchFailed": "Impossible de charger cette langue. Veuillez réessayer."
+  },
+  "relativeTime": {
+    "justNow": "à l'instant",
+    "minutesAgo_one": "il y a {{count}} min",
+    "minutesAgo_many": "il y a {{count}} min",
+    "minutesAgo_other": "il y a {{count}} min",
+    "hoursAgo_one": "il y a {{count}} h",
+    "hoursAgo_many": "il y a {{count}} h",
+    "hoursAgo_other": "il y a {{count}} h",
+    "daysAgo_one": "il y a {{count}} j",
+    "daysAgo_many": "il y a {{count}} j",
+    "daysAgo_other": "il y a {{count}} j"
+  },
+  "confirmDialog": {
+    "confirmDefault": "Confirmer",
+    "cancel": "Annuler"
+  },
+  "modal": {
+    "close": "Fermer"
+  },
+  "lightbox": {
+    "close": "Fermer",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "loading": "Chargement…",
+    "previewNotAvailable": "Aperçu non disponible pour ce type de fichier",
+    "openInBrowser": "Ouvrir plutôt dans le navigateur",
+    "loadingPreview": "Chargement de l'aperçu…",
+    "itemCount": " · {{current}} sur {{total}}"
+  },
+  "documentViewer": {
+    "converting": "Préparation de l'aperçu… les documents volumineux peuvent prendre une minute.",
+    "failed": "L'aperçu de ce document n'est pas possible.",
+    "failedHint": "Vous pouvez toujours le télécharger.",
+    "unavailable": "Les aperçus sont temporairement indisponibles.",
+    "busy": "Trop d'aperçus en même temps. Réessayez dans un instant.",
+    "tooLarge": "Ce fichier est trop volumineux pour être prévisualisé.",
+    "timedOut": "Cela prend plus de temps que prévu.",
+    "network": "Impossible de charger l'aperçu. Vérifiez votre connexion.",
+    "download": "Télécharger",
+    "sheetNotice": "Vue simple des données. La mise en forme, les cellules fusionnées, les graphiques et les images ne sont pas affichés — téléchargez le fichier pour le voir tel qu'il a été créé.",
+    "csvNotice": "Vue simple des données. Téléchargez le fichier pour l'ouvrir dans un tableur.",
+    "showingRowsOf": "Affichage des {{shown}} premières lignes sur {{total}}.",
+    "showingRows": "Affichage des {{shown}} premières lignes.",
+    "moreSheets": "Seules les {{count}} premières feuilles sont affichées.",
+    "showMoreRows": "Afficher plus de lignes",
+    "emptySheet": "Cette feuille est vide.",
+    "sheets": "Feuilles",
+    "textTruncated": "Seule la première partie de ce fichier est affichée.",
+    "emptyFile": "Ce fichier est vide."
+  },
+  "errorBoundary": {
+    "title": "Une erreur s'est produite.",
+    "unexpectedError": "Une erreur inattendue s'est produite.",
+    "reference": "Référence : {{requestId}}",
+    "retry": "Réessayer",
+    "goHome": "Retour à l'accueil"
+  },
+  "globalError": {
+    "title": "Une erreur s'est produite"
+  },
+  "attachment": {
+    "couldNotOpen": "Impossible d'ouvrir {{filename}}"
+  },
+  "ui": {
+    "back": "Retour",
+    "onCall": "En appel",
+    "nothingRecorded": "Rien d'enregistré sur cette période.",
+    "chartValue": "Valeur",
+    "chartPeakAria": "{{value}} par jour, pic à {{peak}}",
+    "chartActiveIdle": "{{active}} actif, {{idle}} inactif"
+  },
+  "activityRange": {
+    "last7": "7 derniers jours",
+    "last30": "30 derniers jours",
+    "last90": "90 derniers jours"
+  }
+}

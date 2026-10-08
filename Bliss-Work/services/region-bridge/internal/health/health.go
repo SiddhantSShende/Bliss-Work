@@ -17,6 +17,8 @@ package health
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,6 +31,17 @@ const (
 	Import Direction = "import"
 )
 
+// source is one independent producer of health signals: a direction, and for
+// export one of its per-topic goroutines (topic == "" for the import side and for
+// direction-level calls). Progress, faults and Kafka reachability are tracked per
+// source — the exporter runs one goroutine per topic, and a single shared slot let
+// one healthy topic's Progress() erase another's stall and its fetches flip
+// Kafka back to reachable while a different topic was failing.
+type source struct {
+	d     Direction
+	topic string
+}
+
 // State is the bridge's view of itself. Every field is written by a worker and
 // read by an HTTP handler, so all access goes through the mutex — and the
 // mutex is never held across I/O, which is the rule that keeps a health check
@@ -36,12 +49,16 @@ const (
 type State struct {
 	mu sync.RWMutex
 
-	natsConnected  bool
-	kafkaReachable bool
+	natsConnected bool
+	// kafka maps each reporter (SetKafkaFor) to whether its last Kafka operation
+	// worked. Reachable only when there is at least one report and every
+	// reporter's latest one is "ok".
+	kafka map[string]bool
 
 	enabled     map[Direction]bool
-	lastSuccess map[Direction]time.Time
-	lastError   map[Direction]string
+	enabledAt   map[Direction]time.Time
+	lastSuccess map[source]time.Time
+	lastError   map[source]string
 
 	pending    uint64
 	stallAfter time.Duration
@@ -50,16 +67,41 @@ type State struct {
 
 func New(stallAfter time.Duration) *State {
 	return &State{
+		kafka:       map[string]bool{},
 		enabled:     map[Direction]bool{},
-		lastSuccess: map[Direction]time.Time{},
-		lastError:   map[Direction]string{},
+		enabledAt:   map[Direction]time.Time{},
+		lastSuccess: map[source]time.Time{},
+		lastError:   map[source]string{},
 		stallAfter:  stallAfter,
 		startedAt:   time.Now(),
 	}
 }
 
-func (s *State) SetNATS(ok bool)  { s.mu.Lock(); s.natsConnected = ok; s.mu.Unlock() }
-func (s *State) SetKafka(ok bool) { s.mu.Lock(); s.kafkaReachable = ok; s.mu.Unlock() }
+func (s *State) SetNATS(ok bool) { s.mu.Lock(); s.natsConnected = ok; s.mu.Unlock() }
+
+// SetKafka records a direction-level (not per-topic) Kafka result.
+func (s *State) SetKafka(ok bool) { s.SetKafkaFor("", ok) }
+
+// SetKafkaFor records the Kafka result seen by one reporter (e.g. one export
+// topic's reader). The bridge counts as reachable only while no reporter's latest
+// result is a failure.
+func (s *State) SetKafkaFor(reporter string, ok bool) {
+	s.mu.Lock()
+	s.kafka[reporter] = ok
+	s.mu.Unlock()
+}
+
+func (s *State) kafkaReachableLocked() bool {
+	if len(s.kafka) == 0 {
+		return false
+	}
+	for _, ok := range s.kafka {
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
 
 func (s *State) SetEnabled(d Direction, on bool) {
 	s.mu.Lock()
@@ -68,17 +110,33 @@ func (s *State) SetEnabled(d Direction, on bool) {
 	// or stalled yet. Carrying a stale error across a resume would make a
 	// successful rollback look like a broken one.
 	if on {
-		s.lastError[d] = ""
-		s.lastSuccess[d] = time.Now()
+		now := time.Now()
+		s.enabledAt[d] = now
+		for src := range s.lastError {
+			if src.d == d {
+				s.lastError[src] = ""
+			}
+		}
+		for src := range s.lastSuccess {
+			if src.d == d {
+				s.lastSuccess[src] = now
+			}
+		}
+		s.lastSuccess[source{d: d}] = now
 	}
 	s.mu.Unlock()
 }
 
 // Progress records that work actually crossed the boundary.
-func (s *State) Progress(d Direction) {
+func (s *State) Progress(d Direction) { s.ProgressTopic(d, "") }
+
+// ProgressTopic is Progress for one topic of a direction: it clears only that
+// topic's fault, so it cannot hide another topic's stall.
+func (s *State) ProgressTopic(d Direction, topic string) {
 	s.mu.Lock()
-	s.lastSuccess[d] = time.Now()
-	s.lastError[d] = ""
+	src := source{d: d, topic: topic}
+	s.lastSuccess[src] = time.Now()
+	s.lastError[src] = ""
 	s.mu.Unlock()
 }
 
@@ -86,17 +144,74 @@ func (s *State) Progress(d Direction) {
 // rather than a list: the first error of an outage is usually the interesting
 // one, but it is also the one already in the logs, and a health endpoint that
 // accumulates strings is a memory leak with a URL.
-func (s *State) Fault(d Direction, err error) {
+func (s *State) Fault(d Direction, err error) { s.FaultTopic(d, "", err) }
+
+// FaultTopic is Fault for one topic of a direction.
+func (s *State) FaultTopic(d Direction, topic string, err error) {
 	if err == nil {
 		return
 	}
 	s.mu.Lock()
-	s.lastError[d] = err.Error()
+	s.lastError[source{d: d, topic: topic}] = err.Error()
+	s.mu.Unlock()
+}
+
+// ClearFaultTopic forgets a topic's recorded fault without counting it as
+// progress. For a topic that is demonstrably working again but has nothing to
+// move (an idle topic after a transient fetch error), which Progress alone would
+// leave looking stalled.
+func (s *State) ClearFaultTopic(d Direction, topic string) {
+	s.mu.Lock()
+	s.lastError[source{d: d, topic: topic}] = ""
 	s.mu.Unlock()
 }
 
 // SetPending publishes the import backlog — the cross-region replication lag.
 func (s *State) SetPending(n uint64) { s.mu.Lock(); s.pending = n; s.mu.Unlock() }
+
+// stallView summarises a direction's sources for the stall guard (caller holds
+// the lock): whether any of them is faulting, and how long it has been since
+// progress. While something is faulting the duration is the longest such wait —
+// a healthy neighbour does not shorten it. With nothing faulting it is the
+// longest wait overall, which is what the import side's backlog check reads.
+func (s *State) stallView(d Direction) (faulting bool, since time.Duration) {
+	var worstFaulting, worstAny time.Duration
+	for src, t := range s.lastSuccess {
+		if src.d != d {
+			continue
+		}
+		w := time.Since(t)
+		if t.IsZero() {
+			w = time.Since(s.startedAt)
+		}
+		if w > worstAny {
+			worstAny = w
+		}
+	}
+	for src, e := range s.lastError {
+		if src.d != d || e == "" {
+			continue
+		}
+		faulting = true
+		ref := s.lastSuccess[src]
+		if ref.IsZero() {
+			ref = s.enabledAt[d]
+		}
+		if ref.IsZero() {
+			ref = s.startedAt
+		}
+		if w := time.Since(ref); w > worstFaulting {
+			worstFaulting = w
+		}
+	}
+	if faulting {
+		return true, worstFaulting
+	}
+	if len(s.lastSuccess) == 0 {
+		return false, time.Since(s.startedAt)
+	}
+	return false, worstAny
+}
 
 // Snapshot is a consistent copy for reporting. Taken under the lock and
 // returned by value so a handler can format it at leisure without holding
@@ -116,7 +231,7 @@ func (s *State) Snapshot() Snapshot {
 	defer s.mu.RUnlock()
 	snap := Snapshot{
 		NATSConnected:  s.natsConnected,
-		KafkaReachable: s.kafkaReachable,
+		KafkaReachable: s.kafkaReachableLocked(),
 		Enabled:        map[Direction]bool{},
 		LastSuccess:    map[Direction]string{},
 		LastError:      map[Direction]string{},
@@ -126,15 +241,32 @@ func (s *State) Snapshot() Snapshot {
 	for d, v := range s.enabled {
 		snap.Enabled[d] = v
 	}
-	for d, t := range s.lastSuccess {
+	// Per-topic sources fold back into one line per direction: the latest
+	// success of any of them, and every current fault (named by topic).
+	latest := map[Direction]time.Time{}
+	faults := map[Direction][]string{}
+	for src, t := range s.lastSuccess {
+		if t.After(latest[src.d]) {
+			latest[src.d] = t
+		}
+	}
+	for src, e := range s.lastError {
+		if e == "" {
+			continue
+		}
+		if src.topic != "" {
+			e = src.topic + ": " + e
+		}
+		faults[src.d] = append(faults[src.d], e)
+	}
+	for d, t := range latest {
 		if !t.IsZero() {
 			snap.LastSuccess[d] = t.UTC().Format(time.RFC3339)
 		}
 	}
-	for d, e := range s.lastError {
-		if e != "" {
-			snap.LastError[d] = e
-		}
+	for d, list := range faults {
+		sort.Strings(list)
+		snap.LastError[d] = strings.Join(list, "; ")
 	}
 	return snap
 }
@@ -221,25 +353,19 @@ func (s *State) Handler(mux *http.ServeMux, metrics http.Handler) {
 
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		s.mu.RLock()
+		importFaulting, importSince := s.stallView(Import)
+		exportFaulting, exportSince := s.stallView(Export)
 		r := Readiness{
 			NATSConnected:       s.natsConnected,
-			KafkaReachable:      s.kafkaReachable,
+			KafkaReachable:      s.kafkaReachableLocked(),
 			ImportEnabled:       s.enabled[Import],
 			Pending:             s.pending,
-			ImportFaulting:      s.lastError[Import] != "",
-			SinceProgress:       time.Since(s.lastSuccess[Import]),
+			ImportFaulting:      importFaulting,
+			SinceProgress:       importSince,
 			StallAfter:          s.stallAfter,
 			ExportEnabled:       s.enabled[Export],
-			ExportFaulting:      s.lastError[Export] != "",
-			ExportSinceProgress: time.Since(s.lastSuccess[Export]),
-		}
-		if s.lastSuccess[Import].IsZero() {
-			// Never having succeeded is not a stall: a replica that has just
-			// started has not had the chance. Uptime is the honest clock here.
-			r.SinceProgress = time.Since(s.startedAt)
-		}
-		if s.lastSuccess[Export].IsZero() {
-			r.ExportSinceProgress = time.Since(s.startedAt)
+			ExportFaulting:      exportFaulting,
+			ExportSinceProgress: exportSince,
 		}
 		s.mu.RUnlock()
 

@@ -1,0 +1,379 @@
+{
+  "liveEvents": {
+    "newTask": "नया टास्क: {{title}}",
+    "newTaskFrom": "{{sender}} की ओर से",
+    "taskLeftBy": "{{assignee}} ने टास्क छोड़ दिया",
+    "taskIgnoredBy": "{{assignee}} ने टास्क अनदेखा किया",
+    "taskReviewed": "{{reviewer}} ने आपके टास्क की समीक्षा की",
+    "taskAcknowledgedBy": "{{assignee}} ने टास्क स्वीकार किया",
+    "taskCompletedBy": "{{assignee}} ने टास्क पूरा किया",
+    "taskMissedBy": "{{assignee}} से टास्क छूट गया",
+    "taskMissed": "किसी टास्क की समय-सीमा निकल गई। वह छूटे हुए में चला गया।",
+    "taskWithdrawn": "टास्क का आवंटन वापस लिया गया"
+  },
+  "deadline": {
+    "label": "समय-सीमा",
+    "relative": "हर बार के {{amount}} {{unit}} बाद",
+    "fixed": "हर बार की तारीख़ को {{time}}",
+    "unit": {
+      "MINUTES_one": "मिनट",
+      "MINUTES_other": "मिनट",
+      "HOURS_one": "घंटा",
+      "HOURS_other": "घंटे",
+      "DAYS_one": "दिन",
+      "DAYS_other": "दिन"
+    }
+  },
+  "tasksList": {
+    "header": "टास्क",
+    "categories": {
+      "mine": "मेरे टास्क",
+      "allocated": "मुझे आवंटित",
+      "available": "उपलब्ध",
+      "completed": "पूर्ण",
+      "left": "छोड़े गए",
+      "ignored": "अनदेखे",
+      "missed": "छूटे हुए"
+    }
+  },
+  "tasksPage": {
+    "count_one": "{{count}} टास्क",
+    "count_other": "{{count}} टास्क",
+    "countMore": "{{count}}+ टास्क",
+    "titles": {
+      "mine": "मेरे टास्क",
+      "allocated": "मुझे आवंटित",
+      "available": "उपलब्ध",
+      "completed": "पूर्ण",
+      "left": "छोड़े गए",
+      "ignored": "अनदेखे",
+      "missed": "छूटे हुए",
+      "default": "टास्क"
+    },
+    "buckets": {
+      "allocated": "आवंटित",
+      "available": "उपलब्ध",
+      "mine": "मेरे टास्क",
+      "completed": "पूर्ण",
+      "left": "छोड़े गए",
+      "ignored": "अनदेखे",
+      "missed": "छूटे हुए"
+    },
+    "export": {
+      "title": "टास्क को Excel में एक्सपोर्ट करें",
+      "button": "एक्सपोर्ट"
+    },
+    "newTask": "नया टास्क",
+    "empty": {
+      "title": "यहाँ कुछ नहीं है",
+      "hint": "टास्क आते ही यहाँ दिखेंगे।",
+      "missedHint": "जिस टास्क की समय-सीमा आपके पूरा करने से पहले निकल जाती है, वह यहाँ आ जाता है।"
+    },
+    "actionVerbs": {
+      "acknowledge": "स्वीकार करना",
+      "complete": "पूरा करना",
+      "ignore": "अनदेखा करना",
+      "leave": "छोड़ना"
+    },
+    "toasts": {
+      "actionFailed": "टास्क को {{verb}} संभव नहीं हुआ",
+      "completed": "टास्क पूरा हुआ — भेजने वाले को सूचित कर दिया गया है।",
+      "left": "आपने टास्क छोड़ दिया — भेजने वाले को सूचित कर दिया गया है।"
+    },
+    "unpin": "अनपिन करें",
+    "pinTask": "टास्क पिन करें",
+    "unpinTask": "टास्क अनपिन करें",
+    "pinFailed": "टास्क पिन नहीं हो सका",
+    "unpinFailed": "टास्क अनपिन नहीं हो सका",
+    "pagination": {
+      "previous": "पिछला",
+      "next": "अगला",
+      "pageOf": "पृष्ठ {{current}} / {{total}}"
+    }
+  },
+  "participants": {
+    "label": "प्रतिभागी",
+    "add": "जोड़ें",
+    "addMember": "सदस्य जोड़ें",
+    "addTitle": "प्रतिभागी जोड़ें",
+    "tabPeople": "लोग",
+    "tabChannels": "चैनल",
+    "selected": "चुने गए प्रतिभागी",
+    "kindPerson": "व्यक्ति",
+    "kindChannel": "चैनल",
+    "removeSelected": "{{name}} हटाएँ",
+    "unknownPerson": "अज्ञात व्यक्ति",
+    "unknownChannel": "अज्ञात चैनल",
+    "withdraw": "वापस लें",
+    "withdrawUser": "{{name}} को वापस लें",
+    "withdrawSelf": "इस टास्क से हट जाएँ",
+    "added": "प्रतिभागी जोड़े गए",
+    "withdrawn": "प्रतिभागी हटाया गया",
+    "failed": "प्रतिभागियों को अपडेट नहीं किया जा सका"
+  },
+  "myTasksBoard": {
+    "scheduledChannels": "चैनल: {{names}}",
+    "scheduledChannelCount_one": "{{count}} चैनल",
+    "scheduledChannelCount_other": "{{count}} चैनल",
+    "loading": "आपके टास्क लोड हो रहे हैं…",
+    "loadError": {
+      "title": "आपके टास्क लोड नहीं हो सके।",
+      "retry": "फिर कोशिश करें"
+    },
+    "empty": {
+      "title": "आपने कोई टास्क नहीं भेजा है",
+      "hint": "“नया टास्क” से एक बनाएँ।"
+    },
+    "filters": {
+      "title": "फ़िल्टर",
+      "statusHeading": "स्थिति",
+      "peopleHeading": "लोग",
+      "searchPeople": "लोगों को खोजें…",
+      "selectedPeople": "चुने गए लोग",
+      "removePerson": "{{name}} हटाएँ",
+      "showFewer": "कम दिखाएँ",
+      "noPeople": "कोई व्यक्ति नहीं मिला",
+      "channelsHeading": "चैनल",
+      "searchChannels": "चैनल खोजें…",
+      "noChannels": "कोई चैनल नहीं मिला",
+      "viaChannel": "चैनल के ज़रिए चुना गया",
+      "channelFailed": "{{name}} के सदस्य लोड नहीं हो सके, इसलिए कोई टास्क नहीं दिख रहा।",
+      "channelRetry": "फिर कोशिश करें",
+      "clear": "फ़िल्टर हटाएँ"
+    },
+    "details": "विवरण",
+    "summary": {
+      "pending": "लंबित",
+      "inProgress": "जारी",
+      "completed": "पूर्ण",
+      "left": "छोड़े गए",
+      "ignored": "अनदेखे",
+      "missed": "छूटे",
+      "closed": "बंद",
+      "doneOf": "{{total}} में से {{done}} पूरे"
+    },
+    "noMatch": {
+      "title": "इन फ़िल्टर से कोई टास्क मेल नहीं खाता",
+      "hint": "पुराने टास्क अभी लोड नहीं हुए हैं — नीचे और लोड करें।"
+    },
+    "loadMore": "और लोड करें",
+    "loadingMore": "लोड हो रहा है…",
+    "reassign": {
+      "label": "फिर से असाइन करें",
+      "pending": "फिर से असाइन हो रहा है…",
+      "done_one": "टास्क {{count}} व्यक्ति को वापस भेजा गया",
+      "done_other": "टास्क {{count}} लोगों को वापस भेजा गया",
+      "failed": "यह टास्क फिर से असाइन नहीं हो सका"
+    },
+    "milestones": {
+      "allocated": "आवंटित",
+      "acknowledged": "स्वीकृत",
+      "ignored": "अनदेखा किया",
+      "completed": "पूर्ण",
+      "left": "छोड़ा",
+      "missed": "छूटा",
+      "reviewed": "समीक्षित"
+    },
+    "review": {
+      "write": "समीक्षा लिखें",
+      "edit": "समीक्षा संपादित करें"
+    },
+    "scheduled": "निर्धारित",
+    "cancelSchedule": "शेड्यूल रद्द करें",
+    "cancelRecurring": "आवर्ती टास्क रद्द करें"
+  },
+  "createTaskDialog": {
+    "title": "नया टास्क",
+    "fields": {
+      "title": "शीर्षक",
+      "titlePlaceholder": "क्या करना है?",
+      "description": "विवरण",
+      "descriptionPlaceholder": "ब्योरा जोड़ें…",
+      "assignTo": "इन्हें असाइन करें",
+      "you": "(आप)",
+      "channelHint": "चैनल के हर सदस्य को यह टास्क मिलता है, और स्वीकार करें / अनदेखा करें की प्रक्रिया वही रहती है।",
+      "unknownPerson": "अज्ञात व्यक्ति",
+      "peopleLabel": "लोग",
+      "assignToEmpty": "अभी तक किसी को असाइन नहीं किया गया।",
+      "addPeople": "लोग जोड़ें",
+      "removePerson": "{{name}} हटाएँ",
+      "done": "हो गया",
+      "channelsLabel": "चैनल",
+      "assignToChannelEmpty": "अभी तक कोई चैनल नहीं जोड़ा गया।",
+      "addChannels": "चैनल जोड़ें",
+      "unknownChannel": "अनुपलब्ध चैनल",
+      "removeChannel": "{{name}} हटाएँ"
+    },
+    "deadline": {
+      "label": "समय-सीमा",
+      "none": "कोई समय-सीमा नहीं",
+      "at": "तारीख़ और समय",
+      "relative": "सापेक्ष",
+      "fixed": "निश्चित समय",
+      "amount": "समय-सीमा की मात्रा",
+      "unit": "समय-सीमा की इकाई",
+      "units": {
+        "MINUTES": "मिनट",
+        "HOURS": "घंटे",
+        "DAYS": "दिन"
+      },
+      "afterEach": "हर बार के बाद",
+      "fixedTime": "समय-सीमा का समय",
+      "onEachDate": "हर बार की तारीख़ को",
+      "date": "समय-सीमा की तारीख़",
+      "time": "समय-सीमा का समय"
+    },
+    "errors": {
+      "needTitle": "टास्क को शीर्षक दें",
+      "needAssignee": "कम से कम एक व्यक्ति चुनें",
+      "invalidSchedule": "भविष्य की तारीख़ और समय चुनें",
+      "invalidStart": "आवर्ती टास्क की शुरुआत भविष्य में चुनें",
+      "needWeekday": "कम से कम एक वार चुनें",
+      "invalidMonthlyRule": "महीने का सही दिन चुनें",
+      "invalidOccurrences": "दोहराव की संख्या शून्य से अधिक होनी चाहिए",
+      "invalidEndDate": "समाप्ति तिथि शुरुआत के बाद की होनी चाहिए",
+      "needDeadlineAt": "समय-सीमा की तारीख़ और समय चुनें",
+      "deadlineNotFuture": "समय-सीमा भविष्य में होनी चाहिए",
+      "deadlineBeforeStart": "समय-सीमा टास्क के शेड्यूल होने के बाद की होनी चाहिए",
+      "invalidDeadlineAmount": "हर बार के कितने समय बाद, इसके लिए पूर्ण संख्या दर्ज करें",
+      "needDeadlineTime": "समय-सीमा का समय चुनें",
+      "fixedDeadlineBeforeStart": "निश्चित समय-सीमा का समय शुरुआती समय के बाद का होना चाहिए",
+      "createFailed": "टास्क नहीं बनाया जा सका"
+    },
+    "toasts": {
+      "sentPlain": "टास्क भेजा गया",
+      "scheduled": "टास्क शेड्यूल हुआ",
+      "genericChannelFallback": "चैनल",
+      "sentToChannel_one": "टास्क #{{channelName}} को भेजा गया — {{count}} सदस्य",
+      "sentToChannel_other": "टास्क #{{channelName}} को भेजा गया — {{count}} सदस्य"
+    },
+    "actions": {
+      "cancel": "रद्द करें",
+      "create": "टास्क बनाएँ",
+      "creating": "बनाया जा रहा है…"
+    },
+    "allocation": {
+      "title": "आवंटन",
+      "now": "अभी",
+      "scheduled": "बाद के लिए शेड्यूल करें",
+      "recurring": "आवर्ती टास्क",
+      "nowDescription": "तुरंत असाइन करें",
+      "scheduledDescription": "तारीख़ और समय तय करें",
+      "recurringDescription": "अपने-आप दोहराएँ",
+      "repeat": "दोहराएँ",
+      "startDate": "शुरू होने की तारीख़",
+      "startTime": "शुरू होने का समय",
+      "daily": "रोज़",
+      "weekly": "साप्ताहिक",
+      "monthly": "मासिक",
+      "everyDay": "हर N दिन में",
+      "everyWeek": "हर N सप्ताह में",
+      "everyMonth": "हर N महीने में",
+      "noEnd": "कोई समाप्ति तिथि नहीं",
+      "afterOccurrences": "N बार के बाद समाप्त करें",
+      "onDate": "तय तारीख़ पर समाप्त करें",
+      "peopleCount_one": "{{count}} व्यक्ति",
+      "peopleCount_other": "{{count}} लोग",
+      "noTargetYet": "अभी कोई लक्ष्य नहीं चुना गया",
+      "summary": "यह टास्क {{when}} को इन्हें असाइन किया जाएगा: {{who}}।",
+      "dayOfMonth": "महीने का दिन",
+      "weekdayPattern": "वार का पैटर्न",
+      "ordinal": {
+        "1": "पहला",
+        "2": "दूसरा",
+        "3": "तीसरा",
+        "4": "चौथा",
+        "5": "पाँचवाँ"
+      }
+    }
+  },
+  "exportTasksDialog": {
+    "title": "टास्क को Excel में एक्सपोर्ट करें",
+    "scopeHeading": "कौन से टास्क",
+    "scopes": {
+      "all": "मेरे सभी टास्क",
+      "sent": "मेरे द्वारा आवंटित",
+      "received": "मुझे असाइन किए गए"
+    },
+    "rangeHeading": "समय अवधि",
+    "ranges": {
+      "week": "पिछला सप्ताह",
+      "month": "पिछला महीना",
+      "year": "पिछला साल",
+      "all": "पूरा समय",
+      "custom": "कस्टम अवधि"
+    },
+    "from": "से",
+    "to": "तक",
+    "footerNote": "समय आपके डिवाइस के स्थानीय टाइमज़ोन में एक्सपोर्ट होता है। जिन-जिन को टास्क आवंटित हुआ, हर व्यक्ति की एक पंक्ति बनती है।",
+    "actions": {
+      "cancel": "रद्द करें",
+      "export": "एक्सपोर्ट",
+      "exporting": "एक्सपोर्ट हो रहा है…"
+    },
+    "toasts": {
+      "nothingTitle": "एक्सपोर्ट करने के लिए कुछ नहीं",
+      "nothingDescription": "चुनी गई अवधि में कोई टास्क नहीं है।",
+      "exported_one": "{{count}} पंक्ति Excel में एक्सपोर्ट हुई",
+      "exported_other": "{{count}} पंक्तियाँ Excel में एक्सपोर्ट हुईं",
+      "cappedTitle": "एक्सपोर्ट सीमित किया गया",
+      "cappedDescription": "केवल सबसे हाल की {{cap}} पंक्तियाँ शामिल की गईं — बाकी के लिए तारीख़ों की अवधि घटाएँ।",
+      "failedTitle": "एक्सपोर्ट विफल रहा"
+    }
+  },
+  "miniTaskCalendar": {
+    "today": "आज",
+    "previousMonth": "पिछला महीना",
+    "nextMonth": "अगला महीना"
+  },
+  "dropConfirm": {
+    "title_one": "यह फ़ाइल जोड़ें?",
+    "title_other": "ये {{count}} फ़ाइलें जोड़ें?",
+    "description": "अभी कुछ भेजा नहीं गया है — वे संदेश बॉक्स में जाती हैं, और भेजें आपको ही दबाना होगा।",
+    "cancel": "रद्द करें",
+    "attach": "जोड़ें"
+  },
+  "createReviewDialog": {
+    "title": "{{name}} के काम की समीक्षा करें",
+    "ratingOptional": "रेटिंग (वैकल्पिक)",
+    "starCount_one": "{{count}} स्टार",
+    "starCount_other": "{{count}} स्टार",
+    "clear": "हटाएँ",
+    "feedback": "फ़ीडबैक",
+    "feedbackPlaceholder": "उन्होंने कैसा किया?",
+    "cancel": "रद्द करें",
+    "saving": "सहेजा जा रहा है…",
+    "saveReview": "समीक्षा सहेजें",
+    "saved": "समीक्षा सहेजी गई",
+    "couldNotSave": "समीक्षा सहेजी नहीं जा सकी",
+    "writeFirst": "पहले एक छोटी समीक्षा लिखें"
+  },
+  "xlsxExport": {
+    "sheetName": "टास्क टाइमलाइन",
+    "columns": {
+      "task": "टास्क",
+      "description": "विवरण",
+      "allocatedBy": "आवंटित करने वाला",
+      "allocatedByEmail": "आवंटित करने वाला (ईमेल)",
+      "allocatedTo": "जिसे आवंटित किया",
+      "allocatedToEmail": "जिसे आवंटित किया (ईमेल)",
+      "status": "स्थिति",
+      "allocatedAt": "आवंटन का समय ({{tz}})",
+      "acknowledgedAt": "स्वीकार करने का समय ({{tz}})",
+      "ignoredAt": "अनदेखा करने का समय ({{tz}})",
+      "completedAt": "पूरा करने का समय ({{tz}})",
+      "leftAt": "छोड़ने का समय ({{tz}})",
+      "timeToComplete": "पूरा होने में लगा समय",
+      "reviewedAt": "समीक्षा का समय ({{tz}})",
+      "review": "समीक्षा",
+      "rating": "रेटिंग"
+    },
+    "status": {
+      "SENT": "भेजा गया (प्रतीक्षित)",
+      "ACKNOWLEDGED": "स्वीकृत",
+      "COMPLETED": "पूर्ण",
+      "IGNORED": "अनदेखा किया",
+      "LEFT": "छोड़ा"
+    }
+  }
+}

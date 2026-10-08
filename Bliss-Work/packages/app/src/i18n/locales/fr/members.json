@@ -1,0 +1,350 @@
+{
+  "list": {
+    "title": "Membres",
+    "workspaceActivity": "Activité de l'espace de travail",
+    "searchPlaceholder": "Rechercher des collègues…",
+    "selfRow": {
+      "name": "{{name}} (vous)",
+      "subtitle": "Votre activité et vos sessions"
+    },
+    "empty": {
+      "title": "Aucun collègue trouvé"
+    },
+    "status": {
+      "online": "En ligne",
+      "idle": "Inactif",
+      "lastSeen": "Vu pour la dernière fois {{time}}"
+    },
+    "messageButton": "Écrire à {{name}}"
+  },
+  "detail": {
+    "notFound": {
+      "title": "Membre introuvable",
+      "hint": "Choisissez un autre collègue à gauche."
+    },
+    "backButton": "Retour aux membres",
+    "tabs": {
+      "overview": "Vue d'ensemble",
+      "activity": "Activité",
+      "analytics": "Analyses",
+      "sessions": "Sessions",
+      "admin": "Admin",
+      "security": "Sécurité"
+    },
+    "roleLabel": {
+      "admin": "Administrateur",
+      "member": "Membre"
+    },
+    "fields": {
+      "email": "E-mail",
+      "username": "Nom d'utilisateur",
+      "role": "Rôle",
+      "status": "Statut",
+      "lastSeen": "Vu pour la dernière fois",
+      "emailVerified": "E-mail vérifié",
+      "joined": "Arrivée",
+      "removed": "Retrait"
+    },
+    "emailVerified": {
+      "yes": "Oui",
+      "no": "Pas encore"
+    },
+    "lastSeen": {
+      "now": "Maintenant",
+      "noRecentActivity": "Aucune activité récente"
+    },
+    "exportButton": "Exporter",
+    "exportTooltip": "Exporter l'activité de ce membre",
+    "messageButton": "Écrire",
+    "selfActivityBanner": "Voici votre propre relevé d'activité. Les administrateurs de votre espace de travail peuvent aussi le voir."
+  },
+  "status": {
+    "active": "Actif",
+    "suspended": "Suspendu",
+    "removed": "Retiré"
+  },
+  "admin": {
+    "toasts": {
+      "actionFailed": "Échec de l'action",
+      "nowAdmin": "{{name}} est maintenant administrateur",
+      "nowMember": "{{name}} est maintenant membre",
+      "reactivated": "{{name}} peut de nouveau se connecter",
+      "suspended": "Compte de {{name}} suspendu",
+      "removed": "{{name}} a été retiré de l'espace de travail"
+    },
+    "selfGuard": "Vous ne pouvez pas modifier votre propre rôle ni votre appartenance. Demandez à un autre administrateur — cette règle empêche le dernier administrateur de verrouiller l'accès de tout le monde, lui compris, à l'espace de travail.",
+    "sections": {
+      "role": {
+        "title": "Rôle",
+        "hint": "Les administrateurs peuvent inviter des personnes, gérer les membres et consulter le journal d'audit. Changer un rôle déconnecte le membre de tous ses appareils afin que ses nouvelles autorisations prennent effet immédiatement."
+      },
+      "access": {
+        "title": "Accès",
+        "hint": "La suspension conserve tout et peut être annulée à tout moment. Le retrait révoque l'appartenance — les messages, tâches et l'historique du membre restent exactement où ils sont, et le membre pourra être invité à nouveau plus tard."
+      },
+      "activeSessions": {
+        "title": "Sessions actives",
+        "hint": "Déconnecter une session y met fin immédiatement — l'appareil devra se reconnecter."
+      }
+    },
+    "actions": {
+      "demote": "Rétrograder en membre",
+      "makeAdmin": "Nommer administrateur",
+      "suspend": "Suspendre",
+      "remove": "Retirer",
+      "reactivate": "Réactiver"
+    },
+    "reactivateFirst": "Réactivez ce membre avant de modifier son rôle.",
+    "confirmDialog": {
+      "removeTitle": "Retirer de l'espace de travail ?",
+      "suspendTitle": "Suspendre le membre ?",
+      "removeMessage": "<bold>{{name}}</bold> perdra immédiatement l'accès à cet espace de travail et disparaîtra de l'annuaire. Tout ce qui a été écrit est conservé. Vous pouvez inviter cette personne à revenir à tout moment.",
+      "suspendMessage": "Le compte de <bold>{{name}}</bold> sera déconnecté partout et ne pourra pas se reconnecter tant que vous ne l'aurez pas réactivé. Rien n'est supprimé."
+    },
+    "sessions": {
+      "loadError": {
+        "title": "Les sessions n'ont pas pu être chargées",
+        "hint": "Vérifiez votre connexion et réessayez."
+      },
+      "none": "Aucune session active.",
+      "signedOutToast": "{{device}} déconnecté",
+      "revokeFailedToast": {
+        "title": "Impossible de déconnecter cette session",
+        "description": "Veuillez réessayer."
+      },
+      "confirmDialog": {
+        "title": "Déconnecter cette session ?",
+        "message": "<bold>{{device}}</bold> sera déconnecté immédiatement et devra se reconnecter.",
+        "confirmLabel": "Se déconnecter"
+      }
+    }
+  },
+  "analytics": {
+    "empty": {
+      "title": "Aucune activité sur cette période",
+      "hint": "Les graphiques apparaissent dès qu'il y a une journée d'activité à représenter."
+    },
+    "summary": {
+      "activeTime": "Temps actif",
+      "acrossDays_one": "sur {{count}} jour",
+      "acrossDays_many": "sur {{count}} de jours",
+      "acrossDays_other": "sur {{count}} jours",
+      "sessions": "Sessions",
+      "sessionsHint": "connexions enregistrées",
+      "events": "Événements",
+      "eventsHint": "événements enregistrés",
+      "lastActive": "Dernière activité",
+      "lastActiveHint": "dernière activité enregistrée",
+      "lastActiveNone": "aucune activité enregistrée",
+      "vsPrevious": "par rapport à la période précédente"
+    },
+    "overview": {
+      "title": "Aperçu de l'activité",
+      "hint": "Temps total et répartition de l'activité pour la période sélectionnée",
+      "activeOfSignedIn": "du temps de connexion était actif",
+      "active": "Actif",
+      "idle": "Inactif",
+      "idleHint": "connecté, sans saisie"
+    },
+    "topApps": {
+      "title": "Applications les plus utilisées",
+      "hint": "Applications les plus utilisées sur cette période",
+      "empty": "Aucune donnée d'application pour cette période."
+    },
+    "recent": {
+      "title": "Activité récente",
+      "hint": "Dernière activité des applications et du système",
+      "empty": "Aucune activité récente enregistrée.",
+      "viewAll": "Voir toute l'activité"
+    },
+    "work": {
+      "title": "Horaires de travail",
+      "hint": "Carte thermique de l'activité — plus la couleur est foncée, plus l'activité est forte",
+      "less": "Moins",
+      "more": "Plus",
+      "outsideHours": "{{time}} d'activité en plus en dehors de ces horaires"
+    },
+    "trend": {
+      "title": "Tendance de l'activité",
+      "hint": "Temps actif et inactif moyen par jour de la semaine",
+      "active": "Actif",
+      "idle": "Inactif"
+    }
+  },
+  "auditLog": {
+    "labels": {
+      "org": {
+        "created": "a créé l'espace de travail"
+      },
+      "user": {
+        "profile_updated": "a mis à jour son profil"
+      },
+      "invite": {
+        "created": "a invité quelqu'un",
+        "accepted": "a accepté une invitation",
+        "revoked": "a révoqué une invitation"
+      },
+      "password": {
+        "reset_requested": "a demandé une réinitialisation du mot de passe",
+        "reset_completed": "a terminé une réinitialisation du mot de passe"
+      },
+      "email": {
+        "verified": "a vérifié son e-mail"
+      },
+      "member": {
+        "role_changed": "a modifié un rôle",
+        "deactivated": "a suspendu un membre",
+        "reactivated": "a réactivé un membre",
+        "removed": "a retiré un membre"
+      }
+    },
+    "error": {
+      "title": "Le journal d'audit n'a pas pu être chargé",
+      "hint": "Vérifiez votre connexion et réessayez."
+    },
+    "empty": {
+      "title": "Rien d'enregistré pour l'instant",
+      "hintScoped": "Les actions d'administration concernant ce membre apparaîtront ici.",
+      "hintAll": "Les actions d'administration dans tout l'espace de travail apparaissent ici."
+    },
+    "systemActor": "Système"
+  },
+  "sessions": {
+    "empty": {
+      "title": "Aucune session enregistrée",
+      "hint": "Les sessions apparaissent ici dès qu'une connexion est établie depuis un appareil."
+    },
+    "activeNow": "Actif maintenant",
+    "endReason": {
+      "disconnect": "Application fermée",
+      "timeout": "Inactivité"
+    },
+    "durations": {
+      "total": "{{duration}} au total",
+      "active": "{{duration}} actif",
+      "idle": "{{duration}} inactif"
+    },
+    "approximateNetworkTooltip": "Réseau approximatif",
+    "retentionNote": "Affichage des 7 derniers jours. Les sessions plus anciennes sont conservées mais ne peuvent pas être consultées ici."
+  },
+  "timeline": {
+    "filters": {
+      "all": "Tout",
+      "engagement": "Travail",
+      "navigation": "Dans l'app",
+      "outside": "Activité externe",
+      "auth": "Connexions",
+      "security": "Sécurité"
+    },
+    "empty": {
+      "title": "Aucune activité enregistrée pour l'instant",
+      "hint": "L'activité apparaît ici au fur et à mesure de l'utilisation de {{brand}}."
+    },
+    "error": {
+      "title": "L'activité n'a pas pu être chargée",
+      "hint": "Vérifiez votre connexion et réessayez."
+    },
+    "verifiedTooltip": "Enregistré par {{brand}} lui-même — non déclaré par l'utilisateur",
+    "retentionNote": "Affichage des 7 derniers jours. Les activités plus anciennes sont conservées mais ne peuvent pas être consultées ici."
+  },
+  "loadOlder": {
+    "button": "Charger les plus anciens"
+  },
+  "activityLabels": {
+    "actions": {
+      "login": "Connexion",
+      "logout": "Déconnexion",
+      "org": {
+        "switched": "Changement d'espace de travail"
+      },
+      "message": {
+        "sent": "Message envoyé"
+      },
+      "mail": {
+        "attachment": {
+          "downloaded": "Pièce jointe de message téléchargée"
+        }
+      },
+      "attachment": {
+        "opened": "Fichier ouvert",
+        "downloaded": "Fichier téléchargé"
+      },
+      "channel": {
+        "message": {
+          "sent": "Message publié dans un canal"
+        }
+      },
+      "conversation": {
+        "ignored": "Conversation ignorée"
+      },
+      "user": {
+        "blocked": "Utilisateur bloqué",
+        "unblocked": "Utilisateur débloqué"
+      },
+      "task": {
+        "allocated": "Tâche attribuée",
+        "acknowledged": "Tâche prise en compte",
+        "completed": "Tâche terminée",
+        "ignored": "Tâche ignorée",
+        "left": "Tâche abandonnée",
+        "reviewed": "Tâche évaluée"
+      },
+      "route": {
+        "enter": "Ouvert",
+        "dwell": "Temps passé dans"
+      },
+      "focus": "Retour sur {{brand}}",
+      "blur": "Passage à une autre fenêtre depuis {{brand}}",
+      "idle": {
+        "start": "Passage en inactivité",
+        "end": "Reprise d'activité"
+      },
+      "screenshot": {
+        "attempted": "Tentative de capture d'écran bloquée"
+      },
+      "app": {
+        "focus": "Utilisé"
+      },
+      "os": {
+        "idle": "Loin du clavier"
+      }
+    },
+    "surfaces": {
+      "mail": "Courrier",
+      "inbox": "Boîte de réception",
+      "chats": "Discussions",
+      "channels": "Canaux",
+      "tasks": "Tâches",
+      "members": "Membres",
+      "integrations": "Intégrations",
+      "search": "Recherche",
+      "settings": "Paramètres",
+      "profile": "Profil",
+      "org": "Organisation"
+    },
+    "theApp": "l'application",
+    "source": {
+      "verified": "Vérifié",
+      "desktop": "Application de bureau",
+      "extension": "Extension de navigateur",
+      "web": "Application web"
+    }
+  },
+  "myActivity": {
+    "settingsBack": "Paramètres",
+    "title": "Votre activité",
+    "subtitle": "Tout ce que {{brand}} enregistre sur votre façon de travailler.",
+    "whatsRecorded": "Ce qui est enregistré et qui peut le voir",
+    "bullets": {
+      "signInOut": "Vos connexions et déconnexions, ainsi que vos périodes en ligne, d'inactivité ou hors ligne.",
+      "appUsage": "Les parties de {{brand}} que vous utilisez et pendant combien de temps.",
+      "messagesAndTasks": "Les messages que vous envoyez et les tâches sur lesquelles vous agissez — la première ligne d'un message, jamais toute la conversation.",
+      "deviceAndLocation": "Le navigateur et l'appareil depuis lesquels vous vous connectez, et une position approximative déduite de votre adresse IP."
+    },
+    "retentionNote": "Les administrateurs de votre espace de travail peuvent consulter ce relevé. Les 7 derniers jours sont affichés ici. L'activité détaillée est conservée 90 jours et les totaux quotidiens plus longtemps — les deux servent aux rapports et sont disponibles sur demande, mais ne peuvent pas être consultés dans l'application."
+  },
+  "membersEmpty": {
+    "title": "Membres",
+    "hint": "Choisissez un collègue à gauche pour voir son profil, ou appuyez sur l'icône de discussion pour lui écrire."
+  }
+}

@@ -12,10 +12,12 @@ import {
   type RecurrenceForm,
   type RepeatKind,
 } from "../lib/meetingRecurrence";
+import { MEETING_TONES } from "./meetingTone";
+import type { PickerTone } from "./pickerTone";
 
-/** The same control chrome as the title input in NewMeetingDialog. */
-const CONTROL =
-  "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-accent focus:ring-1 focus:ring-accent";
+/** The same control chrome as the title input in NewMeetingDialog; the colours come
+ *  from the tone (see meetingTone.ts). */
+const CONTROL = "rounded-lg border px-3 py-2 text-sm outline-none";
 
 const REPEAT_OPTIONS: readonly { value: RepeatKind; key: string }[] = [
   { value: "NONE", key: "none" },
@@ -49,6 +51,7 @@ export function MeetingRepeatField({
   startDate,
   errors,
   allowNone = true,
+  tone = "light",
 }: {
   value: RecurrenceForm;
   onChange: (next: RecurrenceForm) => void;
@@ -57,9 +60,13 @@ export function MeetingRepeatField({
   /** Offer "Does not repeat". Off when editing a series, where not repeating is
    *  spelled "cancel the series" and is its own, confirmed action. */
   allowNone?: boolean;
+  /** "theme" paints it with the app's surface tokens (NewMeetingDialog, dark mode). */
+  tone?: PickerTone;
 }) {
   const { t } = useTranslation("meetings");
   const ids = { repeat: useId(), ends: useId() };
+  const c = MEETING_TONES[tone];
+  const control = `${CONTROL} ${c.control}`;
   const set = (patch: Partial<RecurrenceForm>) => onChange({ ...value, ...patch });
   const repeating = value.repeat !== "NONE";
   const interval = Number(value.interval);
@@ -68,14 +75,14 @@ export function MeetingRepeatField({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={ids.repeat} className="text-sm font-medium text-gray-700">
+        <label htmlFor={ids.repeat} className={`text-sm font-medium ${c.label}`}>
           {t("newMeeting.repeat.label")}
         </label>
         <select
           id={ids.repeat}
           value={value.repeat}
           onChange={(e) => set({ repeat: e.target.value as RepeatKind })}
-          className={CONTROL}
+          className={control}
         >
           {REPEAT_OPTIONS.filter((o) => allowNone || o.value !== "NONE").map((o) => (
             <option key={o.value} value={o.value}>
@@ -88,7 +95,7 @@ export function MeetingRepeatField({
       {repeating && (
         <>
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2 text-sm text-gray-700">
+            <div className={`flex items-center gap-2 text-sm ${c.body}`}>
               <span className="font-medium">{t("newMeeting.repeat.every")}</span>
               <input
                 type="number"
@@ -99,7 +106,7 @@ export function MeetingRepeatField({
                 onChange={(e) => set({ interval: e.target.value })}
                 aria-label={t("newMeeting.repeat.intervalAria")}
                 aria-invalid={!!errors?.interval}
-                className={`${CONTROL} w-20`}
+                className={`${control} w-20`}
               />
               <span>
                 {unitLabel(t, value.repeat as Exclude<RepeatKind, "NONE">, Number.isFinite(interval) ? interval : 1)}
@@ -112,14 +119,14 @@ export function MeetingRepeatField({
             // "Monthly" is the same day of the month as the first meeting, and a
             // month that lacks it (the 31st) is skipped rather than shifted. Said
             // here, because nothing else on the form would tell you.
-            <p className="text-xs text-gray-500">
+            <p className={`text-xs ${c.muted}`}>
               {t("newMeeting.repeat.monthlyHint", { day: Number(startDate.slice(8, 10)) })}
             </p>
           )}
 
           {value.repeat === "WEEKLY" && (
             <div className="flex flex-col gap-1.5">
-              <span id={`${ids.repeat}-on`} className="text-sm font-medium text-gray-700">
+              <span id={`${ids.repeat}-on`} className={`text-sm font-medium ${c.label}`}>
                 {t("newMeeting.repeat.on")}
               </span>
               {/* A named group of toggles. The visible text is one letter, which is
@@ -140,7 +147,7 @@ export function MeetingRepeatField({
                       className={`h-9 w-9 rounded-full text-xs font-semibold uppercase transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                         on
                           ? "bg-accent text-accent-fg"
-                          : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                          : `border ${c.dayOff}`
                       }`}
                     >
                       {weekdayName(d, "narrow")}
@@ -153,7 +160,7 @@ export function MeetingRepeatField({
           )}
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor={ids.ends} className="text-sm font-medium text-gray-700">
+            <label htmlFor={ids.ends} className={`text-sm font-medium ${c.label}`}>
               {t("newMeeting.repeat.ends")}
             </label>
             <div className="flex flex-wrap items-center gap-2">
@@ -161,7 +168,7 @@ export function MeetingRepeatField({
                 id={ids.ends}
                 value={value.endCondition}
                 onChange={(e) => set({ endCondition: e.target.value as RecurrenceEndCondition })}
-                className={CONTROL}
+                className={control}
               >
                 {END_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -177,11 +184,11 @@ export function MeetingRepeatField({
                   onChange={(e) => set({ endDate: e.target.value })}
                   aria-label={t("newMeeting.repeat.endDateAria")}
                   aria-invalid={!!errors?.endDate}
-                  className={CONTROL}
+                  className={control}
                 />
               )}
               {value.endCondition === "AFTER_OCCURRENCES" && (
-                <span className="flex items-center gap-2 text-sm text-gray-700">
+                <span className={`flex items-center gap-2 text-sm ${c.body}`}>
                   <input
                     type="number"
                     inputMode="numeric"
@@ -191,7 +198,7 @@ export function MeetingRepeatField({
                     onChange={(e) => set({ occurrenceCount: e.target.value })}
                     aria-label={t("newMeeting.repeat.occurrenceCountAria")}
                     aria-invalid={!!errors?.occurrenceCount}
-                    className={`${CONTROL} w-24`}
+                    className={`${control} w-24`}
                   />
                   {t("newMeeting.repeat.occurrences", { count: Number(value.occurrenceCount) || 0 })}
                 </span>

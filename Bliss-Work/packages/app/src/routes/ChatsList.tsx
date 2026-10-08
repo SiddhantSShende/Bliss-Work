@@ -14,7 +14,7 @@ import { usePresence } from "../lib/usePresence";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { useSelectedChat } from "../lib/selectedChat";
-import { listPreview, withSenderLabel } from "../lib/chatEnvelope";
+import { listPreview, readablePrefix, withSenderLabel } from "../lib/chatEnvelope";
 import { ConfirmDialog } from "../features/ConfirmDialog";
 import { useSession } from "../store/session";
 
@@ -161,7 +161,9 @@ export function ChatsList() {
   const visibleChats = useMemo(() => {
     const query = search.trim().toLowerCase();
     return ordered.filter((conversation: ConversationDTO) => {
-      const searchableText = `${displayNameOf(conversation)} ${conversation.lastMessage ?? ""}`.toLowerCase();
+      // The readable prefix, not the raw body: an attachment's body carries its
+      // envelope JSON after the prefix, which the row never shows.
+      const searchableText = `${displayNameOf(conversation)} ${readablePrefix(conversation.lastMessage ?? "")}`.toLowerCase();
       const matchesSearch = !query || searchableText.includes(query);
       const matchesFilter =
         filter === "all" ||

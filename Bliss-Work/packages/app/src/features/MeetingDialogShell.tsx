@@ -1,11 +1,14 @@
 import { X } from "lucide-react";
 import { useDialogBehavior } from "./Modal";
+import { MEETING_TONES } from "./meetingTone";
+import type { PickerTone } from "./pickerTone";
 
 /**
  * The white card the meeting forms share (NewMeetingDialog, EditMeetingSeriesDialog).
  *
- * Deliberately hardcoded white/gray in every theme — see NewMeetingDialog's own doc
- * comment for why — with the accent as the one thing that follows the theme. It
+ * White/gray by default in every theme — see NewMeetingDialog's own doc comment for
+ * why — with the accent as the one thing that follows the theme. `tone="theme"` paints
+ * it with the app's surface tokens instead (NewMeetingDialog passes it in dark mode). It
  * The horizontal padding tightens below 400px. These forms are taller than the original
  * (repeat, members, channels), so on a short screen the card scrolls, and a classic
  * scrollbar takes ~10px of its width from fields that were already tight at 320px;
@@ -21,6 +24,7 @@ export function MeetingDialogShell({
   onClose,
   footer,
   wide,
+  tone = "light",
   children,
 }: {
   title: string;
@@ -30,9 +34,11 @@ export function MeetingDialogShell({
   footer?: React.ReactNode;
   /** Two-column forms: a wider card on screens that fit one. */
   wide?: boolean;
+  tone?: PickerTone;
   children: React.ReactNode;
 }) {
   const panelRef = useDialogBehavior(true, onClose);
+  const c = MEETING_TONES[tone];
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -45,16 +51,16 @@ export function MeetingDialogShell({
         aria-label={title}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className={`flex max-h-[calc(100dvh-2rem)] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col overflow-y-auto rounded-2xl border border-gray-200 bg-white px-4 py-6 shadow-lg min-[400px]:px-6`}
+        className={`flex max-h-[calc(100dvh-2rem)] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col overflow-y-auto rounded-2xl border px-4 py-6 min-[400px]:px-6 ${c.panel}`}
       >
         <div className="mb-5 flex shrink-0 items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+          <h2 className={`text-lg font-semibold ${c.title}`}>{title}</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label={closeLabel}
             title={closeLabel}
-            className="-mr-1 -mt-1 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            className={`-mr-1 -mt-1 rounded-lg p-1.5 transition-colors ${c.close}`}
           >
             <X size={18} />
           </button>

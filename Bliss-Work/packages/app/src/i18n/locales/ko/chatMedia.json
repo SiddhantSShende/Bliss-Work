@@ -1,0 +1,66 @@
+{
+  "mediaBubble": {
+    "openFile": "{{name}} 열기",
+    "download": "다운로드",
+    "downloadFile": "{{name}} 다운로드",
+    "uploading": "업로드 중… {{percent}}%",
+    "notAvailable": "볼 수 없는 파일이에요",
+    "previewUnavailable": "이 파일 형식은 미리 볼 수 없어요"
+  },
+  "fileAttachment": {
+    "downloadsOff": "파일 다운로드가 꺼져 있어요.",
+    "decline": "거절",
+    "cancel": "취소",
+    "retry": "다시 시도",
+    "directTransfer": "직접 전송 — P2P 방식이에요.",
+    "establishingConnection": "피어 연결을 설정하는 중…",
+    "transferComplete": "전송이 완료되었어요.",
+    "cancelledByPeer": "상대방이 취소했어요",
+    "couldNotReadFile": "파일을 읽을 수 없어요",
+    "couldNotAnnounceFile": "파일을 알리지 못했어요",
+    "declined": "거절됨",
+    "couldNotSend": "{{name}} 파일을 보내지 못했어요",
+    "transferUnavailable": "직접 전송을 사용할 수 없어요",
+    "badAnswer": "잘못된 응답",
+    "peerUnreachable": "상대방에게 연결할 수 없어요",
+    "offerCreationFailed": "오퍼 생성 실패",
+    "checksumMismatch": "체크섬 불일치",
+    "cancelled": "취소됨",
+    "sinkWriteFailed": "저장 실패: {{message}}",
+    "answerCreationFailed": "응답 생성 실패",
+    "receiverSetupFailed": "수신 설정 실패"
+  },
+  "location": {
+    "sharedLocation": "공유된 위치",
+    "openInMapsAriaLabel": "지도에서 {{title}} 열기",
+    "mapAlt": "지도: {{title}}",
+    "accuracySuffix": " · ±{{accuracy}}m",
+    "openInMapsTitle": "지도에서 열기",
+    "open": "열기"
+  },
+  "emojiPicker": {
+    "insertEmoji": "이모지 삽입"
+  },
+  "attachments": {
+    "tooManyFiles": "한 번에 최대 {{max}}개의 파일을 보낼 수 있어요.",
+    "overSizePeerToPeer": "{{name}} 파일이 크기 기준({{size}})을 넘어 P2P로 전송해요. 전송이 끝날 때까지 두 사람 모두 온라인 상태를 유지해야 해요.",
+    "tooLarge": "{{name}} 파일이 {{size}}보다 커요.",
+    "uploadFailed": "업로드하지 못했어요",
+    "attachFailedSingle": "{{name}} 파일을 첨부하지 못했어요: {{message}}",
+    "attachFailedMultiple": "파일 {{count}}개를 첨부하지 못했어요: {{names}}",
+    "attachFailedGeneric": "파일을 첨부하지 못했어요. 다시 시도해 주세요."
+  },
+  "shareLocation": {
+    "gettingLocation": "위치를 가져오는 중…",
+    "approximateShared": "대략적인 위치를 공유했어요",
+    "reasons": {
+      "desktopAccessOff": "데스크톱 앱의 위치 접근이 꺼져 있어 네트워크 기준으로 표시돼요.",
+      "noPreciseFix": "기기에서 정확한 위치를 확인하지 못해 네트워크 기준으로 표시돼요.",
+      "noProvider": "이 빌드에는 정밀 위치 제공 기능이 없어 네트워크 기준으로 표시돼요."
+    },
+    "openSettings": "설정 열기",
+    "notAvailable": "이 기기에서는 위치 공유를 사용할 수 없어요.",
+    "permissionDenied": "위치 권한이 거부되었어요. 위치를 공유하려면 사이트 설정에서 허용해 주세요.",
+    "determineFailed": "위치를 확인하지 못했어요. 다시 시도하거나 위치 서비스가 켜져 있는지 확인해 주세요."
+  }
+}

@@ -1,0 +1,368 @@
+{
+  "liveEvents": {
+    "newTask": "新しいタスク:{{title}}",
+    "newTaskFrom": "{{sender}}から",
+    "taskLeftBy": "{{assignee}}がタスクを辞退しました",
+    "taskIgnoredBy": "{{assignee}}がタスクを無視しました",
+    "taskReviewed": "{{reviewer}}があなたのタスクをレビューしました",
+    "taskAcknowledgedBy": "{{assignee}}がタスクを確認しました",
+    "taskCompletedBy": "{{assignee}}がタスクを完了しました",
+    "taskMissedBy": "{{assignee}}のタスクが期限切れになりました",
+    "taskMissed": "タスクの期限が過ぎたため、「期限切れ」に移動しました。",
+    "taskWithdrawn": "タスクの割り当てが取り消されました"
+  },
+  "deadline": {
+    "label": "期限",
+    "relative": "各回の{{amount}}{{unit}}後",
+    "fixed": "各回の日付の{{time}}",
+    "unit": {
+      "MINUTES_other": "分",
+      "HOURS_other": "時間",
+      "DAYS_other": "日"
+    }
+  },
+  "tasksList": {
+    "header": "タスク",
+    "categories": {
+      "mine": "自分のタスク",
+      "allocated": "自分に割り当て",
+      "available": "対応可能",
+      "completed": "完了",
+      "left": "辞退",
+      "ignored": "無視",
+      "missed": "期限切れ"
+    }
+  },
+  "tasksPage": {
+    "count_other": "{{count}}件のタスク",
+    "countMore": "{{count}}件以上のタスク",
+    "titles": {
+      "mine": "自分のタスク",
+      "allocated": "自分に割り当て",
+      "available": "対応可能",
+      "completed": "完了",
+      "left": "辞退",
+      "ignored": "無視",
+      "missed": "期限切れ",
+      "default": "タスク"
+    },
+    "buckets": {
+      "allocated": "割り当て済み",
+      "available": "対応可能",
+      "mine": "自分のタスク",
+      "completed": "完了",
+      "left": "辞退",
+      "ignored": "無視",
+      "missed": "期限切れ"
+    },
+    "export": {
+      "title": "タスクをExcelにエクスポート",
+      "button": "エクスポート"
+    },
+    "newTask": "新規タスク",
+    "empty": {
+      "title": "何もありません",
+      "hint": "タスクが届くと、ここに表示されます。",
+      "missedHint": "完了前に期限が過ぎたタスクがここに移動します。"
+    },
+    "actionVerbs": {
+      "acknowledge": "確認",
+      "complete": "完了",
+      "ignore": "無視",
+      "leave": "辞退"
+    },
+    "toasts": {
+      "actionFailed": "タスクを{{verb}}できませんでした",
+      "completed": "タスクを完了しました。送信者に通知しました。",
+      "left": "タスクを辞退しました。送信者に通知しました。"
+    },
+    "unpin": "ピン留め解除",
+    "pinTask": "タスクをピン留め",
+    "unpinTask": "タスクのピン留めを解除",
+    "pinFailed": "タスクをピン留めできませんでした",
+    "unpinFailed": "タスクのピン留めを解除できませんでした",
+    "pagination": {
+      "previous": "前へ",
+      "next": "次へ",
+      "pageOf": "{{current}}/{{total}}ページ"
+    }
+  },
+  "participants": {
+    "label": "参加者",
+    "add": "追加",
+    "addMember": "メンバーを追加",
+    "addTitle": "参加者を追加",
+    "tabPeople": "メンバー",
+    "tabChannels": "チャンネル",
+    "selected": "選択した参加者",
+    "kindPerson": "メンバー",
+    "kindChannel": "チャンネル",
+    "removeSelected": "{{name}}を削除",
+    "unknownPerson": "不明なメンバー",
+    "unknownChannel": "不明なチャンネル",
+    "withdraw": "外す",
+    "withdrawUser": "{{name}}を外す",
+    "withdrawSelf": "このタスクから外れる",
+    "added": "参加者を追加しました",
+    "withdrawn": "参加者を外しました",
+    "failed": "参加者を更新できませんでした"
+  },
+  "myTasksBoard": {
+    "scheduledChannels": "チャンネル:{{names}}",
+    "scheduledChannelCount_other": "{{count}}件のチャンネル",
+    "loading": "タスクを読み込み中…",
+    "loadError": {
+      "title": "タスクを読み込めませんでした。",
+      "retry": "再試行"
+    },
+    "empty": {
+      "title": "送信したタスクはありません",
+      "hint": "「新規タスク」から作成できます。"
+    },
+    "filters": {
+      "title": "フィルター",
+      "statusHeading": "ステータス",
+      "peopleHeading": "メンバー",
+      "searchPeople": "メンバーを検索…",
+      "selectedPeople": "選択したメンバー",
+      "removePerson": "{{name}}を削除",
+      "showFewer": "表示を減らす",
+      "noPeople": "一致するメンバーがいません",
+      "channelsHeading": "チャンネル",
+      "searchChannels": "チャンネルを検索…",
+      "noChannels": "一致するチャンネルがありません",
+      "viaChannel": "チャンネル経由で選択",
+      "channelFailed": "{{name}}のメンバーを読み込めなかったため、タスクを表示できません。",
+      "channelRetry": "再試行",
+      "clear": "フィルターをクリア"
+    },
+    "details": "詳細",
+    "summary": {
+      "pending": "保留中",
+      "inProgress": "進行中",
+      "completed": "完了",
+      "left": "辞退",
+      "ignored": "無視",
+      "missed": "期限切れ",
+      "closed": "終了",
+      "doneOf": "{{total}}件中{{done}}件完了"
+    },
+    "noMatch": {
+      "title": "これらのフィルターに一致するタスクはありません",
+      "hint": "古いタスクはまだ読み込まれていません。下のボタンでさらに読み込んでください。"
+    },
+    "loadMore": "さらに読み込む",
+    "loadingMore": "読み込み中...",
+    "reassign": {
+      "label": "再割り当て",
+      "pending": "再割り当て中…",
+      "done_other": "{{count}}人にタスクを戻しました",
+      "failed": "このタスクを再割り当てできませんでした"
+    },
+    "milestones": {
+      "allocated": "割り当て",
+      "acknowledged": "確認",
+      "ignored": "無視",
+      "completed": "完了",
+      "left": "辞退",
+      "missed": "期限切れ",
+      "reviewed": "レビュー"
+    },
+    "review": {
+      "write": "レビューを書く",
+      "edit": "レビューを編集"
+    },
+    "scheduled": "予約済み",
+    "cancelSchedule": "予約を取り消す",
+    "cancelRecurring": "定期タスクを取り消す"
+  },
+  "createTaskDialog": {
+    "title": "新規タスク",
+    "fields": {
+      "title": "タイトル",
+      "titlePlaceholder": "何をする必要がありますか?",
+      "description": "説明",
+      "descriptionPlaceholder": "詳細を追加…",
+      "assignTo": "割り当て先",
+      "you": "(自分)",
+      "channelHint": "チャンネルのメンバー全員が、同じ「確認/無視」の流れでタスクを受け取ります。",
+      "unknownPerson": "不明なメンバー",
+      "peopleLabel": "メンバー",
+      "assignToEmpty": "割り当て先はまだありません。",
+      "addPeople": "メンバーを追加",
+      "removePerson": "{{name}}を削除",
+      "done": "完了",
+      "channelsLabel": "チャンネル",
+      "assignToChannelEmpty": "チャンネルはまだ追加されていません。",
+      "addChannels": "チャンネルを追加",
+      "unknownChannel": "利用できないチャンネル",
+      "removeChannel": "{{name}}を削除"
+    },
+    "deadline": {
+      "label": "期限",
+      "none": "期限なし",
+      "at": "日時",
+      "relative": "相対指定",
+      "fixed": "時刻を固定",
+      "amount": "期限の数値",
+      "unit": "期限の単位",
+      "units": {
+        "MINUTES": "分",
+        "HOURS": "時間",
+        "DAYS": "日"
+      },
+      "afterEach": "各回の後",
+      "fixedTime": "期限の時刻",
+      "onEachDate": "各回の日付に",
+      "date": "期限の日付",
+      "time": "期限の時刻"
+    },
+    "errors": {
+      "needTitle": "タスクのタイトルを入力してください",
+      "needAssignee": "割り当て先を1人以上選択してください",
+      "invalidSchedule": "未来の日時を選択してください",
+      "invalidStart": "未来の定期開始日時を選択してください",
+      "needWeekday": "曜日を1つ以上選択してください",
+      "invalidMonthlyRule": "毎月の日付を正しく選択してください",
+      "invalidOccurrences": "繰り返し回数は1以上にしてください",
+      "invalidEndDate": "終了日は開始日より後にしてください",
+      "needDeadlineAt": "期限の日時を選択してください",
+      "deadlineNotFuture": "期限は未来の日時にしてください",
+      "deadlineBeforeStart": "期限はタスクの予約日時より後にしてください",
+      "invalidDeadlineAmount": "各回の何分/何時間/何日後かを整数で入力してください",
+      "needDeadlineTime": "期限の時刻を選択してください",
+      "fixedDeadlineBeforeStart": "固定の期限時刻は開始時刻より後にしてください",
+      "createFailed": "タスクを作成できませんでした"
+    },
+    "toasts": {
+      "sentPlain": "タスクを送信しました",
+      "scheduled": "タスクを予約しました",
+      "genericChannelFallback": "チャンネル",
+      "sentToChannel_other": "#{{channelName}}にタスクを送信しました — {{count}}人のメンバー"
+    },
+    "actions": {
+      "cancel": "キャンセル",
+      "create": "タスクを作成",
+      "creating": "作成中…"
+    },
+    "allocation": {
+      "title": "割り当て",
+      "now": "今すぐ",
+      "scheduled": "日時を指定",
+      "recurring": "定期タスク",
+      "nowDescription": "すぐに割り当てます",
+      "scheduledDescription": "日付と時刻を設定",
+      "recurringDescription": "自動的に繰り返します",
+      "repeat": "繰り返し",
+      "startDate": "開始日",
+      "startTime": "開始時刻",
+      "daily": "毎日",
+      "weekly": "毎週",
+      "monthly": "毎月",
+      "everyDay": "N日ごと",
+      "everyWeek": "N週間ごと",
+      "everyMonth": "Nか月ごと",
+      "noEnd": "終了日なし",
+      "afterOccurrences": "N回繰り返したら終了",
+      "onDate": "指定した日に終了",
+      "peopleCount_other": "{{count}}人",
+      "noTargetYet": "対象がまだ選択されていません",
+      "summary": "このタスクは{{when}}に{{who}}に割り当てられます。",
+      "dayOfMonth": "毎月の日付",
+      "weekdayPattern": "曜日パターン",
+      "ordinal": {
+        "1": "第1",
+        "2": "第2",
+        "3": "第3",
+        "4": "第4",
+        "5": "第5"
+      }
+    }
+  },
+  "exportTasksDialog": {
+    "title": "タスクをExcelにエクスポート",
+    "scopeHeading": "対象のタスク",
+    "scopes": {
+      "all": "自分のすべてのタスク",
+      "sent": "自分が割り当てたタスク",
+      "received": "自分に割り当てられたタスク"
+    },
+    "rangeHeading": "期間",
+    "ranges": {
+      "week": "過去1週間",
+      "month": "過去1か月",
+      "year": "過去1年",
+      "all": "すべての期間",
+      "custom": "期間を指定"
+    },
+    "from": "開始",
+    "to": "終了",
+    "footerNote": "時刻はお使いのデバイスのタイムゾーンでエクスポートされます。タスクの割り当て先1人につき1行になります。",
+    "actions": {
+      "cancel": "キャンセル",
+      "export": "エクスポート",
+      "exporting": "エクスポート中…"
+    },
+    "toasts": {
+      "nothingTitle": "エクスポートするものがありません",
+      "nothingDescription": "選択した期間にタスクはありません。",
+      "exported_other": "{{count}}行をExcelにエクスポートしました",
+      "cappedTitle": "エクスポートが上限に達しました",
+      "cappedDescription": "最新の{{cap}}行のみが含まれています。残りは期間を絞り込んでください。",
+      "failedTitle": "エクスポートに失敗しました"
+    }
+  },
+  "miniTaskCalendar": {
+    "today": "今日",
+    "previousMonth": "前の月",
+    "nextMonth": "次の月"
+  },
+  "dropConfirm": {
+    "title_other": "{{count}}件のファイルを添付しますか?",
+    "description": "まだ何も送信されません。メッセージ欄に追加され、送信ボタンを押すまで送信されません。",
+    "cancel": "キャンセル",
+    "attach": "添付"
+  },
+  "createReviewDialog": {
+    "title": "{{name}}の作業をレビュー",
+    "ratingOptional": "評価(任意)",
+    "starCount_other": "星{{count}}つ",
+    "clear": "クリア",
+    "feedback": "フィードバック",
+    "feedbackPlaceholder": "いかがでしたか?",
+    "cancel": "キャンセル",
+    "saving": "保存中…",
+    "saveReview": "レビューを保存",
+    "saved": "レビューを保存しました",
+    "couldNotSave": "レビューを保存できませんでした",
+    "writeFirst": "先に短いレビューを書いてください"
+  },
+  "xlsxExport": {
+    "sheetName": "タスクの履歴",
+    "columns": {
+      "task": "タスク",
+      "description": "説明",
+      "allocatedBy": "割り当て元",
+      "allocatedByEmail": "割り当て元(メール)",
+      "allocatedTo": "割り当て先",
+      "allocatedToEmail": "割り当て先(メール)",
+      "status": "ステータス",
+      "allocatedAt": "割り当て日時({{tz}})",
+      "acknowledgedAt": "確認日時({{tz}})",
+      "ignoredAt": "無視した日時({{tz}})",
+      "completedAt": "完了日時({{tz}})",
+      "leftAt": "辞退日時({{tz}})",
+      "timeToComplete": "完了までの時間",
+      "reviewedAt": "レビュー日時({{tz}})",
+      "review": "レビュー",
+      "rating": "評価"
+    },
+    "status": {
+      "SENT": "送信済み(確認待ち)",
+      "ACKNOWLEDGED": "確認済み",
+      "COMPLETED": "完了",
+      "IGNORED": "無視",
+      "LEFT": "辞退"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+# Alertmanager config for PRODUCTION (mounted by docker-compose.prod.yml).
+#
+# The dev config (alertmanager.yml, used by docker-compose.yml) sends every alert
+# to a sink that goes nowhere. This file must never do that: every alert is
+# delivered to a real HTTPS endpoint whose URL is a secret and therefore lives
+# OUTSIDE git, in a file mounted at /etc/alertmanager/secrets/webhook_url
+# (host path: ALERTMANAGER_WEBHOOK_URL_FILE in .env.prod — compose refuses to
+# start without it). `url_file` keeps the URL out of this file, out of the
+# container's environment and out of `docker inspect`.
+#
+# The endpoint receives Alertmanager's standard webhook JSON (version 4), so
+# anything that accepts it works: an incident tool's Alertmanager/webhook
+# integration (PagerDuty, Opsgenie, Grafana OnCall, ...) or a chat relay.
+# Provider-specific receivers (slack_configs `api_url_file`, email_configs
+# `auth_password_file`) can be added here as extra receivers — see
+# docs/OBSERVABILITY-ALERTS.md.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ["alertname", "job"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: oncall
+
+receivers:
+  - name: oncall
+    webhook_configs:
+      - url_file: /etc/alertmanager/secrets/webhook_url
+        send_resolved: true
+
+# Silence a warning when its critical sibling is already firing for the same
+# service, so on-call isn't double-paged.
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: ["alertname", "job"]

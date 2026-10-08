@@ -129,7 +129,7 @@ export function Lightbox({
             onClick={(e) => e.stopPropagation()}
           />
         ) : isDoc ? (
-          <DocFrame url={url} name={current.name} />
+          <DocFrame url={url} name={current.name} mime={current.mime} />
         ) : isImage ? (
           <img
             src={url}
@@ -198,9 +198,11 @@ function UnsupportedPreview({ name }: { name: string }) {
  * expired signed link) falls back to the same "open elsewhere" affordance
  * the rest of the app uses for documents it cannot preview at all.
  */
-function DocFrame({ url, name }: { url: string; name: string }) {
+function DocFrame({ url, name, mime }: { url: string; name: string; mime: string }) {
   const { t } = useTranslation("common");
-  const preview = useBlobUrl(url);
+  // Only ever rendered for a type canPreviewDocInApp accepted, and re-labelled
+  // as exactly that type — see useBlobUrl on why the response's own is not used.
+  const preview = useBlobUrl(url, mime === "text/plain" ? "text/plain;charset=utf-8" : mime);
 
   if (preview.error) {
     return (
@@ -209,7 +211,7 @@ function DocFrame({ url, name }: { url: string; name: string }) {
         onClick={(e) => e.stopPropagation()}
       >
         <AlertCircle size={20} />
-        <span>{preview.error}</span>
+        <span>{t("documentViewer.failed")}</span>
         <a
           href={url}
           target="_blank"
@@ -234,6 +236,11 @@ function DocFrame({ url, name }: { url: string; name: string }) {
     <iframe
       src={preview.url}
       title={name}
+      // Plain text needs nothing from the page, so it gets none. A PDF is left
+      // unsandboxed: Chromium's built-in PDF viewer refuses to render inside a
+      // sandboxed frame. The re-typed blob (above) is what keeps it from being
+      // anything but a PDF.
+      sandbox={mime === "application/pdf" ? undefined : ""}
       className="h-full max-h-[85vh] w-full max-w-4xl rounded-lg bg-white"
       onClick={(e) => e.stopPropagation()}
     />

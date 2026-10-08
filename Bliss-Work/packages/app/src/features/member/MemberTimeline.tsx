@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Activity, ShieldCheck } from "lucide-react";
+import { Activity, AlertTriangle, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Badge, EmptyState, Spinner } from "@taskboard/ui";
@@ -43,7 +43,7 @@ export function MemberTimeline({ userId }: { userId: string }) {
   const { api } = useRuntime();
   const [filter, setFilter] = useState<Filter>("all");
 
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: [...qk.activityTimeline(userId), filter],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
@@ -63,6 +63,14 @@ export function MemberTimeline({ userId }: { userId: string }) {
 
       {isLoading ? (
         <div className="flex justify-center p-8"><Spinner /></div>
+      ) : isError ? (
+        // A failed fetch is not "nothing happened": say so, or the Outside
+        // Activity tab reads as an empty record whenever the request fails.
+        <EmptyState
+          icon={<AlertTriangle size={22} />}
+          title={t("members:timeline.error.title")}
+          hint={t("members:timeline.error.hint")}
+        />
       ) : entries.length === 0 ? (
         <EmptyState
           icon={<Activity size={22} />}

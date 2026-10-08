@@ -1,0 +1,146 @@
+{
+  "search": {
+    "title": "Buscar",
+    "resultsFor": "Resultados para “{{query}}”",
+    "empty": {
+      "title": "Buscar no {{brand}}",
+      "hint": "Encontre pessoas, canais, chats e tarefas."
+    },
+    "noResults": {
+      "title": "Nenhum resultado",
+      "hint": "Nada corresponde a “{{query}}”."
+    },
+    "groups": {
+      "people": "Pessoas",
+      "channels": "Canais",
+      "chats": "Chats",
+      "tasks": "Tarefas"
+    },
+    "channelMembers_one": "{{count}} membro",
+    "channelMembers_many": "{{count}} de membros",
+    "channelMembers_other": "{{count}} membros"
+  },
+  "nav": {
+    "mail": "E-mail",
+    "meetings": "Reuniões",
+    "chats": "Chats",
+    "tasks": "Tarefas",
+    "channels": "Canais",
+    "members": "Membros",
+    "org": "Org.",
+    "settings": "Configurações",
+    "more": "Mais"
+  },
+  "railBtn": {
+    "titleWithBadge": "{{label}} ({{count}} nova(s))",
+    "unreadAriaLabel": "{{count}} não lida(s)"
+  },
+  "notifications": {
+    "title": "Notificações",
+    "empty": {
+      "noneYet": "Nenhuma notificação ainda",
+      "hint": "Atualizações e atividades aparecerão aqui."
+    },
+    "error": {
+      "title": "Não foi possível carregar as notificações",
+      "hint": "Suas notificações estão seguras. Verifique sua conexão e tente novamente.",
+      "retry": "Tentar novamente",
+      "partial": "Algumas notificações não puderam ser carregadas — tente novamente"
+    },
+    "message": {
+      "title": "Nova mensagem",
+      "body": "Você recebeu uma nova mensagem",
+      "someone": "Alguém",
+      "aChannel": "um canal"
+    },
+    "row": {
+      "markRead": "Marcar como lida"
+    },
+    "loadMore": "Carregar mais",
+    "loadingMore": "Carregando…"
+  },
+  "profileMenu": {
+    "accountMenuTitle": "{{name}} — menu da conta",
+    "accountMenuAriaLabel": "Menu da conta",
+    "online": "On-line",
+    "editProfile": "Editar perfil",
+    "settings": "Configurações",
+    "lightMode": "Modo claro",
+    "darkMode": "Modo escuro",
+    "signOut": "Sair"
+  },
+  "getAppButton": {
+    "getDesktopApp": "Baixar o app para desktop",
+    "downloadForPlatform": "Baixar o {{brand}} para {{platform}} — {{requirement}}",
+    "getApp": "Baixar app",
+    "downloadHeading": "Baixar o {{brand}}",
+    "requirement": {
+      "windows": "Windows 10 e 11 · 64 bits",
+      "mac": "macOS 11 Big Sur ou posterior",
+      "linux": "AppImage (universal) ou .deb"
+    }
+  },
+  "roleBadge": {
+    "admin": "Admin",
+    "member": "Membro"
+  },
+  "activityNotice": {
+    "message": "Sua atividade no {{brand}} é registrada para que você e os administradores do seu espaço de trabalho possam revisá-la.",
+    "seeRecorded": "Ver o que é registrado"
+  },
+  "listPane": {
+    "back": "Voltar"
+  },
+  "exportActivity": {
+    "customRange": "Período personalizado",
+    "title": {
+      "forMember": "Exportar atividade de {{name}}",
+      "workspace": "Exportar atividade"
+    },
+    "from": "De",
+    "to": "Até",
+    "description": "Uma linha por membro por dia: tempo ativo e inativo, sessões, ações registradas e a seção em que mais tempo foi gasto. As datas são contadas no seu próprio fuso horário.",
+    "cancel": "Cancelar",
+    "exportButton": "Exportar .xlsx",
+    "toasts": {
+      "nothingToExport": "Nenhuma atividade nesse período — nada para exportar.",
+      "exported_one": "{{count}} linha exportada",
+      "exported_many": "{{count}} de linhas exportadas",
+      "exported_other": "{{count}} linhas exportadas",
+      "exportFailedFallback": "Falha na exportação"
+    }
+  },
+  "activityExport": {
+    "sheets": {
+      "summary": "Resumo",
+      "daily": "Diário",
+      "sessions": "Sessões"
+    },
+    "columns": {
+      "member": "Membro",
+      "email": "E-mail",
+      "day": "Dia",
+      "active": "Ativo",
+      "activeHours": "Ativo (horas)",
+      "idle": "Inativo",
+      "signedIn": "Conectado",
+      "sessions": "Sessões",
+      "actions": "Ações",
+      "firstSeen": "Primeira atividade ({{tz}})",
+      "lastSeen": "Última atividade ({{tz}})",
+      "topSection": "Seção principal",
+      "daysActive": "Dias ativos",
+      "avgPerActiveDay": "Média por dia ativo",
+      "device": "Dispositivo",
+      "started": "Início ({{tz}})",
+      "ended": "Fim ({{tz}})",
+      "endedBecause": "Motivo do fim",
+      "network": "Rede"
+    },
+    "stillActive": "ainda ativo"
+  },
+  "liveEvents": {
+    "channelBlocked": "Você foi bloqueado em um canal",
+    "channelRemoved": "Você foi removido de um canal"
+  }
+}

@@ -1,0 +1,390 @@
+{
+  "liveEvents": {
+    "newTask": "Nova tarefa: {{title}}",
+    "newTaskFrom": "de {{sender}}",
+    "taskLeftBy": "Tarefa abandonada por {{assignee}}",
+    "taskIgnoredBy": "Tarefa ignorada por {{assignee}}",
+    "taskReviewed": "{{reviewer}} avaliou sua tarefa",
+    "taskAcknowledgedBy": "Tarefa confirmada por {{assignee}}",
+    "taskCompletedBy": "Tarefa concluída por {{assignee}}",
+    "taskMissedBy": "Prazo da tarefa vencido para {{assignee}}",
+    "taskMissed": "O prazo de uma tarefa passou. Ela foi movida para Vencidas.",
+    "taskWithdrawn": "Atribuição da tarefa retirada"
+  },
+  "deadline": {
+    "label": "Prazo",
+    "relative": "{{amount}} {{unit}} após cada ocorrência",
+    "fixed": "{{time}} na data de cada ocorrência",
+    "unit": {
+      "MINUTES_one": "minuto",
+      "MINUTES_many": "minutos",
+      "MINUTES_other": "minutos",
+      "HOURS_one": "hora",
+      "HOURS_many": "horas",
+      "HOURS_other": "horas",
+      "DAYS_one": "dia",
+      "DAYS_many": "dias",
+      "DAYS_other": "dias"
+    }
+  },
+  "tasksList": {
+    "header": "Tarefas",
+    "categories": {
+      "mine": "Minhas tarefas",
+      "allocated": "Atribuídas a mim",
+      "available": "Disponíveis",
+      "completed": "Concluídas",
+      "left": "Abandonadas",
+      "ignored": "Ignoradas",
+      "missed": "Vencidas"
+    }
+  },
+  "tasksPage": {
+    "count_one": "{{count}} tarefa",
+    "count_many": "{{count}} de tarefas",
+    "count_other": "{{count}} tarefas",
+    "countMore": "{{count}}+ tarefas",
+    "titles": {
+      "mine": "Minhas tarefas",
+      "allocated": "Atribuídas a mim",
+      "available": "Disponíveis",
+      "completed": "Concluídas",
+      "left": "Abandonadas",
+      "ignored": "Ignoradas",
+      "missed": "Vencidas",
+      "default": "Tarefas"
+    },
+    "buckets": {
+      "allocated": "Atribuídas",
+      "available": "Disponíveis",
+      "mine": "Minhas tarefas",
+      "completed": "Concluídas",
+      "left": "Abandonadas",
+      "ignored": "Ignoradas",
+      "missed": "Vencidas"
+    },
+    "export": {
+      "title": "Exportar tarefas para o Excel",
+      "button": "Exportar"
+    },
+    "newTask": "Nova tarefa",
+    "empty": {
+      "title": "Nada aqui",
+      "hint": "As tarefas aparecem aqui conforme chegam.",
+      "missedHint": "Uma tarefa cujo prazo passa antes de você concluí-la vem para cá."
+    },
+    "actionVerbs": {
+      "acknowledge": "confirmar",
+      "complete": "concluir",
+      "ignore": "ignorar",
+      "leave": "abandonar"
+    },
+    "toasts": {
+      "actionFailed": "Não foi possível {{verb}} a tarefa",
+      "completed": "Tarefa concluída — a pessoa remetente foi notificada.",
+      "left": "Você abandonou a tarefa — a pessoa remetente foi notificada."
+    },
+    "unpin": "Desafixar",
+    "pinTask": "Fixar tarefa",
+    "unpinTask": "Desafixar tarefa",
+    "pinFailed": "Não foi possível fixar a tarefa",
+    "unpinFailed": "Não foi possível desafixar a tarefa",
+    "pagination": {
+      "previous": "Anterior",
+      "next": "Próxima",
+      "pageOf": "Página {{current}} de {{total}}"
+    }
+  },
+  "participants": {
+    "label": "Participantes",
+    "add": "Adicionar",
+    "addMember": "Adicionar membro",
+    "addTitle": "Adicionar participantes",
+    "tabPeople": "Pessoas",
+    "tabChannels": "Canais",
+    "selected": "Participantes selecionados",
+    "kindPerson": "Pessoa",
+    "kindChannel": "Canal",
+    "removeSelected": "Remover {{name}}",
+    "unknownPerson": "Pessoa desconhecida",
+    "unknownChannel": "Canal desconhecido",
+    "withdraw": "Retirar",
+    "withdrawUser": "Retirar {{name}}",
+    "withdrawSelf": "Retirar-se desta tarefa",
+    "added": "Participantes adicionados",
+    "withdrawn": "Participante retirado",
+    "failed": "Não foi possível atualizar os participantes"
+  },
+  "myTasksBoard": {
+    "scheduledChannels": "Canais: {{names}}",
+    "scheduledChannelCount_one": "{{count}} canal",
+    "scheduledChannelCount_many": "{{count}} de canais",
+    "scheduledChannelCount_other": "{{count}} canais",
+    "loading": "Carregando suas tarefas…",
+    "loadError": {
+      "title": "Não foi possível carregar suas tarefas.",
+      "retry": "Tentar novamente"
+    },
+    "empty": {
+      "title": "Você ainda não enviou nenhuma tarefa",
+      "hint": "Crie uma com “Nova tarefa”."
+    },
+    "filters": {
+      "title": "Filtros",
+      "statusHeading": "Status",
+      "peopleHeading": "Pessoas",
+      "searchPeople": "Buscar pessoas…",
+      "selectedPeople": "Pessoas selecionadas",
+      "removePerson": "Remover {{name}}",
+      "showFewer": "Mostrar menos",
+      "noPeople": "Nenhuma pessoa corresponde",
+      "channelsHeading": "Canais",
+      "searchChannels": "Buscar canais…",
+      "noChannels": "Nenhum canal corresponde",
+      "viaChannel": "Selecionado por meio de um canal",
+      "channelFailed": "Não foi possível carregar os membros de {{name}}, por isso nenhuma tarefa é exibida.",
+      "channelRetry": "Tentar novamente",
+      "clear": "Limpar filtros"
+    },
+    "details": "Detalhes",
+    "summary": {
+      "pending": "pendentes",
+      "inProgress": "em andamento",
+      "completed": "concluídas",
+      "left": "abandonadas",
+      "ignored": "ignoradas",
+      "missed": "vencidas",
+      "closed": "encerradas",
+      "doneOf": "{{done}}/{{total}} concluídas"
+    },
+    "noMatch": {
+      "title": "Nenhuma tarefa corresponde a estes filtros",
+      "hint": "As tarefas mais antigas ainda não foram carregadas — carregue mais abaixo."
+    },
+    "loadMore": "Carregar mais",
+    "loadingMore": "Carregando...",
+    "reassign": {
+      "label": "Reatribuir",
+      "pending": "Reatribuindo…",
+      "done_one": "Tarefa reenviada para {{count}} pessoa",
+      "done_many": "Tarefa reenviada para {{count}} de pessoas",
+      "done_other": "Tarefa reenviada para {{count}} pessoas",
+      "failed": "Não foi possível reatribuir esta tarefa"
+    },
+    "milestones": {
+      "allocated": "Atribuída",
+      "acknowledged": "Confirmada",
+      "ignored": "Ignorada",
+      "completed": "Concluída",
+      "left": "Abandonada",
+      "missed": "Vencida",
+      "reviewed": "Avaliada"
+    },
+    "review": {
+      "write": "Escrever avaliação",
+      "edit": "Editar avaliação"
+    },
+    "scheduled": "Agendada",
+    "cancelSchedule": "Cancelar agendamento",
+    "cancelRecurring": "Cancelar tarefa recorrente"
+  },
+  "createTaskDialog": {
+    "title": "Nova tarefa",
+    "fields": {
+      "title": "Título",
+      "titlePlaceholder": "O que precisa ser feito?",
+      "description": "Descrição",
+      "descriptionPlaceholder": "Adicione detalhes…",
+      "assignTo": "Atribuir a",
+      "you": "(Você)",
+      "channelHint": "Todos os membros do canal recebem a tarefa com o mesmo fluxo de Confirmar / Ignorar.",
+      "unknownPerson": "Pessoa desconhecida",
+      "peopleLabel": "Pessoas",
+      "assignToEmpty": "Ninguém atribuído ainda.",
+      "addPeople": "Adicionar pessoas",
+      "removePerson": "Remover {{name}}",
+      "done": "Concluído",
+      "channelsLabel": "Canais",
+      "assignToChannelEmpty": "Nenhum canal adicionado ainda.",
+      "addChannels": "Adicionar canais",
+      "unknownChannel": "Canal indisponível",
+      "removeChannel": "Remover {{name}}"
+    },
+    "deadline": {
+      "label": "Prazo",
+      "none": "Sem prazo",
+      "at": "Data e hora",
+      "relative": "Relativo",
+      "fixed": "Horário fixo",
+      "amount": "Quantidade do prazo",
+      "unit": "Unidade do prazo",
+      "units": {
+        "MINUTES": "Minutos",
+        "HOURS": "Horas",
+        "DAYS": "Dias"
+      },
+      "afterEach": "após cada ocorrência",
+      "fixedTime": "Horário do prazo",
+      "onEachDate": "na data de cada ocorrência",
+      "date": "Data do prazo",
+      "time": "Horário do prazo"
+    },
+    "errors": {
+      "needTitle": "Dê um título à tarefa",
+      "needAssignee": "Escolha pelo menos uma pessoa responsável",
+      "invalidSchedule": "Escolha uma data e hora futuras",
+      "invalidStart": "Escolha um início futuro para a recorrência",
+      "needWeekday": "Escolha pelo menos um dia da semana",
+      "invalidMonthlyRule": "Escolha um dia do mês válido",
+      "invalidOccurrences": "O número de ocorrências deve ser maior que zero",
+      "invalidEndDate": "A data de término deve ser posterior ao início",
+      "needDeadlineAt": "Escolha a data e a hora do prazo",
+      "deadlineNotFuture": "O prazo deve estar no futuro",
+      "deadlineBeforeStart": "O prazo deve ser posterior ao agendamento da tarefa",
+      "invalidDeadlineAmount": "Digite um número inteiro para o tempo após cada ocorrência",
+      "needDeadlineTime": "Escolha o horário do prazo",
+      "fixedDeadlineBeforeStart": "O horário fixo do prazo deve ser posterior ao horário de início",
+      "createFailed": "Não foi possível criar a tarefa"
+    },
+    "toasts": {
+      "sentPlain": "Tarefa enviada",
+      "scheduled": "Tarefa agendada",
+      "genericChannelFallback": "canal",
+      "sentToChannel_one": "Tarefa enviada para #{{channelName}} — {{count}} membro",
+      "sentToChannel_many": "Tarefa enviada para #{{channelName}} — {{count}} de membros",
+      "sentToChannel_other": "Tarefa enviada para #{{channelName}} — {{count}} membros"
+    },
+    "actions": {
+      "cancel": "Cancelar",
+      "create": "Criar tarefa",
+      "creating": "Criando…"
+    },
+    "allocation": {
+      "title": "Atribuição",
+      "now": "Agora",
+      "scheduled": "Agendar para depois",
+      "recurring": "Tarefa recorrente",
+      "nowDescription": "Atribuir imediatamente",
+      "scheduledDescription": "Definir data e hora",
+      "recurringDescription": "Repetir automaticamente",
+      "repeat": "Repetir",
+      "startDate": "Data de início",
+      "startTime": "Horário de início",
+      "daily": "Diariamente",
+      "weekly": "Semanalmente",
+      "monthly": "Mensalmente",
+      "everyDay": "A cada N dia(s)",
+      "everyWeek": "A cada N semana(s)",
+      "everyMonth": "A cada N mês(es)",
+      "noEnd": "Sem data de término",
+      "afterOccurrences": "Terminar após N ocorrências",
+      "onDate": "Terminar em uma data específica",
+      "peopleCount_one": "{{count}} pessoa",
+      "peopleCount_many": "{{count}} de pessoas",
+      "peopleCount_other": "{{count}} pessoas",
+      "noTargetYet": "ninguém escolhido ainda",
+      "summary": "Esta tarefa será atribuída a {{who}} em {{when}}.",
+      "dayOfMonth": "Dia do mês",
+      "weekdayPattern": "Padrão de dia da semana",
+      "ordinal": {
+        "1": "Primeira",
+        "2": "Segunda",
+        "3": "Terceira",
+        "4": "Quarta",
+        "5": "Quinta"
+      }
+    }
+  },
+  "exportTasksDialog": {
+    "title": "Exportar tarefas para o Excel",
+    "scopeHeading": "Quais tarefas",
+    "scopes": {
+      "all": "Todas as minhas tarefas",
+      "sent": "Atribuídas por mim",
+      "received": "Atribuídas a mim"
+    },
+    "rangeHeading": "Período",
+    "ranges": {
+      "week": "Última semana",
+      "month": "Último mês",
+      "year": "Último ano",
+      "all": "Todo o período",
+      "custom": "Período personalizado"
+    },
+    "from": "De",
+    "to": "Até",
+    "footerNote": "Os horários são exportados no fuso horário local do seu dispositivo. Uma linha por pessoa a quem a tarefa foi atribuída.",
+    "actions": {
+      "cancel": "Cancelar",
+      "export": "Exportar",
+      "exporting": "Exportando…"
+    },
+    "toasts": {
+      "nothingTitle": "Nada para exportar",
+      "nothingDescription": "Nenhuma tarefa no período selecionado.",
+      "exported_one": "{{count}} linha exportada para o Excel",
+      "exported_many": "{{count}} de linhas exportadas para o Excel",
+      "exported_other": "{{count}} linhas exportadas para o Excel",
+      "cappedTitle": "A exportação foi limitada",
+      "cappedDescription": "Somente as {{cap}} linhas mais recentes foram incluídas — reduza o período para ver o restante.",
+      "failedTitle": "Falha na exportação"
+    }
+  },
+  "miniTaskCalendar": {
+    "today": "Hoje",
+    "previousMonth": "Mês anterior",
+    "nextMonth": "Próximo mês"
+  },
+  "dropConfirm": {
+    "title_one": "Anexar este arquivo?",
+    "title_many": "Anexar estes {{count}} de arquivos?",
+    "title_other": "Anexar estes {{count}} arquivos?",
+    "description": "Nada é enviado ainda — eles vão para a caixa de mensagem, e você ainda precisa pressionar Enviar.",
+    "cancel": "Cancelar",
+    "attach": "Anexar"
+  },
+  "createReviewDialog": {
+    "title": "Avaliar o trabalho de {{name}}",
+    "ratingOptional": "Nota (opcional)",
+    "starCount_one": "{{count}} estrela",
+    "starCount_many": "{{count}} de estrelas",
+    "starCount_other": "{{count}} estrelas",
+    "clear": "Limpar",
+    "feedback": "Feedback",
+    "feedbackPlaceholder": "Como foi o desempenho?",
+    "cancel": "Cancelar",
+    "saving": "Salvando…",
+    "saveReview": "Salvar avaliação",
+    "saved": "Avaliação salva",
+    "couldNotSave": "Não foi possível salvar a avaliação",
+    "writeFirst": "Escreva primeiro uma breve avaliação"
+  },
+  "xlsxExport": {
+    "sheetName": "Linha do tempo das tarefas",
+    "columns": {
+      "task": "Tarefa",
+      "description": "Descrição",
+      "allocatedBy": "Atribuída por",
+      "allocatedByEmail": "Atribuída por (e-mail)",
+      "allocatedTo": "Atribuída a",
+      "allocatedToEmail": "Atribuída a (e-mail)",
+      "status": "Status",
+      "allocatedAt": "Atribuída em ({{tz}})",
+      "acknowledgedAt": "Confirmada em ({{tz}})",
+      "ignoredAt": "Ignorada em ({{tz}})",
+      "completedAt": "Concluída em ({{tz}})",
+      "leftAt": "Abandonada em ({{tz}})",
+      "timeToComplete": "Tempo até a conclusão",
+      "reviewedAt": "Avaliada em ({{tz}})",
+      "review": "Avaliação",
+      "rating": "Nota"
+    },
+    "status": {
+      "SENT": "Enviada (aguardando)",
+      "ACKNOWLEDGED": "Confirmada",
+      "COMPLETED": "Concluída",
+      "IGNORED": "Ignorada",
+      "LEFT": "Abandonada"
+    }
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "errors": {
+    "accessRevoked": "この通話へのアクセス権がなくなりました",
+    "notConfigured": "このサーバーではグループ通話が有効になっていません",
+    "couldNotJoin": "通話に参加できませんでした",
+    "couldNotStart": "通話を開始できませんでした",
+    "couldNotShareScreen": "画面を共有できませんでした"
+  },
+  "notify": {
+    "screenShareStopped": "画面共有が停止しました",
+    "screenShareStoppedDescription": "通話に再接続したため共有が終了しました。発表を続ける場合は、もう一度共有を開始してください。",
+    "meetingEnded": "このミーティングは終了しました",
+    "micBlocked": "マイクがブロックされています",
+    "micBlockedHint": "このアプリのマイクの権限を確認してください。",
+    "micUnavailable": "マイクを使用できません",
+    "micUnavailableHint": "マイクが接続されていて、他で使用されていないことを確認してください。",
+    "cameraBlocked": "カメラがブロックされています",
+    "cameraBlockedHint": "このアプリのカメラの権限を確認してください。",
+    "cameraUnavailable": "カメラを使用できません",
+    "cameraUnavailableHint": "カメラが接続されていて、他で使用されていないことを確認してください。"
+  },
+  "preJoin": {
+    "readyToJoinLabel": "参加の準備完了",
+    "leave": "退出",
+    "cameraOffPlaceholder": "カメラはオフです",
+    "error": {
+      "deniedTitle": "カメラとマイクがブロックされています",
+      "otherTitle": "カメラまたはマイクにアクセスできませんでした",
+      "deniedHint": "このアプリのカメラとマイクの権限を確認してから、もう一度お試しください。",
+      "otherHint": "カメラとマイクが接続されていて、他で使用されていないことを確認してから、もう一度お試しください。",
+      "tryAgain": "再試行",
+      "openCameraSettings": "カメラの設定を開く",
+      "openMicrophoneSettings": "マイクの設定を開く"
+    },
+    "muteMic": "マイクをミュート",
+    "unmuteMic": "マイクのミュートを解除",
+    "cameraOff": "カメラをオフにする",
+    "cameraOn": "カメラをオンにする",
+    "heading": "参加の準備はできましたか?",
+    "description": "ミーティングに入る前に、カメラとマイクを確認してください。",
+    "joinButton": "ミーティングに参加"
+  },
+  "waitingRoom": {
+    "canStartHint": "最初の参加者です。開始すると他のメンバーが入室できます。",
+    "waitingHint": "まだ開始されていません。開始されると自動的に参加します。",
+    "leave": "退出",
+    "starting": "開始中…",
+    "startNow": "今すぐ開始"
+  },
+  "joinFailed": {
+    "anotherDeviceTitle": "別のデバイスで、すでにこのミーティングに参加しています",
+    "anotherDeviceHint": "現在、別のデバイスからこのミーティングに接続しています。",
+    "switchHere": "このデバイスに切り替える",
+    "displacedTitle": "別のデバイスでこのミーティングに参加しました",
+    "displacedHint": "このミーティングは現在、別のデバイスで有効になっています。",
+    "tokenTitle": "ミーティングの認証情報を取得できません",
+    "disconnectedTitle": "ミーティングから切断されました",
+    "genericTitle": "ミーティングに接続できません",
+    "tokenHint": "トークンのリクエストが完了しませんでした。接続を確認して、もう一度お試しください。",
+    "disconnectedHint": "ミーティングとの接続が失われ、復旧できませんでした。接続を確認してから、もう一度参加してください。",
+    "genericHint": "ミーティングサーバーへの接続が完了しませんでした。接続を確認して、もう一度お試しください。",
+    "leave": "退出",
+    "retrying": "再試行中…",
+    "retry": "再試行"
+  },
+  "room": {
+    "defaultTitleChannel": "チャンネル通話",
+    "defaultTitleMeeting": "ミーティング",
+    "youFallbackName": "自分",
+    "addPeopleDefaultTitle": "メンバーを追加",
+    "channelAlreadyInvited": "チャンネルのメンバー全員がすでに招待されています",
+    "header": {
+      "participantsPresent_other": "参加者{{count}}人",
+      "external": "外部{{count}}人",
+      "recording": "録画中",
+      "reconnecting": "再接続中…",
+      "connecting": "接続中…"
+    },
+    "stage": {
+      "speaking": "発言中",
+      "presenting": "発表中",
+      "connectingPlaceholder": "接続中…"
+    },
+    "toasts": {
+      "recordingSaved": "録画をダウンロードフォルダーに保存しました",
+      "recordingUnsupported": "このブラウザーではミーティングを録画できません",
+      "recordingStarted": "録画を開始しました。このデバイスに保存されます",
+      "inviteLinkCopied": "招待リンクをコピーしました"
+    }
+  },
+  "controls": {
+    "addPeopleDefault": "メンバーを追加",
+    "stopSharing": "画面の共有を停止",
+    "startSharing": "画面を共有",
+    "callDurationAriaLabel": "通話時間",
+    "mute": "ミュート",
+    "unmute": "ミュート解除",
+    "cameraOff": "カメラをオフにする",
+    "cameraOn": "カメラをオンにする",
+    "endCall": "通話を終了"
+  },
+  "roster": {
+    "ariaLabel": "参加者",
+    "title": "参加者",
+    "searchPlaceholder": "メンバーを検索…",
+    "searchAriaLabel": "メンバーを検索",
+    "inMeetingCount": "参加中 · {{count}}",
+    "youSuffix": "(自分)",
+    "sharing": "共有中",
+    "handUp": "挙手中",
+    "pin": "{{name}}をピン留め",
+    "unpin": "{{name}}のピン留めを解除",
+    "showMore": "他{{count}}人のメンバーを表示",
+    "showLess": "表示を減らす",
+    "noMatches": "「{{query}}」に一致するメンバーはいません。",
+    "inviteMembers": "メンバーを招待"
+  },
+  "tile": {
+    "presentingScreen": "画面を発表中です",
+    "pin": "{{name}}をピン留め",
+    "unpin": "{{name}}のピン留めを解除",
+    "handRaisedTitle": "{{name}}が挙手しています",
+    "youSuffix": "(自分)",
+    "unpinStageTitle": "{{name}}をメイン表示から解除",
+    "unpinStageAriaLabel": "メイン表示のピン留めを解除",
+    "unpinStageButton": "ピン留め解除"
+  },
+  "callUi": {
+    "couldNotOpenRoom": "通話ルームを開けませんでした",
+    "movingToRoom": "全員をルームに移動中…",
+    "decline": "拒否",
+    "accept": "応答",
+    "incomingVideo": "ビデオ通話の着信…",
+    "incomingVoice": "音声通話の着信…",
+    "peerFallbackName": "ユーザー",
+    "subtitle": {
+      "sharing": "{{peer}}が画面を共有中です",
+      "connected": "接続済み",
+      "callEnded": "通話が終了しました",
+      "calling": "呼び出し中…"
+    },
+    "audioBlocked": {
+      "title": "タップして通話の音声を聞く",
+      "description": "操作するまで、ブラウザーが音声の再生をブロックしています。"
+    }
+  },
+  "addPeopleDialog": {
+    "shareTitle": "ミーティングリンクを共有",
+    "shareDescription": "安全なリンクで、メンバーをこのミーティングに招待します。",
+    "cancel": "キャンセル",
+    "sendLink": "リンクを送信",
+    "sendTitle": "ミーティングリンクを送信",
+    "linkSentWithExceptions": "一部を除いてリンクを送信しました",
+    "linkSentWithExceptionsDescription": "{{sent}}件を送信、{{failed}}件は届きませんでした。",
+    "linkSent": "リンクを送信しました",
+    "linkSentToMembers": "{{count}}人のメンバーにリンクを送信しました",
+    "addedToCall": "通話に追加しました",
+    "addedPeople": "{{count}}人を追加しました",
+    "couldNotAdd": "この通話に誰も追加できませんでした",
+    "groupCallingUnavailable": "このサーバーではグループ通話を利用できない可能性があります。"
+  }
+}

@@ -1,0 +1,144 @@
+{
+  "search": {
+    "title": "खोजें",
+    "resultsFor": "“{{query}}” के परिणाम",
+    "empty": {
+      "title": "{{brand}} में खोजें",
+      "hint": "लोग, चैनल, चैट और टास्क खोजें।"
+    },
+    "noResults": {
+      "title": "कोई मिलान नहीं",
+      "hint": "“{{query}}” से कुछ मेल नहीं खाया।"
+    },
+    "groups": {
+      "people": "लोग",
+      "channels": "चैनल",
+      "chats": "चैट",
+      "tasks": "टास्क"
+    },
+    "channelMembers_one": "{{count}} सदस्य",
+    "channelMembers_other": "{{count}} सदस्य"
+  },
+  "nav": {
+    "mail": "मेल",
+    "meetings": "मीटिंग",
+    "chats": "चैट",
+    "tasks": "टास्क",
+    "channels": "चैनल",
+    "members": "सदस्य",
+    "org": "संगठन",
+    "settings": "सेटिंग",
+    "more": "और"
+  },
+  "railBtn": {
+    "titleWithBadge": "{{label}} ({{count}} नए)",
+    "unreadAriaLabel": "{{count}} अपठित"
+  },
+  "notifications": {
+    "title": "नोटिफ़िकेशन",
+    "empty": {
+      "noneYet": "अभी कोई नोटिफ़िकेशन नहीं",
+      "hint": "अपडेट और गतिविधि यहाँ दिखाई देंगी।"
+    },
+    "error": {
+      "title": "नोटिफ़िकेशन लोड नहीं हो सके",
+      "hint": "आपके नोटिफ़िकेशन सुरक्षित हैं। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+      "retry": "फिर कोशिश करें",
+      "partial": "कुछ नोटिफ़िकेशन लोड नहीं हो सके — फिर कोशिश करें"
+    },
+    "message": {
+      "title": "नया संदेश",
+      "body": "आपको एक नया संदेश मिला है",
+      "someone": "कोई",
+      "aChannel": "एक चैनल"
+    },
+    "row": {
+      "markRead": "पढ़ा हुआ चिह्नित करें"
+    },
+    "loadMore": "और लोड करें",
+    "loadingMore": "लोड हो रहा है…"
+  },
+  "profileMenu": {
+    "accountMenuTitle": "{{name}} — खाता मेन्यू",
+    "accountMenuAriaLabel": "खाता मेन्यू",
+    "online": "ऑनलाइन",
+    "editProfile": "प्रोफ़ाइल संपादित करें",
+    "settings": "सेटिंग",
+    "lightMode": "लाइट मोड",
+    "darkMode": "डार्क मोड",
+    "signOut": "साइन आउट करें"
+  },
+  "getAppButton": {
+    "getDesktopApp": "डेस्कटॉप ऐप पाएँ",
+    "downloadForPlatform": "{{platform}} के लिए {{brand}} डाउनलोड करें — {{requirement}}",
+    "getApp": "ऐप पाएँ",
+    "downloadHeading": "{{brand}} डाउनलोड करें",
+    "requirement": {
+      "windows": "Windows 10 और 11 · 64-बिट",
+      "mac": "macOS 11 Big Sur या उसके बाद का",
+      "linux": "AppImage (यूनिवर्सल) या .deb"
+    }
+  },
+  "roleBadge": {
+    "admin": "एडमिन",
+    "member": "सदस्य"
+  },
+  "activityNotice": {
+    "message": "{{brand}} में आपकी गतिविधि दर्ज की जाती है, ताकि आप और आपके वर्कस्पेस के एडमिन उसे देख सकें।",
+    "seeRecorded": "देखें क्या दर्ज होता है"
+  },
+  "listPane": {
+    "back": "वापस"
+  },
+  "exportActivity": {
+    "customRange": "कस्टम अवधि",
+    "title": {
+      "forMember": "{{name}} की गतिविधि एक्सपोर्ट करें",
+      "workspace": "गतिविधि एक्सपोर्ट करें"
+    },
+    "from": "से",
+    "to": "तक",
+    "description": "हर सदस्य के लिए हर दिन की एक पंक्ति: सक्रिय और निष्क्रिय समय, सेशन, दर्ज की गई क्रियाएँ, और वह सेक्शन जिसमें सबसे ज़्यादा समय बीता। तारीख़ें आपके अपने टाइमज़ोन में गिनी जाती हैं।",
+    "cancel": "रद्द करें",
+    "exportButton": ".xlsx एक्सपोर्ट करें",
+    "toasts": {
+      "nothingToExport": "उस अवधि में कोई गतिविधि नहीं — एक्सपोर्ट करने के लिए कुछ नहीं।",
+      "exported_one": "{{count}} पंक्ति एक्सपोर्ट हुई",
+      "exported_other": "{{count}} पंक्तियाँ एक्सपोर्ट हुईं",
+      "exportFailedFallback": "एक्सपोर्ट विफल रहा"
+    }
+  },
+  "activityExport": {
+    "sheets": {
+      "summary": "सारांश",
+      "daily": "दैनिक",
+      "sessions": "सेशन"
+    },
+    "columns": {
+      "member": "सदस्य",
+      "email": "ईमेल",
+      "day": "दिन",
+      "active": "सक्रिय",
+      "activeHours": "सक्रिय (घंटे)",
+      "idle": "निष्क्रिय",
+      "signedIn": "साइन इन",
+      "sessions": "सेशन",
+      "actions": "क्रियाएँ",
+      "firstSeen": "पहली बार देखा गया ({{tz}})",
+      "lastSeen": "आख़िरी बार देखा गया ({{tz}})",
+      "topSection": "शीर्ष सेक्शन",
+      "daysActive": "सक्रिय दिन",
+      "avgPerActiveDay": "प्रति सक्रिय दिन औसत",
+      "device": "डिवाइस",
+      "started": "शुरू ({{tz}})",
+      "ended": "समाप्त ({{tz}})",
+      "endedBecause": "समाप्ति का कारण",
+      "network": "नेटवर्क"
+    },
+    "stillActive": "अभी भी सक्रिय"
+  },
+  "liveEvents": {
+    "channelBlocked": "आपको एक चैनल से ब्लॉक कर दिया गया",
+    "channelRemoved": "आपको एक चैनल से हटा दिया गया"
+  }
+}

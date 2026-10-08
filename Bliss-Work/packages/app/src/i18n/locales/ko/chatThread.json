@@ -1,0 +1,271 @@
+{
+  "shared": {
+    "you": "나",
+    "emptyMessages": "아직 메시지가 없어요. 먼저 인사해 보세요 👋",
+    "sending": "보내는 중…",
+    "callMissedNoAnswer": "{{body}} · 응답 없음",
+    "messageFailedToSend": "메시지를 보내지 못했어요",
+    "loadOlderMessagesFailed": "이전 메시지를 불러오지 못했어요"
+  },
+  "thread": {
+    "composerPlaceholder": "메시지 입력…",
+    "loadHistory": {
+      "loading": "이전 메시지 불러오는 중…",
+      "load": "이전 메시지 불러오기"
+    },
+    "pinned": "고정됨",
+    "forwarded": "전달됨",
+    "tombstone": "삭제된 메시지예요",
+    "deletedMessage": "삭제된 메시지",
+    "originalMessage": "원본 메시지",
+    "selectMessage": "메시지 선택",
+    "selectMessageFrom": "{{name}}님의 메시지 선택",
+    "seenBy": {
+      "label": "읽은 사람",
+      "count": "{{count}}명이 읽음",
+      "ariaLabel_other": "{{count}}명이 읽음",
+      "unknownReader": "알 수 없음"
+    },
+    "typing": {
+      "peer": "{{name}}님이 입력 중…",
+      "generic": "입력 중…"
+    },
+    "disabledNotice": "이 대화에는 메시지를 보낼 수 없어요."
+  },
+  "threadView": {
+    "loadOlder": {
+      "loading": "이전 메시지 불러오는 중…",
+      "button": "이전 12개 불러오기",
+      "title": "이전 메시지 12개 불러오기"
+    }
+  },
+  "dmView": {
+    "errors": {
+      "reactionSave": "반응을 저장하지 못했어요",
+      "hideMessage": "메시지를 숨기지 못했어요",
+      "markUnread": "채팅을 읽지 않음으로 표시하지 못했어요",
+      "deleteMessage": "메시지를 삭제하지 못했어요",
+      "deleteMessages": "메시지를 삭제하지 못했어요",
+      "clearChat": "채팅 기록을 비우지 못했어요",
+      "removeConversation": "대화를 제거하지 못했어요",
+      "createCallLink": "통화 링크를 만들지 못했어요",
+      "noneDeletable": "선택한 메시지 중 모두에게서 삭제할 수 있는 메시지가 없어요",
+      "updateBlock": {
+        "title": "차단 설정을 변경하지 못했어요",
+        "description": "다시 시도해 주세요."
+      }
+    },
+    "bulkDelete": {
+      "deletedToast_other": "메시지 {{count}}개를 삭제했어요",
+      "partialToast": "{{total}}개 중 {{deleted}}개를 삭제했어요",
+      "partialDescription": "{{count}}개는 작성자만 삭제할 수 있어 삭제하지 못했어요."
+    },
+    "clearChatToast": "내 쪽의 채팅을 비웠어요",
+    "callLink": {
+      "messageBody": "내 통화에 참여하세요: {{link}}",
+      "failedToast": "{{total}}명 중 {{failed}}명에게 연결하지 못했어요",
+      "failedDescription": "링크는 이 채팅에 게시되었으며, 다른 사람들은 모두 받았어요.",
+      "sentToast": "통화 링크를 보냈어요",
+      "sentDescription": {
+        "withOthers_other": "{{count}}명에게도 보냈어요. 통화가 열려 있으니 준비되면 미팅에서 참여하세요.",
+        "aloneOnly": "통화가 열려 있어요. 준비되면 미팅에서 참여하세요."
+      }
+    },
+    "notFound": {
+      "title": "대화를 찾을 수 없어요",
+      "hint": "사이드바에서 다른 대화를 선택하세요."
+    },
+    "startCall": {
+      "blockedNotice": {
+        "title": "통화를 시작할 수 없어요",
+        "unblockToCall": "전화를 걸려면 이 사용자의 차단을 해제하세요.",
+        "cannotCall": "이 사용자에게 전화를 걸 수 없어요."
+      },
+      "mustBeOnline": "{{name}}님이 온라인이어야 전화를 받을 수 있어요.",
+      "onAnotherCall": {
+        "title": "{{name}}님이 다른 통화 중이에요",
+        "description": "그래도 전화를 걸어요. 받지 않을 수 있어요."
+      }
+    },
+    "exportedToast_other": "메시지 {{count}}개를 내보냈어요",
+    "header": {
+      "backToChats": "채팅으로 돌아가기",
+      "status": {
+        "busy": "통화 중",
+        "online": "온라인",
+        "offline": "오프라인"
+      },
+      "unblockTitle": "이 사용자 차단 해제",
+      "blockTitle": "이 사용자 차단",
+      "unblockLabel": "차단 해제",
+      "blockLabel": "차단",
+      "removeFromInboxes": "양쪽 채팅 목록에서 제거",
+      "ignore": "무시"
+    },
+    "search": {
+      "placeholder": "{{name}}님과의 채팅에서 검색…"
+    },
+    "composer": {
+      "placeholder": "{{name}}님에게 메시지…"
+    },
+    "notice": {
+      "blockedByMe": "이 사용자를 차단했어요. 메시지를 보내려면 차단을 해제하세요.",
+      "blockedByPeer": "상대방에게 차단되었어요."
+    },
+    "clearChatDialog": {
+      "title": "채팅 기록을 비울까요?",
+      "message": "내 쪽의 채팅 기록만 삭제돼요. 상대방에게는 그대로 남아 있어요.",
+      "confirmLabel": "채팅 비우기"
+    },
+    "bulkDeleteDialog": {
+      "title_other": "메시지 {{count}}개를 삭제할까요?",
+      "messageAll": "이 채팅의 모든 사람에게서 삭제돼요. 되돌릴 수 없어요.",
+      "messagePartial": "선택한 {{total}}개 중 {{remaining}}개는 작성자만 삭제할 수 있어 모두에게서 삭제할 수 없어요. 나머지 {{deletable}}개는 모두에게서 삭제되며 되돌릴 수 없어요.",
+      "confirmLabel": "삭제"
+    }
+  },
+  "channelView": {
+    "errors": {
+      "reactionSave": "반응을 저장하지 못했어요",
+      "hideMessage": "메시지를 숨기지 못했어요",
+      "markUnread": "채널을 읽지 않음으로 표시하지 못했어요",
+      "clearMessages": "채널 메시지를 비우지 못했어요",
+      "deleteMessage": "메시지를 삭제하지 못했어요",
+      "deleteMessages": "메시지를 삭제하지 못했어요",
+      "changePin": "고정 상태를 변경하지 못했어요",
+      "startCall": "통화를 시작하지 못했어요",
+      "leave": "나가지 못했어요",
+      "deleteChannel": "채널을 삭제하지 못했어요",
+      "noneDeletable": "선택한 메시지 중 모두에게서 삭제할 수 있는 메시지가 없어요"
+    },
+    "clearMessagesToast": "내 쪽의 채널 메시지를 비웠어요",
+    "bulkDelete": {
+      "deletedToast_other": "메시지 {{count}}개를 삭제했어요",
+      "partialToast": "{{total}}개 중 {{deleted}}개를 삭제했어요",
+      "partialDescription": "{{count}}개는 작성자 또는 채널 관리자만 삭제할 수 있어 삭제하지 못했어요."
+    },
+    "pinToggle": {
+      "pinned": "모두에게 고정했어요",
+      "unpinned": "고정을 해제했어요"
+    },
+    "leftChannelToast": "#{{name}}에서 나갔어요",
+    "deletedChannelToast": "채널을 삭제했어요",
+    "notFound": {
+      "title": "채널을 찾을 수 없어요",
+      "hint": "사이드바에서 다른 채널을 선택하세요."
+    },
+    "exportedToast_other": "메시지 {{count}}개를 내보냈어요",
+    "header": {
+      "backToChannels": "채널로 돌아가기",
+      "locked": "잠금",
+      "membersTitle": "채널 멤버",
+      "membersAriaLabel": "멤버 {{count}}명 — 보기 및 관리"
+    },
+    "search": {
+      "placeholder": "#{{name}}에서 검색…"
+    },
+    "composer": {
+      "placeholder": "#{{name}}에 메시지…"
+    },
+    "clearMessagesDialog": {
+      "title": "채널 메시지를 비울까요?",
+      "message": "불러온 메시지가 내 쪽에서만 지워져요. 다른 멤버에게는 그대로 남아 있어요.",
+      "confirmLabel": "메시지 비우기"
+    },
+    "deleteChannelDialog": {
+      "titleNamed": "#{{name}} 채널을 삭제할까요?",
+      "titleFallback": "채널을 삭제할까요?",
+      "message": "되돌릴 수 없어요. 채널과 채널의 메시지가 삭제돼요.",
+      "confirmLabel": "채널 삭제"
+    },
+    "bulkDeleteDialog": {
+      "title_other": "메시지 {{count}}개를 삭제할까요?",
+      "messageAll": "이 채널의 모든 사람에게서 삭제돼요. 되돌릴 수 없어요.",
+      "messagePartial": "선택한 {{total}}개 중 {{remaining}}개는 작성자 또는 채널 관리자만 삭제할 수 있어 모두에게서 삭제할 수 없어요. 나머지 {{deletable}}개는 모두에게서 삭제되며 되돌릴 수 없어요.",
+      "confirmLabel": "삭제"
+    }
+  },
+  "conversationMenu": {
+    "unavailableHint": "아직 사용할 수 없어요. 서버 엔드포인트가 필요해요",
+    "label": {
+      "channel": "채널 옵션",
+      "chat": "채팅 옵션"
+    },
+    "items": {
+      "viewProfile": "프로필 보기",
+      "search": "검색",
+      "media": "미디어, 링크, 문서",
+      "selectMessages": "메시지 선택",
+      "mute": "알림 끄기",
+      "unmute": "알림 켜기",
+      "more": "더 보기",
+      "clearChat": "채팅 비우기",
+      "exportChat": "채팅 내보내기",
+      "pin": "{{scope}} 고정",
+      "unpin": "{{scope}} 고정 해제",
+      "rename": "이름 변경",
+      "delete": "삭제",
+      "leaving": "나가는 중…",
+      "leave": "나가기"
+    },
+    "scope": {
+      "channel": "채널",
+      "chat": "채팅"
+    }
+  },
+  "whatsAppForward": {
+    "forwardedToast": "WhatsApp을 통해 전달했어요",
+    "forwardedDescription": "받는 사람은 WhatsApp에서 직접 선택하므로, 이 채팅에는 전달 사실만 기록돼요.",
+    "logFailedToast": "전달 기록을 남기지 못했어요",
+    "logFailedDescription": "WhatsApp은 정상적으로 열렸지만 이 채팅에는 기록되지 않았어요.",
+    "shareFailedGeneric": "공유하지 못했어요",
+    "mediaPrepareFailed": "WhatsApp으로 보낼 첨부 파일을 준비하지 못했어요",
+    "mediaNoLongerAvailable": "더 이상 사용할 수 없는 파일일 수 있어요.",
+    "sharedToast": "첨부 파일과 함께 공유 시트를 열었어요",
+    "sharedDescription": "공유 시트에서 WhatsApp을 선택하세요. 그 이후의 일은 BlissWork에서 확인할 수 없어요.",
+    "downloadedToast_other": "WhatsApp용 첨부 파일 {{count}}개를 다운로드했어요",
+    "downloadedDescription": "이 기기는 WhatsApp에 파일을 자동으로 전달할 수 없어요. 다운로드한 파일을 WhatsApp에서 직접 첨부해 주세요.",
+    "mediaShareFailed": "첨부 파일을 WhatsApp으로 공유하지 못했어요"
+  },
+  "export": {
+    "header": "{{brand}} 대화 기록",
+    "exportedSummary_other": "내보낸 시각 {{timestamp}} · 불러온 메시지 {{count}}개",
+    "unknownSender": "알 수 없음",
+    "deletedMessage": "(삭제됨)",
+    "noText": "(텍스트 없음)"
+  },
+  "messageActions": {
+    "react": {
+      "title": "반응",
+      "ariaLabel": "이 메시지에 반응하기"
+    },
+    "more": {
+      "title": "더 보기",
+      "ariaLabel": "메시지 작업"
+    },
+    "menu": {
+      "reply": "답장",
+      "download": "다운로드",
+      "downloadNamed": "{{name}} 다운로드",
+      "forwardTo": "채팅 또는 채널로 전달…",
+      "forwardWhatsApp": "WhatsApp으로 전달",
+      "markUnread": "읽지 않음으로 표시",
+      "deleteForMe": "나에게서 삭제",
+      "unpinForEveryone": "모두에게서 고정 해제",
+      "pinForEveryone": "모두에게 고정",
+      "deleteForEveryone": "모두에게서 삭제"
+    },
+    "confirmDialog": {
+      "title": "메시지를 삭제할까요?",
+      "deleteAllMessage": "이 메시지를 삭제할까요? 이 대화의 모든 사람에게서 사라져요.",
+      "deleteMeMessage": "이 메시지를 삭제할까요? 내 화면에서만 사라져요.",
+      "confirmLabel": "삭제"
+    },
+    "reactions": {
+      "clickToRemove": "클릭해서 내 반응 삭제",
+      "clickToReact": "클릭해서 반응하기",
+      "andMore": "{{names}} 외 {{hidden}}명",
+      "tooltip": "{{who}}: {{emoji}} 반응 — {{action}}"
+    }
+  }
+}

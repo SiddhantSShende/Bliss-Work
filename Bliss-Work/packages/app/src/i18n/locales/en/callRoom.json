@@ -9,7 +9,15 @@
   "notify": {
     "screenShareStopped": "Screen sharing stopped",
     "screenShareStoppedDescription": "Reconnecting to the call ended your share — start it again if you're still presenting.",
-    "meetingEnded": "This meeting has ended"
+    "meetingEnded": "This meeting has ended",
+    "micBlocked": "Microphone blocked",
+    "micBlockedHint": "Check this app's microphone permission.",
+    "micUnavailable": "Microphone unavailable",
+    "micUnavailableHint": "Check that a microphone is connected and not already in use.",
+    "cameraBlocked": "Camera blocked",
+    "cameraBlockedHint": "Check this app's camera permission.",
+    "cameraUnavailable": "Camera unavailable",
+    "cameraUnavailableHint": "Check that a camera is connected and not already in use."
   },
   "preJoin": {
     "readyToJoinLabel": "Ready to join",

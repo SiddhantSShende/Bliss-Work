@@ -1,0 +1,55 @@
+{
+  "menu": {
+    "file": "Datei",
+    "showApp": "BlissWork anzeigen",
+    "quit": "Beenden",
+    "view": "Ansicht",
+    "aboutItem": "Über BlissWork",
+    "aboutTitle": "Über BlissWork",
+    "aboutMessage": "BlissWork",
+    "aboutDetail": "Version {{version}}\nElectron {{electron}} · Chromium {{chrome}}\n\nTeam-Messaging und Aufgaben mit immer sichtbaren Haftnotizen.",
+    "ok": "OK",
+    "webHelp": "BlissWork im Web"
+  },
+  "tray": {
+    "tooltipIdle": "BlissWork",
+    "tooltipTasks_one": "BlissWork – {{count}} aktive Aufgabe",
+    "tooltipTasks_other": "BlissWork – {{count}} aktive Aufgaben",
+    "activeTasks": "Aktive Aufgaben: {{count}}",
+    "show": "BlissWork anzeigen",
+    "quit": "Beenden"
+  },
+  "notifications": {
+    "brand": "BlissWork",
+    "newMessage": "Neue Nachricht",
+    "taskUpdate": "Aufgaben-Update",
+    "meeting": "Meeting",
+    "channelUpdate": "Kanal-Update",
+    "attachment": "Hat einen Anhang gesendet",
+    "incomingVideoCall": "📹 Eingehender Videoanruf",
+    "incomingVoiceCall": "📞 Eingehender Sprachanruf",
+    "accept": "Annehmen",
+    "decline": "Ablehnen"
+  },
+  "updater": {
+    "restartNow": "Jetzt neu starten",
+    "later": "Später",
+    "updateReady": "Update bereit",
+    "readyMessage": "BlissWork {{version}} kann installiert werden.",
+    "readyDetail": "Starten Sie die App neu, um das Update anzuwenden. Es wird beim nächsten Beenden auch automatisch installiert.",
+    "devUnsupported": "Updates gelten nur für installierte Versionen.",
+    "storeManaged": "Updates für diese App werden vom Microsoft Store verwaltet.",
+    "unreachable": "Der Update-Server ist nicht erreichbar."
+  },
+  "attachment": {
+    "notMainWindow": "Abgelehnt: nicht das Hauptfenster.",
+    "unsafeUrl": "Eine unsichere URL wurde abgelehnt.",
+    "downloadFailed": "Download fehlgeschlagen ({{status}}).",
+    "emptyBody": "Leere Antwort.",
+    "couldNotOpen": "Die Datei konnte nicht geöffnet werden."
+  },
+  "windows": {
+    "meetingTitle": "Meeting · BlissWork",
+    "loading": "Wird geladen…"
+  }
+}

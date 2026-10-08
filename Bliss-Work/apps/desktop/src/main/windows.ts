@@ -5,6 +5,7 @@ import { appIcon } from "./assets";
 import { attachToDesktopLayer } from "./desktop-layer";
 import { hardenWindow } from "./harden";
 import { isSystemAway } from "./window-state-guard";
+import { STICKY_MAX_SIZE, STICKY_MIN_SIZE, setNoteResizable } from "./sticky-resize";
 import { getMainWindowBounds, saveMainWindowBounds } from "./sticky-state";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -41,6 +42,29 @@ function isOnSomeDisplay(b: { x: number; y: number; width: number; height: numbe
  * at the left, inside the bar, and TopNavbar leaves room for them.
  */
 export const MAIN_TITLE_BAR_HEIGHT = 48;
+
+/**
+ * The bar's height in WINDOW pixels at a given page zoom. TopNavbar's `h-12` is
+ * CSS pixels, so View > Zoom scales it, while the overlay height is in window
+ * pixels and would stay 48 — controls shorter/taller than the bar they sit in.
+ * (The OS draws each button at a fixed width regardless; only height can follow.)
+ */
+export function mainTitleBarHeight(zoomFactor: number): number {
+  const z = Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
+  return Math.round(MAIN_TITLE_BAR_HEIGHT * z);
+}
+
+/** Re-fit the native window controls to the bar at the window's current zoom. */
+export function syncMainTitleBarZoom(win: BrowserWindow): void {
+  const height = mainTitleBarHeight(win.webContents.getZoomFactor());
+  if (process.platform === "darwin") {
+    // Traffic lights have a fixed size; just keep them centred in the bar.
+    win.setWindowButtonPosition({ x: 16, y: Math.round((height - 14) / 2) });
+  } else {
+    // Partial update: Electron keeps the colours the theme sync last set.
+    win.setTitleBarOverlay({ height });
+  }
+}
 
 /** Narrowest main window the top bar can lay out in (see minWidth below). */
 export const MAIN_MIN_WIDTH = 520;
@@ -192,15 +216,15 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
     // the description is what absorbs any shortfall (see StickyWidget). At the old
     // 200px (min 140) it was squeezed to a single line, or to nothing.
     height: 340,
-    minWidth: 320,
-    minHeight: 300,
+    minWidth: STICKY_MIN_SIZE.width,
+    minHeight: STICKY_MIN_SIZE.height,
     // Capped close to content size: this window is opaque (see the transparent
     // note below), so an unbounded resize left a big flat-coloured rectangle
     // around the card — exactly the "background/container behind the task"
     // look. The cap keeps the note a compact widget no matter how far the user
     // drags its corner.
-    maxWidth: 440,
-    maxHeight: 440,
+    maxWidth: STICKY_MAX_SIZE.width,
+    maxHeight: STICKY_MAX_SIZE.height,
     frame: false,
     // false, not true: a transparent frameless window needs GPU compositing
     // to actually render as see-through, and on a Linux session without a
@@ -217,6 +241,10 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
     // which keeps it in step with the active theme over "sticky:bg".
     transparent: false,
     backgroundColor: "#ffffff",
+    // Resizable everywhere. On Linux the window manager never sees this window
+    // (focusable:false makes it override-redirect), so the native resize border
+    // is a dead cursor there and setNoteResizable swaps it for the renderer's
+    // handles — see ./sticky-resize.ts.
     resizable: true,
     movable: true,
     skipTaskbar: true,
@@ -241,6 +269,7 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
   });
 
   hardenWindow(win, "sticky");
+  setNoteResizable(win, true);
 
   if (onDesktopLayer) {
     attachToDesktopLayer(win);

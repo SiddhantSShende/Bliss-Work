@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useState } from "react";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { cn } from "../lib/cn";
+import { useUiStrings } from "../strings";
 
 export const Card = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
@@ -107,6 +108,7 @@ export function Avatar({
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [src]);
   const showImage = Boolean(src) && !broken;
+  const strings = useUiStrings();
   return (
     <div className={cn("relative shrink-0", className)}>
       <div
@@ -124,7 +126,7 @@ export function Avatar({
       </div>
       {(status ?? online) !== undefined && (
         <span
-          title={status === "busy" ? "On a call" : undefined}
+          title={status === "busy" ? strings.onCall : undefined}
           className={cn(
             "absolute -bottom-0 -right-0 rounded-full ring-2 ring-surface",
             dotSizes[size],
@@ -170,7 +172,7 @@ export function PageHeader({
   subtitle,
   action,
   onBack,
-  backLabel = "Back",
+  backLabel,
   className,
 }: {
   title: string;
@@ -187,6 +189,7 @@ export function PageHeader({
   backLabel?: string;
   className?: string;
 }) {
+  const strings = useUiStrings();
   return (
     <div
       className={cn(
@@ -199,8 +202,8 @@ export function PageHeader({
           <button
             type="button"
             onClick={onBack}
-            title={backLabel}
-            aria-label={backLabel}
+            title={backLabel ?? strings.back}
+            aria-label={backLabel ?? strings.back}
             className="-ml-2 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
           >
             <ChevronLeft size={20} />

@@ -1,0 +1,271 @@
+{
+  "shared": {
+    "you": "自分",
+    "emptyMessages": "メッセージはまだありません。あいさつしてみましょう 👋",
+    "sending": "送信中…",
+    "callMissedNoAnswer": "{{body}} · 応答なし",
+    "messageFailedToSend": "メッセージを送信できませんでした",
+    "loadOlderMessagesFailed": "以前のメッセージを読み込めませんでした"
+  },
+  "thread": {
+    "composerPlaceholder": "メッセージを入力…",
+    "loadHistory": {
+      "loading": "以前のメッセージを読み込み中…",
+      "load": "以前のメッセージを読み込む"
+    },
+    "pinned": "ピン留め中",
+    "forwarded": "転送済み",
+    "tombstone": "このメッセージは削除されました",
+    "deletedMessage": "削除されたメッセージ",
+    "originalMessage": "元のメッセージ",
+    "selectMessage": "メッセージを選択",
+    "selectMessageFrom": "{{name}}のメッセージを選択",
+    "seenBy": {
+      "label": "既読",
+      "count": "既読{{count}}",
+      "ariaLabel_other": "{{count}}人が既読",
+      "unknownReader": "不明"
+    },
+    "typing": {
+      "peer": "{{name}}が入力中…",
+      "generic": "入力中…"
+    },
+    "disabledNotice": "この会話にはメッセージを送れません。"
+  },
+  "threadView": {
+    "loadOlder": {
+      "loading": "以前のメッセージを読み込み中…",
+      "button": "前の12件を読み込む",
+      "title": "前の12件のメッセージを読み込む"
+    }
+  },
+  "dmView": {
+    "errors": {
+      "reactionSave": "リアクションを保存できませんでした",
+      "hideMessage": "メッセージを非表示にできませんでした",
+      "markUnread": "チャットを未読にできませんでした",
+      "deleteMessage": "メッセージを削除できませんでした",
+      "deleteMessages": "メッセージを削除できませんでした",
+      "clearChat": "チャット履歴を消去できませんでした",
+      "removeConversation": "この会話を削除できませんでした",
+      "createCallLink": "通話リンクを作成できませんでした",
+      "noneDeletable": "選択したメッセージは、どれも全員分を削除できません",
+      "updateBlock": {
+        "title": "ブロックの設定を更新できませんでした",
+        "description": "もう一度お試しください。"
+      }
+    },
+    "bulkDelete": {
+      "deletedToast_other": "{{count}}件のメッセージを削除しました",
+      "partialToast": "{{total}}件中{{deleted}}件を削除しました",
+      "partialDescription": "{{count}}件は削除できませんでした。削除できるのは送信者のみです。"
+    },
+    "clearChatToast": "あなたのチャット履歴を消去しました",
+    "callLink": {
+      "messageBody": "通話に参加してください:{{link}}",
+      "failedToast": "{{total}}人中{{failed}}人に届きませんでした",
+      "failedDescription": "リンクはこのチャットに投稿されており、他の全員が受け取っています。",
+      "sentToast": "通話リンクを送信しました",
+      "sentDescription": {
+        "withOthers_other": "他の{{count}}人にも送信しました。通話は開始済みです。準備ができたら、ミーティングから参加してください。",
+        "aloneOnly": "通話は開始済みです。準備ができたら、ミーティングから参加してください。"
+      }
+    },
+    "notFound": {
+      "title": "会話が見つかりません",
+      "hint": "サイドバーから別の会話を選択してください。"
+    },
+    "startCall": {
+      "blockedNotice": {
+        "title": "通話を開始できません",
+        "unblockToCall": "通話するには、このユーザーのブロックを解除してください。",
+        "cannotCall": "このユーザーには通話できません。"
+      },
+      "mustBeOnline": "通話を受けるには、{{name}}がオンラインである必要があります。",
+      "onAnotherCall": {
+        "title": "{{name}}は別の通話中です",
+        "description": "そのまま呼び出します。応答できない場合があります。"
+      }
+    },
+    "exportedToast_other": "{{count}}件のメッセージをエクスポートしました",
+    "header": {
+      "backToChats": "チャットに戻る",
+      "status": {
+        "busy": "通話中",
+        "online": "オンライン",
+        "offline": "オフライン"
+      },
+      "unblockTitle": "このユーザーのブロックを解除",
+      "blockTitle": "このユーザーをブロック",
+      "unblockLabel": "ブロック解除",
+      "blockLabel": "ブロック",
+      "removeFromInboxes": "双方の受信トレイから削除",
+      "ignore": "無視"
+    },
+    "search": {
+      "placeholder": "{{name}}とのチャットを検索…"
+    },
+    "composer": {
+      "placeholder": "{{name}}にメッセージ…"
+    },
+    "notice": {
+      "blockedByMe": "このユーザーをブロックしています。メッセージを送るには、ブロックを解除してください。",
+      "blockedByPeer": "ブロックされています。"
+    },
+    "clearChatDialog": {
+      "title": "チャット履歴を消去しますか?",
+      "message": "あなたの側からこのチャット履歴を削除します。相手には履歴が残ります。",
+      "confirmLabel": "チャットを消去"
+    },
+    "bulkDeleteDialog": {
+      "title_other": "{{count}}件のメッセージを削除しますか?",
+      "messageAll": "このチャットの全員分が削除されます。元に戻すことはできません。",
+      "messagePartial": "選択した{{total}}件のうち{{remaining}}件は、全員分を削除できません。削除できるのは送信者のみです。残りの{{deletable}}件は全員分が削除され、元に戻せません。",
+      "confirmLabel": "削除"
+    }
+  },
+  "channelView": {
+    "errors": {
+      "reactionSave": "リアクションを保存できませんでした",
+      "hideMessage": "メッセージを非表示にできませんでした",
+      "markUnread": "チャンネルを未読にできませんでした",
+      "clearMessages": "チャンネルのメッセージを消去できませんでした",
+      "deleteMessage": "メッセージを削除できませんでした",
+      "deleteMessages": "メッセージを削除できませんでした",
+      "changePin": "ピン留めを変更できませんでした",
+      "startCall": "通話を開始できませんでした",
+      "leave": "退出できませんでした",
+      "deleteChannel": "チャンネルを削除できませんでした",
+      "noneDeletable": "選択したメッセージは、どれも全員分を削除できません"
+    },
+    "clearMessagesToast": "あなたのチャンネルメッセージを消去しました",
+    "bulkDelete": {
+      "deletedToast_other": "{{count}}件のメッセージを削除しました",
+      "partialToast": "{{total}}件中{{deleted}}件を削除しました",
+      "partialDescription": "{{count}}件は削除できませんでした。削除できるのは送信者またはチャンネル管理者のみです。"
+    },
+    "pinToggle": {
+      "pinned": "全員向けにピン留めしました",
+      "unpinned": "ピン留めを解除しました"
+    },
+    "leftChannelToast": "#{{name}}から退出しました",
+    "deletedChannelToast": "チャンネルを削除しました",
+    "notFound": {
+      "title": "チャンネルが見つかりません",
+      "hint": "サイドバーから別のチャンネルを選択してください。"
+    },
+    "exportedToast_other": "{{count}}件のメッセージをエクスポートしました",
+    "header": {
+      "backToChannels": "チャンネルに戻る",
+      "locked": "ロック中",
+      "membersTitle": "チャンネルのメンバー",
+      "membersAriaLabel": "{{count}}人のメンバー — 表示と管理"
+    },
+    "search": {
+      "placeholder": "#{{name}}を検索…"
+    },
+    "composer": {
+      "placeholder": "#{{name}}にメッセージ…"
+    },
+    "clearMessagesDialog": {
+      "title": "チャンネルのメッセージを消去しますか?",
+      "message": "読み込まれているメッセージを、あなたの側から消去します。他のメンバーには残ります。",
+      "confirmLabel": "メッセージを消去"
+    },
+    "deleteChannelDialog": {
+      "titleNamed": "#{{name}}を削除しますか?",
+      "titleFallback": "チャンネルを削除しますか?",
+      "message": "元に戻すことはできません。チャンネルとそのメッセージが削除されます。",
+      "confirmLabel": "チャンネルを削除"
+    },
+    "bulkDeleteDialog": {
+      "title_other": "{{count}}件のメッセージを削除しますか?",
+      "messageAll": "このチャンネルの全員分が削除されます。元に戻すことはできません。",
+      "messagePartial": "選択した{{total}}件のうち{{remaining}}件は、全員分を削除できません。削除できるのは送信者またはチャンネル管理者のみです。残りの{{deletable}}件は全員分が削除され、元に戻せません。",
+      "confirmLabel": "削除"
+    }
+  },
+  "conversationMenu": {
+    "unavailableHint": "まだ利用できません(サーバーのエンドポイントが必要です)",
+    "label": {
+      "channel": "チャンネルのオプション",
+      "chat": "チャットのオプション"
+    },
+    "items": {
+      "viewProfile": "プロフィールを表示",
+      "search": "検索",
+      "media": "メディア、リンク、ドキュメント",
+      "selectMessages": "メッセージを選択",
+      "mute": "通知をミュート",
+      "unmute": "通知のミュートを解除",
+      "more": "その他",
+      "clearChat": "チャットを消去",
+      "exportChat": "チャットをエクスポート",
+      "pin": "{{scope}}をピン留め",
+      "unpin": "{{scope}}のピン留めを解除",
+      "rename": "名前を変更",
+      "delete": "削除",
+      "leaving": "退出中…",
+      "leave": "退出"
+    },
+    "scope": {
+      "channel": "チャンネル",
+      "chat": "チャット"
+    }
+  },
+  "whatsAppForward": {
+    "forwardedToast": "WhatsAppで転送しました",
+    "forwardedDescription": "宛先はWhatsApp側で選択されたため、このチャットには転送した事実のみが記録されます。",
+    "logFailedToast": "転送を記録できませんでした",
+    "logFailedDescription": "WhatsAppは開きましたが、このチャットには記録されません。",
+    "shareFailedGeneric": "共有に失敗しました",
+    "mediaPrepareFailed": "WhatsApp用に添付ファイルを準備できませんでした",
+    "mediaNoLongerAvailable": "すでに利用できなくなっている可能性があります。",
+    "sharedToast": "添付ファイル付きで共有シートを開きました",
+    "sharedDescription": "共有シートでWhatsAppを選択してください。その後の動作はBlissWorkでは確認できません。",
+    "downloadedToast_other": "{{count}}件の添付ファイルをWhatsApp用にダウンロードしました",
+    "downloadedDescription": "このデバイスでは、ファイルをWhatsAppに自動で渡せません。ダウンロードしたファイルをWhatsAppで自分で添付してください。",
+    "mediaShareFailed": "添付ファイルをWhatsAppと共有できませんでした"
+  },
+  "export": {
+    "header": "{{brand}}の会話の記録",
+    "exportedSummary_other": "エクスポート日時:{{timestamp}} · 読み込み済みのメッセージ{{count}}件",
+    "unknownSender": "不明",
+    "deletedMessage": "(削除済み)",
+    "noText": "(テキストなし)"
+  },
+  "messageActions": {
+    "react": {
+      "title": "リアクション",
+      "ariaLabel": "このメッセージにリアクション"
+    },
+    "more": {
+      "title": "その他",
+      "ariaLabel": "メッセージの操作"
+    },
+    "menu": {
+      "reply": "返信",
+      "download": "ダウンロード",
+      "downloadNamed": "{{name}}をダウンロード",
+      "forwardTo": "チャットまたはチャンネルに転送…",
+      "forwardWhatsApp": "WhatsAppに転送",
+      "markUnread": "未読にする",
+      "deleteForMe": "自分のみ削除",
+      "unpinForEveryone": "全員のピン留めを解除",
+      "pinForEveryone": "全員向けにピン留め",
+      "deleteForEveryone": "全員分を削除"
+    },
+    "confirmDialog": {
+      "title": "メッセージを削除しますか?",
+      "deleteAllMessage": "このメッセージを削除しますか?この会話の全員から削除されます。",
+      "deleteMeMessage": "このメッセージを削除しますか?あなたの画面からのみ削除されます。",
+      "confirmLabel": "削除"
+    },
+    "reactions": {
+      "clickToRemove": "クリックしてリアクションを取り消す",
+      "clickToReact": "クリックしてリアクション",
+      "andMore": "{{names}}ほか{{hidden}}人",
+      "tooltip": "{{who}}が{{emoji}}でリアクション — {{action}}"
+    }
+  }
+}

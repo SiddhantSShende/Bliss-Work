@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button, Input } from "@taskboard/ui";
+import { isMfaPending } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -38,6 +39,12 @@ export function InviteAccept() {
     setBusy(true);
     try {
       const s = await api.acceptInvite({ token, ...form });
+      // An existing identity with MFA enrolled gets the same challenge /login
+      // would: the membership is created, and the challenge signs them into it.
+      if (isMfaPending(s)) {
+        nav("/mfa-challenge", { state: { ...s } });
+        return;
+      }
       setSession({ user: s.user, accessToken: s.accessToken, expiresIn: s.expiresIn });
       broadcastSession(s);
       nav("/app");

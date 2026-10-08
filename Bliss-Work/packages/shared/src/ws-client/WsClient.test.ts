@@ -218,3 +218,60 @@ describe("WsClient socket replacement", () => {
     expect(FakeSocket.instances).toHaveLength(1);
   });
 });
+
+describe("WsClient handler isolation", () => {
+  const msgFrame = (eventId: string) =>
+    JSON.stringify({
+      type: "message.created",
+      eventId,
+      orgId: "00000000-0000-4000-8000-000000000002",
+      occurredAt: "2026-09-30T09:00:00.000Z",
+      conversationId: "00000000-0000-4000-8000-000000000003",
+      messageId: "00000000-0000-4000-8000-000000000004",
+      seq: 1,
+      senderId: "00000000-0000-4000-8000-000000000005",
+      recipientId: "00000000-0000-4000-8000-000000000006",
+      body: "hello",
+      clientMsgId: "00000000-0000-4000-8000-000000000007",
+    });
+
+  it("keeps delivering an event to later handlers when an earlier one throws", async () => {
+    const { client } = makeClient();
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const seen: string[] = [];
+    client.on(() => {
+      throw new Error("boom");
+    });
+    client.on((e) => seen.push(e.type));
+    await client.connect();
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+
+    socket.onmessage?.({ data: msgFrame("00000000-0000-4000-8000-000000000001") });
+    expect(seen).toEqual(["message.created"]);
+    expect(err).toHaveBeenCalled();
+
+    // The eventId is deduped from now on, so a redelivery must not re-run handlers.
+    socket.onmessage?.({ data: msgFrame("00000000-0000-4000-8000-000000000001") });
+    expect(seen).toHaveLength(1);
+    err.mockRestore();
+    client.close();
+  });
+
+  it("keeps notifying later status handlers when an earlier one throws", async () => {
+    const { client } = makeClient();
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const later: WsStatus[] = [];
+    client.onStatus(() => {
+      throw new Error("boom");
+    });
+    client.onStatus((s) => later.push(s));
+    await client.connect();
+    FakeSocket.instances[0]!.open();
+
+    expect(later).toContain("connecting");
+    expect(later).toContain("open");
+    err.mockRestore();
+    client.close();
+  });
+});

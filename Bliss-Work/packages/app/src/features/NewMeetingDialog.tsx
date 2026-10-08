@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Calendar, Video } from "lucide-react";
+import { useTheme } from "@taskboard/ui";
 import { ApiError, type CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -22,6 +23,8 @@ import { MeetingDialogShell } from "./MeetingDialogShell";
 import { MeetingPreview } from "./MeetingPreview";
 import { MeetingRepeatField } from "./MeetingRepeatField";
 import { MeetingScheduledDialog } from "./MeetingScheduledDialog";
+import { MEETING_TONES } from "./meetingTone";
+import type { PickerTone } from "./pickerTone";
 import { TimePicker } from "./TimePicker";
 
 /** How long the meeting runs when scheduled, in minutes — matches the
@@ -114,7 +117,10 @@ function validate(
  * dark-mode-adaptive surface: everything here is intentionally hardcoded
  * white/gray/dark-text — `bg-white`, `border-gray-200`, `text-gray-900` —
  * NOT `bg-surface`/`text-fg`, which would flip to a dark card in dark mode.
- * The one place that still follows the user's chosen theme is the accent —
+ * In dark mode the same card is painted with the app's surface tokens instead (the
+ * "theme" tone, meetingTone.ts — what the New Task modal uses), so it is not a white
+ * slab on a dark app; light mode keeps the white above, class for class.
+ * The one place that still follows the user's chosen theme in light is the accent —
  * the submit button, the field icons, and focus rings all use the existing
  * `accent`/`accent-fg` tokens (ScheduleCallDialog.tsx's chosen accent
  * variety), so switching theme in Settings still recolors this popup's one
@@ -168,6 +174,9 @@ export function NewMeetingDialog({
   const { api } = useRuntime();
   const qc = useQueryClient();
   const detailsId = useId();
+  const { isDark } = useTheme();
+  const tone: PickerTone = isDark ? "theme" : "light";
+  const c = MEETING_TONES[tone];
 
   const [title, setTitle] = useState("");
   const [startDate, setStartDate] = useState(() => localDate(new Date()));
@@ -335,7 +344,7 @@ export function NewMeetingDialog({
       <button
         type="button"
         onClick={onClose}
-        className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+        className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${c.cancel}`}
       >
         {t("newMeeting.cancel")}
       </button>
@@ -363,6 +372,7 @@ export function NewMeetingDialog({
       closeLabel={t("newMeeting.close")}
       onClose={onClose}
       wide
+      tone={tone}
     >
       {/* Two columns from md up: the details to fill in, and — beside them, so a basic
           meeting never needs scrolling — the live preview with its actions, then who is
@@ -373,20 +383,20 @@ export function NewMeetingDialog({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,11fr)_minmax(0,10fr)] md:items-start md:gap-5">
         <section
           aria-labelledby={detailsId}
-          className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-3"
+          className={`flex flex-col gap-3 rounded-xl border p-3 ${c.card}`}
         >
-          <h3 id={detailsId} className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <h3 id={detailsId} className={`text-xs font-semibold uppercase tracking-wide ${c.heading}`}>
             {t("newMeeting.detailsTitle")}
           </h3>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-gray-700">{t("newMeeting.titleLabel")}</span>
+            <span className={`text-sm font-medium ${c.label}`}>{t("newMeeting.titleLabel")}</span>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t("newMeeting.titlePlaceholder")}
               maxLength={200}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-accent focus:ring-1 focus:ring-accent"
+              className={`w-full rounded-lg border px-3 py-2 text-sm outline-none ${c.control}`}
             />
             {attempted && errors.title && <span className="text-xs text-danger">{errors.title}</span>}
           </label>
@@ -408,6 +418,7 @@ export function NewMeetingDialog({
             error={attempted || startInPast ? errors.start : undefined}
             minDate={today}
             minTime={startDate === today ? localTime(new Date(now)) : undefined}
+            tone={tone}
           />
 
           <DateTimeFields
@@ -419,6 +430,7 @@ export function NewMeetingDialog({
             error={attempted ? errors.end : undefined}
             minDate={startDate}
             minTime={sameDayAsStart ? startTime : undefined}
+            tone={tone}
           />
 
           <MeetingRepeatField
@@ -426,6 +438,7 @@ export function NewMeetingDialog({
             onChange={setRecurrence}
             startDate={startDate}
             errors={attempted ? recurrenceErrors : undefined}
+            tone={tone}
           />
         </section>
 
@@ -439,6 +452,7 @@ export function NewMeetingDialog({
             channelNames={channelNames}
             repeat={describeRecurrenceForm(t, recurrence, startDate)}
             actions={actions}
+            tone={tone}
           />
           <MeetingAudienceFields
             layout="card"
@@ -446,6 +460,7 @@ export function NewMeetingDialog({
             onToggleInvitee={invitees.toggle}
             channels={channels.selected}
             onToggleChannel={channels.toggle}
+            tone={tone}
           />
         </div>
       </div>
@@ -462,6 +477,7 @@ function DateTimeFields({
   error,
   minDate,
   minTime,
+  tone,
 }: {
   label: string;
   date: string;
@@ -471,10 +487,13 @@ function DateTimeFields({
   error?: string;
   minDate?: string;
   minTime?: string;
+  tone: PickerTone;
 }) {
+  const { t } = useTranslation("meetings");
+  const c = MEETING_TONES[tone];
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <span className={`text-sm font-medium ${c.label}`}>{label}</span>
       <div className="grid grid-cols-2 gap-2">
         <div className="relative">
           <Calendar
@@ -483,14 +502,14 @@ function DateTimeFields({
           />
           <input
             type="date"
-            aria-label={`${label} date`}
+            aria-label={t("newMeeting.time.dateAriaLabel", { label })}
             value={date}
             min={minDate}
             onChange={(e) => onDateChange(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-2 text-sm text-gray-900 outline-none focus:border-accent focus:ring-1 focus:ring-accent max-[420px]:pl-8 max-[420px]:pr-1"
+            className={`w-full rounded-lg border py-2 pl-9 pr-2 text-sm outline-none max-[420px]:pl-8 max-[420px]:pr-1 ${c.control}`}
           />
         </div>
-        <TimePicker label={label} value={time} onChange={onTimeChange} minTime={minTime} />
+        <TimePicker label={label} value={time} onChange={onTimeChange} minTime={minTime} tone={tone} />
       </div>
       {error && <span className="text-xs text-danger">{error}</span>}
     </div>

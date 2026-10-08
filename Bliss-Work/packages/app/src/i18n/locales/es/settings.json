@@ -1,0 +1,60 @@
+{
+  "header": {
+    "title": "Configuración",
+    "subtitle": "Preferencias sobre cómo se comporta la aplicación en este dispositivo."
+  },
+  "theme": {
+    "title": "Tema",
+    "description": "Usando actualmente: {{theme}}.",
+    "changeTheme": "Cambiar tema",
+    "menuLabel": "Tema",
+    "syncFailed": "El tema personalizado se cambió solo en este dispositivo. No pudimos guardarlo en tu cuenta y seguiremos intentándolo.",
+    "light": "Claro",
+    "dark": "Oscuro",
+    "custom": {
+      "title": "Tema personalizado",
+      "label": "Personalizado",
+      "colors": "Colores",
+      "color": "Color {{number}}",
+      "preview": "Vista previa del tema personalizado",
+      "create": "Crear tema personalizado",
+      "edit": "Editar tema personalizado",
+      "cancel": "Cancelar",
+      "save": "Guardar"
+    }
+  },
+  "twoFactor": {
+    "title": "Autenticación en dos pasos",
+    "description": "Agrega una aplicación de autenticación como segundo paso al iniciar sesión."
+  },
+  "activeSessions": {
+    "title": "Inicios de sesión actuales",
+    "description": "Consulta todos los dispositivos con sesión iniciada en tu cuenta y cierra la sesión de cualquiera de ellos de forma remota."
+  },
+  "activity": {
+    "title": "Tu actividad",
+    "description": "Consulta todo lo que {{brand}} registra sobre cómo trabajas: el mismo registro que ven los administradores de tu espacio de trabajo."
+  },
+  "desktopNotifications": {
+    "title": "Notificaciones de escritorio",
+    "onDescription": "Muestra avisos cuando lleguen mensajes y tareas nuevos.",
+    "offDescription": "Los avisos están en pausa. Aún puedes ver las notificaciones en el menú de la campana.",
+    "turnOn": "Activar",
+    "turnOff": "Desactivar"
+  },
+  "about": {
+    "title": "Acerca de",
+    "versionDesktop": "{{brand}} {{version}} · escritorio",
+    "versionBuild": "{{brand}} · compilación {{sha}}",
+    "checkForUpdates": "Buscar actualizaciones",
+    "checking": "Comprobando…",
+    "toasts": {
+      "updateDownloading": "Se está descargando la actualización a {{version}}",
+      "updateDownloadingDescription": "Se te pedirá reiniciar cuando esté lista.",
+      "upToDate": "Estás al día",
+      "upToDateDescription": "Versión {{version}}",
+      "updateDownloadFailed": "Error al descargar la actualización",
+      "checkFailedFallback": "No se pudo buscar actualizaciones"
+    }
+  }
+}

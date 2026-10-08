@@ -1,0 +1,22 @@
+{
+  "topNavbar": {
+    "openMenu": "Menu",
+    "openNavigationMenu": "Ouvrir le menu de navigation",
+    "searchPlaceholder": "Rechercher des personnes, canaux, discussions, tâches…",
+    "clearSearch": "Effacer la recherche",
+    "invite": "Inviter",
+    "search": "Rechercher",
+    "notifications": "Notifications"
+  },
+  "verifyEmail": {
+    "message": "Vérifiez votre adresse e-mail pour sécuriser pleinement votre compte.",
+    "resendSent": "Envoyé ✓",
+    "resend": "Renvoyer l'e-mail",
+    "resentToast": "E-mail de vérification envoyé — consultez votre boîte de réception."
+  },
+  "mfaRequired": {
+    "messageWithDeadline": "Votre espace de travail exige l'authentification à deux facteurs pour les administrateurs — activez-la avant le {{deadline}}.",
+    "messageNoDeadline": "Votre espace de travail exige l'authentification à deux facteurs pour les administrateurs.",
+    "enableNow": "Activer maintenant"
+  }
+}

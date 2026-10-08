@@ -120,56 +120,54 @@
     }
   },
   "analytics": {
-    "header": {
-      "title": "Activity overview",
-      "subtitle": "Time, sessions, and focus across apps and sites."
-    },
     "empty": {
       "title": "No activity in this period",
       "hint": "Charts appear once there is a day of activity to plot."
     },
-    "kpi": {
-      "activeTime": "Active time",
+    "summary": {
+      "activeTime": "Active Time",
       "acrossDays_one": "across {{count}} day",
       "acrossDays_other": "across {{count}} days",
       "sessions": "Sessions",
       "sessionsHint": "recorded sign-ins",
-      "avgSession": "Avg. session",
-      "avgSessionHint": "active time per session",
-      "actions": "Actions",
-      "actionsHint": "recorded events"
+      "events": "Events",
+      "eventsHint": "recorded events",
+      "lastActive": "Last Active",
+      "lastActiveHint": "latest recorded activity",
+      "lastActiveNone": "no activity recorded",
+      "vsPrevious": "vs previous period"
     },
-    "sections": {
-      "activeTimePerDay": {
-        "title": "Active time per day",
-        "hint": "Purple is time at the keyboard; grey is time signed in but idle."
-      },
-      "highlights": {
-        "title": "Highlights",
-        "hint": "Standout moments from this period."
-      },
-      "whenTheyWork": {
-        "title": "When they work",
-        "hint": "Darker means more active time in that hour."
-      },
-      "whereTheySpendTime": {
-        "title": "Where they spend time",
-        "hint": "Sections of {{brand}}, by time."
-      },
-      "whatTheyDo": {
-        "title": "What they do",
-        "hint": "Recorded actions, by count."
-      }
+    "overview": {
+      "title": "Activity Overview",
+      "hint": "Total time and distribution of activity for the selected period",
+      "activeOfSignedIn": "of signed-in time was active",
+      "active": "Active",
+      "idle": "Idle",
+      "idleHint": "signed in, no input"
     },
-    "chart": {
+    "topApps": {
+      "title": "Top Applications",
+      "hint": "Most used applications in this period",
+      "empty": "No application data for this period."
+    },
+    "recent": {
+      "title": "Recent Activity",
+      "hint": "Latest application and system activity",
+      "empty": "No recent activity recorded.",
+      "viewAll": "View all activity"
+    },
+    "work": {
+      "title": "When They Work",
+      "hint": "Activity heatmap — darker means more activity",
+      "less": "Less",
+      "more": "More",
+      "outsideHours": "{{time}} more active outside these hours"
+    },
+    "trend": {
+      "title": "Activity Trend",
+      "hint": "Average active vs idle time per weekday",
       "active": "Active",
       "idle": "Idle"
-    },
-    "highlights": {
-      "bestDay": "Best day",
-      "peakHours": "Peak hours",
-      "noHourlyData": "No hourly data yet",
-      "idleSignedIn": "Idle, signed in"
     }
   },
   "auditLog": {
@@ -235,6 +233,10 @@
       "title": "No activity recorded yet",
       "hint": "Activity appears here as they use {{brand}}."
     },
+    "error": {
+      "title": "Activity could not be loaded",
+      "hint": "Check your connection and try again."
+    },
     "verifiedTooltip": "Recorded by {{brand}} itself — not self-reported",
     "retentionNote": "Showing the last 7 days. Older activity is retained but not browsable here."
   },
@@ -264,7 +266,9 @@
       "focus": "Came back to {{brand}}",
       "blur": "Switched away from {{brand}}",
       "idle": { "start": "Went idle", "end": "Became active" },
-      "screenshot": { "attempted": "Screenshot attempt blocked" }
+      "screenshot": { "attempted": "Screenshot attempt blocked" },
+      "app": { "focus": "Used" },
+      "os": { "idle": "Away from keyboard" }
     },
     "surfaces": {
       "mail": "Mail",

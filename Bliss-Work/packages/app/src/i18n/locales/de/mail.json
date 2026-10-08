@@ -1,0 +1,211 @@
+{
+  "liveEvents": {
+    "newMailInInbox": "Neue Mail in Ihrem Posteingang"
+  },
+  "shared": {
+    "tryAgain": "Erneut versuchen",
+    "noSubject": "(kein Betreff)",
+    "restoreMailTitle": "Wiederherstellen – legt diese Mail zurück in den Ordner, aus dem sie stammt",
+    "deleteMailTitle": "Löschen – entfernt nur Ihre Kopie; andere sind nicht betroffen",
+    "restoreLabel": "Wiederherstellen",
+    "deleteLabel": "Löschen",
+    "loading": "Wird geladen…"
+  },
+  "fields": {
+    "to": "An",
+    "cc": "Cc",
+    "bcc": "Bcc"
+  },
+  "layout": {
+    "backToList": "Zurück zur Liste",
+    "welcome": {
+      "title": "Nichts geöffnet",
+      "hint": "Wählen Sie eine Nachricht aus der Liste, um sie hier zu lesen, oder klicken Sie auf „Neue Mail“, um eine zu schreiben."
+    }
+  },
+  "folders": {
+    "title": "Mail",
+    "unreadAriaLabel": "{{folder}}, {{count}} ungelesen",
+    "box": {
+      "inbox": "Posteingang",
+      "sent": "Gesendet",
+      "drafts": "Entwürfe",
+      "deleted": "Gelöschte Elemente",
+      "favorites": "Favoriten"
+    }
+  },
+  "list": {
+    "tabs": {
+      "all": "Alle",
+      "unread": "Ungelesen"
+    },
+    "newMail": {
+      "title": "Neue Mail – E-Mail verfassen",
+      "label": "Neue Mail"
+    },
+    "checkForNewMail": "Auf neue Mails prüfen",
+    "unknownPeer": "dieser Person",
+    "emptyStates": {
+      "unreadTitle": "Nichts Ungelesenes",
+      "deletedTitle": "Nichts gelöscht",
+      "favoritesTitle": "Noch keine Favoriten",
+      "defaultTitle": "Noch nichts hier",
+      "unreadHint": "Alles in diesem Ordner wurde gelesen.",
+      "peerHint": "Keine Mails mit {{peer}} in {{folder}}.",
+      "deletedHint": "Gelöschte Mails werden hier 90 Tage aufbewahrt, sodass Sie sie zurückholen können.",
+      "favoritesHint": "Markieren Sie eine Mail in einem beliebigen Ordner mit einem Stern, und sie wird hier gesammelt. Sterne werden auf diesem Gerät gespeichert.",
+      "defaultHint": "Wählen Sie „Neue Mail“, um eine zu schreiben."
+    },
+    "messageCount_one": "{{shown}} Nachricht",
+    "messageCount_other": "{{shown}} Nachrichten",
+    "loadingMore": "Weitere werden geladen…",
+    "showAllMailTitle": "Mails von allen anzeigen",
+    "errors": {
+      "couldNotRemoveItem": "Dieses Element konnte nicht entfernt werden",
+      "couldNotRestoreItem": "Diese Mail konnte nicht wiederhergestellt werden",
+      "couldNotDeleteMessage": "Diese Nachricht konnte nicht gelöscht werden",
+      "couldNotAcknowledgeTask": "Diese Aufgabe konnte nicht bestätigt werden",
+      "couldNotCompleteTask": "Diese Aufgabe konnte nicht abgeschlossen werden"
+    }
+  },
+  "detail": {
+    "loadingMail": "Mail wird geladen…",
+    "loadError": "Diese Mail konnte nicht geöffnet werden. Möglicherweise wurde sie entfernt.",
+    "unknownSender": "Unbekannter Absender",
+    "restoredToast": "In Ihrem Postfach wiederhergestellt",
+    "movedToDeletedToast": "In „Gelöschte Elemente“ verschoben",
+    "couldNotRestoreToast": "Wiederherstellen nicht möglich",
+    "couldNotRemoveToast": "Entfernen nicht möglich",
+    "statusSent": "gesendet",
+    "statusInbox": "Posteingang",
+    "noMessageBody": "(kein Nachrichtentext)",
+    "toolbar": {
+      "reply": "Antworten",
+      "replyTitle": "Dem Absender antworten",
+      "replyAll": "Allen antworten",
+      "replyAllTitle": "Allen in dieser Mail antworten",
+      "forward": "Weiterleiten",
+      "forwardTitle": "Diese Mail an jemand anderen weiterleiten"
+    }
+  },
+  "thread": {
+    "defaultSubject": "Thread",
+    "ignoreTitle": "Ignorieren – für beide Seiten ausgeblendet",
+    "messageFailedToast": "Die Nachricht konnte nicht gesendet werden",
+    "couldNotRemoveThreadToast": "Dieser Thread konnte nicht entfernt werden"
+  },
+  "task": {
+    "couldNotUpdateToast": "Diese Aufgabe konnte nicht aktualisiert werden",
+    "notFoundTitle": "Aufgabe nicht gefunden",
+    "notFoundHint": "Möglicherweise wurde sie entfernt."
+  },
+  "row": {
+    "externalSender": "Externer Absender",
+    "untitledTask": "(unbenannte Aufgabe)",
+    "noPreview": "(keine Vorschau)",
+    "taskLabel": "Aufgabe",
+    "threadLabel": "Thread",
+    "newBadge": "neu",
+    "favorite": {
+      "add": "Zu Favoriten hinzufügen",
+      "remove": "Aus Favoriten entfernen"
+    },
+    "acknowledgeTitle": "Bestätigen – diese Aufgabe annehmen",
+    "acknowledgeLabel": "Bestätigen",
+    "completeTitle": "Als abgeschlossen markieren",
+    "completeLabel": "Abschließen",
+    "ignoreTitleTask": "Ignorieren – aus Ihrem Postfach entfernen",
+    "ignoreTitleThread": "Ignorieren – für beide ausgeblendet",
+    "ignoreLabel": "Ignorieren",
+    "dismissTitle": "Aus Ihrem Postfach löschen"
+  },
+  "addressField": {
+    "invalidAddressTitle": "Das sieht nicht nach einer E-Mail-Adresse aus",
+    "removeAddress": "{{address}} entfernen"
+  },
+  "attachments": {
+    "heading": "Anhänge ({{count}})",
+    "couldNotAttachToast": "{{filename}} konnte nicht angehängt werden",
+    "tooLargeToast": "{{filename}} ist größer als {{maxSize}}.",
+    "couldNotRemoveToast": "Diese Datei konnte nicht entfernt werden",
+    "tray": {
+      "uploading": "Wird hochgeladen… {{progress}} %",
+      "remove": "{{filename}} entfernen"
+    },
+    "preview": "Vorschau",
+    "previewFile": "Vorschau von {{filename}}",
+    "open": "Öffnen",
+    "openFile": "{{filename}} öffnen",
+    "download": "Herunterladen",
+    "downloadFile": "{{filename}} herunterladen",
+    "preparing": "Wird vorbereitet…",
+    "unavailable": "Nicht verfügbar"
+  },
+  "draftList": {
+    "discardedToast": "Entwurf verworfen",
+    "couldNotDiscardToast": "Verwerfen nicht möglich",
+    "loading": "Entwürfe werden geladen…",
+    "errorTitle": "Entwürfe konnten nicht geladen werden",
+    "errorHint": "Prüfen Sie Ihre Verbindung und klicken Sie oben auf „Auf neue Mails prüfen“.",
+    "emptyTitle": "Keine Entwürfe",
+    "emptyHint": "Eine Mail, die Sie beginnen und ohne Senden verlassen, wird hier aufbewahrt, bis Sie sie fertigstellen.",
+    "noRecipient": "Noch niemand adressiert",
+    "addressedMore": "{{first}} + {{count}} weitere",
+    "attachments_one": "{{count}} Datei",
+    "attachments_other": "{{count}} Dateien",
+    "discardTitle": "Diesen Entwurf verwerfen – er wurde an niemanden gesendet",
+    "discardAriaLabel": "Entwurf verwerfen"
+  },
+  "compose": {
+    "headings": {
+      "draft": "Entwurf",
+      "forward": "Weiterleiten",
+      "reply": "Antworten",
+      "newMail": "Neue Mail"
+    },
+    "closeTitle": "Schließen – bleibt in den Entwürfen",
+    "startErrorBanner": "Ein Entwurf konnte nicht gestartet werden. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "retry": "Erneut versuchen",
+    "openingDraft": "Entwurf wird geöffnet…",
+    "loadErrorText": "Dieser Entwurf konnte nicht geöffnet werden. Möglicherweise wurde er gesendet oder verworfen.",
+    "ccBccButton": "Cc / Bcc",
+    "toPlaceholder": "name@firma.de",
+    "ccPlaceholder": "Kopie an jemanden",
+    "bccPlaceholder": "Blindkopie – für alle anderen verborgen",
+    "subjectLabel": "Betreff",
+    "subjectPlaceholder": "Worum geht es?",
+    "messageLabel": "Nachricht",
+    "messagePlaceholder": "E-Mail schreiben…",
+    "attachTitleReady": "Dateien anhängen",
+    "attachTitlePreparing": "Entwurf wird vorbereitet…",
+    "attachLabel": "Anhängen",
+    "removeAll": "Alle entfernen",
+    "preparing": "Wird vorbereitet…",
+    "discardButton": "Verwerfen",
+    "discardTitle": "Verwerfen – löscht diesen Entwurf; er wurde an niemanden gesendet",
+    "closeButton": "Schließen",
+    "sendButton": "Senden",
+    "sendingButton": "Wird gesendet…",
+    "draftDiscardedToast": "Entwurf verworfen",
+    "couldNotDiscardToast": "Der Entwurf konnte nicht verworfen werden",
+    "couldNotSendToast": "Senden nicht möglich",
+    "errors": {
+      "draftNotReady": "Entwurf nicht bereit",
+      "invalidAddress": "„{{address}}“ sieht nicht nach einer E-Mail-Adresse aus.",
+      "subjectTooLong": "Der Betreff hat {{length}} Zeichen – das Limit ist {{limit}}."
+    },
+    "sentSummary": {
+      "sent": "Gesendet",
+      "sentToPeople": "An {{count}} Personen gesendet",
+      "delivering": "Gesendet – wird zugestellt",
+      "deliveringToCount": "Gesendet – Zustellung an {{count}} läuft",
+      "sentAndDelivering": "Gesendet: {{inApp}} hier, {{external}} weitere werden zugestellt"
+    }
+  },
+  "quote": {
+    "wrote": "Am {{when}} schrieb {{sender}}:"
+  },
+  "recipients": {
+    "summaryMore": "{{list}} + {{count}} weitere"
+  }
+}

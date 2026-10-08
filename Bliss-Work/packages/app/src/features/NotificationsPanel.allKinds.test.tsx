@@ -29,6 +29,13 @@ vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config: {} }) }));
 
 const real = live.items as NotificationDTO[];
 const byKind = (k: string) => real.find((n) => n.kind === k)!;
+// The live DM names no sender and the live channel message no channel ("New message: …",
+// "Alloc Owner in a channel: …"), and neither list is cached here — so the panel draws
+// the fallbacks. Message rows show a sender line, never the message text.
+const DM_LINE = "Someone";
+const CHANNEL_LINE = "Alloc Owner · a channel";
+const shownText = (n: NotificationDTO) =>
+  n.kind === "DM_MESSAGE" ? DM_LINE : n.kind === "CHANNEL_MESSAGE" ? CHANNEL_LINE : n.text.split(": ").at(-1)!;
 // A kind no build of the client has heard of, newer than everything else.
 const FUTURE: NotificationDTO = {
   ...byKind("DM_MESSAGE"),
@@ -127,8 +134,8 @@ describe("one feed, every kind", () => {
     await openPanel();
 
     expect(categoryOf(byKind("TASK_ASSIGNED").text)).toBe("task");
-    expect(categoryOf(byKind("DM_MESSAGE").text.split(": ")[1]!)).toBe("chat");
-    expect(categoryOf(byKind("CHANNEL_MESSAGE").text.split(": ")[1]!)).toBe("chat");
+    expect(categoryOf(DM_LINE)).toBe("chat");
+    expect(categoryOf(CHANNEL_LINE)).toBe("chat");
     expect(categoryOf(byKind("CHANNEL_ADDED").text)).toBe("channel");
     expect(categoryOf(byKind("MEETING_SCHEDULED").text)).toBe("meeting");
     // A call a person is added to is persisted as a meeting invitation with the call's id.
@@ -141,7 +148,7 @@ describe("one feed, every kind", () => {
 
     const texts = listTexts();
     expect(texts).toHaveLength(rows.length);
-    const order = newestFirst(rows).map((n) => n.text.split(": ").at(-1)!);
+    const order = newestFirst(rows).map(shownText);
     texts.forEach((t, i) => expect(t, `row ${i}`).toContain(order[i]));
   });
 
@@ -151,9 +158,9 @@ describe("one feed, every kind", () => {
     await openPanel();
 
     const texts = listTexts();
-    const firstRead = texts.findIndex((t) => t.includes(byKind("DM_MESSAGE").text.split(": ")[1]!) || t.includes("Sprint planning"));
+    const firstRead = texts.findIndex((t) => t.includes(DM_LINE) || t.includes("Sprint planning"));
     expect(firstRead).toBe(rows.length - 2); // both read rows sit after every unread one
-    expect(isRead(byKind("DM_MESSAGE").text.split(": ")[1]!)).toBe(true);
+    expect(isRead(DM_LINE)).toBe(true);
     expect(isRead(byKind("MEETING_SCHEDULED").text)).toBe(true);
     expect(isRead(byKind("CHANNEL_ADDED").text)).toBe(false);
     expect(isRead(byKind("TASK_ASSIGNED").text)).toBe(false);
@@ -191,8 +198,8 @@ describe("opening a task", () => {
     expect(isRead("Task acknowledged by Divya")).toBe(true); // same task, second notification
     // Unrelated notifications of every other category are untouched.
     for (const text of [
-      byKind("DM_MESSAGE").text.split(": ")[1]!,
-      byKind("CHANNEL_MESSAGE").text.split(": ")[1]!,
+      DM_LINE,
+      CHANNEL_LINE,
       byKind("CHANNEL_ADDED").text,
       byKind("MEETING_SCHEDULED").text,
       byKind("MEETING_INVITATION").text,

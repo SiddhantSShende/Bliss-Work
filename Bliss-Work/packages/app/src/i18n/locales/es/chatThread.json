@@ -1,0 +1,291 @@
+{
+  "shared": {
+    "you": "Tú",
+    "emptyMessages": "Aún no hay mensajes: saluda 👋",
+    "sending": "Enviando…",
+    "callMissedNoAnswer": "{{body}} · sin respuesta",
+    "messageFailedToSend": "No se pudo enviar ese mensaje",
+    "loadOlderMessagesFailed": "No se pudieron cargar los mensajes anteriores"
+  },
+  "thread": {
+    "composerPlaceholder": "Escribe un mensaje…",
+    "loadHistory": {
+      "loading": "Cargando mensajes anteriores…",
+      "load": "Cargar mensajes anteriores"
+    },
+    "pinned": "Fijado",
+    "forwarded": "Reenviado",
+    "tombstone": "Este mensaje fue eliminado",
+    "deletedMessage": "Mensaje eliminado",
+    "originalMessage": "Mensaje original",
+    "selectMessage": "Seleccionar mensaje",
+    "selectMessageFrom": "Seleccionar mensaje de {{name}}",
+    "seenBy": {
+      "label": "Visto por",
+      "count": "Visto por {{count}}",
+      "ariaLabel_one": "Visto por {{count}} persona",
+      "ariaLabel_many": "Visto por {{count}} de personas",
+      "ariaLabel_other": "Visto por {{count}} personas",
+      "unknownReader": "Desconocido"
+    },
+    "typing": {
+      "peer": "{{name}} está escribiendo…",
+      "generic": "Escribiendo…"
+    },
+    "disabledNotice": "No puedes enviar mensajes en esta conversación."
+  },
+  "threadView": {
+    "loadOlder": {
+      "loading": "Cargando mensajes anteriores…",
+      "button": "Cargar los 12 anteriores",
+      "title": "Cargar los 12 mensajes anteriores"
+    }
+  },
+  "dmView": {
+    "errors": {
+      "reactionSave": "No se pudo guardar esa reacción",
+      "hideMessage": "No se pudo ocultar ese mensaje",
+      "markUnread": "No se pudo marcar ese chat como no leído",
+      "deleteMessage": "No se pudo eliminar ese mensaje",
+      "deleteMessages": "No se pudieron eliminar esos mensajes",
+      "clearChat": "No se pudo borrar el historial de este chat",
+      "removeConversation": "No se pudo quitar esta conversación",
+      "createCallLink": "No se pudo crear un enlace de llamada",
+      "noneDeletable": "Ninguno de los mensajes seleccionados se puede eliminar para todos",
+      "updateBlock": {
+        "title": "No se pudo actualizar el bloqueo",
+        "description": "Inténtalo de nuevo."
+      }
+    },
+    "bulkDelete": {
+      "deletedToast_one": "Se eliminó {{count}} mensaje",
+      "deletedToast_many": "Se eliminaron {{count}} de mensajes",
+      "deletedToast_other": "Se eliminaron {{count}} mensajes",
+      "partialToast": "Se eliminaron {{deleted}} de {{total}}",
+      "partialDescription": "No se pudieron eliminar {{count}}: solo su autor puede hacerlo."
+    },
+    "clearChatToast": "Chat borrado para ti",
+    "callLink": {
+      "messageBody": "Únete a mi llamada: {{link}}",
+      "failedToast": "No se pudo contactar a {{failed}} de {{total}}",
+      "failedDescription": "El enlace está publicado en este chat y todos los demás lo tienen.",
+      "sentToast": "Enlace de llamada enviado",
+      "sentDescription": {
+        "withOthers_one": "También se envió a {{count}} persona. La llamada ya está abierta: únete desde Reuniones cuando quieras.",
+        "withOthers_many": "También se envió a {{count}} de personas. La llamada ya está abierta: únete desde Reuniones cuando quieras.",
+        "withOthers_other": "También se envió a {{count}} personas. La llamada ya está abierta: únete desde Reuniones cuando quieras.",
+        "aloneOnly": "La llamada ya está abierta: únete desde Reuniones cuando quieras."
+      }
+    },
+    "notFound": {
+      "title": "No se encontró la conversación",
+      "hint": "Elige otra en la barra lateral."
+    },
+    "startCall": {
+      "blockedNotice": {
+        "title": "No se puede iniciar la llamada",
+        "unblockToCall": "Desbloquea a este usuario para llamarlo.",
+        "cannotCall": "No puedes llamar a este usuario."
+      },
+      "mustBeOnline": "{{name}} debe estar en línea para recibir una llamada.",
+      "onAnotherCall": {
+        "title": "{{name}} está en otra llamada",
+        "description": "Se le llamará de todos modos; puede que no conteste."
+      }
+    },
+    "exportedToast_one": "Se exportó {{count}} mensaje",
+    "exportedToast_many": "Se exportaron {{count}} de mensajes",
+    "exportedToast_other": "Se exportaron {{count}} mensajes",
+    "header": {
+      "backToChats": "Volver a los chats",
+      "status": {
+        "busy": "En una llamada",
+        "online": "En línea",
+        "offline": "Desconectado"
+      },
+      "unblockTitle": "Desbloquear a este usuario",
+      "blockTitle": "Bloquear a este usuario",
+      "unblockLabel": "Desbloquear",
+      "blockLabel": "Bloquear",
+      "removeFromInboxes": "Quitar de ambas bandejas",
+      "ignore": "Ignorar"
+    },
+    "search": {
+      "placeholder": "Buscar en tu chat con {{name}}…"
+    },
+    "composer": {
+      "placeholder": "Escribe a {{name}}…"
+    },
+    "notice": {
+      "blockedByMe": "Bloqueaste a este usuario. Desbloquéalo para enviar mensajes.",
+      "blockedByPeer": "Te han bloqueado."
+    },
+    "clearChatDialog": {
+      "title": "¿Borrar el historial del chat?",
+      "message": "Se eliminará el historial de este chat para ti. La otra persona conservará su copia.",
+      "confirmLabel": "Borrar chat"
+    },
+    "bulkDeleteDialog": {
+      "title_one": "¿Eliminar {{count}} mensaje?",
+      "title_many": "¿Eliminar {{count}} de mensajes?",
+      "title_other": "¿Eliminar {{count}} mensajes?",
+      "messageAll": "Se eliminarán para todos en este chat. No se puede deshacer.",
+      "messagePartial": "{{remaining}} de los {{total}} seleccionados no se pueden eliminar para todos: solo su autor puede hacerlo. Los otros {{deletable}} se eliminarán para todos y no se podrá deshacer.",
+      "confirmLabel": "Eliminar"
+    }
+  },
+  "channelView": {
+    "errors": {
+      "reactionSave": "No se pudo guardar esa reacción",
+      "hideMessage": "No se pudo ocultar ese mensaje",
+      "markUnread": "No se pudo marcar ese canal como no leído",
+      "clearMessages": "No se pudieron borrar los mensajes del canal",
+      "deleteMessage": "No se pudo eliminar ese mensaje",
+      "deleteMessages": "No se pudieron eliminar esos mensajes",
+      "changePin": "No se pudo cambiar la fijación",
+      "startCall": "No se pudo iniciar la llamada",
+      "leave": "No se pudo salir",
+      "deleteChannel": "No se pudo eliminar el canal",
+      "noneDeletable": "Ninguno de los mensajes seleccionados se puede eliminar para todos"
+    },
+    "clearMessagesToast": "Mensajes del canal borrados para ti",
+    "bulkDelete": {
+      "deletedToast_one": "Se eliminó {{count}} mensaje",
+      "deletedToast_many": "Se eliminaron {{count}} de mensajes",
+      "deletedToast_other": "Se eliminaron {{count}} mensajes",
+      "partialToast": "Se eliminaron {{deleted}} de {{total}}",
+      "partialDescription": "No se pudieron eliminar {{count}}: solo su autor o un administrador del canal puede hacerlo."
+    },
+    "pinToggle": {
+      "pinned": "Fijado para todos",
+      "unpinned": "Ya no está fijado"
+    },
+    "leftChannelToast": "Saliste de #{{name}}",
+    "deletedChannelToast": "Canal eliminado",
+    "notFound": {
+      "title": "No se encontró el canal",
+      "hint": "Elige otro en la barra lateral."
+    },
+    "exportedToast_one": "Se exportó {{count}} mensaje",
+    "exportedToast_many": "Se exportaron {{count}} de mensajes",
+    "exportedToast_other": "Se exportaron {{count}} mensajes",
+    "header": {
+      "backToChannels": "Volver a los canales",
+      "locked": "bloqueado",
+      "membersTitle": "Miembros del canal",
+      "membersAriaLabel": "{{count}} miembros: ver y administrar"
+    },
+    "search": {
+      "placeholder": "Buscar en #{{name}}…"
+    },
+    "composer": {
+      "placeholder": "Escribe en #{{name}}…"
+    },
+    "clearMessagesDialog": {
+      "title": "¿Borrar los mensajes del canal?",
+      "message": "Se borrarán para ti los mensajes cargados. Los demás miembros seguirán teniendo sus copias.",
+      "confirmLabel": "Borrar mensajes"
+    },
+    "deleteChannelDialog": {
+      "titleNamed": "¿Eliminar #{{name}}?",
+      "titleFallback": "¿Eliminar el canal?",
+      "message": "Esta acción no se puede deshacer. Se eliminarán el canal y sus mensajes.",
+      "confirmLabel": "Eliminar canal"
+    },
+    "bulkDeleteDialog": {
+      "title_one": "¿Eliminar {{count}} mensaje?",
+      "title_many": "¿Eliminar {{count}} de mensajes?",
+      "title_other": "¿Eliminar {{count}} mensajes?",
+      "messageAll": "Se eliminarán para todos en este canal. No se puede deshacer.",
+      "messagePartial": "{{remaining}} de los {{total}} seleccionados no se pueden eliminar para todos: solo su autor o un administrador del canal puede hacerlo. Los otros {{deletable}} se eliminarán para todos y no se podrá deshacer.",
+      "confirmLabel": "Eliminar"
+    }
+  },
+  "conversationMenu": {
+    "unavailableHint": "Aún no está disponible: requiere un endpoint del servidor",
+    "label": {
+      "channel": "Opciones del canal",
+      "chat": "Opciones del chat"
+    },
+    "items": {
+      "viewProfile": "Ver perfil",
+      "search": "Buscar",
+      "media": "Multimedia, enlaces y documentos",
+      "selectMessages": "Seleccionar mensajes",
+      "mute": "Silenciar notificaciones",
+      "unmute": "Activar notificaciones",
+      "more": "Más",
+      "clearChat": "Borrar chat",
+      "exportChat": "Exportar chat",
+      "pin": "Fijar {{scope}}",
+      "unpin": "Dejar de fijar {{scope}}",
+      "rename": "Cambiar nombre",
+      "delete": "Eliminar",
+      "leaving": "Saliendo…",
+      "leave": "Salir"
+    },
+    "scope": {
+      "channel": "canal",
+      "chat": "chat"
+    }
+  },
+  "whatsAppForward": {
+    "forwardedToast": "Reenviado a través de WhatsApp",
+    "forwardedDescription": "Elegiste al destinatario en WhatsApp, así que este chat solo registra el traspaso.",
+    "logFailedToast": "No se pudo registrar el reenvío",
+    "logFailedDescription": "WhatsApp se abrió de todos modos; simplemente no queda registrado en este chat.",
+    "shareFailedGeneric": "Error al compartir",
+    "mediaPrepareFailed": "No se pudo preparar el archivo adjunto para WhatsApp",
+    "mediaNoLongerAvailable": "Puede que ya no esté disponible.",
+    "sharedToast": "Se abrió el menú de compartir con el archivo adjunto",
+    "sharedDescription": "Elige WhatsApp allí; BlissWork no puede confirmar lo que ocurra después.",
+    "downloadedToast_one": "Archivo adjunto descargado para WhatsApp",
+    "downloadedToast_many": "{{count}} de archivos adjuntos descargados para WhatsApp",
+    "downloadedToast_other": "{{count}} archivos adjuntos descargados para WhatsApp",
+    "downloadedDescription": "Este dispositivo no puede pasar archivos a WhatsApp automáticamente; adjunta la descarga tú mismo en WhatsApp.",
+    "mediaShareFailed": "No se pudo compartir el archivo adjunto con WhatsApp"
+  },
+  "export": {
+    "header": "Transcripción de la conversación de {{brand}}",
+    "exportedSummary_one": "Exportado {{timestamp}} · {{count}} mensaje cargado",
+    "exportedSummary_many": "Exportado {{timestamp}} · {{count}} de mensajes cargados",
+    "exportedSummary_other": "Exportado {{timestamp}} · {{count}} mensajes cargados",
+    "unknownSender": "Desconocido",
+    "deletedMessage": "(eliminado)",
+    "noText": "(sin texto)"
+  },
+  "messageActions": {
+    "react": {
+      "title": "Reaccionar",
+      "ariaLabel": "Reaccionar a este mensaje"
+    },
+    "more": {
+      "title": "Más",
+      "ariaLabel": "Acciones del mensaje"
+    },
+    "menu": {
+      "reply": "Responder",
+      "download": "Descargar",
+      "downloadNamed": "Descargar {{name}}",
+      "forwardTo": "Reenviar a un chat o canal…",
+      "forwardWhatsApp": "Reenviar a WhatsApp",
+      "markUnread": "Marcar como no leído",
+      "deleteForMe": "Eliminar para mí",
+      "unpinForEveryone": "Dejar de fijar para todos",
+      "pinForEveryone": "Fijar para todos",
+      "deleteForEveryone": "Eliminar para todos"
+    },
+    "confirmDialog": {
+      "title": "¿Eliminar mensaje?",
+      "deleteAllMessage": "¿Seguro que quieres eliminar este mensaje? Se quitará para todos en esta conversación.",
+      "deleteMeMessage": "¿Seguro que quieres eliminar este mensaje? Solo se quitará de tu propia vista.",
+      "confirmLabel": "Eliminar"
+    },
+    "reactions": {
+      "clickToRemove": "Haz clic para quitar tu reacción",
+      "clickToReact": "Haz clic para reaccionar",
+      "andMore": "{{names}} y {{hidden}} más",
+      "tooltip": "{{who}} reaccionó con {{emoji}}: {{action}}"
+    }
+  }
+}

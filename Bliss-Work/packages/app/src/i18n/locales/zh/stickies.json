@@ -1,0 +1,70 @@
+{
+  "card": {
+    "from": "来自 {{name}}",
+    "assigned": "分配时间",
+    "deadline": "截止时间",
+    "missedOn": "已错过",
+    "collapseToPill": "收起为胶囊",
+    "unpinNoteTitle": "取消置顶（任务保留）",
+    "unpin": "取消置顶",
+    "dismissIgnore": "关闭（忽略）",
+    "acknowledge": "知悉",
+    "ignore": "忽略",
+    "complete": "完成",
+    "leave": "退出",
+    "untitledTask": "未命名任务",
+    "expand": "展开",
+    "expandLabel": "展开便签",
+    "dismiss": "关闭",
+    "dismissLabel": "关闭便签",
+    "collapse": "收起",
+    "collapseLabel": "收起便签",
+    "ignoreTitle": "忽略，发送人将收到通知",
+    "acknowledgeTitle": "知悉，此便签会一直显示在屏幕上，直到你完成任务",
+    "unpinFromDesktopTitle": "从桌面取消置顶，任务仍保留在你的任务列表中",
+    "navPrevious": "上一个置顶任务",
+    "navNext": "下一个置顶任务"
+  },
+  "overlay": {
+    "ariaLabel": "悬浮便签"
+  },
+  "toasts": {
+    "acknowledgeFailed": "无法知悉",
+    "ignoreFailed": "无法忽略",
+    "taskIgnored": "已忽略任务，发送人已收到通知。",
+    "noteUnpinned": "便签已取消置顶",
+    "noteUnpinnedDescription": "任务仍在你的任务列表中，请在那里完成。",
+    "unpinFailed": "无法取消便签置顶",
+    "desktopFull": "无法将此任务置顶到桌面。"
+  },
+  "window": {
+    "loading": "加载中…",
+    "expand": "展开",
+    "previousTask": "上一个置顶任务",
+    "nextTask": "下一个置顶任务",
+    "chat": {
+      "loadingThread": "正在加载聊天…",
+      "pinnedChat": "置顶聊天",
+      "unpin": "取消置顶",
+      "unpinTitle": "从桌面取消置顶",
+      "noMessages": "暂无最新消息。",
+      "replyPlaceholder": "回复…",
+      "send": "发送"
+    },
+    "invite": {
+      "meetingFallback": "会议",
+      "hostedBy": "主持人：{{name}}",
+      "video": "视频",
+      "videoTitle": "开启摄像头加入",
+      "voice": "语音",
+      "voiceTitle": "仅语音加入",
+      "leave": "退出",
+      "dismiss": "关闭"
+    },
+    "titles": {
+      "task": "任务",
+      "chat": "聊天",
+      "invite": "会议邀请"
+    }
+  }
+}

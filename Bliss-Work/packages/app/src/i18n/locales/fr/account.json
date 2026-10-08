@@ -1,0 +1,203 @@
+{
+  "profile": {
+    "header": {
+      "title": "Mon profil",
+      "subtitle": "Gérez la façon dont vous apparaissez auprès de votre équipe."
+    },
+    "photo": {
+      "changePhoto": "Changer de photo",
+      "addPhoto": "Ajouter une photo",
+      "changePhotoAria": "Changer la photo de profil",
+      "addPhotoAria": "Ajouter une photo de profil"
+    },
+    "form": {
+      "displayNameLabel": "Nom affiché",
+      "displayNamePlaceholder": "Votre nom",
+      "emailLabel": "E-mail",
+      "usernameLabel": "Nom d'utilisateur",
+      "cancel": "Annuler",
+      "saveChanges": "Enregistrer les modifications"
+    },
+    "toasts": {
+      "profileUpdated": "Profil mis à jour",
+      "updateFailed": "Impossible de mettre à jour le profil",
+      "photoUpdated": "Photo de profil mise à jour",
+      "photoUpdateFailed": "Impossible de mettre à jour votre photo",
+      "unsupportedFileType": {
+        "title": "Type de fichier non pris en charge",
+        "description": "Veuillez choisir une image JPG, PNG ou WebP."
+      },
+      "processFailed": {
+        "title": "Impossible de traiter cette image",
+        "description": "Veuillez essayer une autre photo."
+      }
+    }
+  },
+  "activeSessions": {
+    "header": {
+      "title": "Sessions actives",
+      "subtitle": "Les appareils où vous êtes connecté. Déconnectez tout appareil que vous ne reconnaissez pas."
+    },
+    "empty": {
+      "title": "Aucune session active",
+      "hint": "Tous les appareils connectés s'afficheront ici."
+    },
+    "signOutAllOthers": "Se déconnecter de toutes les autres sessions",
+    "confirmOne": {
+      "title": "Déconnecter cette session ?",
+      "message": "<bold>{{device}}</bold> sera déconnecté immédiatement et devra se reconnecter.",
+      "confirmLabel": "Se déconnecter"
+    },
+    "confirmAllOthers": {
+      "title": "Se déconnecter de toutes les autres sessions ?",
+      "message_one": "Cet appareil reste connecté. {{count}} autre session sera déconnectée immédiatement.",
+      "message_many": "Cet appareil reste connecté. {{count}} d'autres sessions seront déconnectées immédiatement.",
+      "message_other": "Cet appareil reste connecté. {{count}} autres sessions seront déconnectées immédiatement.",
+      "confirmLabel": "Déconnecter les autres"
+    },
+    "toasts": {
+      "signedOutOf": "Déconnexion de {{device}} effectuée",
+      "revokeFailed": {
+        "title": "Impossible de déconnecter cette session",
+        "description": "Veuillez réessayer."
+      },
+      "noOtherSessions": "Aucune autre session à déconnecter",
+      "signedOutOfOthers_one": "Déconnexion de {{count}} autre session effectuée",
+      "signedOutOfOthers_many": "Déconnexion de {{count}} d'autres sessions effectuée",
+      "signedOutOfOthers_other": "Déconnexion de {{count}} autres sessions effectuée",
+      "revokeOthersFailed": {
+        "title": "Impossible de déconnecter les autres sessions",
+        "description": "Veuillez réessayer."
+      }
+    }
+  },
+  "activeSessionsList": {
+    "thisDevice": "Cet appareil",
+    "active": "Actif {{time}}",
+    "signedIn": "Connecté {{time}}",
+    "approximateNetwork": "Réseau approximatif",
+    "signOut": "Se déconnecter"
+  },
+  "mfaSettings": {
+    "header": {
+      "title": "Authentification à deux facteurs",
+      "subtitle": "Ajoutez une seconde étape à la connexion avec une application d'authentification."
+    },
+    "enrolled": {
+      "status": {
+        "title": "L'authentification à deux facteurs est activée",
+        "description": "Un second facteur vous sera demandé lors de la connexion."
+      },
+      "backupCodes": {
+        "title": "Codes de secours",
+        "description": "La régénération remplace tous les codes inutilisés — les anciens cessent immédiatement de fonctionner.",
+        "action": "Régénérer"
+      },
+      "disable": {
+        "title": "Désactiver l'authentification à deux facteurs",
+        "description": "Supprime votre application d'authentification et vos codes de secours.",
+        "action": "Désactiver"
+      }
+    },
+    "notEnrolled": {
+      "totp": {
+        "title": "Application d'authentification",
+        "description": "Google Authenticator, 1Password, Authy ou toute application TOTP."
+      },
+      "setUp": "Configurer"
+    },
+    "backupCodesModal": {
+      "title": "Enregistrez vos codes de secours"
+    },
+    "stepUp": {
+      "titles": {
+        "disable": "Confirmez votre identité",
+        "regenerate": "Confirmez votre identité pour régénérer les codes"
+      },
+      "passwordPlaceholder": "Votre mot de passe",
+      "backupCodePlaceholder": "Code de secours",
+      "authCodePlaceholder": "Code d'authentification",
+      "useAuthCodeInstead": "Utiliser plutôt un code d'authentification",
+      "useBackupCodeInstead": "Utiliser plutôt un code de secours",
+      "submitLabels": {
+        "regenerate": "Régénérer les codes de secours"
+      },
+      "toasts": {
+        "tooManyAttemptsTitle": "Trop de tentatives",
+        "verificationFailedTitle": "Échec de la vérification",
+        "verificationFailedDescription": "Vérifiez votre mot de passe et votre code, puis réessayez."
+      }
+    },
+    "toasts": {
+      "refreshFailed": {
+        "title": "Impossible d'actualiser votre compte",
+        "description": "L'état de votre authentification à deux facteurs sur cette page est peut-être obsolète — actualisez pour voir la dernière version."
+      },
+      "mfaTurnedOff": "Authentification à deux facteurs désactivée"
+    }
+  },
+  "passwordField": {
+    "hidePassword": "Masquer le mot de passe",
+    "showPassword": "Afficher le mot de passe",
+    "strength": {
+      "veryWeak": "Très faible",
+      "weak": "Faible",
+      "fair": "Moyen",
+      "good": "Bon",
+      "strong": "Fort"
+    },
+    "requirements": {
+      "minLength": "Au moins 10 caractères",
+      "letter": "Une lettre",
+      "digit": "Un chiffre",
+      "special": "Un caractère spécial (!@#$…)"
+    }
+  },
+  "backupCodesView": {
+    "description": "Conservez ces codes de secours en lieu sûr. Chacun vous permet de vous connecter UNE seule fois si vous perdez l'accès à votre application d'authentification — ils ne seront plus affichés.",
+    "copied": "Copié",
+    "copyFailed": "Impossible de copier les codes de secours. Veuillez les sélectionner et les copier manuellement.",
+    "copyAll": "Tout copier",
+    "acknowledgeLabel": "J'ai enregistré ces codes en lieu sûr.",
+    "done": "Terminé"
+  },
+  "totpEnroll": {
+    "toasts": {
+      "startFailed": {
+        "title": "Impossible de démarrer l'enregistrement",
+        "description": "Veuillez réessayer."
+      },
+      "tooManyAttempts": {
+        "title": "Trop de tentatives",
+        "description": "Patientez une minute avant de réessayer."
+      },
+      "incorrectCode": {
+        "title": "Code incorrect",
+        "description": "Vérifiez l'heure de votre appareil et réessayez."
+      }
+    },
+    "startError": {
+      "message": "Impossible de démarrer l'enregistrement.",
+      "retry": "Réessayer"
+    },
+    "preparing": "Préparation de l'enregistrement…",
+    "instructions": "Scannez ce code avec une application d'authentification (Google Authenticator, 1Password, Authy, …) ou saisissez manuellement la clé de configuration.",
+    "qrAlt": "Scannez avec votre application d'authentification",
+    "setupKeyLabel": "Clé de configuration",
+    "codeLabel": "Saisissez le code à 6 chiffres",
+    "verifying": "Vérification…",
+    "confirmAndEnable": "Confirmer et activer"
+  },
+  "mfaPolicy": {
+    "title": "Exiger l'authentification à deux facteurs pour les administrateurs",
+    "descriptionWithDeadline": "Les administrateurs non inscrits reçoivent un avertissement jusqu'au {{deadline}}, puis sont bloqués à la connexion tant qu'ils ne l'ont pas activée.",
+    "descriptionNoDeadline": "Les administrateurs choisissent eux-mêmes de l'activer ou non.",
+    "turnOff": "Désactiver",
+    "turnOn": "Activer",
+    "toasts": {
+      "enabled": "L'authentification à deux facteurs est désormais obligatoire pour les administrateurs",
+      "disabled": "L'authentification à deux facteurs n'est plus obligatoire",
+      "updateFailed": "Impossible de mettre à jour la politique"
+    }
+  }
+}

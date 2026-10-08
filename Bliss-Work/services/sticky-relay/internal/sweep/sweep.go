@@ -134,6 +134,12 @@ func Plan(pins []Pin) []Refresh {
 // The server's gate is authoritative now. This keeps MaxNudges as a
 // defensive, redundant check — the server enforces the same cutoff
 // (_MAX_NUDGES in internal.py) — rather than trusting a page of pins blindly.
+//
+// DeliveryAttempts is the POST-claim count (the server's RETURNING value), and
+// the server claims while the PRE-claim count is below MaxNudges, so the last
+// claim it ever makes comes back as exactly MaxNudges. That one is a real,
+// allowed nudge: comparing with `<` here dropped it — claimed, counted, and
+// never sent — so the pin got MaxNudges-1 nudges, not MaxNudges.
 func isDue(p Pin) bool {
-	return p.DeliveryAttempts < MaxNudges
+	return p.DeliveryAttempts <= MaxNudges
 }

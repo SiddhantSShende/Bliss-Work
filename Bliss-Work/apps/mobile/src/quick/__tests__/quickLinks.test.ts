@@ -1,4 +1,4 @@
-import { quickModeFromActionId, quickModeFromUrl } from '../quickLinks';
+import { quickModeFromActionId, quickModeFromUrl, shouldProcessForegroundLaunchUrl } from '../quickLinks';
 import { quickActions } from '../quickActionStore';
 
 describe('quickModeFromUrl', () => {
@@ -16,6 +16,20 @@ describe('quickModeFromUrl', () => {
     for (const u of ['blisswork://chats', 'blisswork://quick', 'blisswork://quick/other', 'https://x.com/quick/chat', '', null, undefined]) {
       expect(quickModeFromUrl(u as string)).toBeNull();
     }
+  });
+});
+
+describe('shouldProcessForegroundLaunchUrl', () => {
+  it('does not replay the cached cold-start URL on foreground', () => {
+    expect(shouldProcessForegroundLaunchUrl('blisswork://quick/chat', 'blisswork://quick/chat')).toBe(false);
+  });
+
+  it('processes a newly delivered launch URL if the activity was recreated without a url event', () => {
+    expect(shouldProcessForegroundLaunchUrl('blisswork://quick/task', 'blisswork://quick/chat')).toBe(true);
+  });
+
+  it('ignores a missing URL', () => {
+    expect(shouldProcessForegroundLaunchUrl(null, 'blisswork://quick/chat')).toBe(false);
   });
 });
 

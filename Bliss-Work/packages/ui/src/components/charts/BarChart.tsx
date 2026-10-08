@@ -1,3 +1,4 @@
+import { useUiStrings } from "../../strings";
 import { domainMax, formatMs, normalize } from "./scale";
 
 /** House spec: a column is never thicker than this, however wide its band. */
@@ -41,6 +42,7 @@ export function BarChart({
   contextLabel?: string;
   valueLabel?: string;
 }) {
+  const strings = useUiStrings();
   const max = domainMax(data.map((d) => d.value + (d.context ?? 0)));
   const peak = data.reduce(
     (best, d) => (d.value > (best?.value ?? -1) ? d : best),
@@ -59,7 +61,7 @@ export function BarChart({
         className="flex w-full items-end gap-[2px] overflow-x-auto"
         style={{ height }}
         role="img"
-        aria-label={`${valueLabel ?? "Value"} by day, peak ${peak ? format(peak.value) : "0"}`}
+        aria-label={strings.chartPeakAria(valueLabel ?? strings.chartValue, peak ? format(peak.value) : "0")}
       >
         {data.map((d) => {
           const valuePct = normalize(d.value, max) * 100;
@@ -73,8 +75,8 @@ export function BarChart({
               key={d.label}
               className="flex min-w-[6px] flex-1 justify-center"
               style={{ height: "100%" }}
-              title={`${d.title ?? d.label}: ${format(d.value)}${
-                d.context ? ` active, ${format(d.context)} idle` : ""
+              title={`${d.title ?? d.label}: ${
+                d.context ? strings.chartActiveIdle(format(d.value), format(d.context)) : format(d.value)
               }`}
             >
               <div className="flex w-full flex-col justify-end" style={{ maxWidth: MAX_BAR_PX }}>

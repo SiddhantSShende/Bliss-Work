@@ -126,7 +126,29 @@ var (
 		Name: "ws_fanout_outbox_writes_total",
 		Help: "Replay-outbox writes attempted during fan-out, by outcome.",
 	}, []string{"result"})
+
+	// FanoutEventsSkippedTotal counts events consumed and deliberately NOT
+	// delivered because no retry could ever make them deliverable (today:
+	// payloads that do not parse). The offset moves past these, so this counter
+	// is the only trace they leave — a non-zero rate is a producer bug.
+	FanoutEventsSkippedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_fanout_events_skipped_total",
+		Help: "Events consumed but skipped as permanently undeliverable, by reason.",
+	}, []string{"reason"})
+
+	// RouteRetriesTotal counts routed-delivery attempts that failed on a
+	// transient dependency error (Redis) and were retried without committing
+	// the Kafka offset. A sustained rate means the consumer is stalled behind a
+	// Redis problem — which is the correct behaviour, and worth an alert.
+	RouteRetriesTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ws_route_retries_total",
+		Help: "Routed-delivery attempts retried after a transient dependency failure.",
+	})
 )
+
+// SkipUnparseable is the FanoutEventsSkippedTotal reason for a payload that is
+// not valid JSON.
+const SkipUnparseable = "unparseable"
 
 // ── Routed delivery ──────────────────────────────────────────────────────────
 //
@@ -355,6 +377,8 @@ func init() {
 		FanoutDeliveredTotal,
 		FanoutDiscardedTotal,
 		FanoutOutboxWritesTotal,
+		FanoutEventsSkippedTotal,
+		RouteRetriesTotal,
 		PushSentTotal,
 		PushRequestsTotal,
 		PushUnroutableTotal,
@@ -380,6 +404,7 @@ func init() {
 		PushSentTotal.WithLabelValues(r)
 		PushRequestsTotal.WithLabelValues(r)
 	}
+	FanoutEventsSkippedTotal.WithLabelValues(SkipUnparseable)
 	for _, r := range []string{"delivered", "missing"} {
 		PushReceivedTotal.WithLabelValues(r)
 	}

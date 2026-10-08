@@ -1,0 +1,96 @@
+{
+  "loading": "Wird geladen…",
+  "unknownUser": "Unbekannte Person",
+  "screenshotBlocked": "Screenshot-Versuch erkannt. Screenshots sind nicht erlaubt.",
+  "date": {
+    "today": "Heute",
+    "yesterday": "Gestern",
+    "tomorrow": "Morgen"
+  },
+  "buttons": {
+    "dismiss": "Schließen",
+    "view": "Ansehen",
+    "manage": "Verwalten",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "edit": "Bearbeiten"
+  },
+  "language": {
+    "changeLanguage": "Sprache ändern",
+    "switcherTitle": "Sprache: {{name}}",
+    "switchFailed": "Diese Sprache konnte nicht geladen werden. Bitte versuchen Sie es erneut."
+  },
+  "relativeTime": {
+    "justNow": "gerade eben",
+    "minutesAgo_one": "vor {{count}} Min.",
+    "minutesAgo_other": "vor {{count}} Min.",
+    "hoursAgo_one": "vor {{count}} Std.",
+    "hoursAgo_other": "vor {{count}} Std.",
+    "daysAgo_one": "vor {{count}} Tg.",
+    "daysAgo_other": "vor {{count}} Tg."
+  },
+  "confirmDialog": {
+    "confirmDefault": "Bestätigen",
+    "cancel": "Abbrechen"
+  },
+  "modal": {
+    "close": "Schließen"
+  },
+  "lightbox": {
+    "close": "Schließen",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "loading": "Wird geladen…",
+    "previewNotAvailable": "Für diesen Dateityp ist keine Vorschau verfügbar",
+    "openInBrowser": "Stattdessen im Browser öffnen",
+    "loadingPreview": "Vorschau wird geladen…",
+    "itemCount": " · {{current}} von {{total}}"
+  },
+  "documentViewer": {
+    "converting": "Vorschau wird erstellt … größere Dokumente können eine Minute dauern.",
+    "failed": "Dieses Dokument kann nicht in der Vorschau angezeigt werden.",
+    "failedHint": "Du kannst es trotzdem herunterladen.",
+    "unavailable": "Vorschauen sind vorübergehend nicht verfügbar.",
+    "busy": "Zu viele Vorschauen gleichzeitig. Versuche es gleich noch einmal.",
+    "tooLarge": "Diese Datei ist für eine Vorschau zu groß.",
+    "timedOut": "Das dauert länger als erwartet.",
+    "network": "Die Vorschau konnte nicht geladen werden. Prüfe deine Verbindung.",
+    "download": "Herunterladen",
+    "sheetNotice": "Einfache Datenansicht. Formatierung, verbundene Zellen, Diagramme und Bilder werden nicht angezeigt – lade die Datei herunter, um sie so zu sehen, wie sie erstellt wurde.",
+    "csvNotice": "Einfache Datenansicht. Lade die Datei herunter, um sie in einer Tabellenkalkulation zu öffnen.",
+    "showingRowsOf": "Die ersten {{shown}} von {{total}} Zeilen werden angezeigt.",
+    "showingRows": "Die ersten {{shown}} Zeilen werden angezeigt.",
+    "moreSheets": "Es werden nur die ersten {{count}} Tabellenblätter angezeigt.",
+    "showMoreRows": "Weitere Zeilen anzeigen",
+    "emptySheet": "Dieses Tabellenblatt ist leer.",
+    "sheets": "Tabellenblätter",
+    "textTruncated": "Es wird nur der erste Teil dieser Datei angezeigt.",
+    "emptyFile": "Diese Datei ist leer."
+  },
+  "errorBoundary": {
+    "title": "Etwas ist schiefgelaufen.",
+    "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten.",
+    "reference": "Referenz: {{requestId}}",
+    "retry": "Erneut versuchen",
+    "goHome": "Zur Startseite"
+  },
+  "globalError": {
+    "title": "Etwas ist schiefgelaufen"
+  },
+  "attachment": {
+    "couldNotOpen": "{{filename}} konnte nicht geöffnet werden"
+  },
+  "ui": {
+    "back": "Zurück",
+    "onCall": "In einem Anruf",
+    "nothingRecorded": "In diesem Zeitraum wurde nichts erfasst.",
+    "chartValue": "Wert",
+    "chartPeakAria": "{{value}} pro Tag, Spitze {{peak}}",
+    "chartActiveIdle": "{{active}} aktiv, {{idle}} inaktiv"
+  },
+  "activityRange": {
+    "last7": "Letzte 7 Tage",
+    "last30": "Letzte 30 Tage",
+    "last90": "Letzte 90 Tage"
+  }
+}

@@ -1424,10 +1424,20 @@ func (s *Store) ListMyCalls(ctx context.Context, orgID, callerID string, limit i
 		// next SeriesUpcomingInList upcoming occurrences of each series are
 		// listed. Everything else, one-offs included, is untouched: the filter
 		// passes any row that is not an upcoming occurrence of a series.
+		//
+		// WHICH calls make the page and the order they come back in are two
+		// questions. The page used to be "the newest `limit` by time", which for
+		// a list of upcoming meetings means the FURTHEST ones — a LIVE call or
+		// the next meeting was exactly what fell off the end of an overflowing
+		// list. So the page is chosen live first, then upcoming soonest-first,
+		// then finished calls most-recent-first, and only then put back into the
+		// response order clients have always received: newest first. A list that
+		// fits its page is therefore unchanged.
 		ids, err := callIDsTx(ctx, tx, `
-			SELECT id FROM (
+			WITH eligible AS (
 			    SELECT c.id,
 			           COALESCE(c.scheduled_at, c.created_at) AS at,
+			           c.status AS st,
 			           (c.series_id IS NOT NULL AND c.status = 'SCHEDULED') AS upcoming_of_series,
 			           row_number() OVER (PARTITION BY c.series_id, c.status
 			                              ORDER BY c.scheduled_at) AS nth
@@ -1437,10 +1447,17 @@ func (s *Store) ListMyCalls(ctx context.Context, orgID, callerID string, limit i
 			       OR (c.status IN ('ENDED', 'CANCELLED')
 			           AND COALESCE(c.ended_at, c.scheduled_at, c.created_at)
 			               > now() - make_interval(days => $3))
-			) t
-			WHERE NOT upcoming_of_series OR nth <= $4
-			ORDER BY at DESC
-			LIMIT $2`, callerID, limit, MyCallsHistoryDays, SeriesUpcomingInList)
+			), page AS (
+			    SELECT id, at FROM eligible
+			    WHERE NOT upcoming_of_series OR nth <= $4
+			    ORDER BY CASE st WHEN 'LIVE' THEN 0 WHEN 'SCHEDULED' THEN 1 ELSE 2 END,
+			             CASE WHEN st IN ('LIVE', 'SCHEDULED') THEN at END ASC,
+			             CASE WHEN st NOT IN ('LIVE', 'SCHEDULED') THEN at END DESC,
+			             id
+			    LIMIT $2
+			)
+			SELECT id FROM page ORDER BY at DESC, id`,
+			callerID, limit, MyCallsHistoryDays, SeriesUpcomingInList)
 		if err != nil {
 			return err
 		}

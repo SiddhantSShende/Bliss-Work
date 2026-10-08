@@ -14,7 +14,8 @@
 # never the real stack, never a live volume. Restores every service database
 # from the latest same-timestamp backup set, checks each one has tables and
 # rows (not just "psql exited 0" — a schema-only restore of an empty dump
-# would also exit 0), extracts the media tar and counts what came out, then
+# would also exit 0), lists the media tar and counts entries without extracting
+# potentially-large unencrypted blobs onto the host, then
 # tears the scratch container down unconditionally.
 #
 # bash + pipefail for the same reason as backup-db.sh/restore-db.sh: under
@@ -27,7 +28,6 @@ PG_USER="${POSTGRES_USER:-taskboard}"
 PG_IMAGE="${RESTORE_TEST_PG_IMAGE:-postgres:17-alpine}"
 SCRATCH_PASSWORD="${RESTORE_TEST_PG_PASSWORD:-restore-test-scratch-only}"
 CONTAINER="blisswork-restore-test-$$"
-TMPDIR_MEDIA="$(mktemp -d)"
 
 if docker info >/dev/null 2>&1; then
   DOCKER="docker"
@@ -43,7 +43,6 @@ fi
 # behind on the host.
 cleanup() {
   $DOCKER rm -f "$CONTAINER" >/dev/null 2>&1 || true
-  rm -rf "$TMPDIR_MEDIA"
 }
 trap cleanup EXIT
 
@@ -139,12 +138,11 @@ fi
 # empty deployment (same reasoning as backup-db.sh's own media handling) ───
 media_file="$BACKUP_DIR/media-${ts}.tar.enc"
 if [ -f "$media_file" ]; then
-  if ! openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY -in "$media_file" \
-      | tar -xf - -C "$TMPDIR_MEDIA"; then
-    fail "media-${ts}.tar.enc did not decrypt/extract cleanly"
+  if ! blob_count=$(openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY -in "$media_file" \
+      | tar -tf - | awk 'END { print NR }'); then
+    fail "media-${ts}.tar.enc did not decrypt/list cleanly"
   fi
-  blob_count=$(find "$TMPDIR_MEDIA" -type f | wc -l)
-  echo "  ok: media archive — ${blob_count} blob(s) extracted"
+  echo "  ok: media archive — ${blob_count} archive entry/entries listed"
 else
   echo "  skipping media: no media-${ts}.tar.enc for this backup set (pre-media deployment, or media backup failed to produce a file — check the backup run itself)"
 fi

@@ -10,7 +10,10 @@
   "buttons": {
     "dismiss": "Dismiss",
     "view": "View",
-    "manage": "Manage"
+    "manage": "Manage",
+    "save": "Save",
+    "cancel": "Cancel",
+    "edit": "Edit"
   },
   "language": {
     "changeLanguage": "Change language",
@@ -43,6 +46,27 @@
     "loadingPreview": "Loading preview…",
     "itemCount": " · {{current}} of {{total}}"
   },
+  "documentViewer": {
+    "converting": "Preparing a preview… larger documents can take a minute.",
+    "failed": "This document can't be previewed.",
+    "failedHint": "You can still download it.",
+    "unavailable": "Previews are temporarily unavailable.",
+    "busy": "Too many previews at once. Try again in a moment.",
+    "tooLarge": "This file is too large to preview.",
+    "timedOut": "This is taking longer than expected.",
+    "network": "Couldn't load the preview. Check your connection.",
+    "download": "Download",
+    "sheetNotice": "Simple data view. Formatting, merged cells, charts and images aren't shown — download the file to see it exactly as it was made.",
+    "csvNotice": "Simple data view. Download the file to open it in a spreadsheet app.",
+    "showingRowsOf": "Showing the first {{shown}} rows of {{total}}.",
+    "showingRows": "Showing the first {{shown}} rows.",
+    "moreSheets": "Only the first {{count}} sheets are shown.",
+    "showMoreRows": "Show more rows",
+    "emptySheet": "This sheet is empty.",
+    "sheets": "Sheets",
+    "textTruncated": "Showing only the first part of this file.",
+    "emptyFile": "This file is empty."
+  },
   "errorBoundary": {
     "title": "Something went wrong.",
     "unexpectedError": "An unexpected error occurred.",
@@ -55,5 +79,18 @@
   },
   "attachment": {
     "couldNotOpen": "Could not open {{filename}}"
+  },
+  "ui": {
+    "back": "Back",
+    "onCall": "On a call",
+    "nothingRecorded": "Nothing recorded in this period.",
+    "chartValue": "Value",
+    "chartPeakAria": "{{value}} by day, peak {{peak}}",
+    "chartActiveIdle": "{{active}} active, {{idle}} idle"
+  },
+  "activityRange": {
+    "last7": "Last 7 days",
+    "last30": "Last 30 days",
+    "last90": "Last 90 days"
   }
 }

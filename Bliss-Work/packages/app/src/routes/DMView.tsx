@@ -29,12 +29,14 @@ import { useWhatsAppForward } from "../lib/useWhatsAppForward";
 import { ForwardToDialog } from "../features/ForwardToDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { useOptimisticSend } from "../lib/useOptimisticSend";
+import { useMarkReadWhileViewing } from "../lib/useMarkReadWhileViewing";
 import { useChatTyping } from "../lib/useChatTyping";
 import { useCall } from "../lib/useCall";
 import { useOlderMessages } from "../lib/useOlderMessages";
 import { useUserStatus } from "../lib/usePresence";
 import { useSelectedChat } from "../lib/selectedChat";
 import { useActiveThread, type ActiveThread } from "../lib/activeThread";
+import { useMarkTargetNotificationsRead } from "../lib/useMarkTargetNotificationsRead";
 import { isAttachmentActivityKind } from "../lib/useAttachmentActivity";
 
 export function DMView() {
@@ -138,9 +140,7 @@ export function DMView() {
     // this same conversationId — see that hook's own doc comment.
   }, [conversationId]);
 
-  useEffect(() => {
-    const maxSeq = messages.reduce((m, x) => Math.max(m, x.seq), 0);
-    if (maxSeq === 0) return;
+  useMarkReadWhileViewing(conversationId, messages, (maxSeq) => {
     // The server's MessageRead event (which would otherwise refetch this)
     // is routed only to the peer, so their sent-message bubbles flip to
     // Seen — it never reaches the reader's own sessions. Without this,
@@ -151,8 +151,7 @@ export function DMView() {
       .read(conversationId, maxSeq)
       .then(() => qc.invalidateQueries({ queryKey: qk.conversations }))
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length, conversationId]);
+  });
 
   // The message being quoted, if any. Cleared on send and on navigation.
   //
@@ -407,6 +406,10 @@ export function DMView() {
     setActiveThread(t);
     return () => clearActiveThread(t);
   }, [conversationId, peerId, peerName, setActiveThread, clearActiveThread]);
+
+  // Opening a conversation reads its notifications — the same rule the Tasks
+  // section follows. Scoped to this one conversation on the server.
+  useMarkTargetNotificationsRead(api, "conversationId", conversationId);
 
   /**
    * The messages as the thread renders them.

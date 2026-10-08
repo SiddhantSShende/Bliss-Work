@@ -1,0 +1,22 @@
+{
+  "topNavbar": {
+    "openMenu": "メニュー",
+    "openNavigationMenu": "ナビゲーションメニューを開く",
+    "searchPlaceholder": "人、チャンネル、チャット、タスクを検索…",
+    "clearSearch": "検索をクリア",
+    "invite": "招待",
+    "search": "検索",
+    "notifications": "通知"
+  },
+  "verifyEmail": {
+    "message": "アカウントを安全に保つため、メールアドレスを認証してください。",
+    "resendSent": "送信しました ✓",
+    "resend": "メールを再送",
+    "resentToast": "認証メールを送信しました。受信トレイをご確認ください。"
+  },
+  "mfaRequired": {
+    "messageWithDeadline": "ワークスペースでは管理者に二要素認証が必須です。{{deadline}}までに有効にしてください。",
+    "messageNoDeadline": "ワークスペースでは管理者に二要素認証が必須です。",
+    "enableNow": "今すぐ有効にする"
+  }
+}

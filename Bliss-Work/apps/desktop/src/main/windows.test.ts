@@ -26,6 +26,9 @@ vi.mock("electron", () => {
     setAlwaysOnTop(...a: unknown[]) {
       this.rec.calls.push(["setAlwaysOnTop", ...a]);
     }
+    setResizable(...a: unknown[]) {
+      this.rec.calls.push(["setResizable", ...a]);
+    }
     setVisibleOnAllWorkspaces(...a: unknown[]) {
       this.rec.calls.push(["setVisibleOnAllWorkspaces", ...a]);
     }
@@ -170,6 +173,52 @@ describe.each<NodeJS.Platform>(["win32", "linux", "darwin"])("main window on %s"
   });
 });
 
+describe("main window controls under page zoom", () => {
+  it.each([
+    [1, 48],
+    [1.5, 72],
+    [2, 96],
+    [0.7, 34],
+    [0.5, 24],
+  ])("fits the bar at zoom factor %s (%s px)", async (zoom, height) => {
+    vi.resetModules();
+    const { mainTitleBarHeight } = await import("./windows");
+
+    expect(mainTitleBarHeight(zoom)).toBe(height);
+  });
+
+  it("falls back to the 100% height for a nonsense factor", async () => {
+    vi.resetModules();
+    const { mainTitleBarHeight } = await import("./windows");
+
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(mainTitleBarHeight(bad)).toBe(48);
+  });
+
+  it.each<NodeJS.Platform>(["win32", "linux", "darwin"])("re-fits the native controls on %s", async (platform) => {
+    Object.defineProperty(process, "platform", { value: platform });
+    vi.resetModules();
+    const { syncMainTitleBarZoom } = await import("./windows");
+    const overlay = vi.fn();
+    const buttons = vi.fn();
+    const win = {
+      webContents: { getZoomFactor: () => 1.5 },
+      setTitleBarOverlay: overlay,
+      setWindowButtonPosition: buttons,
+    };
+
+    syncMainTitleBarZoom(win as never);
+
+    if (platform === "darwin") {
+      expect(buttons).toHaveBeenCalledWith({ x: 16, y: 29 }); // (72 - 14) / 2
+      expect(overlay).not.toHaveBeenCalled();
+    } else {
+      // Height only — the theme sync owns the colours.
+      expect(overlay).toHaveBeenCalledWith({ height: 72 });
+      expect(buttons).not.toHaveBeenCalled();
+    }
+  });
+});
+
 describe("pinned popup size", () => {
   it("is tall enough to show the description beside the Assigned row and the action buttons", async () => {
     const rec = await createFor("linux");
@@ -182,4 +231,25 @@ describe("pinned popup size", () => {
     expect(maxHeight).toBeGreaterThan(height);
     expect(width).toBe(380);
   });
+});
+
+describe.each<NodeJS.Platform>(["win32", "darwin", "linux"])("pinned popup resizing on %s", (platform) => {
+  it("is resizable, within a min/max that keeps the content usable", async () => {
+    const rec = await createFor(platform);
+
+    expect(rec.options.resizable).toBe(true);
+    expect(rec.options).toMatchObject({ minWidth: 320, minHeight: 300, maxWidth: 440, maxHeight: 440 });
+  });
+
+  it(
+    platform === "linux"
+      ? "turns the dead native border off — the renderer's handles resize it"
+      : "keeps the OS's native resize border",
+    async () => {
+      const rec = await createFor(platform);
+      const resizable = rec.calls.filter(([name]) => name === "setResizable").map(([, v]) => v);
+
+      expect(resizable).toEqual([platform !== "linux"]);
+    },
+  );
 });

@@ -1,0 +1,163 @@
+{
+  "errors": {
+    "accessRevoked": "अब आपके पास इस कॉल की पहुँच नहीं है",
+    "notConfigured": "इस सर्वर पर ग्रुप कॉलिंग चालू नहीं है",
+    "couldNotJoin": "कॉल से जुड़ा नहीं जा सका",
+    "couldNotStart": "कॉल शुरू नहीं हो सकी",
+    "couldNotShareScreen": "आपकी स्क्रीन साझा नहीं हो सकी"
+  },
+  "notify": {
+    "screenShareStopped": "स्क्रीन शेयरिंग बंद हो गई",
+    "screenShareStoppedDescription": "कॉल से दोबारा जुड़ने पर आपकी शेयरिंग बंद हो गई — अगर आप अब भी प्रेज़ेंट कर रहे हैं, तो इसे फिर शुरू करें।",
+    "meetingEnded": "यह मीटिंग समाप्त हो गई है",
+    "micBlocked": "माइक्रोफ़ोन ब्लॉक है",
+    "micBlockedHint": "इस ऐप की माइक्रोफ़ोन अनुमति जाँचें।",
+    "micUnavailable": "माइक्रोफ़ोन उपलब्ध नहीं",
+    "micUnavailableHint": "जाँचें कि माइक्रोफ़ोन जुड़ा है और पहले से किसी और उपयोग में नहीं है।",
+    "cameraBlocked": "कैमरा ब्लॉक है",
+    "cameraBlockedHint": "इस ऐप की कैमरा अनुमति जाँचें।",
+    "cameraUnavailable": "कैमरा उपलब्ध नहीं",
+    "cameraUnavailableHint": "जाँचें कि कैमरा जुड़ा है और पहले से किसी और उपयोग में नहीं है।"
+  },
+  "preJoin": {
+    "readyToJoinLabel": "जुड़ने के लिए तैयार",
+    "leave": "छोड़ें",
+    "cameraOffPlaceholder": "आपका कैमरा बंद है",
+    "error": {
+      "deniedTitle": "कैमरा और माइक्रोफ़ोन ब्लॉक हैं",
+      "otherTitle": "आपके कैमरा या माइक्रोफ़ोन तक पहुँच नहीं हो सकी",
+      "deniedHint": "इस ऐप की कैमरा और माइक्रोफ़ोन अनुमति जाँचें, फिर दोबारा कोशिश करें।",
+      "otherHint": "सुनिश्चित करें कि कैमरा और माइक्रोफ़ोन जुड़े हैं और पहले से किसी और उपयोग में नहीं हैं, फिर दोबारा कोशिश करें।",
+      "tryAgain": "फिर कोशिश करें",
+      "openCameraSettings": "कैमरा सेटिंग खोलें",
+      "openMicrophoneSettings": "माइक्रोफ़ोन सेटिंग खोलें"
+    },
+    "muteMic": "माइक्रोफ़ोन म्यूट करें",
+    "unmuteMic": "माइक्रोफ़ोन अनम्यूट करें",
+    "cameraOff": "कैमरा बंद करें",
+    "cameraOn": "कैमरा चालू करें",
+    "heading": "जुड़ने के लिए तैयार हैं?",
+    "description": "मीटिंग में आने से पहले अपना कैमरा और माइक्रोफ़ोन जाँच लें।",
+    "joinButton": "मीटिंग से जुड़ें"
+  },
+  "waitingRoom": {
+    "canStartHint": "आप यहाँ सबसे पहले हैं। बाकी सबको अंदर लाने के लिए इसे शुरू करें।",
+    "waitingHint": "यह अभी खोली नहीं गई है। शुरू होते ही आप अपने-आप जुड़ जाएँगे।",
+    "leave": "छोड़ें",
+    "starting": "शुरू हो रही है…",
+    "startNow": "अभी शुरू करें"
+  },
+  "joinFailed": {
+    "anotherDeviceTitle": "आप इस मीटिंग में पहले से किसी दूसरे डिवाइस पर हैं",
+    "anotherDeviceHint": "आप अभी इस मीटिंग से किसी दूसरे डिवाइस द्वारा जुड़े हुए हैं।",
+    "switchHere": "यहाँ ले आएँ",
+    "displacedTitle": "आप इस मीटिंग में किसी दूसरे डिवाइस से जुड़ गए",
+    "displacedHint": "यह मीटिंग अब किसी दूसरे डिवाइस पर सक्रिय है।",
+    "tokenTitle": "मीटिंग के क्रेडेंशियल नहीं मिल सके",
+    "disconnectedTitle": "मीटिंग से कनेक्शन टूट गया",
+    "genericTitle": "मीटिंग से कनेक्ट नहीं हो सका",
+    "tokenHint": "टोकन का अनुरोध पूरा नहीं हुआ। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+    "disconnectedHint": "मीटिंग से कनेक्शन टूट गया और बहाल नहीं हो सका। अपना कनेक्शन जाँचें, फिर दोबारा जुड़ें।",
+    "genericHint": "मीटिंग सर्वर से कनेक्शन नहीं बन पाया। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+    "leave": "छोड़ें",
+    "retrying": "फिर कोशिश हो रही है…",
+    "retry": "फिर कोशिश करें"
+  },
+  "room": {
+    "defaultTitleChannel": "चैनल कॉल",
+    "defaultTitleMeeting": "मीटिंग",
+    "youFallbackName": "आप",
+    "addPeopleDefaultTitle": "लोग जोड़ें",
+    "channelAlreadyInvited": "चैनल के सभी लोग पहले ही आमंत्रित हैं",
+    "header": {
+      "participantsPresent_one": "{{count}} प्रतिभागी उपस्थित",
+      "participantsPresent_other": "{{count}} प्रतिभागी उपस्थित",
+      "external": "{{count}} बाहरी",
+      "recording": "रिकॉर्ड हो रही है",
+      "reconnecting": "दोबारा कनेक्ट हो रहा है…",
+      "connecting": "कनेक्ट हो रहा है…"
+    },
+    "stage": {
+      "speaking": "बोल रहे हैं",
+      "presenting": "प्रेज़ेंट कर रहे हैं",
+      "connectingPlaceholder": "कनेक्ट हो रहा है…"
+    },
+    "toasts": {
+      "recordingSaved": "रिकॉर्डिंग आपके डाउनलोड में सहेजी गई",
+      "recordingUnsupported": "यह ब्राउज़र मीटिंग रिकॉर्ड नहीं कर सकता",
+      "recordingStarted": "रिकॉर्डिंग शुरू हुई — यह इस डिवाइस पर सहेजी जाएगी",
+      "inviteLinkCopied": "आमंत्रण लिंक कॉपी हो गया"
+    }
+  },
+  "controls": {
+    "addPeopleDefault": "लोग जोड़ें",
+    "stopSharing": "स्क्रीन साझा करना बंद करें",
+    "startSharing": "अपनी स्क्रीन साझा करें",
+    "callDurationAriaLabel": "कॉल की अवधि",
+    "mute": "म्यूट करें",
+    "unmute": "अनम्यूट करें",
+    "cameraOff": "कैमरा बंद करें",
+    "cameraOn": "कैमरा चालू करें",
+    "endCall": "कॉल समाप्त करें"
+  },
+  "roster": {
+    "ariaLabel": "प्रतिभागी",
+    "title": "प्रतिभागी",
+    "searchPlaceholder": "सदस्य खोजें…",
+    "searchAriaLabel": "सदस्य खोजें",
+    "inMeetingCount": "मीटिंग में · {{count}}",
+    "youSuffix": " (आप)",
+    "sharing": "साझा कर रहे हैं",
+    "handUp": "हाथ उठा है",
+    "pin": "{{name}} को पिन करें",
+    "unpin": "{{name}} को अनपिन करें",
+    "showMore": "+{{count}} और सदस्य",
+    "showLess": "कम दिखाएँ",
+    "noMatches": "\"{{query}}\" से कोई सदस्य मेल नहीं खाता।",
+    "inviteMembers": "सदस्यों को आमंत्रित करें"
+  },
+  "tile": {
+    "presentingScreen": "आप अपनी स्क्रीन प्रेज़ेंट कर रहे हैं",
+    "pin": "{{name}} को पिन करें",
+    "unpin": "{{name}} को अनपिन करें",
+    "handRaisedTitle": "{{name}} ने हाथ उठाया है",
+    "youSuffix": " (आप)",
+    "unpinStageTitle": "{{name}} को मुख्य दृश्य से अनपिन करें",
+    "unpinStageAriaLabel": "मुख्य दृश्य को अनपिन करें",
+    "unpinStageButton": "अनपिन करें"
+  },
+  "callUi": {
+    "couldNotOpenRoom": "कॉल रूम नहीं खुल सका",
+    "movingToRoom": "सबको रूम में ले जाया जा रहा है…",
+    "decline": "अस्वीकार करें",
+    "accept": "स्वीकार करें",
+    "incomingVideo": "आने वाली वीडियो कॉल…",
+    "incomingVoice": "आने वाली वॉइस कॉल…",
+    "peerFallbackName": "उपयोगकर्ता",
+    "subtitle": {
+      "sharing": "{{peer}} अपनी स्क्रीन साझा कर रहे हैं",
+      "connected": "कनेक्ट हो गया",
+      "callEnded": "कॉल समाप्त हुई",
+      "calling": "कॉल कर रहे हैं…"
+    },
+    "audioBlocked": {
+      "title": "कॉल सुनने के लिए टैप करें",
+      "description": "आपके ब्राउज़र ने आपके इंटरैक्ट करने तक ऑडियो प्लेबैक रोक रखा है।"
+    }
+  },
+  "addPeopleDialog": {
+    "shareTitle": "मीटिंग लिंक साझा करें",
+    "shareDescription": "सुरक्षित लिंक से साथियों को इस मीटिंग में जुड़ने के लिए आमंत्रित करें।",
+    "cancel": "रद्द करें",
+    "sendLink": "लिंक भेजें",
+    "sendTitle": "मीटिंग लिंक भेजें",
+    "linkSentWithExceptions": "लिंक कुछ अपवादों के साथ भेजा गया",
+    "linkSentWithExceptionsDescription": "{{sent}} को भेजा गया, {{failed}} तक नहीं पहुँचा जा सका।",
+    "linkSent": "लिंक भेजा गया",
+    "linkSentToMembers": "{{count}} सदस्यों को लिंक भेजा गया",
+    "addedToCall": "कॉल में जोड़ा गया",
+    "addedPeople": "{{count}} लोग जोड़े गए",
+    "couldNotAdd": "इस कॉल में किसी को नहीं जोड़ा जा सका",
+    "groupCallingUnavailable": "हो सकता है कि इस सर्वर पर ग्रुप कॉलिंग उपलब्ध न हो।"
+  }
+}

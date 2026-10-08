@@ -1,0 +1,55 @@
+{
+  "menu": {
+    "file": "फ़ाइल",
+    "showApp": "BlissWork दिखाएँ",
+    "quit": "बाहर निकलें",
+    "view": "देखें",
+    "aboutItem": "BlissWork के बारे में",
+    "aboutTitle": "BlissWork के बारे में",
+    "aboutMessage": "BlissWork",
+    "aboutDetail": "वर्शन {{version}}\nElectron {{electron}} · Chromium {{chrome}}\n\nटीम मैसेजिंग + टास्क, हमेशा ऊपर रहने वाले स्टिकी नोट के साथ।",
+    "ok": "ठीक है",
+    "webHelp": "वेब पर BlissWork"
+  },
+  "tray": {
+    "tooltipIdle": "BlissWork",
+    "tooltipTasks_one": "BlissWork — {{count}} सक्रिय टास्क",
+    "tooltipTasks_other": "BlissWork — {{count}} सक्रिय टास्क",
+    "activeTasks": "सक्रिय टास्क: {{count}}",
+    "show": "BlissWork दिखाएँ",
+    "quit": "बाहर निकलें"
+  },
+  "notifications": {
+    "brand": "BlissWork",
+    "newMessage": "नया संदेश",
+    "taskUpdate": "टास्क अपडेट",
+    "meeting": "मीटिंग",
+    "channelUpdate": "चैनल अपडेट",
+    "attachment": "अटैचमेंट भेजा",
+    "incomingVideoCall": "📹 आने वाली वीडियो कॉल",
+    "incomingVoiceCall": "📞 आने वाली वॉइस कॉल",
+    "accept": "स्वीकार करें",
+    "decline": "अस्वीकार करें"
+  },
+  "updater": {
+    "restartNow": "अभी रीस्टार्ट करें",
+    "later": "बाद में",
+    "updateReady": "अपडेट तैयार है",
+    "readyMessage": "BlissWork {{version}} इंस्टॉल के लिए तैयार है।",
+    "readyDetail": "अपडेट लागू करने के लिए ऐप रीस्टार्ट करें। अगली बार बाहर निकलने पर यह अपने-आप भी इंस्टॉल हो जाएगा।",
+    "devUnsupported": "अपडेट केवल इंस्टॉल किए गए बिल्ड पर लागू होते हैं।",
+    "storeManaged": "इस ऐप के अपडेट Microsoft Store प्रबंधित करता है।",
+    "unreachable": "अपडेट सर्वर से संपर्क नहीं हो सका।"
+  },
+  "attachment": {
+    "notMainWindow": "अस्वीकृत: यह मुख्य विंडो नहीं है।",
+    "unsafeUrl": "असुरक्षित URL अस्वीकार किया गया।",
+    "downloadFailed": "डाउनलोड विफल रहा ({{status}})।",
+    "emptyBody": "रिस्पॉन्स बॉडी खाली है।",
+    "couldNotOpen": "फ़ाइल नहीं खुल सकी।"
+  },
+  "windows": {
+    "meetingTitle": "मीटिंग · BlissWork",
+    "loading": "लोड हो रहा है…"
+  }
+}

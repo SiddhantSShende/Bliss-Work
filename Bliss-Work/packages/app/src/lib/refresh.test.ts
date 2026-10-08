@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
-import { ensureFreshSession, isOffline, refreshSession } from "./refresh";
+import { ensureFreshSession, isOffline, isSessionDead, refreshSession } from "./refresh";
 
 const AUTH = "https://auth.example.test";
 const USER: SessionDTO["user"] = {
@@ -56,6 +56,19 @@ describe("refreshSession while offline", () => {
 
     expect(isOffline()).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("refreshSession with an invalid refresh token", () => {
+  it("treats the server's unknown-token response as terminal instead of retrying forever", async () => {
+    signInExpiringIn(-1_000);
+    refreshReplies({ code: "unknown" }, 401);
+
+    await expect(refreshSession(AUTH)).resolves.toBeNull();
+
+    expect(isSessionDead()).toBe(true);
+    expect(useSession.getState().status).toBe("anon");
+    useSession.getState().setSession({ user: USER, accessToken: "reset-token", expiresIn: 900 });
   });
 });
 

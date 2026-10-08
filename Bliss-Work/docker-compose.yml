@@ -136,47 +136,6 @@ services:
       timeout: 5s
       retries: 20
 
-  # ── Google Cloud Translation gateway (opt-in: `--profile i18n`) ─────────────
-  # Owns ALL UI translation: language list, English source catalogs, placeholder
-  # protection, cache (REDIS_URL) and the Cloud Translation calls. The official Go
-  # client authenticated by Application Default Credentials: the library mints and
-  # refreshes its own access tokens. No service-account key, no API key, and no
-  # token in any env file or image. auth-svc (TRANSLATE_GW_URL +
-  # TRANSLATE_INTERNAL_TOKEN) is its only caller; no host port is published.
-  #
-  # THE credential configuration point (same variables in docker-compose.prod.yml):
-  #   TRANSLATE_ADC_DIR                host directory, mounted READ-ONLY at /run/adc
-  #   TRANSLATE_GOOGLE_CREDENTIALS     path of the credential file INSIDE the container
-  #                                    (default /run/adc/credentials.json). Set it EMPTY
-  #                                    to use Google's normal ADC chain instead (metadata
-  #                                    server on GCE/GKE/Cloud Run; no file needed).
-  # A directory (not a file) is mounted so a missing credential is just "not
-  # configured" instead of Docker creating a stray directory in its place.
-  # DEV: after `gcloud auth application-default login`, set in .env
-  #   TRANSLATE_ADC_DIR=<your ~/.config/gcloud, as an explicit path — under `sudo docker`
-  #                      $HOME is root's>
-  #   TRANSLATE_GOOGLE_CREDENTIALS=/run/adc/application_default_credentials.json
-  #   TRANSLATE_RUN_AS=<id -u>:<id -g>   (so the container can read the 0600 file)
-  # With the profile off (or no credential) the language switcher stays English-only.
-  translate-gw:
-    <<: *svc-defaults
-    profiles: ["i18n"]
-    build:
-      context: .
-      dockerfile: services/translate-gw/Dockerfile
-    user: "${TRANSLATE_RUN_AS:-10001}"
-    environment:
-      GOOGLE_APPLICATION_CREDENTIALS: ${TRANSLATE_GOOGLE_CREDENTIALS-/run/adc/credentials.json}
-    volumes:
-      - ${TRANSLATE_ADC_DIR:-./keys/translate-adc}:/run/adc:ro
-    depends_on:
-      redis: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8012/readyz || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   email-worker:
     <<: *svc-defaults
     build:
@@ -189,6 +148,12 @@ services:
       kafka-init: { condition: service_completed_successfully }
       mailpit: { condition: service_healthy }
       auth-svc: { condition: service_healthy } # resolves recipient e-mail via internal API
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
 
   task-svc:
     <<: *svc-defaults
@@ -234,6 +199,11 @@ services:
       context: .
       dockerfile: services/messaging-svc/Dockerfile
     ports: ["127.0.0.1:${MESSAGING_PORT}:8004"]
+    # The Office Document Sandbox (service below) is reached over its own
+    # internal-only network; taskboard is re-listed because this replaces the anchor's.
+    networks: [taskboard, converter]
+    environment:
+      CONVERTER_URL: http://doc-converter:9000
     # Chat attachment bytes. (The dev anchor declares no `volumes:`, so unlike
     # docker-compose.prod.yml there is no merge key to preserve here.)
     volumes:
@@ -247,6 +217,30 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # Office Document Sandbox: converts hostile Office files into preview artifacts.
+  # Same isolation as production (docker-compose.prod.yml documents why): its own
+  # internal-only network, no env_file, no published port, read-only, no caps.
+  doc-converter:
+    build:
+      context: .
+      dockerfile: services/doc-converter/Dockerfile
+    restart: unless-stopped
+    init: true
+    networks: [converter]
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9000/healthz', timeout=2).status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "2.00", memory: 1280M, pids: 256 }
 
   integrations-svc:
     <<: *svc-defaults
@@ -296,6 +290,8 @@ services:
       context: .
       dockerfile: services/sticky-svc/Dockerfile
     ports: ["127.0.0.1:${STICKY_PORT:-8008}:8008"]
+    environment:
+      STICKY_INTERNAL_TOKEN: ${STICKY_INTERNAL_TOKEN:-dev-internal-token-sticky}
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -321,6 +317,8 @@ services:
       # module services/shared/kafkaauth.
       context: .
       dockerfile: services/sticky-relay/Dockerfile
+    environment:
+      STICKY_INTERNAL_TOKEN: ${STICKY_INTERNAL_TOKEN:-dev-internal-token-sticky}
     depends_on:
       kafka-init: { condition: service_completed_successfully }
       sticky-svc: { condition: service_healthy }
@@ -564,3 +562,7 @@ volumes:
 networks:
   taskboard:
     driver: bridge
+  # internal: true = no route out. Only doc-converter and messaging-svc attach.
+  converter:
+    driver: bridge
+    internal: true

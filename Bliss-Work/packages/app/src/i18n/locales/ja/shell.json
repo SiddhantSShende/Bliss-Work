@@ -1,0 +1,142 @@
+{
+  "search": {
+    "title": "検索",
+    "resultsFor": "「{{query}}」の検索結果",
+    "empty": {
+      "title": "{{brand}}を検索",
+      "hint": "人、チャンネル、チャット、タスクを探せます。"
+    },
+    "noResults": {
+      "title": "一致するものがありません",
+      "hint": "「{{query}}」に一致するものはありませんでした。"
+    },
+    "groups": {
+      "people": "メンバー",
+      "channels": "チャンネル",
+      "chats": "チャット",
+      "tasks": "タスク"
+    },
+    "channelMembers_other": "{{count}}人のメンバー"
+  },
+  "nav": {
+    "mail": "メール",
+    "meetings": "ミーティング",
+    "chats": "チャット",
+    "tasks": "タスク",
+    "channels": "チャンネル",
+    "members": "メンバー",
+    "org": "組織",
+    "settings": "設定",
+    "more": "その他"
+  },
+  "railBtn": {
+    "titleWithBadge": "{{label}}(新着{{count}}件)",
+    "unreadAriaLabel": "未読{{count}}件"
+  },
+  "notifications": {
+    "title": "通知",
+    "empty": {
+      "noneYet": "通知はまだありません",
+      "hint": "更新情報やアクティビティがここに表示されます。"
+    },
+    "error": {
+      "title": "通知を読み込めませんでした",
+      "hint": "通知は失われていません。接続を確認して、もう一度お試しください。",
+      "retry": "再試行",
+      "partial": "一部の通知を読み込めませんでした。もう一度お試しください"
+    },
+    "message": {
+      "title": "新着メッセージ",
+      "body": "新しいメッセージが届いています",
+      "someone": "誰か",
+      "aChannel": "チャンネル"
+    },
+    "row": {
+      "markRead": "既読にする"
+    },
+    "loadMore": "さらに読み込む",
+    "loadingMore": "読み込み中…"
+  },
+  "profileMenu": {
+    "accountMenuTitle": "{{name}} — アカウントメニュー",
+    "accountMenuAriaLabel": "アカウントメニュー",
+    "online": "オンライン",
+    "editProfile": "プロフィールを編集",
+    "settings": "設定",
+    "lightMode": "ライトモード",
+    "darkMode": "ダークモード",
+    "signOut": "ログアウト"
+  },
+  "getAppButton": {
+    "getDesktopApp": "デスクトップアプリを入手",
+    "downloadForPlatform": "{{platform}}用{{brand}}をダウンロード — {{requirement}}",
+    "getApp": "アプリを入手",
+    "downloadHeading": "{{brand}}をダウンロード",
+    "requirement": {
+      "windows": "Windows 10・11 · 64ビット",
+      "mac": "macOS 11 Big Sur以降",
+      "linux": "AppImage(汎用)または.deb"
+    }
+  },
+  "roleBadge": {
+    "admin": "管理者",
+    "member": "メンバー"
+  },
+  "activityNotice": {
+    "message": "{{brand}}でのあなたのアクティビティは記録され、本人とワークスペースの管理者が確認できます。",
+    "seeRecorded": "記録される内容を見る"
+  },
+  "listPane": {
+    "back": "戻る"
+  },
+  "exportActivity": {
+    "customRange": "期間を指定",
+    "title": {
+      "forMember": "{{name}}のアクティビティをエクスポート",
+      "workspace": "アクティビティをエクスポート"
+    },
+    "from": "開始",
+    "to": "終了",
+    "description": "メンバーごと・日ごとに1行で出力します。アクティブ時間とアイドル時間、セッション数、記録された操作、最も長く使ったセクションが含まれます。日付はお使いのタイムゾーンで集計されます。",
+    "cancel": "キャンセル",
+    "exportButton": ".xlsxでエクスポート",
+    "toasts": {
+      "nothingToExport": "この期間のアクティビティはないため、エクスポートするものがありません。",
+      "exported_other": "{{count}}行をエクスポートしました",
+      "exportFailedFallback": "エクスポートに失敗しました"
+    }
+  },
+  "activityExport": {
+    "sheets": {
+      "summary": "サマリー",
+      "daily": "日別",
+      "sessions": "セッション"
+    },
+    "columns": {
+      "member": "メンバー",
+      "email": "メール",
+      "day": "日付",
+      "active": "アクティブ",
+      "activeHours": "アクティブ(時間)",
+      "idle": "アイドル",
+      "signedIn": "ログイン中",
+      "sessions": "セッション",
+      "actions": "操作",
+      "firstSeen": "初回確認({{tz}})",
+      "lastSeen": "最終確認({{tz}})",
+      "topSection": "最多利用セクション",
+      "daysActive": "アクティブ日数",
+      "avgPerActiveDay": "アクティブ日あたりの平均",
+      "device": "デバイス",
+      "started": "開始({{tz}})",
+      "ended": "終了({{tz}})",
+      "endedBecause": "終了理由",
+      "network": "ネットワーク"
+    },
+    "stillActive": "アクティブ中"
+  },
+  "liveEvents": {
+    "channelBlocked": "チャンネルからブロックされました",
+    "channelRemoved": "チャンネルから削除されました"
+  }
+}

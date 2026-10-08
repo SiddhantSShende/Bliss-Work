@@ -1,0 +1,314 @@
+{
+  "preview": {
+    "linkReceived": "Link recebido",
+    "linkSent": "Link enviado",
+    "locationShared": "Localização compartilhada",
+    "fileSent": "Arquivo enviado",
+    "imageSent": "Imagem enviada",
+    "videoSent": "Vídeo enviado",
+    "imagesSent_one": "{{count}} imagem enviada",
+    "imagesSent_many": "{{count}} de imagens enviadas",
+    "imagesSent_other": "{{count}} imagens enviadas",
+    "filesSent_one": "{{count}} arquivo enviado",
+    "filesSent_many": "{{count}} de arquivos enviados",
+    "filesSent_other": "{{count}} arquivos enviados"
+  },
+  "common": {
+    "cancel": "Cancelar",
+    "join": "Entrar",
+    "pinnedLabel": "Fixado",
+    "mutedLabel": "Silenciado",
+    "muteNotifications": "Silenciar notificações",
+    "unmuteNotifications": "Reativar notificações",
+    "memberCount_one": "{{count}} membro",
+    "memberCount_many": "{{count}} de membros",
+    "memberCount_other": "{{count}} membros"
+  },
+  "chatsList": {
+    "title": "Chats",
+    "newChat": "Novo chat",
+    "searchAriaLabel": "Buscar chats",
+    "searchPlaceholder": "Buscar chats...",
+    "filtersAriaLabel": "Filtros de chat",
+    "filters": {
+      "all": "todos",
+      "unread": "não lidos",
+      "mentions": "menções"
+    },
+    "you": "Você",
+    "startChatting": "Começar a conversar",
+    "empty": {
+      "title": "Nenhum chat ainda",
+      "hint": "Toque em + para iniciar uma conversa."
+    },
+    "emptySearch": {
+      "title": "Nenhum chat correspondente",
+      "hint": "Tente outra busca ou outro filtro."
+    },
+    "menu": {
+      "optionsLabel": "Opções do chat",
+      "pin": "Fixar chat",
+      "unpin": "Desafixar chat",
+      "delete": "Excluir chat"
+    },
+    "deleteDialog": {
+      "title": "Excluir o histórico do chat?",
+      "message": "Isso excluirá o histórico deste chat para você. A outra pessoa manterá a cópia dela.",
+      "confirmLabel": "Excluir chat"
+    },
+    "deleteErrorToast": "Não foi possível excluir este chat"
+  },
+  "channelsList": {
+    "title": "Canais",
+    "addChannel": "Adicionar canal",
+    "searchAriaLabel": "Buscar canais",
+    "searchPlaceholder": "Buscar canais...",
+    "filtersAriaLabel": "Filtros de canal",
+    "filters": {
+      "all": "todos",
+      "unread": "não lidos"
+    },
+    "tabs": {
+      "mine": "Meus canais",
+      "browse": "Explorar"
+    },
+    "empty": {
+      "title": "Nenhum canal ainda",
+      "hint": "Toque em + para criar um ou em Explorar para encontrar canais abertos."
+    },
+    "emptySearch": {
+      "title": "Nenhum canal correspondente",
+      "hint": "Tente outra busca ou outro filtro."
+    },
+    "loadError": {
+      "title": "Não foi possível carregar os canais abertos",
+      "hint": "Algo deu errado ao buscar o diretório.",
+      "retry": "Tentar novamente"
+    },
+    "emptyOpen": {
+      "title": "Nenhum canal aberto para entrar",
+      "hint": "Os canais abertos criados pelos seus colegas aparecerão aqui."
+    },
+    "loadMore": "Carregar mais",
+    "leaveSuccessToast": "Você saiu do canal.",
+    "leaveErrorToast": "Não foi possível sair",
+    "menu": {
+      "optionsLabel": "Opções do canal",
+      "pin": "Fixar canal",
+      "unpin": "Desafixar canal",
+      "leave": "Sair do canal",
+      "leaving": "Saindo…"
+    }
+  },
+  "leaveChannel": {
+    "titleNamed": "Sair de #{{channel}}?",
+    "titleGeneric": "Sair do canal?",
+    "messageLocked": "Este é um canal restrito. Um membro precisará convidar você novamente para você voltar.",
+    "messageOpen": "Você pode entrar novamente pela aba Explorar quando quiser.",
+    "confirmLabel": "Sair do canal"
+  },
+  "newChat": {
+    "title": "Novo chat",
+    "searchPlaceholder": "Buscar pessoas…",
+    "emptyTitle": "Nenhuma pessoa encontrada",
+    "errorToast": {
+      "title": "Não foi possível iniciar a conversa",
+      "description": "Tente novamente."
+    }
+  },
+  "addChannel": {
+    "title": "Adicionar canal",
+    "tabs": {
+      "create": "Criar novo canal",
+      "browse": "Adicionar canal"
+    },
+    "searchPlaceholder": "Buscar canais…",
+    "loading": "Carregando canais…",
+    "empty": {
+      "title": "Nenhum canal ainda",
+      "hint": "Crie um pela outra aba."
+    },
+    "emptySearch": {
+      "title": "Nenhum canal correspondente",
+      "hint": "Tente outra busca."
+    },
+    "loadError": "Não foi possível carregar o diretório completo de canais.",
+    "retry": "Tentar novamente",
+    "row": {
+      "private": "Privado",
+      "public": "Público",
+      "joined": "Participando"
+    }
+  },
+  "createChannel": {
+    "channelNameLabel": "Nome do canal",
+    "channelNamePlaceholder": "equipe-de-design",
+    "visibilityLabel": "Visibilidade",
+    "openOption": {
+      "label": "Aberto",
+      "hint": "Qualquer pessoa da organização pode entrar"
+    },
+    "lockedOption": {
+      "label": "Restrito",
+      "hint": "Somente por convite"
+    },
+    "membersLabel": "Membros",
+    "membersLabelWithCount": "Membros ({{count}})",
+    "noMembers": "Nenhum membro adicionado ainda.",
+    "removeMemberAriaLabel": "Remover {{name}}",
+    "removeMemberFallback": "membro",
+    "addMember": "Adicionar membro",
+    "createButton": "Criar canal",
+    "creating": "Criando…",
+    "nameRequiredToast": "Dê um nome ao canal",
+    "createErrorToast": "Não foi possível criar o canal"
+  },
+  "renameChannel": {
+    "title": "Renomear canal",
+    "placeholder": "Nome do canal",
+    "save": "Salvar",
+    "saving": "Salvando…",
+    "successToast": "Canal renomeado",
+    "errorToast": "Não foi possível renomear o canal"
+  },
+  "channelMembers": {
+    "addPeople": "Adicionar pessoas",
+    "addedToast": "Adicionado ao canal",
+    "actionFailed": "Falha na ação",
+    "youSuffix": " (você)",
+    "roles": {
+      "owner": "proprietário",
+      "admin": "admin",
+      "member": "membro"
+    },
+    "workspaceAdmin": "Admin do espaço de trabalho",
+    "unknownUsername": "desconhecido",
+    "actions": {
+      "makeAdmin": "Tornar admin do canal",
+      "removeAdmin": "Remover como admin do canal",
+      "transferOwnership": "Transferir propriedade",
+      "removeFromChannel": "Remover do canal",
+      "blockFromChannel": "Bloquear no canal"
+    },
+    "blockedHeading": "Bloqueados",
+    "unblock": "Desbloquear",
+    "fallbackThem": "a pessoa",
+    "transferConfirm": {
+      "title": "Transferir a propriedade?",
+      "message": "Transferir a propriedade de #{{channel}} para {{name}}? Você passará a ser admin do canal.",
+      "confirmLabel": "Transferir"
+    },
+    "blockConfirm": {
+      "title": "Bloquear no canal?",
+      "message": "Bloquear {{name}} em #{{channel}}? A pessoa será removida e não poderá entrar de novo.",
+      "confirmLabel": "Bloquear"
+    }
+  },
+  "chatSearchBar": {
+    "placeholder": "Buscar nesta conversa…",
+    "ariaLabel": "Buscar nesta conversa",
+    "noMatches": "Nenhum resultado",
+    "matchesOfLoaded": "{{matches}} de {{loaded}} carregadas",
+    "clearSearch": "Limpar busca",
+    "closeSearch": "Fechar busca"
+  },
+  "chatAssets": {
+    "tabs": {
+      "media": "Mídia",
+      "docs": "Docs",
+      "links": "Links"
+    },
+    "scopeNote_one": "Da {{count}} mensagem carregada aqui — carregue mensagens mais antigas na conversa para incluir mais.",
+    "scopeNote_many": "Das {{count}} de mensagens carregadas aqui — carregue mensagens mais antigas na conversa para incluir mais.",
+    "scopeNote_other": "Das {{count}} mensagens carregadas aqui — carregue mensagens mais antigas na conversa para incluir mais.",
+    "emptyMedia": {
+      "title": "Nenhuma foto ou vídeo ainda",
+      "hint": "As imagens e os clipes compartilhados nesta conversa ficam reunidos aqui."
+    },
+    "unavailable": "Indisponível",
+    "openItem": "Abrir {{name}}",
+    "downloadItem": "Baixar {{name}}",
+    "emptyDocs": {
+      "title": "Nenhum documento ainda",
+      "hint": "Arquivos que não são fotos nem vídeos — PDFs, planilhas, arquivos compactados — ficam reunidos aqui."
+    },
+    "previewUnavailable": "A visualização não está disponível para este tipo de arquivo",
+    "emptyLinks": {
+      "title": "Nenhum link ainda",
+      "hint": "Os endereços da web publicados nesta conversa ficam reunidos aqui."
+    }
+  },
+  "pinButton": {
+    "pin": "Fixar na área de trabalho",
+    "unpin": "Desafixar da área de trabalho"
+  },
+  "selectionToolbar": {
+    "selectedCount_one": "{{count}} selecionada",
+    "selectedCount_many": "{{count}} de selecionadas",
+    "selectedCount_other": "{{count}} selecionadas",
+    "cannotDelete_one": "· {{count}} não pode ser excluída",
+    "cannotDelete_many": "· {{count}} de mensagens não podem ser excluídas",
+    "cannotDelete_other": "· {{count}} não podem ser excluídas",
+    "forward": "Encaminhar",
+    "delete": "Excluir"
+  },
+  "messageStatus": {
+    "pending": "Enviando…",
+    "sent": "Enviada",
+    "delivered": "Entregue",
+    "seen": "Vista"
+  },
+  "forwardBadge": {
+    "titleWithPlatform": "O {{brand}} abriu o {{platform}} com a mensagem já preenchida. Não temos como saber se ela foi enviada.",
+    "titleWhatsapp": "O {{brand}} abriu o WhatsApp com a mensagem já preenchida. Não temos como saber se ela foi enviada.",
+    "notConfirmed": "· não confirmado",
+    "messageForwardedTo": "Mensagem encaminhada para {{platform}}"
+  },
+  "forwardTo": {
+    "titleSingle": "Encaminhar para…",
+    "titleMultiple": "Encaminhar {{count}} mensagens",
+    "messagesPrefix": "{{count}} mensagens · ",
+    "searchPlaceholder": "Buscar pessoas e canais…",
+    "selectedCount_one": "{{count}} selecionado",
+    "selectedCount_many": "{{count}} de selecionados",
+    "selectedCount_other": "{{count}} selecionados",
+    "clearSelection": "Limpar",
+    "noMatches": "Nenhuma pessoa ou canal correspondente.",
+    "peopleHeading": "Pessoas",
+    "channelsHeading": "Canais",
+    "forwardToOne": "Encaminhar para {{name}}",
+    "forwardToMany": "Encaminhar para {{count}} destinos",
+    "forwardDefault": "Encaminhar",
+    "fallbackChannel": "um canal",
+    "fallbackPerson": "uma pessoa",
+    "toasts": {
+      "openAction": "Abrir",
+      "oneSuccess": "Encaminhada para {{destination}}",
+      "allSuccess": "Encaminhada com sucesso para {{count}} destinos.",
+      "allFailed_one": "Falha ao encaminhar para {{count}} destino.",
+      "allFailed_many": "Falha ao encaminhar para {{count}} de destinos.",
+      "allFailed_other": "Falha ao encaminhar para {{count}} destinos.",
+      "partialSuccess_one": "Encaminhada com sucesso para {{count}} destino.",
+      "partialSuccess_many": "Encaminhada com sucesso para {{count}} de destinos.",
+      "partialSuccess_other": "Encaminhada com sucesso para {{count}} destinos.",
+      "partialFailedDescription": "Falha ao encaminhar para {{count}}: {{list}}",
+      "genericError": {
+        "title": "Não foi possível encaminhar",
+        "description": "Tente novamente."
+      }
+    }
+  },
+  "chatsEmpty": {
+    "welcomeWithName": "Boas-vindas, {{name}} 👋",
+    "welcome": "Boas-vindas 👋",
+    "hint": "Selecione um chat à esquerda ou toque em + para iniciar uma nova conversa."
+  },
+  "channelsEmpty": {
+    "title": "Canais",
+    "hint": "Escolha um canal à esquerda ou toque em + para criar um."
+  },
+  "joinChannel": {
+    "joined": "Você entrou no canal.",
+    "couldNotJoin": "Não foi possível entrar"
+  }
+}

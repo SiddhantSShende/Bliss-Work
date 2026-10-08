@@ -1,6 +1,8 @@
 import { app, dialog, type BrowserWindow } from "electron";
 import electronUpdater, { type UpdateInfo } from "electron-updater";
 import { checkSecondSource } from "./update-integrity";
+import { pickDownloadedFile } from "./update-artifact";
+import { mainT } from "./i18n";
 
 // electron-updater ships CommonJS; under ESM interop the named exports live on the
 // default export object.
@@ -135,6 +137,12 @@ let windowGetter: (() => BrowserWindow | null) | null = null;
 // background path (check() / checkOnWindowFocus()). Gates whether a later
 // "error" event is worth interrupting the user for.
 let manualCheckInFlight = false;
+// True while an on-demand check's own checkForUpdates() call is awaited. The
+// events it fires (update-available → verifyAndDownload) can run to a refusal
+// before that call returns, i.e. before manualCheckInFlight is set.
+let manualCheckPending = false;
+let refusedDuringManualCheck = false;
+const INTEGRITY_FAILED_MESSAGE = "Update integrity check failed. Please try again later.";
 // The version whose installer has been downloaded this session, and the one the
 // restart prompt was last shown for. The prompt is shown once per version: a
 // "Later" is an answer, and the 3-minute check must not ask again.
@@ -152,12 +160,12 @@ function promptRestart(version: string, asked: boolean): void {
   void dialog
     .showMessageBox({
       type: "info",
-      buttons: ["Restart now", "Later"],
+      buttons: [mainT("updater.restartNow"), mainT("updater.later")],
       defaultId: 0,
       cancelId: 1,
-      title: "Update ready",
-      message: `BlissWork ${version} is ready to install.`,
-      detail: "Restart the app to apply the update. It will also install automatically the next time you quit.",
+      title: mainT("updater.updateReady"),
+      message: mainT("updater.readyMessage", { version }),
+      detail: mainT("updater.readyDetail"),
     })
     .then(({ response }) => {
       // Defer so the dialog is fully dismissed before the app relaunches.
@@ -183,9 +191,36 @@ function check(): void {
  * whether the download actually starts.
  */
 async function verifyAndDownload(info: UpdateInfo): Promise<void> {
-  const artifact = info.files[0];
-  const expectedSha512 = artifact?.sha512 ?? info.sha512;
-  const artifactFileName = artifact?.url ?? info.path;
+  // Refuse to install: same renderer-notification path as a failed download
+  // (see the "error" handler above) — only worth interrupting the user if
+  // they're the one who asked.
+  const refuse = (reason: string) => {
+    console.error(`[updater] refusing update ${info.version}: ${reason}`);
+    if (manualCheckPending) {
+      // Fired from inside the on-demand check itself, before it has returned:
+      // it answers the user directly (see checkForUpdatesNow).
+      refusedDuringManualCheck = true;
+    } else if (manualCheckInFlight) {
+      manualCheckInFlight = false;
+      windowGetter?.()?.webContents.send("update:check-failed", INTEGRITY_FAILED_MESSAGE);
+    }
+  };
+
+  // The hash to compare is the one of the file electron-updater will really
+  // download for this platform/arch — not files[0], which in latest-mac.yml is
+  // some other installer. A legacy manifest with no files[] only has the
+  // top-level path/sha512.
+  let artifactFileName = info.path;
+  let expectedSha512 = info.sha512;
+  if (info.files?.length) {
+    const artifact = pickDownloadedFile(info.files, process.platform, process.arch);
+    if (!artifact) {
+      refuse(`no ${process.platform}/${process.arch} installer in the update manifest`);
+      return;
+    }
+    artifactFileName = artifact.url;
+    expectedSha512 = artifact.sha512;
+  }
 
   const result = await checkSecondSource({
     mirrorUrl: SECOND_SOURCE_MANIFEST_URL,
@@ -195,18 +230,8 @@ async function verifyAndDownload(info: UpdateInfo): Promise<void> {
   });
 
   if (!result.verified && result.blocking) {
-    // Real evidence the primary feed disagrees with an independent source —
-    // refuse to install. Same renderer-notification path as a failed
-    // download (see the "error" handler above): only worth interrupting the
-    // user if they're the one who asked.
-    console.error(`[updater] refusing update ${info.version}: ${result.reason}`);
-    if (manualCheckInFlight) {
-      manualCheckInFlight = false;
-      windowGetter?.()?.webContents.send(
-        "update:check-failed",
-        "Update integrity check failed. Please try again later.",
-      );
-    }
+    // Real evidence the primary feed disagrees with an independent source.
+    refuse(result.reason);
     return;
   }
 
@@ -258,15 +283,23 @@ export async function checkForUpdatesNow(): Promise<UpdateCheckResult> {
       status: "unsupported",
       // A dev run has no update feed and its version is the repo's static
       // 0.1.0, so it would always look out of date. Say why.
-      message: "Updates apply to installed builds only.",
+      message: mainT("updater.devUnsupported"),
     };
   }
   if ((process as NodeJS.Process & { windowsStore?: boolean }).windowsStore) {
-    return { status: "unsupported", message: "The Microsoft Store manages updates for this app." };
+    return { status: "unsupported", message: mainT("updater.storeManaged") };
   }
 
   try {
-    const result = await autoUpdater.checkForUpdates();
+    manualCheckPending = true;
+    refusedDuringManualCheck = false;
+    let result: Awaited<ReturnType<typeof autoUpdater.checkForUpdates>>;
+    try {
+      result = await autoUpdater.checkForUpdates();
+    } finally {
+      manualCheckPending = false;
+    }
+    if (refusedDuringManualCheck) return { status: "error", message: INTEGRITY_FAILED_MESSAGE };
     const latest = result?.updateInfo?.version;
     if (latest && latest === downloadedVersion) {
       // Already downloaded this session, so no download is coming to trigger the
@@ -274,7 +307,10 @@ export async function checkForUpdatesNow(): Promise<UpdateCheckResult> {
       promptRestart(latest, true);
       return { status: "downloading", version: latest };
     }
-    if (latest && latest !== app.getVersion()) {
+    // electron-updater's own verdict (semver greater-than, rollout, platform
+    // support) — not "the feed's version differs from ours", which also
+    // matched an OLDER feed and then waited for a download that never came.
+    if (latest && result?.isUpdateAvailable) {
       // checkForUpdates() above already fired "update-available", which
       // triggers verifyAndDownload() — the integrity check, then the actual
       // download — asynchronously; the restart prompt comes from the
@@ -285,11 +321,13 @@ export async function checkForUpdatesNow(): Promise<UpdateCheckResult> {
       manualCheckInFlight = true;
       return { status: "downloading", version: latest };
     }
+    manualCheckInFlight = false;
     return { status: "up-to-date", version: app.getVersion() };
   } catch (e: unknown) {
+    manualCheckInFlight = false;
     return {
       status: "error",
-      message: e instanceof Error ? e.message : "Couldn't reach the update server.",
+      message: e instanceof Error ? e.message : mainT("updater.unreachable"),
     };
   }
 }

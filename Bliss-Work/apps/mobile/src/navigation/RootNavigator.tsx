@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Linking, View } from 'react-native';
 import { DefaultTheme, DarkTheme, NavigationContainer, type LinkingOptions, type Theme as NavTheme } from '@react-navigation/native';
 import { useSession } from '@taskboard/app/store/session';
@@ -9,7 +9,7 @@ import { useAppTheme } from '../theme/ThemeProvider';
 import { useQuickActions } from '../hooks/useQuickActions';
 import { QuickActionHost } from '../quick/QuickActionHost';
 import { quickActions, useQuickState } from '../quick/quickActionStore';
-import { quickModeFromUrl } from '../quick/quickLinks';
+import { quickModeFromUrl, shouldProcessForegroundLaunchUrl } from '../quick/quickLinks';
 import type { AppTabParamList } from './types';
 
 /**
@@ -54,6 +54,7 @@ let pendingUrl: string | null = null;
 export function RootNavigator() {
   const status = useSession((s) => s.status);
   const quick = useQuickState();
+  const lastLaunchUrl = useRef<string | null>(null);
   // Until the launching URL has been read we don't know whether to draw the tabs or a quick flow,
   // so hold a spinner for that one async read instead of flashing the tabs first.
   const [launchChecked, setLaunchChecked] = useState(false);
@@ -62,12 +63,13 @@ export function RootNavigator() {
   // Launcher shortcuts arrive as `blisswork://quick/<chat|channel|task>`:
   //  - cold start: the URL is the activity's launch intent (getInitialURL);
   //  - app already running: Android delivers a new intent -> the 'url' event;
-  //  - process alive but the activity was finished and re-created by the shortcut: no event fires,
-  //    so re-read the launch intent whenever the app returns to the foreground.
+  //  - process alive but the activity was finished and re-created by the shortcut: re-read the
+  //    launch intent on foreground, but ignore React Native's cached cold-start URL.
   // The mode is kept in a store (not tied to the session), so an expired session shows login and the
   // same quick flow resumes after signing in again.
   useEffect(() => {
     let alive = true;
+    let initialUrlRead = false;
     const open = (url: string | null, cold: boolean) => {
       const mode = quickModeFromUrl(url);
       if (!mode) return;
@@ -77,13 +79,28 @@ export function RootNavigator() {
     Linking.getInitialURL()
       .then((url) => {
         if (!alive) return;
+        lastLaunchUrl.current = url;
         open(url, true);
       })
       .catch(() => undefined)
-      .finally(() => alive && setLaunchChecked(true));
-    const urlSub = Linking.addEventListener('url', ({ url }) => open(url, false));
+      .finally(() => {
+        initialUrlRead = true;
+        if (alive) setLaunchChecked(true);
+      });
+    const urlSub = Linking.addEventListener('url', ({ url }) => {
+      if (quickModeFromUrl(url)) lastLaunchUrl.current = url;
+      open(url, false);
+    });
     const appSub = AppState.addEventListener('change', (s) => {
-      if (s === 'active' && !quickActions.get().mode) void Linking.getInitialURL().then((url) => open(url, true)).catch(() => undefined);
+      if (s === 'active' && initialUrlRead && !quickActions.get().mode) {
+        void Linking.getInitialURL()
+          .then((url) => {
+            if (!shouldProcessForegroundLaunchUrl(url, lastLaunchUrl.current)) return;
+            lastLaunchUrl.current = url;
+            open(url, true);
+          })
+          .catch(() => undefined);
+      }
     });
     return () => {
       alive = false;

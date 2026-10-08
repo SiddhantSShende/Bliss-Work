@@ -1,0 +1,203 @@
+{
+  "profile": {
+    "header": {
+      "title": "Meu perfil",
+      "subtitle": "Gerencie como você aparece para a sua equipe."
+    },
+    "photo": {
+      "changePhoto": "Alterar foto",
+      "addPhoto": "Adicionar foto",
+      "changePhotoAria": "Alterar foto de perfil",
+      "addPhotoAria": "Adicionar foto de perfil"
+    },
+    "form": {
+      "displayNameLabel": "Nome de exibição",
+      "displayNamePlaceholder": "Seu nome",
+      "emailLabel": "E-mail",
+      "usernameLabel": "Nome de usuário",
+      "cancel": "Cancelar",
+      "saveChanges": "Salvar alterações"
+    },
+    "toasts": {
+      "profileUpdated": "Perfil atualizado",
+      "updateFailed": "Não foi possível atualizar o perfil",
+      "photoUpdated": "Foto de perfil atualizada",
+      "photoUpdateFailed": "Não foi possível atualizar sua foto",
+      "unsupportedFileType": {
+        "title": "Tipo de arquivo não compatível",
+        "description": "Escolha uma imagem JPG, PNG ou WebP."
+      },
+      "processFailed": {
+        "title": "Não foi possível processar essa imagem",
+        "description": "Tente outra foto."
+      }
+    }
+  },
+  "activeSessions": {
+    "header": {
+      "title": "Sessões ativas",
+      "subtitle": "Onde você está conectado. Desconecte qualquer dispositivo que você não reconheça."
+    },
+    "empty": {
+      "title": "Nenhuma sessão ativa",
+      "hint": "Todos os dispositivos conectados aparecerão aqui."
+    },
+    "signOutAllOthers": "Sair de todas as outras sessões",
+    "confirmOne": {
+      "title": "Encerrar esta sessão?",
+      "message": "A sessão em <bold>{{device}}</bold> será encerrada imediatamente e será preciso entrar novamente.",
+      "confirmLabel": "Sair"
+    },
+    "confirmAllOthers": {
+      "title": "Sair de todas as outras sessões?",
+      "message_one": "Este dispositivo continuará conectado. {{count}} outra sessão será encerrada imediatamente.",
+      "message_many": "Este dispositivo continuará conectado. {{count}} de outras sessões serão encerradas imediatamente.",
+      "message_other": "Este dispositivo continuará conectado. {{count}} outras sessões serão encerradas imediatamente.",
+      "confirmLabel": "Sair das outras"
+    },
+    "toasts": {
+      "signedOutOf": "Sessão encerrada em {{device}}",
+      "revokeFailed": {
+        "title": "Não foi possível encerrar essa sessão",
+        "description": "Tente novamente."
+      },
+      "noOtherSessions": "Não há outras sessões para encerrar",
+      "signedOutOfOthers_one": "{{count}} outra sessão encerrada",
+      "signedOutOfOthers_many": "{{count}} de outras sessões encerradas",
+      "signedOutOfOthers_other": "{{count}} outras sessões encerradas",
+      "revokeOthersFailed": {
+        "title": "Não foi possível encerrar as outras sessões",
+        "description": "Tente novamente."
+      }
+    }
+  },
+  "activeSessionsList": {
+    "thisDevice": "Este dispositivo",
+    "active": "Ativo {{time}}",
+    "signedIn": "Conectado {{time}}",
+    "approximateNetwork": "Rede aproximada",
+    "signOut": "Sair"
+  },
+  "mfaSettings": {
+    "header": {
+      "title": "Autenticação em dois fatores",
+      "subtitle": "Adicione uma segunda etapa ao login com um app autenticador."
+    },
+    "enrolled": {
+      "status": {
+        "title": "A autenticação em dois fatores está ativada",
+        "description": "Pediremos um segundo fator quando você entrar."
+      },
+      "backupCodes": {
+        "title": "Códigos de backup",
+        "description": "Gerar novos códigos substitui todos os que não foram usados — os antigos deixam de funcionar imediatamente.",
+        "action": "Gerar novos"
+      },
+      "disable": {
+        "title": "Desativar a autenticação em dois fatores",
+        "description": "Remove seu app autenticador e seus códigos de backup.",
+        "action": "Desativar"
+      }
+    },
+    "notEnrolled": {
+      "totp": {
+        "title": "App autenticador",
+        "description": "Google Authenticator, 1Password, Authy ou qualquer app TOTP."
+      },
+      "setUp": "Configurar"
+    },
+    "backupCodesModal": {
+      "title": "Salve seus códigos de backup"
+    },
+    "stepUp": {
+      "titles": {
+        "disable": "Confirme que é você",
+        "regenerate": "Confirme que é você para gerar novos códigos"
+      },
+      "passwordPlaceholder": "Sua senha",
+      "backupCodePlaceholder": "Código de backup",
+      "authCodePlaceholder": "Código de autenticação",
+      "useAuthCodeInstead": "Usar um código de autenticação",
+      "useBackupCodeInstead": "Usar um código de backup",
+      "submitLabels": {
+        "regenerate": "Gerar novos códigos de backup"
+      },
+      "toasts": {
+        "tooManyAttemptsTitle": "Muitas tentativas",
+        "verificationFailedTitle": "Falha na verificação",
+        "verificationFailedDescription": "Confira sua senha e o código e tente novamente."
+      }
+    },
+    "toasts": {
+      "refreshFailed": {
+        "title": "Não foi possível atualizar sua conta",
+        "description": "O status da sua autenticação em dois fatores nesta página pode estar desatualizado — atualize a página para ver o mais recente."
+      },
+      "mfaTurnedOff": "Autenticação em dois fatores desativada"
+    }
+  },
+  "passwordField": {
+    "hidePassword": "Ocultar senha",
+    "showPassword": "Mostrar senha",
+    "strength": {
+      "veryWeak": "Muito fraca",
+      "weak": "Fraca",
+      "fair": "Razoável",
+      "good": "Boa",
+      "strong": "Forte"
+    },
+    "requirements": {
+      "minLength": "Pelo menos 10 caracteres",
+      "letter": "Uma letra",
+      "digit": "Um número",
+      "special": "Um caractere especial (!@#$…)"
+    }
+  },
+  "backupCodesView": {
+    "description": "Guarde estes códigos de backup em um lugar seguro. Cada um permite entrar UMA vez se você perder o acesso ao seu autenticador — eles não serão exibidos novamente.",
+    "copied": "Copiado",
+    "copyFailed": "Não foi possível copiar os códigos de backup. Selecione e copie manualmente.",
+    "copyAll": "Copiar tudo",
+    "acknowledgeLabel": "Guardei estes códigos em um lugar seguro.",
+    "done": "Concluir"
+  },
+  "totpEnroll": {
+    "toasts": {
+      "startFailed": {
+        "title": "Não foi possível iniciar o cadastro",
+        "description": "Tente novamente."
+      },
+      "tooManyAttempts": {
+        "title": "Muitas tentativas",
+        "description": "Aguarde um minuto antes de tentar novamente."
+      },
+      "incorrectCode": {
+        "title": "Código incorreto",
+        "description": "Verifique a hora do seu dispositivo e tente novamente."
+      }
+    },
+    "startError": {
+      "message": "Não foi possível iniciar o cadastro.",
+      "retry": "Tentar novamente"
+    },
+    "preparing": "Preparando o cadastro…",
+    "instructions": "Escaneie com um app autenticador (Google Authenticator, 1Password, Authy, …) ou digite a chave de configuração manualmente.",
+    "qrAlt": "Escaneie com seu app autenticador",
+    "setupKeyLabel": "Chave de configuração",
+    "codeLabel": "Digite o código de 6 dígitos",
+    "verifying": "Verificando…",
+    "confirmAndEnable": "Confirmar e ativar"
+  },
+  "mfaPolicy": {
+    "title": "Exigir autenticação em dois fatores para administradores",
+    "descriptionWithDeadline": "Administradores sem o recurso ativado recebem avisos até {{deadline}} e, depois disso, ficam impedidos de entrar até ativá-lo.",
+    "descriptionNoDeadline": "Cada administrador decide se quer ativá-la.",
+    "turnOff": "Desativar",
+    "turnOn": "Ativar",
+    "toasts": {
+      "enabled": "A autenticação em dois fatores agora é obrigatória para administradores",
+      "disabled": "A autenticação em dois fatores não é mais obrigatória",
+      "updateFailed": "Não foi possível atualizar a política"
+    }
+  }
+}

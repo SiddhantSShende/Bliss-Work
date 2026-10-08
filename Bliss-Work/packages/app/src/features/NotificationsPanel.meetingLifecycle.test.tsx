@@ -62,9 +62,9 @@ beforeEach(() => {
 describe("where a notification takes you, and that it is marked read", () => {
   const cases: { name: string; row: () => NotificationDTO; click: string | RegExp; to: string }[] = [
     { name: "a direct message opens that conversation at the message", row: () => note("DM_MESSAGE", "Priya Shah: Lunch at one?", { conversationId: CHAT, messageId: MESSAGE }),
-      click: "Lunch at one?", to: `/app/chats/${CHAT}?m=${MESSAGE}` },
+      click: "Priya Shah", to: `/app/chats/${CHAT}?m=${MESSAGE}` },
     { name: "a channel message opens that channel at the message", row: () => note("CHANNEL_MESSAGE", "Priya Shah in #design: Review is ready", { channelId: CHANNEL, messageId: MESSAGE }),
-      click: "Review is ready", to: `/app/channels/${CHANNEL}?m=${MESSAGE}` },
+      click: "Priya Shah · #design", to: `/app/channels/${CHANNEL}?m=${MESSAGE}` },
     { name: "being added to a channel opens the channel", row: () => note("CHANNEL_ADDED", "Priya added you to the channel design", { channelId: CHANNEL }),
       click: /added you to the channel/, to: `/app/channels/${CHANNEL}` },
     { name: "a scheduled meeting opens the meeting", row: () => note("MEETING_SCHEDULED", "Meeting scheduled: Standup", { callId: CALL }),
@@ -104,6 +104,6 @@ describe("where a notification takes you, and that it is marked read", () => {
     expect(category("Meeting updated")).toBe("meeting");
     expect(category("Meeting started")).toBe("meeting");
     expect(category("Meeting cancelled")).toBe("meeting");
-    expect(category("hi")).toBe("chat");
+    expect(category("Priya")).toBe("chat");
   });
 });

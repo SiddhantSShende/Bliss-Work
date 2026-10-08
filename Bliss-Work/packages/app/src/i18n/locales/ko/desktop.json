@@ -1,0 +1,54 @@
+{
+  "menu": {
+    "file": "파일",
+    "showApp": "BlissWork 열기",
+    "quit": "종료",
+    "view": "보기",
+    "aboutItem": "BlissWork 정보",
+    "aboutTitle": "BlissWork 정보",
+    "aboutMessage": "BlissWork",
+    "aboutDetail": "버전 {{version}}\nElectron {{electron}} · Chromium {{chrome}}\n\n항상 위에 표시되는 스티커 메모로 팀 메시지와 태스크를 한곳에서.",
+    "ok": "확인",
+    "webHelp": "웹에서 BlissWork 사용"
+  },
+  "tray": {
+    "tooltipIdle": "BlissWork",
+    "tooltipTasks_other": "BlissWork — 진행 중인 태스크 {{count}}개",
+    "activeTasks": "진행 중인 태스크: {{count}}개",
+    "show": "BlissWork 열기",
+    "quit": "종료"
+  },
+  "notifications": {
+    "brand": "BlissWork",
+    "newMessage": "새 메시지",
+    "taskUpdate": "태스크 업데이트",
+    "meeting": "미팅",
+    "channelUpdate": "채널 업데이트",
+    "attachment": "첨부 파일을 보냈어요",
+    "incomingVideoCall": "📹 영상 통화 수신",
+    "incomingVoiceCall": "📞 음성 통화 수신",
+    "accept": "수락",
+    "decline": "거절"
+  },
+  "updater": {
+    "restartNow": "지금 다시 시작",
+    "later": "나중에",
+    "updateReady": "업데이트 준비 완료",
+    "readyMessage": "BlissWork {{version}} 설치 준비가 되었어요.",
+    "readyDetail": "앱을 다시 시작하면 업데이트가 적용돼요. 다음에 앱을 종료할 때도 자동으로 설치돼요.",
+    "devUnsupported": "업데이트는 설치된 빌드에서만 적용돼요.",
+    "storeManaged": "이 앱의 업데이트는 Microsoft Store에서 관리해요.",
+    "unreachable": "업데이트 서버에 연결할 수 없어요."
+  },
+  "attachment": {
+    "notMainWindow": "거부됨: 메인 창이 아니에요.",
+    "unsafeUrl": "안전하지 않은 URL을 거부했어요.",
+    "downloadFailed": "다운로드하지 못했어요({{status}}).",
+    "emptyBody": "응답 본문이 비어 있어요.",
+    "couldNotOpen": "파일을 열 수 없어요."
+  },
+  "windows": {
+    "meetingTitle": "미팅 · BlissWork",
+    "loading": "불러오는 중…"
+  }
+}

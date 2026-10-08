@@ -1,0 +1,60 @@
+{
+  "header": {
+    "title": "Einstellungen",
+    "subtitle": "Einstellungen dafür, wie sich die App auf diesem Gerät verhält."
+  },
+  "theme": {
+    "title": "Design",
+    "description": "Aktuell: {{theme}}.",
+    "changeTheme": "Design ändern",
+    "menuLabel": "Design",
+    "syncFailed": "Das eigene Design wurde nur auf diesem Gerät geändert. Es konnte nicht in Ihrem Konto gespeichert werden; wir versuchen es weiter.",
+    "light": "Hell",
+    "dark": "Dunkel",
+    "custom": {
+      "title": "Eigenes Design",
+      "label": "Eigenes",
+      "colors": "Farben",
+      "color": "Farbe {{number}}",
+      "preview": "Vorschau des eigenen Designs",
+      "create": "Eigenes Design erstellen",
+      "edit": "Eigenes Design bearbeiten",
+      "cancel": "Abbrechen",
+      "save": "Speichern"
+    }
+  },
+  "twoFactor": {
+    "title": "Zwei-Faktor-Authentifizierung",
+    "description": "Fügen Sie eine Authenticator-App als zweiten Anmeldeschritt hinzu."
+  },
+  "activeSessions": {
+    "title": "Aktuelle Anmeldungen",
+    "description": "Sehen Sie alle Geräte, auf denen Ihr Konto gerade angemeldet ist, und melden Sie sie bei Bedarf aus der Ferne ab."
+  },
+  "activity": {
+    "title": "Ihre Aktivität",
+    "description": "Sehen Sie alles, was {{brand}} über Ihre Arbeitsweise erfasst – dieselben Daten sehen auch die Admins Ihres Arbeitsbereichs."
+  },
+  "desktopNotifications": {
+    "title": "Desktop-Benachrichtigungen",
+    "onDescription": "Hinweise anzeigen, wenn neue Nachrichten und Aufgaben eintreffen.",
+    "offDescription": "Hinweise sind pausiert. Benachrichtigungen sehen Sie weiterhin im Glockenmenü.",
+    "turnOn": "Einschalten",
+    "turnOff": "Ausschalten"
+  },
+  "about": {
+    "title": "Info",
+    "versionDesktop": "{{brand}} {{version}} · Desktop",
+    "versionBuild": "{{brand}} · Build {{sha}}",
+    "checkForUpdates": "Nach Updates suchen",
+    "checking": "Suche läuft…",
+    "toasts": {
+      "updateDownloading": "Update auf {{version}} wird heruntergeladen",
+      "updateDownloadingDescription": "Sie werden zum Neustart aufgefordert, sobald es bereit ist.",
+      "upToDate": "Sie sind auf dem neuesten Stand",
+      "upToDateDescription": "Version {{version}}",
+      "updateDownloadFailed": "Update-Download fehlgeschlagen",
+      "checkFailedFallback": "Die Suche nach Updates ist fehlgeschlagen"
+    }
+  }
+}

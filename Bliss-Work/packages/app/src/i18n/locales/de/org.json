@@ -1,0 +1,174 @@
+{
+  "availablePeople": {
+    "searchPlaceholder": "Teammitglieder suchen…",
+    "empty": {
+      "noMatchesTitle": "Keine Treffer",
+      "allBusyTitle": "Alle sind beschäftigt",
+      "noMatchesHint": "Kein verfügbares Teammitglied passt zu dieser Suche.",
+      "allBusyHint": "Personen ohne bestätigte Aufgaben erscheinen hier."
+    },
+    "toasts": {
+      "hideFailed": "Diese Person konnte nicht ausgeblendet werden",
+      "restoreFailed": "Diese Person konnte nicht wiederhergestellt werden"
+    },
+    "hiddenToggle": "In dieser Liste ausgeblendet ({{count}})",
+    "hiddenBusyNote": "Hat aktive Aufgaben – erscheint erst wieder, wenn die Person frei ist",
+    "restoreTitle": "Wieder unter „Verfügbar“ anzeigen",
+    "card": {
+      "selfTitle": "Sie können sich selbst keine Aufgabe zuweisen",
+      "assignTitle": "{{name}} eine Aufgabe zuweisen",
+      "youSuffix": " (Sie)",
+      "pendingBadge": "{{count}} offen, unbestätigt",
+      "onCall": "im Anruf",
+      "hiddenFromOthers": "für andere ausgeblendet",
+      "hideTitle": "Unter „Verfügbar“ ausblenden"
+    }
+  },
+  "memberPicker": {
+    "searchPlaceholder": "Teammitglieder suchen…",
+    "clearAll": "Alle abwählen",
+    "selectAll": "Alle auswählen",
+    "emptyHint": "Alle Treffer sind bereits hier.",
+    "cancelButton": "Abbrechen",
+    "addButton": "Hinzufügen",
+    "sendOrganization": "An die Organisation senden"
+  },
+  "inviteePicker": {
+    "searchPlaceholder": "In Ihrer Organisation suchen…",
+    "searchAriaLabel": "In Ihrer Organisation suchen",
+    "empty": {
+      "noMatches": "Keine Treffer.",
+      "noneToInvite": "Niemand sonst zum Einladen."
+    },
+    "loading": "Personen werden geladen…",
+    "you": "(Sie)"
+  },
+  "orgPage": {
+    "header": {
+      "title": "Organisationen",
+      "subtitle": "Wechseln Sie zwischen Ihren Arbeitsbereichen oder verwalten Sie den aktuellen."
+    },
+    "toasts": {
+      "switched": "Organisation gewechselt",
+      "switchFailedTitle": "Die Organisation konnte nicht gewechselt werden",
+      "switchFailedDescription": "Bitte versuchen Sie es erneut."
+    },
+    "yourOrganizations": "Ihre Organisationen",
+    "loading": "Wird geladen…",
+    "currentBadge": "Aktuell",
+    "roleLabel": {
+      "admin": "Admin",
+      "member": "Mitglied"
+    },
+    "activeLabel": "Aktiv",
+    "switchButton": "Wechseln",
+    "switchingLabel": "Wechsel läuft…",
+    "manageHeading": "{{name}} verwalten",
+    "manageFallbackName": "diese Organisation",
+    "membersButton": "Mitglieder",
+    "invitePeopleButton": "Personen einladen"
+  },
+  "orgActivity": {
+    "adminsOnly": {
+      "title": "Nur für Admins",
+      "hint": "Ihre eigene Aktivität finden Sie unter Einstellungen → Ihre Aktivität."
+    },
+    "backToMembers": "Mitglieder",
+    "header": {
+      "title": "Aktivität im Arbeitsbereich",
+      "subtitle": "Wie die Zeit des Teams verbracht wird."
+    },
+    "exportButton": "Exportieren",
+    "empty": {
+      "title": "Keine Aktivität in diesem Zeitraum",
+      "hint": "Diagramme erscheinen, sobald das Team {{brand}} einen Tag lang genutzt hat."
+    },
+    "stats": {
+      "teamActiveTime": "Aktive Zeit des Teams",
+      "peopleActive": "Aktive Personen",
+      "perPerson": "Pro Person",
+      "perPersonHint": "Durchschnitt im Zeitraum",
+      "sessions": "Sitzungen"
+    },
+    "sections": {
+      "teamActiveTimePerDay": "Aktive Zeit des Teams pro Tag",
+      "activeTimeByMember": "Aktive Zeit nach Mitglied",
+      "allMembers": "Alle Mitglieder"
+    },
+    "table": {
+      "member": "Mitglied",
+      "active": "Aktiv",
+      "idle": "Inaktiv",
+      "sessions": "Sitzungen",
+      "actions": "Aktionen"
+    },
+    "chart": {
+      "active": "Aktiv",
+      "idle": "Inaktiv"
+    }
+  },
+  "orgSwitcher": {
+    "switchTitle": "Organisation wechseln",
+    "workspaceFallback": "Arbeitsbereich",
+    "yourOrganizations": "Ihre Organisationen",
+    "searchPlaceholder": "Organisationen suchen...",
+    "loadMore": "Mehr laden",
+    "loading": "Organisationen werden geladen...",
+    "empty": "Keine Organisationen gefunden",
+    "loadFailed": "Organisationen konnten nicht geladen werden. Zum Wiederholen klicken.",
+    "roleLabel": {
+      "admin": "Admin",
+      "member": "Mitglied"
+    },
+    "switchingLabel": "Wechsel läuft…",
+    "toasts": {
+      "switchFailedTitle": "Die Organisation konnte nicht gewechselt werden",
+      "switchFailedDescription": "Bitte versuchen Sie es erneut."
+    }
+  },
+  "deleteOrgSection": {
+    "toasts": {
+      "scheduledTitle": "Löschung des Arbeitsbereichs geplant",
+      "scheduledDescription": "Alle wurden abgemeldet. Sie können bis zur Frist abbrechen.",
+      "scheduleFailedTitle": "Die Löschung konnte nicht geplant werden",
+      "cancelled": "Löschung abgebrochen",
+      "cancelFailedTitle": "Die Löschung konnte nicht abgebrochen werden"
+    },
+    "scheduled": {
+      "heading": "Dieser Arbeitsbereich wird demnächst gelöscht",
+      "message": "Alles in <bold>{{orgName}}</bold> – Nachrichten, Dateien, Aufgaben und Aktivität – wird am <bold>{{when}}</bold> endgültig gelöscht. Bis dahin lässt sich dies rückgängig machen.",
+      "cancelButton": "Löschung abbrechen"
+    },
+    "dangerZone": {
+      "heading": "Gefahrenbereich",
+      "description": "Beim Löschen dieses Arbeitsbereichs werden alle Nachrichten, Dateien, Aufgaben und Aktivitätsdaten darin für alle endgültig gelöscht.",
+      "openButton": "Diesen Arbeitsbereich löschen…"
+    },
+    "confirm": {
+      "instructions": "Nach Ablauf der Frist lässt sich dies nicht mehr rückgängig machen. Alle werden sofort abgemeldet. Geben Sie zur Bestätigung unten die Kennung des Arbeitsbereichs <code>{{slug}}</code> ein.",
+      "ariaLabel": "Kennung des Arbeitsbereichs zur Bestätigung eingeben",
+      "deleteButton": "Arbeitsbereich löschen",
+      "cancelButton": "Abbrechen"
+    }
+  },
+  "leaveOrgButton": {
+    "leaveButton": "Verlassen",
+    "toasts": {
+      "failedTitle": "Die Organisation konnte nicht verlassen werden",
+      "failedDescriptionFallback": "Bitte versuchen Sie es erneut.",
+      "left": "Sie haben {{orgName}} verlassen",
+      "signedOutTitle": "Abgemeldet",
+      "signedOutDescription": "Bitte melden Sie sich erneut an, um fortzufahren."
+    },
+    "confirmDialog": {
+      "title": "{{orgName}} verlassen?",
+      "message": "Sie verlieren den Zugriff auf alle Kanäle, Nachrichten und Aufgaben in <bold>{{orgName}}</bold>. Nichts von dem, was Sie gepostet haben, wird gelöscht, und ein Admin dort kann Sie wieder einladen.",
+      "movedMessage": " Sie wechseln zu <bold>{{orgName}}</bold>.",
+      "confirmLabel": "Organisation verlassen"
+    },
+    "stepUp": {
+      "title": "Bestätigen Sie Ihre Identität, um die Organisation zu verlassen",
+      "description": "Ihr Konto verwendet die Bestätigung in zwei Schritten. Zum Verlassen einer Organisation benötigen Sie daher Ihr Passwort und einen aktuellen Code."
+    }
+  }
+}

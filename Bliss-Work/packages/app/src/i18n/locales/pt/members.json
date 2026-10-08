@@ -1,0 +1,350 @@
+{
+  "list": {
+    "title": "Membros",
+    "workspaceActivity": "Atividade do espaço de trabalho",
+    "searchPlaceholder": "Buscar colegas…",
+    "selfRow": {
+      "name": "{{name}} (você)",
+      "subtitle": "Sua atividade e suas sessões"
+    },
+    "empty": {
+      "title": "Nenhum colega encontrado"
+    },
+    "status": {
+      "online": "On-line",
+      "idle": "Inativo",
+      "lastSeen": "Visto por último {{time}}"
+    },
+    "messageButton": "Enviar mensagem para {{name}}"
+  },
+  "detail": {
+    "notFound": {
+      "title": "Membro não encontrado",
+      "hint": "Escolha outro colega à esquerda."
+    },
+    "backButton": "Voltar aos membros",
+    "tabs": {
+      "overview": "Visão geral",
+      "activity": "Atividade",
+      "analytics": "Análises",
+      "sessions": "Sessões",
+      "admin": "Admin",
+      "security": "Segurança"
+    },
+    "roleLabel": {
+      "admin": "Admin",
+      "member": "Membro"
+    },
+    "fields": {
+      "email": "E-mail",
+      "username": "Nome de usuário",
+      "role": "Função",
+      "status": "Status",
+      "lastSeen": "Visto por último",
+      "emailVerified": "E-mail verificado",
+      "joined": "Entrou em",
+      "removed": "Removido em"
+    },
+    "emailVerified": {
+      "yes": "Sim",
+      "no": "Ainda não"
+    },
+    "lastSeen": {
+      "now": "Agora",
+      "noRecentActivity": "Sem atividade recente"
+    },
+    "exportButton": "Exportar",
+    "exportTooltip": "Exportar a atividade deste membro",
+    "messageButton": "Enviar mensagem",
+    "selfActivityBanner": "Este é o seu próprio registro de atividade. Os administradores do seu espaço de trabalho também podem vê-lo."
+  },
+  "status": {
+    "active": "Ativo",
+    "suspended": "Suspenso",
+    "removed": "Removido"
+  },
+  "admin": {
+    "toasts": {
+      "actionFailed": "Falha na ação",
+      "nowAdmin": "{{name}} agora é admin",
+      "nowMember": "{{name}} agora é membro",
+      "reactivated": "{{name}} pode entrar novamente",
+      "suspended": "Acesso de {{name}} suspenso",
+      "removed": "Removemos {{name}} do espaço de trabalho"
+    },
+    "selfGuard": "Você não pode alterar a sua própria função ou participação. Peça a outro administrador — essa regra impede que o último administrador bloqueie todo mundo, inclusive a si mesmo, fora do espaço de trabalho.",
+    "sections": {
+      "role": {
+        "title": "Função",
+        "hint": "Administradores podem convidar pessoas, gerenciar membros e ver o registro de auditoria. Alterar uma função desconecta o membro de todos os dispositivos para que as novas permissões entrem em vigor imediatamente."
+      },
+      "access": {
+        "title": "Acesso",
+        "hint": "A suspensão mantém tudo e pode ser desfeita a qualquer momento. A remoção revoga a participação — as mensagens, tarefas e o histórico da pessoa permanecem exatamente onde estão, e ela pode ser convidada novamente depois."
+      },
+      "activeSessions": {
+        "title": "Sessões ativas",
+        "hint": "Encerrar uma sessão a finaliza imediatamente — o dispositivo precisará entrar novamente."
+      }
+    },
+    "actions": {
+      "demote": "Rebaixar para membro",
+      "makeAdmin": "Tornar admin",
+      "suspend": "Suspender",
+      "remove": "Remover",
+      "reactivate": "Reativar"
+    },
+    "reactivateFirst": "Reative este membro antes de alterar a função.",
+    "confirmDialog": {
+      "removeTitle": "Remover do espaço de trabalho?",
+      "suspendTitle": "Suspender membro?",
+      "removeMessage": "<bold>{{name}}</bold> perderá o acesso a este espaço de trabalho imediatamente e deixará de aparecer no diretório. Tudo o que a pessoa escreveu permanece. Você pode convidá-la de volta a qualquer momento.",
+      "suspendMessage": "<bold>{{name}}</bold> será desconectada de todos os lugares e não poderá entrar novamente até você reativar o acesso. Nada é excluído."
+    },
+    "sessions": {
+      "loadError": {
+        "title": "Não foi possível carregar as sessões",
+        "hint": "Verifique sua conexão e tente novamente."
+      },
+      "none": "Nenhuma sessão ativa.",
+      "signedOutToast": "Sessão em {{device}} encerrada",
+      "revokeFailedToast": {
+        "title": "Não foi possível encerrar essa sessão",
+        "description": "Tente novamente."
+      },
+      "confirmDialog": {
+        "title": "Encerrar esta sessão?",
+        "message": "A sessão em <bold>{{device}}</bold> será encerrada imediatamente e será preciso entrar novamente.",
+        "confirmLabel": "Sair"
+      }
+    }
+  },
+  "analytics": {
+    "empty": {
+      "title": "Nenhuma atividade neste período",
+      "hint": "Os gráficos aparecem quando houver pelo menos um dia de atividade para exibir."
+    },
+    "summary": {
+      "activeTime": "Tempo ativo",
+      "acrossDays_one": "em {{count}} dia",
+      "acrossDays_many": "em {{count}} de dias",
+      "acrossDays_other": "em {{count}} dias",
+      "sessions": "Sessões",
+      "sessionsHint": "logins registrados",
+      "events": "Eventos",
+      "eventsHint": "eventos registrados",
+      "lastActive": "Última atividade",
+      "lastActiveHint": "atividade registrada mais recente",
+      "lastActiveNone": "nenhuma atividade registrada",
+      "vsPrevious": "em relação ao período anterior"
+    },
+    "overview": {
+      "title": "Visão geral da atividade",
+      "hint": "Tempo total e distribuição da atividade no período selecionado",
+      "activeOfSignedIn": "do tempo conectado foi ativo",
+      "active": "Ativo",
+      "idle": "Inativo",
+      "idleHint": "conectado, sem interação"
+    },
+    "topApps": {
+      "title": "Aplicativos mais usados",
+      "hint": "Aplicativos mais usados neste período",
+      "empty": "Sem dados de aplicativos para este período."
+    },
+    "recent": {
+      "title": "Atividade recente",
+      "hint": "Atividade mais recente de aplicativos e do sistema",
+      "empty": "Nenhuma atividade recente registrada.",
+      "viewAll": "Ver toda a atividade"
+    },
+    "work": {
+      "title": "Quando a pessoa trabalha",
+      "hint": "Mapa de calor da atividade — quanto mais escuro, mais atividade",
+      "less": "Menos",
+      "more": "Mais",
+      "outsideHours": "{{time}} a mais de atividade fora desses horários"
+    },
+    "trend": {
+      "title": "Tendência de atividade",
+      "hint": "Tempo médio ativo versus inativo por dia da semana",
+      "active": "Ativo",
+      "idle": "Inativo"
+    }
+  },
+  "auditLog": {
+    "labels": {
+      "org": {
+        "created": "criou o espaço de trabalho"
+      },
+      "user": {
+        "profile_updated": "atualizou o próprio perfil"
+      },
+      "invite": {
+        "created": "convidou alguém",
+        "accepted": "aceitou um convite",
+        "revoked": "revogou um convite"
+      },
+      "password": {
+        "reset_requested": "solicitou a redefinição de senha",
+        "reset_completed": "concluiu a redefinição de senha"
+      },
+      "email": {
+        "verified": "verificou o próprio e-mail"
+      },
+      "member": {
+        "role_changed": "alterou uma função",
+        "deactivated": "suspendeu um membro",
+        "reactivated": "reativou um membro",
+        "removed": "removeu um membro"
+      }
+    },
+    "error": {
+      "title": "Não foi possível carregar o registro de auditoria",
+      "hint": "Verifique sua conexão e tente novamente."
+    },
+    "empty": {
+      "title": "Nada registrado ainda",
+      "hintScoped": "As ações de admin sobre este membro aparecerão aqui.",
+      "hintAll": "As ações de admin em todo o espaço de trabalho aparecem aqui."
+    },
+    "systemActor": "Sistema"
+  },
+  "sessions": {
+    "empty": {
+      "title": "Nenhuma sessão registrada",
+      "hint": "As sessões aparecem aqui quando a pessoa entra por um dispositivo."
+    },
+    "activeNow": "Ativa agora",
+    "endReason": {
+      "disconnect": "Fechou o app",
+      "timeout": "Ficou sem atividade"
+    },
+    "durations": {
+      "total": "{{duration}} no total",
+      "active": "{{duration}} ativo",
+      "idle": "{{duration}} inativo"
+    },
+    "approximateNetworkTooltip": "Rede aproximada",
+    "retentionNote": "Mostrando os últimos 7 dias. As sessões mais antigas são mantidas, mas não podem ser navegadas aqui."
+  },
+  "timeline": {
+    "filters": {
+      "all": "Tudo",
+      "engagement": "Trabalho",
+      "navigation": "No app",
+      "outside": "Atividade externa",
+      "auth": "Logins",
+      "security": "Segurança"
+    },
+    "empty": {
+      "title": "Nenhuma atividade registrada ainda",
+      "hint": "A atividade aparece aqui conforme a pessoa usa o {{brand}}."
+    },
+    "error": {
+      "title": "Não foi possível carregar a atividade",
+      "hint": "Verifique sua conexão e tente novamente."
+    },
+    "verifiedTooltip": "Registrado pelo próprio {{brand}} — não informado pela pessoa",
+    "retentionNote": "Mostrando os últimos 7 dias. A atividade mais antiga é mantida, mas não pode ser navegada aqui."
+  },
+  "loadOlder": {
+    "button": "Carregar mais antigas"
+  },
+  "activityLabels": {
+    "actions": {
+      "login": "Entrou",
+      "logout": "Saiu",
+      "org": {
+        "switched": "Trocou de espaço de trabalho"
+      },
+      "message": {
+        "sent": "Enviou uma mensagem"
+      },
+      "mail": {
+        "attachment": {
+          "downloaded": "Baixou um anexo de e-mail"
+        }
+      },
+      "attachment": {
+        "opened": "Abriu um arquivo",
+        "downloaded": "Baixou um arquivo"
+      },
+      "channel": {
+        "message": {
+          "sent": "Publicou em um canal"
+        }
+      },
+      "conversation": {
+        "ignored": "Ignorou uma conversa"
+      },
+      "user": {
+        "blocked": "Bloqueou alguém",
+        "unblocked": "Desbloqueou alguém"
+      },
+      "task": {
+        "allocated": "Atribuiu uma tarefa",
+        "acknowledged": "Confirmou uma tarefa",
+        "completed": "Concluiu uma tarefa",
+        "ignored": "Ignorou uma tarefa",
+        "left": "Abandonou uma tarefa",
+        "reviewed": "Revisou uma tarefa"
+      },
+      "route": {
+        "enter": "Abriu",
+        "dwell": "Passou tempo em"
+      },
+      "focus": "Voltou para o {{brand}}",
+      "blur": "Afastou-se do {{brand}}",
+      "idle": {
+        "start": "Ficou inativo",
+        "end": "Voltou a ficar ativo"
+      },
+      "screenshot": {
+        "attempted": "Tentativa de captura de tela bloqueada"
+      },
+      "app": {
+        "focus": "Usou"
+      },
+      "os": {
+        "idle": "Longe do teclado"
+      }
+    },
+    "surfaces": {
+      "mail": "E-mail",
+      "inbox": "Caixa de entrada",
+      "chats": "Chats",
+      "channels": "Canais",
+      "tasks": "Tarefas",
+      "members": "Membros",
+      "integrations": "Integrações",
+      "search": "Busca",
+      "settings": "Configurações",
+      "profile": "Perfil",
+      "org": "Organização"
+    },
+    "theApp": "o app",
+    "source": {
+      "verified": "Verificado",
+      "desktop": "App para desktop",
+      "extension": "Extensão do navegador",
+      "web": "App web"
+    }
+  },
+  "myActivity": {
+    "settingsBack": "Configurações",
+    "title": "Sua atividade",
+    "subtitle": "Tudo o que o {{brand}} registra sobre como você trabalha.",
+    "whatsRecorded": "O que é registrado e quem pode ver",
+    "bullets": {
+      "signInOut": "Quando você entra e sai e quando está on-line, inativo ou off-line.",
+      "appUsage": "Quais partes do {{brand}} você usa e por quanto tempo.",
+      "messagesAndTasks": "Mensagens que você envia e tarefas em que você age — a primeira linha de uma mensagem, nunca a conversa inteira.",
+      "deviceAndLocation": "O navegador e o dispositivo pelos quais você entra e uma localização aproximada a partir do seu IP."
+    },
+    "retentionNote": "Os administradores do seu espaço de trabalho podem ver este registro. Os últimos 7 dias são mostrados aqui. A atividade detalhada é mantida por 90 dias e os totais diários por mais tempo — ambos são usados em relatórios e estão disponíveis mediante solicitação, mas não podem ser navegados no app."
+  },
+  "membersEmpty": {
+    "title": "Membros",
+    "hint": "Escolha um colega à esquerda para ver o perfil ou toque no ícone de chat para enviar uma mensagem."
+  }
+}

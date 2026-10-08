@@ -17,6 +17,7 @@
  * when an upstream fix lands is the whole point of `reviewBy`.
  */
 import { execSync } from "node:child_process";
+import { expiredAllowlistEntries } from "./audit-gate-policy.mjs";
 
 /**
  * Accepted advisories. Each needs:
@@ -135,6 +136,16 @@ const ALLOW = [
     reviewBy: "2026-10-01",
   },
 ];
+
+const expired = expiredAllowlistEntries(ALLOW);
+if (expired.length > 0) {
+  console.error("audit-gate: expired or invalid advisory waiver review date(s):");
+  for (const entry of expired) {
+    console.error(`  ${entry.package} (${entry.id}) — reviewBy ${entry.reviewBy}`);
+  }
+  console.error("Review each waiver and update or remove it before rerunning the audit gate.");
+  process.exit(1);
+}
 
 const allowedIds = new Set(ALLOW.map((a) => a.id));
 

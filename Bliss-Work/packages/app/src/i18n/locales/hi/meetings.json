@@ -1,0 +1,414 @@
+{
+  "layout": {
+    "backToCalendar": "कैलेंडर पर वापस"
+  },
+  "list": {
+    "loading": "लोड हो रहा है…",
+    "error": {
+      "title": "आपकी मीटिंग लोड नहीं हो सकीं।",
+      "retry": "फिर कोशिश करें"
+    },
+    "empty": {
+      "upcomingTitle": "कुछ भी शेड्यूल नहीं है",
+      "liveTitle": "अभी कोई लाइव नहीं",
+      "pastTitle": "कोई पिछली मीटिंग नहीं",
+      "startHint": "अभी मीटिंग शुरू करें, या कैलेंडर में एक जोड़ें।",
+      "pastHint": "जिन मीटिंग में आप शामिल रहे, वे समाप्त होने पर यहाँ सूचीबद्ध होंगी।"
+    },
+    "loadMore": "और लोड करें",
+    "allLoaded": "बस, इतना ही।",
+    "bucket": {
+      "upcoming": "आगामी",
+      "live": "लाइव",
+      "past": "पिछली"
+    }
+  },
+  "calendar": {
+    "title": "मीटिंग कैलेंडर",
+    "subtitle": "अपनी सभी मीटिंग एक ही जगह देखें और प्रबंधित करें।",
+    "newMeeting": "नई मीटिंग",
+    "today": "आज",
+    "previousWeek": "पिछला सप्ताह",
+    "previousMonth": "पिछला महीना",
+    "nextWeek": "अगला सप्ताह",
+    "nextMonth": "अगला महीना",
+    "scale": {
+      "week": "सप्ताह",
+      "month": "महीना"
+    },
+    "loading": "आपका कैलेंडर लोड हो रहा है…",
+    "error": {
+      "title": "आपका कैलेंडर लोड नहीं हो सका।",
+      "retry": "फिर कोशिश करें"
+    }
+  },
+  "detail": {
+    "loading": "लोड हो रहा है…",
+    "error": {
+      "title": "यह मीटिंग खोली नहीं जा सकी।",
+      "retry": "फिर कोशिश करें"
+    },
+    "kindLabel": {
+      "meeting": "मीटिंग",
+      "channelCall": "चैनल कॉल",
+      "call": "कॉल"
+    },
+    "noTitleSet": "कोई शीर्षक नहीं",
+    "join": "जुड़ें",
+    "open": "खोलें",
+    "tabs": {
+      "overview": "अवलोकन",
+      "chat": "चैट",
+      "notes": "नोट्स"
+    },
+    "live": "लाइव",
+    "overview": {
+      "when": {
+        "sectionTitle": "कब",
+        "date": "तारीख़",
+        "start": "शुरू",
+        "end": "समाप्त",
+        "scheduledEnd": "निर्धारित समाप्ति",
+        "runningFor": "चलने का समय",
+        "duration": "अवधि"
+      },
+      "people": {
+        "sectionTitle": "लोग · {{total}} में से {{joined}} जुड़े",
+        "empty": "इस मीटिंग की प्रतिभागी सूची दर्ज नहीं की गई।",
+        "host": "होस्ट",
+        "external": "बाहरी",
+        "attendance": {
+          "joinedAndLeft": "{{joinedAt}} पर जुड़े · {{leftAt}} पर गए",
+          "joined": "{{joinedAt}} पर जुड़े",
+          "waiting": "अंदर आने की प्रतीक्षा में",
+          "invited": "आमंत्रित",
+          "didNotJoin": "नहीं जुड़े"
+        }
+      },
+      "meeting": {
+        "sectionTitle": "मीटिंग",
+        "organisedBy": "आयोजक",
+        "openedBy": "खोलने वाले",
+        "media": "मीडिया",
+        "audioOnly": "केवल ऑडियो",
+        "video": "वीडियो",
+        "recording": "रिकॉर्डिंग",
+        "recordingAvailable": "उपलब्ध",
+        "recordingInProgress": "जारी",
+        "recordingNotRecorded": "रिकॉर्ड नहीं हुई",
+        "channelCall": "चैनल कॉल",
+        "channelCallValue": "चैनल के सदस्य ही प्रतिभागी हैं",
+        "beingRecorded": "यह कॉल रिकॉर्ड हो रही है",
+        "sharingOne": "{{name}} अपनी स्क्रीन साझा कर रहे हैं",
+        "sharingMany": "{{count}} लोग साझा कर रहे हैं",
+        "repeats": "दोहराव",
+        "channels": "चैनल",
+        "channelsUnavailable_one": "{{count}} चैनल",
+        "channelsUnavailable_other": "{{count}} चैनल"
+      }
+    },
+    "recording": {
+      "preparing": "प्लेबैक तैयार हो रहा है…",
+      "watch": "रिकॉर्डिंग देखें"
+    }
+  },
+  "row": {
+    "live": "लाइव",
+    "inviteJoinTitle": "{{invited}} आमंत्रित · {{joined}} जुड़े",
+    "organiser": "आयोजक",
+    "join": "जुड़ें",
+    "open": "खोलें",
+    "recording": "रिकॉर्डिंग",
+    "details": "विवरण",
+    "menu": {
+      "actionsFor": "{{title}} के लिए कार्रवाइयाँ",
+      "untitledMeeting": "यह मीटिंग",
+      "viewDetails": "विवरण देखें",
+      "joinMeeting": "मीटिंग से जुड़ें",
+      "openRoom": "रूम खोलें",
+      "watchRecording": "रिकॉर्डिंग देखें"
+    }
+  },
+  "monthGrid": {
+    "openThisWeek": "यह सप्ताह खोलें",
+    "more": "+{{count}} और"
+  },
+  "newMeeting": {
+    "title": "नई मीटिंग",
+    "close": "बंद करें",
+    "titleLabel": "मीटिंग का शीर्षक",
+    "titlePlaceholder": "मीटिंग का शीर्षक दर्ज करें",
+    "startTimeLabel": "शुरू होने का समय",
+    "endTimeLabel": "समाप्ति का समय",
+    "errors": {
+      "titleRequired": "मीटिंग का शीर्षक ज़रूरी है।",
+      "startRequired": "शुरू होने की तारीख़ और समय ज़रूरी हैं।",
+      "startInPast": "शुरू होने का समय बीता हुआ नहीं हो सकता।",
+      "endRequired": "समाप्ति की तारीख़ और समय ज़रूरी हैं।",
+      "endBeforeStart": "समाप्ति का समय शुरू होने के समय के बाद का होना चाहिए।",
+      "peopleUnavailable": "आपके चुने कुछ सदस्य या चैनल अब उपलब्ध नहीं हैं।"
+    },
+    "cancel": "रद्द करें",
+    "scheduleMeeting": "मीटिंग शेड्यूल करें",
+    "startMeeting": "मीटिंग शुरू करें",
+    "starting": "शुरू हो रही है…",
+    "scheduling": "शेड्यूल हो रही है…",
+    "scheduleError": "वह मीटिंग शेड्यूल नहीं हो सकी",
+    "membersLabel": "सदस्य",
+    "membersAdd": "सदस्य जोड़ें",
+    "membersDone": "हो गया",
+    "membersNone": "अभी कोई सदस्य नहीं जोड़ा गया।",
+    "membersRemove": "{{name}} हटाएँ",
+    "unknownMember": "अज्ञात सदस्य",
+    "channelsLabel": "चैनल",
+    "channelsAdd": "चैनल जोड़ें",
+    "channelsDone": "हो गया",
+    "channelsNone": "अभी कोई चैनल नहीं जोड़ा गया।",
+    "channelsRemove": "{{name}} हटाएँ",
+    "channelsHint": "चैनल के सभी लोग आमंत्रित होते हैं।",
+    "unknownChannel": "अनुपलब्ध चैनल",
+    "channelPicker": {
+      "searchPlaceholder": "चैनल खोजें…",
+      "searchAriaLabel": "अपने चैनल खोजें",
+      "loading": "चैनल लोड हो रहे हैं…",
+      "error": "आपके चैनल लोड नहीं हो सके।",
+      "retry": "फिर कोशिश करें",
+      "members_one": "{{count}} सदस्य",
+      "members_other": "{{count}} सदस्य",
+      "empty": {
+        "none": "आप किसी चैनल में नहीं हैं।",
+        "noMatches": "कोई मिलान नहीं।"
+      }
+    },
+    "repeat": {
+      "label": "दोहराएँ",
+      "none": "दोहराएँ नहीं",
+      "daily": "रोज़",
+      "weekly": "साप्ताहिक",
+      "monthly": "मासिक",
+      "every": "हर",
+      "intervalAria": "दोहराव का अंतराल",
+      "unit": {
+        "day_one": "दिन",
+        "day_other": "दिन",
+        "week_one": "सप्ताह",
+        "week_other": "सप्ताह",
+        "month_one": "महीना",
+        "month_other": "महीने"
+      },
+      "on": "इन दिनों",
+      "ends": "समाप्ति",
+      "endNever": "कभी नहीं",
+      "endOnDate": "तारीख़ पर",
+      "endAfter": "दोहराव के बाद",
+      "endDateAria": "समाप्ति की तारीख़",
+      "occurrenceCountAria": "दोहराव की संख्या",
+      "occurrences_one": "बार",
+      "occurrences_other": "बार",
+      "errors": {
+        "interval": "1 से {{max}} के बीच की पूर्ण संख्या दर्ज करें।",
+        "weekdays": "कम से कम एक दिन चुनें।",
+        "endDateRequired": "समाप्ति की तारीख़ चुनें।",
+        "endDateBeforeStart": "समाप्ति की तारीख़ पहली मीटिंग से पहले की नहीं हो सकती।",
+        "occurrenceCount": "1 से {{max}} के बीच की पूर्ण संख्या दर्ज करें।"
+      },
+      "monthlyHint": "हर महीने की {{day}} तारीख़ को दोहराई जाती है। जिन महीनों में वह तारीख़ नहीं होती, उन्हें छोड़ दिया जाता है।"
+    },
+    "time": {
+      "chooseHour": "घंटा चुनें",
+      "chooseMinutes": "मिनट चुनें",
+      "am": "AM",
+      "pm": "PM",
+      "hourAria": "{{hour}} बजे",
+      "minuteAria": "{{minute}} मिनट",
+      "pickerAriaLabel": "{{label}} — समय चयनकर्ता",
+      "cancel": "रद्द करें",
+      "ok": "ठीक है",
+      "dateAriaLabel": "{{label}} — तारीख़",
+      "triggerAriaLabel": "{{label}} — समय"
+    },
+    "preview": {
+      "sectionTitle": "मीटिंग प्रीव्यू",
+      "untitled": "बिना शीर्षक की मीटिंग",
+      "pickATime": "तारीख़ और समय चुनें",
+      "noInvitees": "अभी किसी को आमंत्रित नहीं किया",
+      "onlineMeeting": "ऑनलाइन मीटिंग",
+      "repeatLabel": "दोहराएँ",
+      "members_one": "{{count}} सदस्य",
+      "members_other": "{{count}} सदस्य",
+      "channels_one": "{{count}} चैनल",
+      "channels_other": "{{count}} चैनल",
+      "endsOn": "{{date}} को समाप्त",
+      "duration": {
+        "days_one": "{{count}} दिन",
+        "days_other": "{{count}} दिन",
+        "hours_one": "{{count}} घंटा",
+        "hours_other": "{{count}} घंटे",
+        "minutes_one": "{{count}} मिनट",
+        "minutes_other": "{{count}} मिनट"
+      },
+      "dateLabel": "तारीख़",
+      "timeLabel": "समय",
+      "peopleLabel": "लोग",
+      "channelsLabel": "चैनल",
+      "videoLabel": "वीडियो"
+    },
+    "confirmation": {
+      "title": "मीटिंग शेड्यूल हो गई!",
+      "subtitle": "आपकी मीटिंग कैलेंडर में जोड़ दी गई है।",
+      "dismiss": "खारिज करें",
+      "close": "बंद करें",
+      "copyLink": "लिंक कॉपी करें",
+      "linkCopied": "कॉपी हो गया!",
+      "generatingLink": "लिंक बन रहा है…",
+      "viewInCalendar": "कैलेंडर में देखें",
+      "startNow": "मीटिंग अभी शुरू करें"
+    },
+    "detailsTitle": "मीटिंग का विवरण",
+    "membersDescription": "इस मीटिंग में लोग जोड़ें",
+    "membersEmptyHint": "अपनी मीटिंग में लोगों को आमंत्रित करें",
+    "channelsDescription": "इस मीटिंग में चैनल जोड़ें"
+  },
+  "schedule": {
+    "error": "वह कॉल शेड्यूल नहीं हो सकी",
+    "titleChannel": "चैनल कॉल शुरू करें",
+    "titleDirect": "कॉल शेड्यूल करें",
+    "descriptionChannel": "इस चैनल का हर सदस्य जुड़ सकता है। कोई आमंत्रण लिंक नहीं है — चैनल की सदस्यता ही आमंत्रण है।",
+    "descriptionDirect": "{{peerName}} आपके चुने समय पर जुड़ सकेंगे। जो इसे शेड्यूल करता है, वही इसे खोलता है।",
+    "titleLabel": "शीर्षक",
+    "placeholderChannel": "डिज़ाइन सिंक",
+    "placeholderDirect": "साप्ताहिक समीक्षा",
+    "typeLabel": "प्रकार",
+    "video": "वीडियो",
+    "audio": "ऑडियो",
+    "whenLabel": "कब",
+    "whenRequired": "— ज़रूरी",
+    "whenOptional": "— अभी शुरू करने के लिए खाली छोड़ें",
+    "lengthLabel": "अवधि",
+    "lengthHint": "— समय पूरा होते ही कॉल अपने-आप समाप्त हो जाती है",
+    "durations": {
+      "m15": "15 मि.",
+      "m30": "30 मि.",
+      "h1": "1 घं.",
+      "h2": "2 घं.",
+      "noEnd": "कोई समाप्ति समय नहीं"
+    },
+    "cancel": "रद्द करें",
+    "submitSchedule": "शेड्यूल करें",
+    "submitStartNow": "अभी शुरू करें",
+    "untitled": "बिना शीर्षक",
+    "startedNow": "अभी शुरू हुई",
+    "endsAt": " — {{time}} पर समाप्त",
+    "done": "हो गया",
+    "joinNow": "अभी जुड़ें"
+  },
+  "filterMenu": {
+    "trigger": "फ़िल्टर",
+    "ariaLabel": "मीटिंग फ़िल्टर करें",
+    "typeHeading": "प्रकार",
+    "onlyMine": "केवल मेरे आयोजित",
+    "clear": "फ़िल्टर हटाएँ"
+  },
+  "handoff": {
+    "title": "मीटिंग से जुड़ें",
+    "subtitle": "आप डेस्कटॉप ऐप से इस मीटिंग से जुड़ सकते हैं या सीधे अपने ब्राउज़र में जारी रख सकते हैं।",
+    "notOpened": "अपने-आप नहीं खुला।",
+    "openingApp": "{{brand}} डेस्कटॉप ऐप खोला जा रहा है…",
+    "continueInBrowser": "ब्राउज़र में जारी रखें"
+  },
+  "inviteLink": {
+    "label": "आमंत्रण लिंक",
+    "copy": "मीटिंग लिंक कॉपी करें",
+    "couldNotCreate": "आमंत्रण लिंक नहीं बनाया जा सका",
+    "copyFailed": "कॉपी नहीं हो सका",
+    "copyManually": "लिंक चुनें और उसे हाथ से कॉपी करें।"
+  },
+  "host": {
+    "openFailed": "वह मीटिंग खोली नहीं जा सकी",
+    "rejoin": {
+      "ariaLabel": "जिस मीटिंग में आप थे, उससे दोबारा जुड़ें",
+      "untitled": "मीटिंग",
+      "description": "पेज रीलोड होने से पहले आप इस मीटिंग में थे।",
+      "notNow": "अभी नहीं",
+      "rejoinButton": "दोबारा जुड़ें"
+    }
+  },
+  "transcript": {
+    "chat": {
+      "emptyTitle": "इस मीटिंग में कोई चैट नहीं",
+      "emptyHint": "रूम में सभी को भेजे गए संदेश यहाँ रखे जाते हैं। निजी संदेश केवल एक व्यक्ति तक पहुँचते हैं और कभी संग्रहीत नहीं होते।"
+    },
+    "notes": {
+      "emptyTitle": "कोई नोट नहीं लिया गया",
+      "emptyHint": "मीटिंग के नोट्स पैनल में लिखे गए बिंदु यहाँ रखे जाते हैं।"
+    },
+    "loading": "लोड हो रहा है…",
+    "error": "यह लोड नहीं हो सका।",
+    "retry": "फिर कोशिश करें",
+    "loadMore": "और लोड करें"
+  },
+  "statusBar": {
+    "micOn": "माइक्रोफ़ोन चालू",
+    "micOff": "माइक्रोफ़ोन बंद",
+    "leaveMeeting": "मीटिंग छोड़ें"
+  },
+  "series": {
+    "badge": "आवर्ती मीटिंग",
+    "summary": {
+      "day_one": "रोज़ दोहराई जाती है",
+      "day_other": "हर {{count}} दिन में दोहराई जाती है",
+      "week_one": "हर सप्ताह {{days}} को दोहराई जाती है",
+      "week_other": "हर {{count}} सप्ताह में {{days}} को दोहराई जाती है",
+      "month_one": "हर महीने दोहराई जाती है",
+      "month_other": "हर {{count}} महीने में दोहराई जाती है",
+      "withEnd": "{{repeat}}, {{end}}",
+      "until": "{{date}} तक",
+      "times_one": "कुल {{count}} मीटिंग",
+      "times_other": "कुल {{count}} मीटिंग"
+    },
+    "edit": {
+      "button": "सीरीज़ संपादित करें",
+      "title": "आवर्ती मीटिंग संपादित करें",
+      "close": "बंद करें",
+      "loading": "लोड हो रहा है…",
+      "error": "यह सीरीज़ लोड नहीं हो सकी।",
+      "retry": "फिर कोशिश करें",
+      "first": "पहली मीटिंग: {{when}}। इसकी तारीख़ और समय यहाँ से नहीं बदले जा सकते।",
+      "note": "सहेजने पर इस सीरीज़ की आने वाली मीटिंग अपडेट हो जाती हैं। जिन मीटिंग की तारीख़ और समय वही रहते हैं, उनके जॉइन लिंक और मेहमान बने रहते हैं, और हो चुकी मीटिंग जैसी हैं वैसी ही रहती हैं।",
+      "cancel": "रद्द करें",
+      "save": "बदलाव सहेजें",
+      "saving": "सहेजा जा रहा है…",
+      "saveError": "आपके बदलाव सहेजे नहीं जा सके"
+    },
+    "cancelSeries": {
+      "button": "सीरीज़ रद्द करें",
+      "title": "यह सीरीज़ रद्द करें?",
+      "message": "इस सीरीज़ की आने वाली हर मीटिंग सबके लिए हटा दी जाएगी। हो चुकी मीटिंग बनी रहेंगी।",
+      "confirm": "सीरीज़ रद्द करें",
+      "error": "सीरीज़ रद्द नहीं की जा सकी",
+      "done": "सीरीज़ रद्द की गई"
+    }
+  },
+  "view": {
+    "untitled": "बिना शीर्षक की मीटिंग",
+    "scope": {
+      "channelCall": "चैनल कॉल",
+      "directCall": "डायरेक्ट कॉल"
+    },
+    "kind": {
+      "MEETING": "मीटिंग",
+      "CHANNEL": "चैनल कॉल",
+      "DIRECT": "डायरेक्ट कॉल"
+    },
+    "status": {
+      "cancelled": "रद्द",
+      "live": "लाइव",
+      "upcoming": "आगामी",
+      "ended": "समाप्त"
+    },
+    "listSeparator": ", ",
+    "namesAnd": "{{list}} और {{last}}",
+    "namesAndOthers_one": "{{list}} और {{count}} अन्य",
+    "namesAndOthers_other": "{{list}} और {{count}} अन्य"
+  }
+}

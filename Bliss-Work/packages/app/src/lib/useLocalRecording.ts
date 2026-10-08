@@ -82,10 +82,14 @@ export function useLocalRecording(
       tiles: tilesFrom(people),
       title: name,
       // The recording is already over by the time the encoder reports a
-      // problem, so this puts the button back rather than trying to recover.
+      // problem, so this puts the button back rather than trying to recover —
+      // but it still has to be stopped: that is what releases the draw timer,
+      // the AudioContext and the hidden video host (and saves what was captured).
       onError: () => {
+        const failed = active.current;
         active.current = null;
         setRecording(false);
+        void failed?.stop().catch(() => {});
       },
     });
     // Connects everyone's audio; startLocalRecording only takes the picture.

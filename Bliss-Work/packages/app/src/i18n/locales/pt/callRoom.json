@@ -1,0 +1,164 @@
+{
+  "errors": {
+    "accessRevoked": "Você não tem mais acesso a esta chamada",
+    "notConfigured": "As chamadas em grupo não estão ativadas neste servidor",
+    "couldNotJoin": "Não foi possível entrar na chamada",
+    "couldNotStart": "Não foi possível iniciar a chamada",
+    "couldNotShareScreen": "Não foi possível compartilhar sua tela"
+  },
+  "notify": {
+    "screenShareStopped": "Compartilhamento de tela interrompido",
+    "screenShareStoppedDescription": "A reconexão à chamada encerrou o seu compartilhamento — inicie-o novamente se ainda estiver apresentando.",
+    "meetingEnded": "Esta reunião foi encerrada",
+    "micBlocked": "Microfone bloqueado",
+    "micBlockedHint": "Verifique a permissão de microfone deste app.",
+    "micUnavailable": "Microfone indisponível",
+    "micUnavailableHint": "Verifique se há um microfone conectado e se ele não está em uso por outro app.",
+    "cameraBlocked": "Câmera bloqueada",
+    "cameraBlockedHint": "Verifique a permissão de câmera deste app.",
+    "cameraUnavailable": "Câmera indisponível",
+    "cameraUnavailableHint": "Verifique se há uma câmera conectada e se ela não está em uso por outro app."
+  },
+  "preJoin": {
+    "readyToJoinLabel": "Pronto para entrar",
+    "leave": "Sair",
+    "cameraOffPlaceholder": "Sua câmera está desligada",
+    "error": {
+      "deniedTitle": "Câmera e microfone estão bloqueados",
+      "otherTitle": "Não foi possível acessar sua câmera ou microfone",
+      "deniedHint": "Verifique a permissão de câmera e microfone deste app e tente novamente.",
+      "otherHint": "Verifique se há uma câmera e um microfone conectados e se não estão em uso por outro app, e tente novamente.",
+      "tryAgain": "Tentar novamente",
+      "openCameraSettings": "Abrir configurações da câmera",
+      "openMicrophoneSettings": "Abrir configurações do microfone"
+    },
+    "muteMic": "Silenciar microfone",
+    "unmuteMic": "Reativar microfone",
+    "cameraOff": "Desligar câmera",
+    "cameraOn": "Ligar câmera",
+    "heading": "Pronto para entrar?",
+    "description": "Confira sua câmera e seu microfone antes de entrar na reunião.",
+    "joinButton": "Entrar na reunião"
+  },
+  "waitingRoom": {
+    "canStartHint": "Você é a primeira pessoa aqui. Inicie a reunião para deixar os demais entrarem.",
+    "waitingHint": "Esta reunião ainda não foi aberta. Você entrará automaticamente assim que ela começar.",
+    "leave": "Sair",
+    "starting": "Iniciando…",
+    "startNow": "Iniciar agora"
+  },
+  "joinFailed": {
+    "anotherDeviceTitle": "Você já está nesta reunião em outro dispositivo",
+    "anotherDeviceHint": "Você está conectado a esta reunião em outro dispositivo no momento.",
+    "switchHere": "Mudar para este",
+    "displacedTitle": "Você entrou nesta reunião em outro dispositivo",
+    "displacedHint": "Esta reunião agora está ativa em outro dispositivo.",
+    "tokenTitle": "Não foi possível obter as credenciais da reunião",
+    "disconnectedTitle": "Desconectado da reunião",
+    "genericTitle": "Não foi possível conectar à reunião",
+    "tokenHint": "A solicitação do token não foi concluída. Verifique sua conexão e tente novamente.",
+    "disconnectedHint": "A conexão com a reunião foi perdida e não pôde ser recuperada. Verifique sua conexão e entre novamente.",
+    "genericHint": "A conexão com o servidor da reunião não foi estabelecida. Verifique sua conexão e tente novamente.",
+    "leave": "Sair",
+    "retrying": "Tentando novamente…",
+    "retry": "Tentar novamente"
+  },
+  "room": {
+    "defaultTitleChannel": "Chamada do canal",
+    "defaultTitleMeeting": "Reunião",
+    "youFallbackName": "Você",
+    "addPeopleDefaultTitle": "Adicionar pessoas",
+    "channelAlreadyInvited": "Todas as pessoas do canal já foram convidadas",
+    "header": {
+      "participantsPresent_one": "{{count}} participante presente",
+      "participantsPresent_many": "{{count}} de participantes presentes",
+      "participantsPresent_other": "{{count}} participantes presentes",
+      "external": "{{count}} externo(s)",
+      "recording": "Gravando",
+      "reconnecting": "Reconectando…",
+      "connecting": "Conectando…"
+    },
+    "stage": {
+      "speaking": "Falando",
+      "presenting": "Apresentando",
+      "connectingPlaceholder": "Conectando…"
+    },
+    "toasts": {
+      "recordingSaved": "Gravação salva em seus downloads",
+      "recordingUnsupported": "Este navegador não consegue gravar reuniões",
+      "recordingStarted": "Gravação iniciada — ela será salva neste dispositivo",
+      "inviteLinkCopied": "Link de convite copiado"
+    }
+  },
+  "controls": {
+    "addPeopleDefault": "Adicionar pessoas",
+    "stopSharing": "Parar de compartilhar sua tela",
+    "startSharing": "Compartilhar sua tela",
+    "callDurationAriaLabel": "Duração da chamada",
+    "mute": "Silenciar",
+    "unmute": "Reativar som",
+    "cameraOff": "Desligar câmera",
+    "cameraOn": "Ligar câmera",
+    "endCall": "Encerrar chamada"
+  },
+  "roster": {
+    "ariaLabel": "Participantes",
+    "title": "Participantes",
+    "searchPlaceholder": "Buscar membros…",
+    "searchAriaLabel": "Buscar membros",
+    "inMeetingCount": "Na reunião · {{count}}",
+    "youSuffix": " (você)",
+    "sharing": "Compartilhando",
+    "handUp": "Mão levantada",
+    "pin": "Fixar {{name}}",
+    "unpin": "Desafixar {{name}}",
+    "showMore": "+{{count}} membros",
+    "showLess": "Mostrar menos",
+    "noMatches": "Nenhum membro corresponde a \"{{query}}\".",
+    "inviteMembers": "Convidar membros"
+  },
+  "tile": {
+    "presentingScreen": "Você está apresentando sua tela",
+    "pin": "Fixar {{name}}",
+    "unpin": "Desafixar {{name}}",
+    "handRaisedTitle": "{{name}} levantou a mão",
+    "youSuffix": " (você)",
+    "unpinStageTitle": "Desafixar {{name}} da visualização principal",
+    "unpinStageAriaLabel": "Desafixar a visualização principal",
+    "unpinStageButton": "Desafixar"
+  },
+  "callUi": {
+    "couldNotOpenRoom": "Não foi possível abrir a sala da chamada",
+    "movingToRoom": "Levando todo mundo para a sala…",
+    "decline": "Recusar",
+    "accept": "Aceitar",
+    "incomingVideo": "Chamada de vídeo recebida…",
+    "incomingVoice": "Chamada de voz recebida…",
+    "peerFallbackName": "Usuário",
+    "subtitle": {
+      "sharing": "{{peer}} está compartilhando a tela",
+      "connected": "Conectado",
+      "callEnded": "Chamada encerrada",
+      "calling": "Chamando…"
+    },
+    "audioBlocked": {
+      "title": "Toque para ouvir a chamada",
+      "description": "Seu navegador bloqueou a reprodução de áudio até que você interaja."
+    }
+  },
+  "addPeopleDialog": {
+    "shareTitle": "Compartilhar link da reunião",
+    "shareDescription": "Convide colegas para participar desta reunião por meio de um link seguro.",
+    "cancel": "Cancelar",
+    "sendLink": "Enviar link",
+    "sendTitle": "Enviar link da reunião",
+    "linkSentWithExceptions": "Link enviado com algumas exceções",
+    "linkSentWithExceptionsDescription": "{{sent}} enviado(s), {{failed}} não puderam ser alcançados.",
+    "linkSent": "Link enviado",
+    "linkSentToMembers": "Link enviado para {{count}} membros",
+    "addedToCall": "Adicionado à chamada",
+    "addedPeople": "{{count}} pessoas adicionadas",
+    "couldNotAdd": "Não foi possível adicionar ninguém a esta chamada",
+    "groupCallingUnavailable": "As chamadas em grupo podem não estar disponíveis neste servidor."
+  }
+}

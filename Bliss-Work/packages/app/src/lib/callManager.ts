@@ -425,7 +425,8 @@ export class CallSession {
    * seen at this point in the call — and drops it into the video slot reserved
    * at acquire() time. Off is replaceTrack(null) rather than `enabled = false`
    * so the peer's track goes properly muted and their UI shows an avatar,
-   * instead of a still frame of whatever the camera saw last.
+   * instead of a still frame of whatever the camera saw last, and the capture
+   * is stopped so the device is released; turning it back on re-acquires.
    */
   async setCam(on?: boolean): Promise<boolean> {
     // Queued like every other signaling step (see enqueue): without this, two
@@ -453,6 +454,15 @@ export class CallSession {
       // A live share owns the sender; the camera takes its place again when the
       // share stops (see stopShare).
       if (!this.screen) await this.videoTx?.sender.replaceTrack(want ? (track ?? null) : null);
+      // Off releases the device, not just the picture: a merely disabled track
+      // keeps the camera open (and its light on) until the call ends. The next
+      // "on" takes the `want && !track` path above and captures a fresh one.
+      // Stopped only AFTER the sender let go of it, so the peer sees the track
+      // go muted rather than end.
+      if (!want && track) {
+        this.local.removeTrack(track);
+        track.stop();
+      }
       this.announce();
       return want;
     });

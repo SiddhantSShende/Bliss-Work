@@ -1,0 +1,70 @@
+{
+  "card": {
+    "from": "von {{name}}",
+    "assigned": "Zugewiesen",
+    "deadline": "Frist",
+    "missedOn": "Verpasst",
+    "collapseToPill": "Zu einem Chip verkleinern",
+    "unpinNoteTitle": "Loslösen (die Aufgabe bleibt)",
+    "unpin": "Loslösen",
+    "dismissIgnore": "Schließen (ignorieren)",
+    "acknowledge": "Bestätigen",
+    "ignore": "Ignorieren",
+    "complete": "Abschließen",
+    "leave": "Verlassen",
+    "untitledTask": "Unbenannte Aufgabe",
+    "expand": "Erweitern",
+    "expandLabel": "Haftnotiz erweitern",
+    "dismiss": "Schließen",
+    "dismissLabel": "Haftnotiz schließen",
+    "collapse": "Einklappen",
+    "collapseLabel": "Haftnotiz einklappen",
+    "ignoreTitle": "Ignorieren – die absendende Person wird benachrichtigt",
+    "acknowledgeTitle": "Bestätigen – diese Notiz bleibt sichtbar, bis Sie die Aufgabe abschließen",
+    "unpinFromDesktopTitle": "Vom Desktop loslösen – die Aufgabe bleibt in Ihrer Aufgabenliste",
+    "navPrevious": "Vorherige angeheftete Aufgabe",
+    "navNext": "Nächste angeheftete Aufgabe"
+  },
+  "overlay": {
+    "ariaLabel": "Schwebende Haftnotizen"
+  },
+  "toasts": {
+    "acknowledgeFailed": "Bestätigen fehlgeschlagen",
+    "ignoreFailed": "Ignorieren fehlgeschlagen",
+    "taskIgnored": "Aufgabe ignoriert – die absendende Person wurde benachrichtigt.",
+    "noteUnpinned": "Notiz losgelöst",
+    "noteUnpinnedDescription": "Sie ist weiterhin in Ihrer Aufgabenliste – schließen Sie sie dort ab.",
+    "unpinFailed": "Die Notiz konnte nicht losgelöst werden",
+    "desktopFull": "Diese Aufgabe konnte nicht an den Desktop angeheftet werden."
+  },
+  "window": {
+    "loading": "Wird geladen…",
+    "expand": "Erweitern",
+    "previousTask": "Vorherige angeheftete Aufgabe",
+    "nextTask": "Nächste angeheftete Aufgabe",
+    "chat": {
+      "loadingThread": "Thread wird geladen…",
+      "pinnedChat": "Angehefteter Chat",
+      "unpin": "Loslösen",
+      "unpinTitle": "Vom Desktop loslösen",
+      "noMessages": "Noch keine aktuellen Nachrichten.",
+      "replyPlaceholder": "Antworten…",
+      "send": "Senden"
+    },
+    "invite": {
+      "meetingFallback": "Meeting",
+      "hostedBy": "Gastgeber: {{name}}",
+      "video": "Video",
+      "videoTitle": "Mit Kamera beitreten",
+      "voice": "Audio",
+      "voiceTitle": "Nur mit Audio beitreten",
+      "leave": "Verlassen",
+      "dismiss": "Schließen"
+    },
+    "titles": {
+      "task": "Aufgabe",
+      "chat": "Chat",
+      "invite": "Meeting-Einladung"
+    }
+  }
+}

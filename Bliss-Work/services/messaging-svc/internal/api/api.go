@@ -19,6 +19,7 @@ import (
 	"github.com/task-board/messaging-svc/internal/auth"
 	"github.com/task-board/messaging-svc/internal/blob"
 	"github.com/task-board/messaging-svc/internal/config"
+	"github.com/task-board/messaging-svc/internal/convert"
 	"github.com/task-board/messaging-svc/internal/livekit"
 	"github.com/task-board/messaging-svc/internal/media"
 	mw "github.com/task-board/messaging-svc/internal/middleware"
@@ -71,6 +72,12 @@ type Server struct {
 	// went. Never nil either, and a zero one is the ordinary state: recording
 	// is off unless RECORDINGS_ENABLED and an egress deployment say otherwise.
 	recorder *livekit.Recorder
+
+	// The Office Document Sandbox client. Nil unless CONVERTER_URL is set, in
+	// which case the preview route answers "unavailable" and the app falls back
+	// to Download.
+	preview    *convert.Service
+	previewCfg config.PreviewConfig
 }
 
 // NewServer constructs an API server.
@@ -114,6 +121,15 @@ func (s *Server) WithRecorder(rec *livekit.Recorder) *Server {
 	if rec != nil {
 		s.recorder = rec
 	}
+	return s
+}
+
+// WithPreview turns on in-app previews of Office documents.
+//
+// A method rather than another constructor parameter, like WithRecorder: it is
+// optional, and every existing caller — the tests included — works without it.
+func (s *Server) WithPreview(svc *convert.Service, cfg config.PreviewConfig) *Server {
+	s.preview, s.previewCfg = svc, cfg
 	return s
 }
 
@@ -242,6 +258,8 @@ func (s *Server) Router(webOrigin string) http.Handler {
 	r.Group(func(g chi.Router) {
 		g.Use(s.limiter.PerIPMiddleware)
 		g.Get("/media/{id}", s.downloadMedia)
+		// The converted preview of an Office document, on the same signed link.
+		g.Get("/media/{id}/preview", s.previewMedia)
 		// A call recording, on the same terms and for the same reason: a
 		// <video src> cannot carry an Authorization header.
 		g.Get("/recordings/{id}", s.downloadRecording)

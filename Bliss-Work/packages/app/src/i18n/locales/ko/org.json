@@ -1,0 +1,174 @@
+{
+  "availablePeople": {
+    "searchPlaceholder": "팀원 검색…",
+    "empty": {
+      "noMatchesTitle": "일치하는 항목 없음",
+      "allBusyTitle": "모두 바쁜 상태예요",
+      "noMatchesHint": "검색과 일치하는 대응 가능한 팀원이 없어요.",
+      "allBusyHint": "확인한 태스크가 없는 사람이 여기에 표시돼요."
+    },
+    "toasts": {
+      "hideFailed": "해당 사용자를 숨기지 못했어요",
+      "restoreFailed": "해당 사용자를 복원하지 못했어요"
+    },
+    "hiddenToggle": "이 목록에서 숨김 ({{count}})",
+    "hiddenBusyNote": "진행 중인 태스크가 있어요. 여유가 생기기 전까지 다시 표시되지 않아요",
+    "restoreTitle": "대응 가능 목록으로 복원",
+    "card": {
+      "selfTitle": "자신에게는 태스크를 할당할 수 없어요",
+      "assignTitle": "{{name}}님에게 태스크 할당",
+      "youSuffix": " (나)",
+      "pendingBadge": "미확인 대기 {{count}}건",
+      "onCall": "통화 중",
+      "hiddenFromOthers": "다른 사람에게 숨김",
+      "hideTitle": "대응 가능 목록에서 숨기기"
+    }
+  },
+  "memberPicker": {
+    "searchPlaceholder": "팀원 검색…",
+    "clearAll": "모두 해제",
+    "selectAll": "모두 선택",
+    "emptyHint": "조건에 맞는 사람이 모두 여기에 있어요.",
+    "cancelButton": "취소",
+    "addButton": "추가",
+    "sendOrganization": "조직 전체에 보내기"
+  },
+  "inviteePicker": {
+    "searchPlaceholder": "조직 내 검색…",
+    "searchAriaLabel": "조직 내 검색",
+    "empty": {
+      "noMatches": "일치하는 항목이 없어요.",
+      "noneToInvite": "초대할 사람이 더 없어요."
+    },
+    "loading": "사람 불러오는 중…",
+    "you": "(나)"
+  },
+  "orgPage": {
+    "header": {
+      "title": "조직",
+      "subtitle": "소속된 워크스페이스를 전환하거나 현재 워크스페이스를 관리하세요."
+    },
+    "toasts": {
+      "switched": "조직을 전환했어요",
+      "switchFailedTitle": "조직을 전환하지 못했어요",
+      "switchFailedDescription": "다시 시도해 주세요."
+    },
+    "yourOrganizations": "내 조직",
+    "loading": "불러오는 중…",
+    "currentBadge": "현재",
+    "roleLabel": {
+      "admin": "관리자",
+      "member": "멤버"
+    },
+    "activeLabel": "사용 중",
+    "switchButton": "전환",
+    "switchingLabel": "전환하는 중…",
+    "manageHeading": "{{name}} 관리",
+    "manageFallbackName": "이 조직",
+    "membersButton": "멤버",
+    "invitePeopleButton": "사람 초대"
+  },
+  "orgActivity": {
+    "adminsOnly": {
+      "title": "관리자 전용",
+      "hint": "내 활동은 설정 → 내 활동에서 확인할 수 있어요."
+    },
+    "backToMembers": "멤버",
+    "header": {
+      "title": "워크스페이스 활동",
+      "subtitle": "팀이 시간을 어떻게 쓰는지 보여 줘요."
+    },
+    "exportButton": "내보내기",
+    "empty": {
+      "title": "이 기간에는 활동이 없어요",
+      "hint": "팀이 {{brand}}를 하루 이상 사용하면 차트가 표시돼요."
+    },
+    "stats": {
+      "teamActiveTime": "팀 활성 시간",
+      "peopleActive": "활동한 사람",
+      "perPerson": "1인당",
+      "perPersonHint": "선택 기간 평균",
+      "sessions": "세션"
+    },
+    "sections": {
+      "teamActiveTimePerDay": "일별 팀 활성 시간",
+      "activeTimeByMember": "멤버별 활성 시간",
+      "allMembers": "전체 멤버"
+    },
+    "table": {
+      "member": "멤버",
+      "active": "활성",
+      "idle": "유휴",
+      "sessions": "세션",
+      "actions": "동작"
+    },
+    "chart": {
+      "active": "활성",
+      "idle": "유휴"
+    }
+  },
+  "orgSwitcher": {
+    "switchTitle": "조직 전환",
+    "workspaceFallback": "워크스페이스",
+    "yourOrganizations": "내 조직",
+    "searchPlaceholder": "조직 검색...",
+    "loadMore": "더 불러오기",
+    "loading": "조직 불러오는 중...",
+    "empty": "조직을 찾을 수 없어요",
+    "loadFailed": "조직을 불러오지 못했어요. 클릭해서 다시 시도하세요.",
+    "roleLabel": {
+      "admin": "관리자",
+      "member": "멤버"
+    },
+    "switchingLabel": "전환하는 중…",
+    "toasts": {
+      "switchFailedTitle": "조직을 전환하지 못했어요",
+      "switchFailedDescription": "다시 시도해 주세요."
+    }
+  },
+  "deleteOrgSection": {
+    "toasts": {
+      "scheduledTitle": "워크스페이스 삭제가 예약되었어요",
+      "scheduledDescription": "모든 사용자가 로그아웃되었어요. 기한 전까지는 취소할 수 있어요.",
+      "scheduleFailedTitle": "삭제를 예약하지 못했어요",
+      "cancelled": "삭제를 취소했어요",
+      "cancelFailedTitle": "삭제를 취소하지 못했어요"
+    },
+    "scheduled": {
+      "heading": "이 워크스페이스는 삭제 예정이에요",
+      "message": "<bold>{{orgName}}</bold> 워크스페이스의 모든 내용(메시지, 파일, 태스크, 활동)이 <bold>{{when}}</bold>에 영구적으로 삭제돼요. 그전까지는 되돌릴 수 있어요.",
+      "cancelButton": "삭제 취소"
+    },
+    "dangerZone": {
+      "heading": "위험 구역",
+      "description": "이 워크스페이스를 삭제하면 모든 메시지, 파일, 태스크, 활동 기록이 모든 사용자에 대해 영구적으로 삭제돼요.",
+      "openButton": "이 워크스페이스 삭제…"
+    },
+    "confirm": {
+      "instructions": "유예 기간이 끝나면 되돌릴 수 없어요. 모든 사용자가 즉시 로그아웃돼요. 확인하려면 아래에 다음 워크스페이스 식별자를 입력하세요: <code>{{slug}}</code>",
+      "ariaLabel": "확인을 위해 워크스페이스 식별자 입력",
+      "deleteButton": "워크스페이스 삭제",
+      "cancelButton": "취소"
+    }
+  },
+  "leaveOrgButton": {
+    "leaveButton": "나가기",
+    "toasts": {
+      "failedTitle": "조직에서 나가지 못했어요",
+      "failedDescriptionFallback": "다시 시도해 주세요.",
+      "left": "{{orgName}}에서 나갔어요",
+      "signedOutTitle": "로그아웃되었어요",
+      "signedOutDescription": "계속하려면 다시 로그인해 주세요."
+    },
+    "confirmDialog": {
+      "title": "{{orgName}}에서 나갈까요?",
+      "message": "<bold>{{orgName}}</bold>의 모든 채널, 메시지, 태스크에 더 이상 접근할 수 없어요. 내가 올린 내용은 삭제되지 않으며, 해당 조직의 관리자가 다시 초대할 수 있어요.",
+      "movedMessage": " <bold>{{orgName}}</bold> 조직으로 이동돼요.",
+      "confirmLabel": "조직 나가기"
+    },
+    "stepUp": {
+      "title": "나가려면 본인 확인이 필요해요",
+      "description": "계정에 2단계 인증이 설정되어 있어, 조직에서 나가려면 비밀번호와 현재 코드가 필요해요."
+    }
+  }
+}

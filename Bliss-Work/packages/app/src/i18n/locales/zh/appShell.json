@@ -1,0 +1,22 @@
+{
+  "topNavbar": {
+    "openMenu": "菜单",
+    "openNavigationMenu": "打开导航菜单",
+    "searchPlaceholder": "搜索成员、频道、聊天、任务…",
+    "clearSearch": "清除搜索",
+    "invite": "邀请",
+    "search": "搜索",
+    "notifications": "通知"
+  },
+  "verifyEmail": {
+    "message": "请验证你的邮箱地址，以进一步保护账号安全。",
+    "resendSent": "已发送 ✓",
+    "resend": "重新发送邮件",
+    "resentToast": "验证邮件已发送，请查收。"
+  },
+  "mfaRequired": {
+    "messageWithDeadline": "你的工作区要求管理员启用双重验证，请在 {{deadline}} 前完成设置。",
+    "messageNoDeadline": "你的工作区要求管理员启用双重验证。",
+    "enableNow": "立即启用"
+  }
+}

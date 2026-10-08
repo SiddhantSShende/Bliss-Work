@@ -301,3 +301,42 @@ func TestS3IntegrationCacheRoundTrip(t *testing.T) {
 		t.Fatalf("oversize CachePut err = %v, want ErrTooLarge", err)
 	}
 }
+
+func TestS3IntegrationDerived(t *testing.T) {
+	s := testS3(t)
+	sha, _, err := s.WriteStream(testOrg, strings.NewReader("original"), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OpenDerived(testOrg, sha, "v1.pdf"); err == nil || !isNotFound(err) {
+		t.Fatalf("absent derivative should be not-found, got %v", err)
+	}
+	if err := s.PutDerived(testOrg, sha, "v1.pdf", strings.NewReader("%PDF-x"), 1024); err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.OpenDerived(testOrg, sha, "v1.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(f)
+	f.Close()
+	if string(got) != "%PDF-x" {
+		t.Fatalf("got %q", got)
+	}
+
+	// Over the cap: stored nothing.
+	if err := s.PutDerived(testOrg, sha, "v1.json", bytes.NewReader(make([]byte, 101)), 100); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("want ErrTooLarge, got %v", err)
+	}
+	if _, err := s.OpenDerived(testOrg, sha, "v1.json"); err == nil || !isNotFound(err) {
+		t.Fatal("an oversize derivative must not remain")
+	}
+
+	// Remove takes the derivative with the original.
+	if err := s.Remove(testOrg, sha); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OpenDerived(testOrg, sha, "v1.pdf"); err == nil || !isNotFound(err) {
+		t.Fatal("derivative survived Remove")
+	}
+}

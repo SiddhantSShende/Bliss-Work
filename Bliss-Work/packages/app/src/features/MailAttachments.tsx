@@ -19,10 +19,11 @@ import { useMailAttachmentDownload } from "../lib/useMailAttachmentDownload";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { errorText } from "../lib/errorText";
-import { openAttachmentNatively, rendersInApp } from "../lib/openAttachment";
+import { openAttachmentNatively } from "../lib/openAttachment";
+import { attachmentCapability } from "../lib/attachmentCapability";
 import { MEDIA_MAX_BYTES, type MediaItem } from "../lib/chatEnvelope";
 import { prettySize } from "../lib/fileOffer";
-import { Lightbox } from "./Lightbox";
+import { AttachmentViewer } from "./AttachmentViewer";
 
 /** One file in the composer's tray, at whatever stage it has reached. */
 export type MailAttachment = {
@@ -268,8 +269,8 @@ export function MailAttachmentTray({
 const ACTION_CLASS =
   "inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft";
 
-/** MailAttachmentDTO, reshaped for the same Lightbox chat attachments preview
- *  in — Lightbox only needs the fields it actually renders. */
+/** MailAttachmentDTO, reshaped for the same viewer chat attachments open in —
+ *  it only needs the fields it actually renders. */
 function toMediaItem(a: MailAttachmentDTO): MediaItem {
   return { id: a.id, name: a.filename, size: a.sizeBytes, mime: a.mime };
 }
@@ -282,22 +283,21 @@ function toMediaItem(a: MailAttachmentDTO): MediaItem {
  * batched per rendered page and keyed on the ids — the one caller that has
  * those ids is this component.
  *
- * A type the app can render itself (image, video, PDF, plain text — see
- * `canPreviewDocInApp`) opens in-app, in the SAME Lightbox the chat
- * attachments use. Everything else opens via `target="_blank"`, never a
- * same-tab `download`-attributed link: Electron's `will-navigate` guard
- * (apps/desktop/src/main/harden.ts) fires for those too and — because a
- * signed attachment URL is never "our own content" — cancels the navigation
- * outright, so the click did nothing at all. `target="_blank"` instead goes
- * through `setWindowOpenHandler`, which is what reliably hands the URL to
- * `shell.openExternal` (or, on web, just opens a new tab) — the same path
- * ChatAssetsSheet's doc links already use.
+ * What each file offers is `attachmentCapability`'s call — the one decision
+ * shared with chats and channels:
  *
- * On desktop specifically, `config.openAttachment` (present only in
- * Electron — see platform.ts) is used instead: it fetches the file in main
- * and opens it with the OS's native default app, so the click lands on the
- * file itself rather than on the system browser. Web has no such capability
- * and keeps the `target="_blank"` anchor exactly as before.
+ *   native    → image, video, PDF, plain text: a Preview button, in the same
+ *               Lightbox the chat attachments use. Unchanged.
+ *   document  → Word, PowerPoint, Excel, CSV, .txt: an Open button, in the in-app
+ *               document viewer (converted in the Office Document Sandbox).
+ *   external  → audio: the Open it always had — on desktop `config.openAttachment`
+ *               (the OS's own player), on web a `target="_blank"` link. Never a
+ *               same-tab `download`-attributed link: Electron's `will-navigate`
+ *               guard (apps/desktop/src/main/harden.ts) cancels those outright.
+ *   download  → everything else: NO Open. Only Download.
+ *
+ * Download is on every card, and is the one audited path (it records the
+ * download); the viewers' "can't be previewed" panel reuses it.
  */
 export function MailAttachmentCards({ mailId, attachments }: { mailId: string; attachments: MailAttachmentDTO[] }) {
   const { t } = useTranslation("mail");
@@ -319,7 +319,7 @@ export function MailAttachmentCards({ mailId, attachments }: { mailId: string; a
         {attachments.map((a) => {
           const url = links.urlFor(a.id);
           const { Icon, tone } = fileGlyph(a.mime, a.filename);
-          const previewable = !!url && rendersInApp(a.mime);
+          const kind = attachmentCapability({ name: a.filename, mime: a.mime, size: a.sizeBytes }).kind;
           return (
             <li
               key={a.id}
@@ -332,7 +332,7 @@ export function MailAttachmentCards({ mailId, attachments }: { mailId: string; a
                 <span className="block truncate font-medium text-fg">{a.filename}</span>
                 <span className="block truncate text-muted">{formatBytes(a.sizeBytes)}</span>
               </span>
-              {previewable ? (
+              {url && kind === "native" ? (
                 <button
                   type="button"
                   onClick={() => setPreview(a)}
@@ -342,7 +342,17 @@ export function MailAttachmentCards({ mailId, attachments }: { mailId: string; a
                 >
                   <Eye size={14} /> {t("attachments.preview")}
                 </button>
-              ) : url && config.openAttachment ? (
+              ) : url && kind === "document" ? (
+                <button
+                  type="button"
+                  onClick={() => setPreview(a)}
+                  title={t("attachments.openFile", { filename: a.filename })}
+                  aria-label={t("attachments.openFile", { filename: a.filename })}
+                  className={ACTION_CLASS}
+                >
+                  <ExternalLink size={14} /> {t("attachments.open")}
+                </button>
+              ) : url && kind === "external" && config.openAttachment ? (
                 <button
                   type="button"
                   onClick={() => void openNatively(a.filename, url)}
@@ -352,7 +362,7 @@ export function MailAttachmentCards({ mailId, attachments }: { mailId: string; a
                 >
                   <ExternalLink size={14} /> {t("attachments.open")}
                 </button>
-              ) : url ? (
+              ) : url && kind === "external" ? (
                 <a
                   href={url}
                   target="_blank"
@@ -363,14 +373,14 @@ export function MailAttachmentCards({ mailId, attachments }: { mailId: string; a
                 >
                   <ExternalLink size={14} /> {t("attachments.open")}
                 </a>
-              ) : (
+              ) : !url ? (
                 // Links are minted in one batched, short-lived request; a
                 // missing one means the mint is still in flight or access was
                 // denied, and neither is a broken download button.
                 <span className="shrink-0 text-muted">
                   {links.isLoading ? t("attachments.preparing") : t("attachments.unavailable")}
                 </span>
-              )}
+              ) : null /* download-only: no Open */}
               {/* The one explicit download, for every type — images and other
                   previewable files included. Separate from Preview/Open above,
                   which never save and are never counted as downloads. */}
@@ -391,12 +401,16 @@ export function MailAttachmentCards({ mailId, attachments }: { mailId: string; a
       </ul>
 
       {preview && (
-        <Lightbox
+        <AttachmentViewer
           items={[toMediaItem(preview)]}
           index={0}
           urlFor={links.urlFor}
           onClose={() => setPreview(null)}
           onIndexChange={() => {}}
+          onDownload={(item) => {
+            const link = links.urlFor(item.id);
+            if (link) download({ id: item.id, name: item.name }, link);
+          }}
         />
       )}
     </section>

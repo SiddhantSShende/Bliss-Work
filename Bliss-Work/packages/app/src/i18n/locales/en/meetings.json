@@ -223,7 +223,9 @@
       "minuteAria": "{{minute}} minutes",
       "pickerAriaLabel": "{{label}} time picker",
       "cancel": "Cancel",
-      "ok": "OK"
+      "ok": "OK",
+      "dateAriaLabel": "{{label}} date",
+      "triggerAriaLabel": "{{label}} time"
     },
     "preview": {
       "sectionTitle": "Meeting Preview",
@@ -386,5 +388,27 @@
       "error": "Couldn't cancel the series",
       "done": "Series cancelled"
     }
+  },
+  "view": {
+    "untitled": "Untitled meeting",
+    "scope": {
+      "channelCall": "Channel call",
+      "directCall": "Direct call"
+    },
+    "kind": {
+      "MEETING": "Meetings",
+      "CHANNEL": "Channel calls",
+      "DIRECT": "Direct calls"
+    },
+    "status": {
+      "cancelled": "Cancelled",
+      "live": "Live",
+      "upcoming": "Upcoming",
+      "ended": "Ended"
+    },
+    "listSeparator": ", ",
+    "namesAnd": "{{list}} & {{last}}",
+    "namesAndOthers_one": "{{list}} & {{count}} other",
+    "namesAndOthers_other": "{{list}} & {{count}} others"
   }
 }

@@ -1,0 +1,197 @@
+{
+  "notify": {
+    "incomingVideo": "视频来电",
+    "incomingVoice": "语音来电",
+    "incomingBody": "{{caller}} 正在呼叫你",
+    "missedTitle": "未接来电",
+    "missedBody": "你错过了 {{caller}} 的来电",
+    "cameraUnavailable": "摄像头不可用",
+    "cameraUnavailableDescription": "请检查此应用的摄像头权限。",
+    "couldNotShareScreen": "无法共享你的屏幕",
+    "ringtoneMuted": "浏览器已将铃声静音",
+    "ringtoneMutedDescription": "点击页面任意位置即可允许播放通话声音。",
+    "unknownCaller": "有人"
+  },
+  "endedReasons": {
+    "noAnswer": "无人接听",
+    "mediaBlocked": "摄像头或麦克风已被禁用",
+    "declined": "通话已被拒绝",
+    "callEnded": "通话已结束",
+    "userUnavailable": "用户无法接通",
+    "connectionFailed": "连接失败"
+  },
+  "window": {
+    "tabTitle": "{{title}} · {{brand}}",
+    "untitledMeeting": "会议",
+    "loading": "正在加载会议…",
+    "loadError": {
+      "title": "无法加载此会议。",
+      "hint": "请检查网络后重试。",
+      "returnToMeetings": "返回会议",
+      "retrying": "正在重试…",
+      "retry": "重试"
+    },
+    "unavailable": {
+      "title": "此会议不可用",
+      "hint": "会议可能已结束，或你已不在参会名单中。",
+      "close": "关闭"
+    }
+  },
+  "join": {
+    "signIn": {
+      "title": "登录后加入",
+      "hint": "此会议链接适用于任何 {{brand}} 账号，包括其他组织的账号。"
+    },
+    "joining": "正在加入…",
+    "invalid": {
+      "title": "此邀请链接已失效",
+      "hint": "链接可能已过期、被撤销，或会议已结束。请向组织者索取新链接。",
+      "backToApp": "返回 {{brand}}"
+    },
+    "timeout": {
+      "title": "耗时比预期更长",
+      "hint": "刷新页面通常可以解决。",
+      "reload": "刷新"
+    },
+    "handoff": {
+      "joining": "正在加入会议…"
+    }
+  },
+  "chat": {
+    "disclaimer": "这里的消息对所有参会成员可见，如需私聊，请在下方选择对象。",
+    "empty": "暂无消息。这里发送的内容仅在会议期间保留，如需保存，请从顶部下载。",
+    "toLabel": "发送给：",
+    "toAriaLabel": "这条消息的接收对象",
+    "everyone": "所有人",
+    "privateOption": "{{name}}（私聊）",
+    "attachmentsUnsupported": "会议聊天不支持附件",
+    "privatePlaceholder": "私信 {{name}}…",
+    "everyonePlaceholder": "发消息给所有人…",
+    "privateAriaLabel": "私信 {{name}}",
+    "everyoneAriaLabel": "发消息给所有人",
+    "send": "发送",
+    "onlyWillSee": "只有 {{name}} 能看到",
+    "you": "你",
+    "privateToName": "私信给 {{name}}",
+    "privateToYou": "私信给你"
+  },
+  "members": {
+    "pagesAriaLabel": "成员分页",
+    "previous": "上一页成员",
+    "pageAriaLabel": "成员第 {{page}} 页，共 {{pages}} 页",
+    "more": "更多成员"
+  },
+  "menu": {
+    "call": "通话",
+    "voiceCall": "语音通话",
+    "videoCall": "视频通话",
+    "sendCallLink": "发送通话链接",
+    "scheduleCall": "预约通话"
+  },
+  "notes": {
+    "empty": "暂无要点。这里写下的内容会与会议中的所有人共享。",
+    "placeholder": "写下一个重要要点…",
+    "ariaLabel": "写下一个重要要点",
+    "enterToAdd": "按 Enter 添加",
+    "addPoint": "添加要点"
+  },
+  "sidebar": {
+    "controlsAriaLabel": "会议控制",
+    "mute": "静音",
+    "muted": "已静音",
+    "camera": "摄像头",
+    "share": "共享",
+    "raise": "举手",
+    "people": "成员",
+    "add": "添加",
+    "addPeople": "添加成员",
+    "chats": "聊天",
+    "notes": "笔记",
+    "record": "录制",
+    "recordUnsupported": "此浏览器不支持录制会议",
+    "copyLink": "复制链接",
+    "copyInviteLink": "复制邀请链接",
+    "pip": "画中画",
+    "exitPip": "退出画中画",
+    "pictureInPicture": "画中画",
+    "exitPictureInPicture": "退出画中画",
+    "pictureInPictureNoVideo": "画中画需要有人的画面，目前无人开启摄像头或共享屏幕",
+    "minimize": "最小化",
+    "minimise": "最小化",
+    "end": "结束",
+    "endCall": "结束通话"
+  },
+  "sidePanel": {
+    "tabNames": {
+      "chat": "聊天",
+      "notes": "笔记",
+      "participants": "参会者"
+    },
+    "regionAriaLabel": "会议{{tab}}",
+    "tablistAriaLabel": "聊天、笔记或参会者",
+    "chatTab": "聊天",
+    "notesTab": "笔记",
+    "peopleTab": "成员",
+    "saveAsFile": "将{{tab}}另存为文件",
+    "closeTab": "关闭{{tab}}"
+  },
+  "filmstrip": {
+    "ariaLabel": "其他参会者",
+    "moreMembers": "另外 {{count}} 位成员"
+  },
+  "roomLazy": {
+    "connecting": "正在连接…",
+    "error": {
+      "title": "打开会议室时出错。",
+      "hint": "刷新页面通常可以解决。",
+      "reload": "刷新"
+    }
+  },
+  "incomingNotice": {
+    "untitledMeeting": "会议",
+    "ariaLabel": "会议邀请：{{title}}",
+    "hostedBy": "主持人：{{organizer}}",
+    "video": "视频",
+    "joinWithCamera": "开启摄像头加入",
+    "voice": "语音",
+    "joinVoiceOnly": "仅语音加入",
+    "leave": "离开"
+  },
+  "scheduledNotice": {
+    "untitledMeeting": "会议",
+    "ariaLabel": "会议已预约：{{title}}",
+    "heading": "会议已预约",
+    "hostedBy": "主持人：{{organizer}}",
+    "join": "加入会议",
+    "dismiss": "关闭"
+  },
+  "miniMeeting": {
+    "ariaLabel": "{{title}} — 会议进行中",
+    "reconnecting": "正在重新连接…",
+    "connecting": "正在连接…",
+    "backToMeeting": "返回会议",
+    "nobodySpeaking": "无人发言",
+    "mute": "静音",
+    "unmute": "取消静音",
+    "turnCameraOff": "关闭摄像头",
+    "turnCameraOn": "开启摄像头",
+    "newChatMessages_other": "{{count}} 条新聊天消息",
+    "leaveMeeting": "离开会议"
+  },
+  "sendLinkDialog": {
+    "title": "发送通话链接",
+    "description": "链接会发布在你与 {{peerName}} 的聊天中。你在此添加的人会以私信收到链接，并在“会议”中占有通话席位。",
+    "alsoSendTo": "同时发送给",
+    "selectedCount": "— 已选 {{count}} 人",
+    "optional": "— 可选",
+    "cancel": "取消",
+    "sendLink": "发送链接"
+  },
+  "screenShare": {
+    "showControls": "显示屏幕共享控制",
+    "sharingYourScreen": "你正在共享屏幕",
+    "stopSharingTitle": "停止共享",
+    "stop": "停止",
+    "slideOutOfTheWay": "移到一边"
+  }
+}

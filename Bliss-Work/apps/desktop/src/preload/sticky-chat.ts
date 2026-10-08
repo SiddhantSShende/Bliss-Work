@@ -20,6 +20,7 @@ export interface ChatStickyMessage {
   senderId: string;
   body: string;
   createdAt: string;
+  clientMsgId?: string;
 }
 
 const api = {
@@ -41,6 +42,13 @@ const api = {
     const handler = (_: unknown, m: ChatStickyMessage) => cb(m);
     ipcRenderer.on("sticky-chat:message", handler);
     return () => ipcRenderer.removeListener("sticky-chat:message", handler);
+  },
+
+  /** A reply sent from this window failed; payload is its clientMsgId. */
+  onSendFailed: (cb: (clientMsgId: string) => void) => {
+    const handler = (_: unknown, clientMsgId: string) => cb(clientMsgId);
+    ipcRenderer.on("sticky-chat:send-failed", handler);
+    return () => ipcRenderer.removeListener("sticky-chat:send-failed", handler);
   },
 
   /** Forward a reply intent to the utility process. clientMsgId is

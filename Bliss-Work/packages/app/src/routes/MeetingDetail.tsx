@@ -13,6 +13,7 @@ import { useUserLabels } from "../lib/userLabel";
 import { describeRecurrence } from "../lib/meetingRecurrence";
 import { openCallTab } from "../lib/callWindow";
 import { useMeetingSession } from "../lib/MeetingSession";
+import { useMarkTargetNotificationsRead } from "../lib/useMarkTargetNotificationsRead";
 import { dayLabel, timeLabel, whenOf } from "../lib/meetingTime";
 import {
   bucketFor,
@@ -59,6 +60,10 @@ export function MeetingDetail() {
     queryFn: () => api.call(callId),
     enabled: !!callId,
   });
+
+  // Opening a meeting reads its notifications — scoped to this meeting on the
+  // server. Above the loading/error returns below so the hook order never changes.
+  useMarkTargetNotificationsRead(api, "callId", callId);
 
   const labelIds = useMemo(
     () => (call ? [...call.participants.map((p) => p.userId), call.createdBy] : []),

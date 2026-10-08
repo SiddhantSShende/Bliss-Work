@@ -1,0 +1,368 @@
+{
+  "liveEvents": {
+    "newTask": "新任务：{{title}}",
+    "newTaskFrom": "来自 {{sender}}",
+    "taskLeftBy": "{{assignee}} 已退出任务",
+    "taskIgnoredBy": "{{assignee}} 已忽略任务",
+    "taskReviewed": "{{reviewer}} 评价了你的任务",
+    "taskAcknowledgedBy": "{{assignee}} 已知悉任务",
+    "taskCompletedBy": "{{assignee}} 已完成任务",
+    "taskMissedBy": "{{assignee}} 错过了任务",
+    "taskMissed": "有任务已过截止时间，已移至“已错过”。",
+    "taskWithdrawn": "任务分配已撤回"
+  },
+  "deadline": {
+    "label": "截止时间",
+    "relative": "每次发生后 {{amount}} {{unit}}",
+    "fixed": "每次发生当天的 {{time}}",
+    "unit": {
+      "MINUTES_other": "分钟",
+      "HOURS_other": "小时",
+      "DAYS_other": "天"
+    }
+  },
+  "tasksList": {
+    "header": "任务",
+    "categories": {
+      "mine": "我的任务",
+      "allocated": "分配给我的",
+      "available": "可用",
+      "completed": "已完成",
+      "left": "已退出",
+      "ignored": "已忽略",
+      "missed": "已错过"
+    }
+  },
+  "tasksPage": {
+    "count_other": "{{count}} 个任务",
+    "countMore": "{{count}}+ 个任务",
+    "titles": {
+      "mine": "我的任务",
+      "allocated": "分配给我的",
+      "available": "可用",
+      "completed": "已完成",
+      "left": "已退出",
+      "ignored": "已忽略",
+      "missed": "已错过",
+      "default": "任务"
+    },
+    "buckets": {
+      "allocated": "已分配",
+      "available": "可用",
+      "mine": "我的任务",
+      "completed": "已完成",
+      "left": "已退出",
+      "ignored": "已忽略",
+      "missed": "已错过"
+    },
+    "export": {
+      "title": "将任务导出到 Excel",
+      "button": "导出"
+    },
+    "newTask": "新建任务",
+    "empty": {
+      "title": "这里还没有内容",
+      "hint": "收到的任务会显示在这里。",
+      "missedHint": "超过截止时间仍未完成的任务会移到这里。"
+    },
+    "actionVerbs": {
+      "acknowledge": "知悉",
+      "complete": "完成",
+      "ignore": "忽略",
+      "leave": "退出"
+    },
+    "toasts": {
+      "actionFailed": "无法{{verb}}该任务",
+      "completed": "任务已完成，发送人已收到通知。",
+      "left": "你已退出任务，发送人已收到通知。"
+    },
+    "unpin": "取消置顶",
+    "pinTask": "置顶任务",
+    "unpinTask": "取消置顶任务",
+    "pinFailed": "无法置顶该任务",
+    "unpinFailed": "无法取消置顶该任务",
+    "pagination": {
+      "previous": "上一页",
+      "next": "下一页",
+      "pageOf": "第 {{current}} 页，共 {{total}} 页"
+    }
+  },
+  "participants": {
+    "label": "参与者",
+    "add": "添加",
+    "addMember": "添加成员",
+    "addTitle": "添加参与者",
+    "tabPeople": "成员",
+    "tabChannels": "频道",
+    "selected": "已选参与者",
+    "kindPerson": "个人",
+    "kindChannel": "频道",
+    "removeSelected": "移除 {{name}}",
+    "unknownPerson": "未知成员",
+    "unknownChannel": "未知频道",
+    "withdraw": "撤回",
+    "withdrawUser": "撤回 {{name}}",
+    "withdrawSelf": "退出此任务",
+    "added": "已添加参与者",
+    "withdrawn": "参与者已撤回",
+    "failed": "无法更新参与者"
+  },
+  "myTasksBoard": {
+    "scheduledChannels": "频道：{{names}}",
+    "scheduledChannelCount_other": "{{count}} 个频道",
+    "loading": "正在加载你的任务…",
+    "loadError": {
+      "title": "无法加载你的任务。",
+      "retry": "重试"
+    },
+    "empty": {
+      "title": "你还没有发送过任务",
+      "hint": "点击“新建任务”来创建。"
+    },
+    "filters": {
+      "title": "筛选",
+      "statusHeading": "状态",
+      "peopleHeading": "成员",
+      "searchPeople": "搜索成员…",
+      "selectedPeople": "已选成员",
+      "removePerson": "移除 {{name}}",
+      "showFewer": "收起",
+      "noPeople": "没有匹配的成员",
+      "channelsHeading": "频道",
+      "searchChannels": "搜索频道…",
+      "noChannels": "没有匹配的频道",
+      "viaChannel": "通过频道选中",
+      "channelFailed": "无法加载 {{name}} 的成员，因此不显示任何任务。",
+      "channelRetry": "重试",
+      "clear": "清除筛选"
+    },
+    "details": "详情",
+    "summary": {
+      "pending": "待处理",
+      "inProgress": "进行中",
+      "completed": "已完成",
+      "left": "已退出",
+      "ignored": "已忽略",
+      "missed": "已错过",
+      "closed": "已关闭",
+      "doneOf": "已完成 {{done}}/{{total}}"
+    },
+    "noMatch": {
+      "title": "没有符合筛选条件的任务",
+      "hint": "更早的任务尚未加载，请在下方加载更多。"
+    },
+    "loadMore": "加载更多",
+    "loadingMore": "加载中...",
+    "reassign": {
+      "label": "重新分配",
+      "pending": "正在重新分配…",
+      "done_other": "任务已退回给 {{count}} 人",
+      "failed": "无法重新分配此任务"
+    },
+    "milestones": {
+      "allocated": "已分配",
+      "acknowledged": "已知悉",
+      "ignored": "已忽略",
+      "completed": "已完成",
+      "left": "已退出",
+      "missed": "已错过",
+      "reviewed": "已评价"
+    },
+    "review": {
+      "write": "写评价",
+      "edit": "编辑评价"
+    },
+    "scheduled": "已预约",
+    "cancelSchedule": "取消预约",
+    "cancelRecurring": "取消重复任务"
+  },
+  "createTaskDialog": {
+    "title": "新建任务",
+    "fields": {
+      "title": "标题",
+      "titlePlaceholder": "需要做什么？",
+      "description": "描述",
+      "descriptionPlaceholder": "添加详情…",
+      "assignTo": "分配给",
+      "you": "（你）",
+      "channelHint": "频道中的每位成员都会收到该任务，并可进行相同的“知悉 / 忽略”操作。",
+      "unknownPerson": "未知成员",
+      "peopleLabel": "成员",
+      "assignToEmpty": "尚未分配给任何人。",
+      "addPeople": "添加成员",
+      "removePerson": "移除 {{name}}",
+      "done": "完成",
+      "channelsLabel": "频道",
+      "assignToChannelEmpty": "尚未添加频道。",
+      "addChannels": "添加频道",
+      "unknownChannel": "不可用的频道",
+      "removeChannel": "移除 {{name}}"
+    },
+    "deadline": {
+      "label": "截止时间",
+      "none": "无截止时间",
+      "at": "日期和时间",
+      "relative": "相对时间",
+      "fixed": "固定时间",
+      "amount": "截止时长",
+      "unit": "截止时长单位",
+      "units": {
+        "MINUTES": "分钟",
+        "HOURS": "小时",
+        "DAYS": "天"
+      },
+      "afterEach": "每次发生后",
+      "fixedTime": "截止时刻",
+      "onEachDate": "每次发生当天",
+      "date": "截止日期",
+      "time": "截止时刻"
+    },
+    "errors": {
+      "needTitle": "请为任务填写标题",
+      "needAssignee": "请至少选择一位负责人",
+      "invalidSchedule": "请选择未来的日期和时间",
+      "invalidStart": "请选择未来的重复开始时间",
+      "needWeekday": "请至少选择一个星期几",
+      "invalidMonthlyRule": "请选择有效的每月日期",
+      "invalidOccurrences": "次数必须大于零",
+      "invalidEndDate": "结束日期必须晚于开始时间",
+      "needDeadlineAt": "请选择截止日期和时间",
+      "deadlineNotFuture": "截止时间必须在未来",
+      "deadlineBeforeStart": "截止时间必须晚于任务预约时间",
+      "invalidDeadlineAmount": "请输入整数，表示每次发生后的时长",
+      "needDeadlineTime": "请选择截止时刻",
+      "fixedDeadlineBeforeStart": "固定截止时刻必须晚于开始时刻",
+      "createFailed": "无法创建任务"
+    },
+    "toasts": {
+      "sentPlain": "任务已发送",
+      "scheduled": "任务已预约",
+      "genericChannelFallback": "频道",
+      "sentToChannel_other": "任务已发送到 #{{channelName}}，共 {{count}} 位成员"
+    },
+    "actions": {
+      "cancel": "取消",
+      "create": "创建任务",
+      "creating": "正在创建…"
+    },
+    "allocation": {
+      "title": "分配方式",
+      "now": "立即",
+      "scheduled": "稍后预约",
+      "recurring": "重复任务",
+      "nowDescription": "立即分配",
+      "scheduledDescription": "设置日期和时间",
+      "recurringDescription": "自动重复",
+      "repeat": "重复",
+      "startDate": "开始日期",
+      "startTime": "开始时间",
+      "daily": "每天",
+      "weekly": "每周",
+      "monthly": "每月",
+      "everyDay": "每 N 天",
+      "everyWeek": "每 N 周",
+      "everyMonth": "每 N 个月",
+      "noEnd": "无结束日期",
+      "afterOccurrences": "重复 N 次后结束",
+      "onDate": "在指定日期结束",
+      "peopleCount_other": "{{count}} 人",
+      "noTargetYet": "尚未选择对象",
+      "summary": "此任务将于 {{when}} 分配给 {{who}}。",
+      "dayOfMonth": "每月日期",
+      "weekdayPattern": "星期规律",
+      "ordinal": {
+        "1": "第一个",
+        "2": "第二个",
+        "3": "第三个",
+        "4": "第四个",
+        "5": "第五个"
+      }
+    }
+  },
+  "exportTasksDialog": {
+    "title": "将任务导出到 Excel",
+    "scopeHeading": "导出哪些任务",
+    "scopes": {
+      "all": "我的所有任务",
+      "sent": "我分配的",
+      "received": "分配给我的"
+    },
+    "rangeHeading": "时间范围",
+    "ranges": {
+      "week": "过去一周",
+      "month": "过去一个月",
+      "year": "过去一年",
+      "all": "全部时间",
+      "custom": "自定义范围"
+    },
+    "from": "开始",
+    "to": "结束",
+    "footerNote": "时间按你设备的本地时区导出。任务每分配给一个人，就导出一行。",
+    "actions": {
+      "cancel": "取消",
+      "export": "导出",
+      "exporting": "正在导出…"
+    },
+    "toasts": {
+      "nothingTitle": "没有可导出的内容",
+      "nothingDescription": "所选范围内没有任务。",
+      "exported_other": "已导出 {{count}} 行到 Excel",
+      "cappedTitle": "导出已达上限",
+      "cappedDescription": "仅包含最近的 {{cap}} 行，其余请缩小日期范围后再导出。",
+      "failedTitle": "导出失败"
+    }
+  },
+  "miniTaskCalendar": {
+    "today": "今天",
+    "previousMonth": "上个月",
+    "nextMonth": "下个月"
+  },
+  "dropConfirm": {
+    "title_other": "添加这 {{count}} 个文件？",
+    "description": "目前不会发送任何内容，文件会放入消息框，你仍需点击发送。",
+    "cancel": "取消",
+    "attach": "添加"
+  },
+  "createReviewDialog": {
+    "title": "评价 {{name}} 的工作",
+    "ratingOptional": "评分（可选）",
+    "starCount_other": "{{count}} 星",
+    "clear": "清除",
+    "feedback": "反馈",
+    "feedbackPlaceholder": "对方完成得怎么样？",
+    "cancel": "取消",
+    "saving": "正在保存…",
+    "saveReview": "保存评价",
+    "saved": "评价已保存",
+    "couldNotSave": "无法保存评价",
+    "writeFirst": "请先写一段简短的评价"
+  },
+  "xlsxExport": {
+    "sheetName": "任务时间线",
+    "columns": {
+      "task": "任务",
+      "description": "描述",
+      "allocatedBy": "分配人",
+      "allocatedByEmail": "分配人（邮箱）",
+      "allocatedTo": "被分配人",
+      "allocatedToEmail": "被分配人（邮箱）",
+      "status": "状态",
+      "allocatedAt": "分配时间（{{tz}}）",
+      "acknowledgedAt": "知悉时间（{{tz}}）",
+      "ignoredAt": "忽略时间（{{tz}}）",
+      "completedAt": "完成时间（{{tz}}）",
+      "leftAt": "退出时间（{{tz}}）",
+      "timeToComplete": "完成耗时",
+      "reviewedAt": "评价时间（{{tz}}）",
+      "review": "评价",
+      "rating": "评分"
+    },
+    "status": {
+      "SENT": "已发送（待处理）",
+      "ACKNOWLEDGED": "已知悉",
+      "COMPLETED": "已完成",
+      "IGNORED": "已忽略",
+      "LEFT": "已退出"
+    }
+  }
+}

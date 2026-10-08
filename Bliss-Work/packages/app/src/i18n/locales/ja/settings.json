@@ -1,0 +1,60 @@
+{
+  "header": {
+    "title": "設定",
+    "subtitle": "このデバイスでのアプリの動作に関する設定です。"
+  },
+  "theme": {
+    "title": "テーマ",
+    "description": "現在のテーマ:{{theme}}",
+    "changeTheme": "テーマを変更",
+    "menuLabel": "テーマ",
+    "syncFailed": "カスタムテーマはこのデバイスでのみ変更されました。アカウントに保存できなかったため、再試行を続けます。",
+    "light": "ライト",
+    "dark": "ダーク",
+    "custom": {
+      "title": "カスタムテーマ",
+      "label": "カスタム",
+      "colors": "色",
+      "color": "色{{number}}",
+      "preview": "カスタムテーマのプレビュー",
+      "create": "カスタムテーマを作成",
+      "edit": "カスタムテーマを編集",
+      "cancel": "キャンセル",
+      "save": "保存"
+    }
+  },
+  "twoFactor": {
+    "title": "二要素認証",
+    "description": "認証アプリをログインの第2段階として追加します。"
+  },
+  "activeSessions": {
+    "title": "現在のログイン",
+    "description": "アカウントにログイン中のデバイスをすべて確認し、リモートでログアウトできます。"
+  },
+  "activity": {
+    "title": "アクティビティ",
+    "description": "{{brand}}が記録しているあなたの作業状況をすべて確認できます。ワークスペースの管理者にも同じ記録が表示されます。"
+  },
+  "desktopNotifications": {
+    "title": "デスクトップ通知",
+    "onDescription": "新しいメッセージやタスクが届いたときにトースト通知を表示します。",
+    "offDescription": "トースト通知は停止中です。通知はベルのメニューで確認できます。",
+    "turnOn": "オンにする",
+    "turnOff": "オフにする"
+  },
+  "about": {
+    "title": "バージョン情報",
+    "versionDesktop": "{{brand}} {{version}} · デスクトップ",
+    "versionBuild": "{{brand}} · ビルド {{sha}}",
+    "checkForUpdates": "更新を確認",
+    "checking": "確認中…",
+    "toasts": {
+      "updateDownloading": "{{version}}へのアップデートをダウンロード中です",
+      "updateDownloadingDescription": "準備ができたら再起動をお願いします。",
+      "upToDate": "最新の状態です",
+      "upToDateDescription": "バージョン {{version}}",
+      "updateDownloadFailed": "アップデートのダウンロードに失敗しました",
+      "checkFailedFallback": "更新を確認できませんでした"
+    }
+  }
+}

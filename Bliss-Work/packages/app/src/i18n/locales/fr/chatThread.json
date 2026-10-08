@@ -1,0 +1,291 @@
+{
+  "shared": {
+    "you": "Vous",
+    "emptyMessages": "Aucun message pour l'instant — dites bonjour 👋",
+    "sending": "Envoi…",
+    "callMissedNoAnswer": "{{body}} · sans réponse",
+    "messageFailedToSend": "Impossible d'envoyer ce message",
+    "loadOlderMessagesFailed": "Impossible de charger les messages précédents"
+  },
+  "thread": {
+    "composerPlaceholder": "Écrire un message…",
+    "loadHistory": {
+      "loading": "Chargement des messages précédents…",
+      "load": "Charger les messages précédents"
+    },
+    "pinned": "Épinglé",
+    "forwarded": "Transféré",
+    "tombstone": "Ce message a été supprimé",
+    "deletedMessage": "Message supprimé",
+    "originalMessage": "Message d'origine",
+    "selectMessage": "Sélectionner le message",
+    "selectMessageFrom": "Sélectionner le message de {{name}}",
+    "seenBy": {
+      "label": "Vu par",
+      "count": "Vu par {{count}}",
+      "ariaLabel_one": "Vu par {{count}} personne",
+      "ariaLabel_many": "Vu par {{count}} de personnes",
+      "ariaLabel_other": "Vu par {{count}} personnes",
+      "unknownReader": "Inconnu"
+    },
+    "typing": {
+      "peer": "{{name}} est en train d'écrire…",
+      "generic": "Écriture en cours…"
+    },
+    "disabledNotice": "Vous ne pouvez pas envoyer de messages dans cette conversation."
+  },
+  "threadView": {
+    "loadOlder": {
+      "loading": "Chargement des anciens messages…",
+      "button": "Charger les 12 précédents",
+      "title": "Charger les 12 messages précédents"
+    }
+  },
+  "dmView": {
+    "errors": {
+      "reactionSave": "Impossible d'enregistrer cette réaction",
+      "hideMessage": "Impossible de masquer ce message",
+      "markUnread": "Impossible de marquer cette discussion comme non lue",
+      "deleteMessage": "Impossible de supprimer ce message",
+      "deleteMessages": "Impossible de supprimer ces messages",
+      "clearChat": "Impossible d'effacer l'historique de cette discussion",
+      "removeConversation": "Impossible de retirer cette conversation",
+      "createCallLink": "Impossible de créer un lien d'appel",
+      "noneDeletable": "Aucun des messages sélectionnés ne peut être supprimé pour tout le monde",
+      "updateBlock": {
+        "title": "Impossible de mettre à jour le blocage",
+        "description": "Veuillez réessayer."
+      }
+    },
+    "bulkDelete": {
+      "deletedToast_one": "{{count}} message supprimé",
+      "deletedToast_many": "{{count}} de messages supprimés",
+      "deletedToast_other": "{{count}} messages supprimés",
+      "partialToast": "{{deleted}} sur {{total}} supprimés",
+      "partialDescription": "{{count}} n'ont pas pu être supprimés — seul leur auteur peut le faire."
+    },
+    "clearChatToast": "Discussion effacée pour vous",
+    "callLink": {
+      "messageBody": "Rejoignez mon appel : {{link}}",
+      "failedToast": "Impossible de joindre {{failed}} personne(s) sur {{total}}",
+      "failedDescription": "Le lien est publié dans cette discussion, et toutes les autres personnes l'ont reçu.",
+      "sentToast": "Lien d'appel envoyé",
+      "sentDescription": {
+        "withOthers_one": "Également envoyé à {{count}} personne. L'appel est ouvert — rejoignez-le depuis Réunions quand vous le souhaitez.",
+        "withOthers_many": "Également envoyé à {{count}} de personnes. L'appel est ouvert — rejoignez-le depuis Réunions quand vous le souhaitez.",
+        "withOthers_other": "Également envoyé à {{count}} personnes. L'appel est ouvert — rejoignez-le depuis Réunions quand vous le souhaitez.",
+        "aloneOnly": "L'appel est ouvert — rejoignez-le depuis Réunions quand vous le souhaitez."
+      }
+    },
+    "notFound": {
+      "title": "Conversation introuvable",
+      "hint": "Choisissez-en une autre dans la barre latérale."
+    },
+    "startCall": {
+      "blockedNotice": {
+        "title": "Impossible de lancer l'appel",
+        "unblockToCall": "Débloquez cet utilisateur pour l'appeler.",
+        "cannotCall": "Vous ne pouvez pas appeler cet utilisateur."
+      },
+      "mustBeOnline": "{{name}} doit être en ligne pour recevoir un appel.",
+      "onAnotherCall": {
+        "title": "{{name}} est déjà en appel",
+        "description": "Appel lancé quand même — la personne ne décrochera peut-être pas."
+      }
+    },
+    "exportedToast_one": "{{count}} message exporté",
+    "exportedToast_many": "{{count}} de messages exportés",
+    "exportedToast_other": "{{count}} messages exportés",
+    "header": {
+      "backToChats": "Retour aux discussions",
+      "status": {
+        "busy": "En appel",
+        "online": "En ligne",
+        "offline": "Hors ligne"
+      },
+      "unblockTitle": "Débloquer cet utilisateur",
+      "blockTitle": "Bloquer cet utilisateur",
+      "unblockLabel": "Débloquer",
+      "blockLabel": "Bloquer",
+      "removeFromInboxes": "Retirer des deux boîtes de réception",
+      "ignore": "Ignorer"
+    },
+    "search": {
+      "placeholder": "Rechercher dans votre discussion avec {{name}}…"
+    },
+    "composer": {
+      "placeholder": "Écrire à {{name}}…"
+    },
+    "notice": {
+      "blockedByMe": "Vous avez bloqué cet utilisateur. Débloquez-le pour envoyer des messages.",
+      "blockedByPeer": "Vous avez été bloqué."
+    },
+    "clearChatDialog": {
+      "title": "Effacer l'historique de la discussion ?",
+      "message": "Cela supprimera l'historique de cette discussion pour vous. L'autre personne conservera sa copie.",
+      "confirmLabel": "Effacer la discussion"
+    },
+    "bulkDeleteDialog": {
+      "title_one": "Supprimer {{count}} message ?",
+      "title_many": "Supprimer {{count}} de messages ?",
+      "title_other": "Supprimer {{count}} messages ?",
+      "messageAll": "Ils seront supprimés pour tous les participants de cette discussion. Cette action est irréversible.",
+      "messagePartial": "{{remaining}} des {{total}} messages sélectionnés ne peuvent pas être supprimés pour tout le monde — seul leur auteur le peut. Les {{deletable}} autres seront supprimés pour tout le monde, et cette action est irréversible.",
+      "confirmLabel": "Supprimer"
+    }
+  },
+  "channelView": {
+    "errors": {
+      "reactionSave": "Impossible d'enregistrer cette réaction",
+      "hideMessage": "Impossible de masquer ce message",
+      "markUnread": "Impossible de marquer ce canal comme non lu",
+      "clearMessages": "Impossible d'effacer les messages du canal",
+      "deleteMessage": "Impossible de supprimer ce message",
+      "deleteMessages": "Impossible de supprimer ces messages",
+      "changePin": "Impossible de modifier l'épingle",
+      "startCall": "Impossible de démarrer l'appel",
+      "leave": "Impossible de quitter",
+      "deleteChannel": "Impossible de supprimer le canal",
+      "noneDeletable": "Aucun des messages sélectionnés ne peut être supprimé pour tout le monde"
+    },
+    "clearMessagesToast": "Messages du canal effacés pour vous",
+    "bulkDelete": {
+      "deletedToast_one": "{{count}} message supprimé",
+      "deletedToast_many": "{{count}} de messages supprimés",
+      "deletedToast_other": "{{count}} messages supprimés",
+      "partialToast": "{{deleted}} sur {{total}} supprimés",
+      "partialDescription": "{{count}} n'ont pas pu être supprimés — seuls leur auteur ou un gestionnaire du canal le peuvent."
+    },
+    "pinToggle": {
+      "pinned": "Épinglé pour tout le monde",
+      "unpinned": "Désépinglé"
+    },
+    "leftChannelToast": "Vous avez quitté #{{name}}",
+    "deletedChannelToast": "Canal supprimé",
+    "notFound": {
+      "title": "Canal introuvable",
+      "hint": "Choisissez-en un autre dans la barre latérale."
+    },
+    "exportedToast_one": "{{count}} message exporté",
+    "exportedToast_many": "{{count}} de messages exportés",
+    "exportedToast_other": "{{count}} messages exportés",
+    "header": {
+      "backToChannels": "Retour aux canaux",
+      "locked": "verrouillé",
+      "membersTitle": "Membres du canal",
+      "membersAriaLabel": "{{count}} membres — afficher et gérer"
+    },
+    "search": {
+      "placeholder": "Rechercher dans #{{name}}…"
+    },
+    "composer": {
+      "placeholder": "Écrire dans #{{name}}…"
+    },
+    "clearMessagesDialog": {
+      "title": "Effacer les messages du canal ?",
+      "message": "Cela effacera pour vous les messages chargés. Les autres membres en conserveront leur copie.",
+      "confirmLabel": "Effacer les messages"
+    },
+    "deleteChannelDialog": {
+      "titleNamed": "Supprimer #{{name}} ?",
+      "titleFallback": "Supprimer le canal ?",
+      "message": "Cette action est irréversible. Le canal et ses messages seront supprimés.",
+      "confirmLabel": "Supprimer le canal"
+    },
+    "bulkDeleteDialog": {
+      "title_one": "Supprimer {{count}} message ?",
+      "title_many": "Supprimer {{count}} de messages ?",
+      "title_other": "Supprimer {{count}} messages ?",
+      "messageAll": "Ils seront supprimés pour tous les membres de ce canal. Cette action est irréversible.",
+      "messagePartial": "{{remaining}} des {{total}} messages sélectionnés ne peuvent pas être supprimés pour tout le monde — seuls leur auteur ou un gestionnaire du canal le peuvent. Les {{deletable}} autres seront supprimés pour tout le monde, et cette action est irréversible.",
+      "confirmLabel": "Supprimer"
+    }
+  },
+  "conversationMenu": {
+    "unavailableHint": "Pas encore disponible — nécessite un point de terminaison serveur",
+    "label": {
+      "channel": "Options du canal",
+      "chat": "Options de la discussion"
+    },
+    "items": {
+      "viewProfile": "Voir le profil",
+      "search": "Rechercher",
+      "media": "Médias, liens et documents",
+      "selectMessages": "Sélectionner des messages",
+      "mute": "Mettre les notifications en sourdine",
+      "unmute": "Réactiver les notifications",
+      "more": "Plus",
+      "clearChat": "Effacer la discussion",
+      "exportChat": "Exporter la discussion",
+      "pin": "Épingler {{scope}}",
+      "unpin": "Désépingler {{scope}}",
+      "rename": "Renommer",
+      "delete": "Supprimer",
+      "leaving": "Départ…",
+      "leave": "Quitter"
+    },
+    "scope": {
+      "channel": "le canal",
+      "chat": "la discussion"
+    }
+  },
+  "whatsAppForward": {
+    "forwardedToast": "Transféré via WhatsApp",
+    "forwardedDescription": "Vous avez choisi le destinataire dans WhatsApp ; cette discussion n'enregistre donc que le transfert.",
+    "logFailedToast": "Impossible d'enregistrer le transfert",
+    "logFailedDescription": "WhatsApp s'est bien ouvert — il n'est simplement pas consigné dans cette discussion.",
+    "shareFailedGeneric": "Échec du partage",
+    "mediaPrepareFailed": "Impossible de préparer la pièce jointe pour WhatsApp",
+    "mediaNoLongerAvailable": "Elle n'est peut-être plus disponible.",
+    "sharedToast": "Feuille de partage ouverte avec la pièce jointe",
+    "sharedDescription": "Choisissez-y WhatsApp — BlissWork ne peut pas confirmer ce qui se passe ensuite.",
+    "downloadedToast_one": "Pièce jointe téléchargée pour WhatsApp",
+    "downloadedToast_many": "{{count}} de pièces jointes téléchargées pour WhatsApp",
+    "downloadedToast_other": "{{count}} pièces jointes téléchargées pour WhatsApp",
+    "downloadedDescription": "Cet appareil ne peut pas transmettre automatiquement les fichiers à WhatsApp — joignez vous-même le fichier téléchargé dans WhatsApp.",
+    "mediaShareFailed": "Impossible de partager la pièce jointe avec WhatsApp"
+  },
+  "export": {
+    "header": "Transcription de la conversation {{brand}}",
+    "exportedSummary_one": "Exporté le {{timestamp}} · {{count}} message chargé",
+    "exportedSummary_many": "Exporté le {{timestamp}} · {{count}} de messages chargés",
+    "exportedSummary_other": "Exporté le {{timestamp}} · {{count}} messages chargés",
+    "unknownSender": "Inconnu",
+    "deletedMessage": "(supprimé)",
+    "noText": "(aucun texte)"
+  },
+  "messageActions": {
+    "react": {
+      "title": "Réagir",
+      "ariaLabel": "Réagir à ce message"
+    },
+    "more": {
+      "title": "Plus",
+      "ariaLabel": "Actions sur le message"
+    },
+    "menu": {
+      "reply": "Répondre",
+      "download": "Télécharger",
+      "downloadNamed": "Télécharger {{name}}",
+      "forwardTo": "Transférer vers une discussion ou un canal…",
+      "forwardWhatsApp": "Transférer vers WhatsApp",
+      "markUnread": "Marquer comme non lu",
+      "deleteForMe": "Supprimer pour moi",
+      "unpinForEveryone": "Désépingler pour tout le monde",
+      "pinForEveryone": "Épingler pour tout le monde",
+      "deleteForEveryone": "Supprimer pour tout le monde"
+    },
+    "confirmDialog": {
+      "title": "Supprimer le message ?",
+      "deleteAllMessage": "Voulez-vous vraiment supprimer ce message ? Il sera retiré pour tous les participants de cette conversation.",
+      "deleteMeMessage": "Voulez-vous vraiment supprimer ce message ? Il ne sera retiré que de votre propre affichage.",
+      "confirmLabel": "Supprimer"
+    },
+    "reactions": {
+      "clickToRemove": "Cliquez pour retirer votre réaction",
+      "clickToReact": "Cliquez pour réagir",
+      "andMore": "{{names}} et {{hidden}} autres",
+      "tooltip": "{{who}} a réagi avec {{emoji}} — {{action}}"
+    }
+  }
+}
