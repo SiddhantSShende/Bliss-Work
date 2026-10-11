@@ -172,6 +172,10 @@
     "errorToast": "Não foi possível renomear o canal"
   },
   "channelMembers": {
+    "tabs": {
+      "members": "Membros",
+      "analytics": "Análises"
+    },
     "addPeople": "Adicionar pessoas",
     "addedToast": "Adicionado ao canal",
     "actionFailed": "Falha na ação",

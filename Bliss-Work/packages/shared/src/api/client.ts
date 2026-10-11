@@ -73,6 +73,8 @@ import {
   TaskExportRow,
   TaskDiscussionDTO,
   TaskDiscussionSummaryDTO,
+  TaskAnalyticsDTO,
+  ChannelAnalyticsDTO,
   OrgActivitySummaryDTO,
   ThreadDTO,
   TimelinePage,
@@ -1981,6 +1983,22 @@ export class ApiClient {
    *  resolves from the server instead of 404-ing on a cache miss. */
   taskDetail(taskId: string) {
     return this.req(this.cfg.taskBase, `/api/v1/tasks/${taskId}/detail`, {}, StickyTaskDTO);
+  }
+  /** Snapshot analytics for one task — status breakdown, per-assignee timeline,
+   *  and the two completion metrics (see TaskAnalyticsDTO). Visible to the
+   *  sender or any assignee, same parties taskDetail already exposes it to. */
+  taskAnalytics(taskId: string) {
+    return this.req(this.cfg.taskBase, `/api/v1/tasks/${taskId}/analytics`, {}, TaskAnalyticsDTO);
+  }
+  /** Snapshot analytics across every task attached to a channel. Visible to
+   *  channel members only (enforced server-side via messaging-svc). */
+  channelAnalytics(channelId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/channels/${channelId}/analytics`,
+      {},
+      ChannelAnalyticsDTO,
+    );
   }
   /** Reopen the completed assignments for this task; the server chooses recipients. */
   reassignTask(taskId: string) {

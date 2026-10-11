@@ -364,5 +364,39 @@
       "IGNORED": "無視",
       "LEFT": "辞退"
     }
+  },
+  "analytics": {
+    "loading": "分析を読み込み中…",
+    "error": "分析を読み込めませんでした。",
+    "statuses": {
+      "sent": "送信済み",
+      "acknowledged": "確認済み",
+      "completed": "完了",
+      "ignored": "無視",
+      "left": "辞退",
+      "missed": "期限切れ"
+    },
+    "task": {
+      "title": "タスク分析",
+      "assigneesHeading": "担当者",
+      "turnaround": "処理時間 {{time}}",
+      "notCompleted": "未完了"
+    },
+    "channel": {
+      "title": "チャンネルのタスク分析",
+      "emptyTitle": "まだタスクがありません",
+      "emptyHint": "このチャンネルに紐づくタスクがここに表示されます。",
+      "totalTasks": "タスク総数",
+      "completedTasks": "完了したタスク",
+      "abandonedTasks": "放棄されたタスク",
+      "remainingTasks": "残りのタスク",
+      "workloadHeading": "担当者別の作業量"
+    },
+    "completion": {
+      "assignmentRate": "割り当て完了率",
+      "assignmentRateTooltip": "対象範囲内のすべての割り当て（複数担当者のタスクを含む）のうち、完了した割り当ての割合です。",
+      "uniqueRate": "タスク完了率",
+      "uniqueRateTooltip": "残っている担当者全員が完了したユニークなタスクの割合です。全員が辞退または無視したタスクは、完了ではなく放棄として扱われます。"
+    }
   }
 }

@@ -10,6 +10,7 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { markTaskNotificationsRead } from "../lib/useMarkTaskNotificationsRead";
 import { StickyWidget } from "../features/StickyWidget";
+import { TaskAnalyticsPanel } from "../features/TaskAnalyticsPanel";
 
 /**
  * Main pane content for /app/mail/task/:taskId.
@@ -135,7 +136,7 @@ export function MailTask() {
 
   return (
     <div className="flex h-full items-start justify-center overflow-auto p-6">
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-2xl space-y-5">
         <StickyWidget
           task={task}
           onAction={(a) => actMut.mutate(a)}
@@ -143,6 +144,12 @@ export function MailTask() {
           compact={false}
           locked={floatable}
         />
+        {/* Additive, below the card — never replaces or changes anything the
+            card itself renders. */}
+        <div className="rounded-2xl border border-border/60 p-4">
+          <h3 className="mb-3 text-sm font-semibold text-fg">{t("analytics.task.title", { ns: "tasks" })}</h3>
+          <TaskAnalyticsPanel taskId={task.taskId} />
+        </div>
       </div>
     </div>
   );

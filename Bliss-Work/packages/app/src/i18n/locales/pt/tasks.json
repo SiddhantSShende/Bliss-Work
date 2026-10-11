@@ -386,5 +386,39 @@
       "IGNORED": "Ignorada",
       "LEFT": "Abandonada"
     }
+  },
+  "analytics": {
+    "loading": "Carregando análises…",
+    "error": "Não foi possível carregar as análises.",
+    "statuses": {
+      "sent": "Enviada",
+      "acknowledged": "Confirmada",
+      "completed": "Concluída",
+      "ignored": "Ignorada",
+      "left": "Abandonada",
+      "missed": "Perdida"
+    },
+    "task": {
+      "title": "Análises da tarefa",
+      "assigneesHeading": "Atribuídos",
+      "turnaround": "Tempo de conclusão {{time}}",
+      "notCompleted": "Não concluída"
+    },
+    "channel": {
+      "title": "Análises de tarefas do canal",
+      "emptyTitle": "Ainda não há tarefas",
+      "emptyHint": "As tarefas associadas a este canal aparecerão aqui.",
+      "totalTasks": "Total de tarefas",
+      "completedTasks": "Tarefas concluídas",
+      "abandonedTasks": "Tarefas abandonadas",
+      "remainingTasks": "Tarefas restantes",
+      "workloadHeading": "Carga de trabalho por pessoa"
+    },
+    "completion": {
+      "assignmentRate": "Taxa de conclusão de atribuições",
+      "assignmentRateTooltip": "Atribuições concluídas divididas por todas as atribuições no escopo, incluindo tarefas com vários atribuídos.",
+      "uniqueRate": "Taxa de conclusão de tarefas",
+      "uniqueRateTooltip": "Proporção de tarefas únicas em que cada atribuído restante a concluiu. Uma tarefa que todos abandonaram ou ignoraram é contada como abandonada, não como concluída."
+    }
   }
 }

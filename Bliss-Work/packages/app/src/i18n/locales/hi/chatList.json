@@ -169,6 +169,10 @@
     "errorToast": "चैनल का नाम नहीं बदला जा सका"
   },
   "channelMembers": {
+    "tabs": {
+      "members": "सदस्य",
+      "analytics": "विश्लेषण"
+    },
     "addPeople": "लोग जोड़ें",
     "addedToast": "चैनल में जोड़ा गया",
     "actionFailed": "कार्रवाई विफल रही",

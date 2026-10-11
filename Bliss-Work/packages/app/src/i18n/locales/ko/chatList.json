@@ -166,6 +166,10 @@
     "errorToast": "채널 이름을 변경하지 못했어요"
   },
   "channelMembers": {
+    "tabs": {
+      "members": "멤버",
+      "analytics": "분석"
+    },
     "addPeople": "사람 추가",
     "addedToast": "채널에 추가했어요",
     "actionFailed": "작업을 완료하지 못했어요",

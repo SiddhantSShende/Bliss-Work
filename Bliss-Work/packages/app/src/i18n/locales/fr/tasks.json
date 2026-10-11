@@ -386,5 +386,39 @@
       "IGNORED": "Ignorée",
       "LEFT": "Abandonnée"
     }
+  },
+  "analytics": {
+    "loading": "Chargement des statistiques…",
+    "error": "Impossible de charger les statistiques.",
+    "statuses": {
+      "sent": "Envoyée",
+      "acknowledged": "Confirmée",
+      "completed": "Terminée",
+      "ignored": "Ignorée",
+      "left": "Abandonnée",
+      "missed": "Manquée"
+    },
+    "task": {
+      "title": "Statistiques de la tâche",
+      "assigneesHeading": "Assignés",
+      "turnaround": "Délai de traitement {{time}}",
+      "notCompleted": "Non terminée"
+    },
+    "channel": {
+      "title": "Statistiques des tâches du canal",
+      "emptyTitle": "Aucune tâche pour le moment",
+      "emptyHint": "Les tâches associées à ce canal apparaîtront ici.",
+      "totalTasks": "Tâches au total",
+      "completedTasks": "Tâches terminées",
+      "abandonedTasks": "Tâches abandonnées",
+      "remainingTasks": "Tâches restantes",
+      "workloadHeading": "Charge de travail par personne"
+    },
+    "completion": {
+      "assignmentRate": "Taux d'achèvement des attributions",
+      "assignmentRateTooltip": "Attributions terminées divisées par toutes les attributions du périmètre, y compris les tâches ayant plusieurs assignés.",
+      "uniqueRate": "Taux d'achèvement des tâches",
+      "uniqueRateTooltip": "Part des tâches uniques où chaque assigné restant l'a terminée. Une tâche que tout le monde a abandonnée ou ignorée est comptée comme abandonnée, pas comme terminée."
+    }
   }
 }

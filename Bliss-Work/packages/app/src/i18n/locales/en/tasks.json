@@ -375,5 +375,39 @@
       "IGNORED": "Ignored",
       "LEFT": "Left"
     }
+  },
+  "analytics": {
+    "loading": "Loading analytics…",
+    "error": "Could not load analytics.",
+    "statuses": {
+      "sent": "Sent",
+      "acknowledged": "Acknowledged",
+      "completed": "Completed",
+      "ignored": "Ignored",
+      "left": "Left",
+      "missed": "Missed"
+    },
+    "task": {
+      "title": "Task analytics",
+      "assigneesHeading": "Assignees",
+      "turnaround": "Turnaround {{time}}",
+      "notCompleted": "Not completed"
+    },
+    "channel": {
+      "title": "Channel analytics",
+      "emptyTitle": "No tasks yet",
+      "emptyHint": "Tasks attached to this channel will show up here.",
+      "totalTasks": "Total tasks",
+      "completedTasks": "Completed tasks",
+      "abandonedTasks": "Abandoned tasks",
+      "remainingTasks": "Remaining tasks",
+      "workloadHeading": "Per-assignee workload"
+    },
+    "completion": {
+      "assignmentRate": "Assignment completion",
+      "assignmentRateTooltip": "Completed assignments divided by every assignment in scope, including tasks with several assignees.",
+      "uniqueRate": "Task completion",
+      "uniqueRateTooltip": "Share of unique tasks where every remaining assignee has completed it. A task everyone left or ignored counts as abandoned, not complete."
+    }
   }
 }

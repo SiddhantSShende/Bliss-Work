@@ -364,5 +364,39 @@
       "IGNORED": "已忽略",
       "LEFT": "已退出"
     }
+  },
+  "analytics": {
+    "loading": "正在加载分析数据…",
+    "error": "无法加载分析数据。",
+    "statuses": {
+      "sent": "已发送",
+      "acknowledged": "已确认",
+      "completed": "已完成",
+      "ignored": "已忽略",
+      "left": "已退出",
+      "missed": "已错过"
+    },
+    "task": {
+      "title": "任务分析",
+      "assigneesHeading": "受理人",
+      "turnaround": "处理时长 {{time}}",
+      "notCompleted": "尚未完成"
+    },
+    "channel": {
+      "title": "频道任务分析",
+      "emptyTitle": "暂无任务",
+      "emptyHint": "与此频道关联的任务将显示在这里。",
+      "totalTasks": "任务总数",
+      "completedTasks": "已完成任务",
+      "abandonedTasks": "已放弃任务",
+      "remainingTasks": "剩余任务",
+      "workloadHeading": "各成员工作量"
+    },
+    "completion": {
+      "assignmentRate": "分配完成率",
+      "assignmentRateTooltip": "该范围内已完成的分配数除以全部分配数，包括拥有多个受理人的任务。",
+      "uniqueRate": "任务完成率",
+      "uniqueRateTooltip": "在剩余的每个受理人都已完成的唯一任务中所占的比例。所有人都退出或忽略的任务计为已放弃，而非已完成。"
+    }
   }
 }

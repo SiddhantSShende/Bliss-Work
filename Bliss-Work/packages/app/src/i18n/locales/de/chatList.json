@@ -169,6 +169,10 @@
     "errorToast": "Der Kanal konnte nicht umbenannt werden"
   },
   "channelMembers": {
+    "tabs": {
+      "members": "Mitglieder",
+      "analytics": "Analysen"
+    },
     "addPeople": "Personen hinzufügen",
     "addedToast": "Zum Kanal hinzugefügt",
     "actionFailed": "Aktion fehlgeschlagen",

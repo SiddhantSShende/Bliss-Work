@@ -18,6 +18,11 @@ export const qk = {
    *  (not parameterized per task) since the client always fetches the whole
    *  visible task list's discussions in one call. */
   taskDiscussions: ["tasks", "discussions"] as const,
+  /** Snapshot analytics (see TaskAnalyticsDTO) for one task or one channel's
+   *  tasks. Parameterized per id — no invalidation path pushes these; they are
+   *  refetched on normal TanStack staleness/refocus like any other snapshot. */
+  taskAnalytics: (taskId: string) => ["tasks", "analytics", taskId] as const,
+  channelAnalytics: (channelId: string) => ["tasks", "channelAnalytics", channelId] as const,
   /** Calls the caller is expected at, including cross-org meetings. */
   calls: ["calls"] as const,
   call: (id: string) => ["calls", id] as const,

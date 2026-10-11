@@ -375,5 +375,39 @@
       "IGNORED": "Ignoriert",
       "LEFT": "Verlassen"
     }
+  },
+  "analytics": {
+    "loading": "Analysen werden geladen…",
+    "error": "Analysen konnten nicht geladen werden.",
+    "statuses": {
+      "sent": "Gesendet",
+      "acknowledged": "Bestätigt",
+      "completed": "Abgeschlossen",
+      "ignored": "Ignoriert",
+      "left": "Verlassen",
+      "missed": "Verpasst"
+    },
+    "task": {
+      "title": "Aufgabenanalyse",
+      "assigneesHeading": "Zugewiesene Personen",
+      "turnaround": "Bearbeitungszeit {{time}}",
+      "notCompleted": "Nicht abgeschlossen"
+    },
+    "channel": {
+      "title": "Kanal-Aufgabenanalyse",
+      "emptyTitle": "Noch keine Aufgaben",
+      "emptyHint": "Diesem Kanal zugeordnete Aufgaben erscheinen hier.",
+      "totalTasks": "Aufgaben insgesamt",
+      "completedTasks": "Abgeschlossene Aufgaben",
+      "abandonedTasks": "Aufgegebene Aufgaben",
+      "remainingTasks": "Verbleibende Aufgaben",
+      "workloadHeading": "Arbeitslast pro Person"
+    },
+    "completion": {
+      "assignmentRate": "Zuweisungsabschlussrate",
+      "assignmentRateTooltip": "Abgeschlossene Zuweisungen geteilt durch alle Zuweisungen im Geltungsbereich, einschließlich Aufgaben mit mehreren zugewiesenen Personen.",
+      "uniqueRate": "Aufgabenabschlussrate",
+      "uniqueRateTooltip": "Anteil eindeutiger Aufgaben, bei denen jede verbleibende zugewiesene Person sie abgeschlossen hat. Eine Aufgabe, die alle verlassen oder ignoriert haben, gilt als aufgegeben, nicht als abgeschlossen."
+    }
   }
 }

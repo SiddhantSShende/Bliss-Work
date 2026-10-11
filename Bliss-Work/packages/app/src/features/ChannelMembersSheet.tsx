@@ -12,6 +12,8 @@ import { canModerateChannel } from "../lib/messagePermissions";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Sheet } from "./Modal";
 import { MemberPicker } from "./MemberPicker";
+import { Tabs } from "./Tabs";
+import { ChannelAnalyticsPanel } from "./ChannelAnalyticsPanel";
 
 /**
  * Who is in this channel, what standing they have, and what a manager can do
@@ -37,6 +39,7 @@ export function ChannelMembersSheet({
   const me = useSession((s) => s.user)!;
   const isOrgAdmin = me.roles.includes("org_admin");
   const [adding, setAdding] = useState(false);
+  const [tab, setTab] = useState<"members" | "analytics">("members");
   const [transferTarget, setTransferTarget] = useState<{ userId: string; displayName: string } | null>(null);
   const [blockTarget, setBlockTarget] = useState<{ userId: string; displayName: string } | null>(null);
 
@@ -91,6 +94,16 @@ export function ChannelMembersSheet({
   return (
     <Sheet open={open} onClose={onClose} title={`#${channel.name}`}>
       <div className="space-y-5">
+        <Tabs
+          tabs={[
+            { key: "members", label: t("channelMembers.tabs.members") },
+            { key: "analytics", label: t("channelMembers.tabs.analytics") },
+          ]}
+          active={tab}
+          onChange={setTab}
+          size="sm"
+        />
+        {tab === "analytics" ? <ChannelAnalyticsPanel channelId={channel.id} /> : <>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted">
             {t("common.memberCount", { count: members.length })}
@@ -210,6 +223,7 @@ export function ChannelMembersSheet({
             </ul>
           </section>
         )}
+        </>}
       </div>
       <ConfirmDialog
         open={transferTarget !== null}

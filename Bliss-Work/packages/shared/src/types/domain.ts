@@ -934,6 +934,83 @@ export const TaskExportRow = z.object({
 });
 export type TaskExportRow = z.infer<typeof TaskExportRow>;
 
+// ── Task & channel analytics (snapshot-only; see services/task-svc/app/
+// routes/tasks_analytics.py) ─────────────────────────────────────────────────
+//
+// Two completion measures, always kept separate, never conflated:
+//   assignmentCompletionRate  COMPLETED rows / ALL rows in scope.
+//   uniqueTaskCompletionRate  A task counts complete when every one of its
+//                             assignee rows that is NOT LEFT and NOT IGNORED
+//                             is COMPLETED. A task where every row left/
+//                             ignored it is reported separately as
+//                             "abandoned" — neither complete nor incomplete.
+export const StatusBreakdownDTO = z.object({
+  sent: z.number().int(),
+  acknowledged: z.number().int(),
+  completed: z.number().int(),
+  ignored: z.number().int(),
+  left: z.number().int(),
+  missed: z.number().int(),
+});
+export type StatusBreakdownDTO = z.infer<typeof StatusBreakdownDTO>;
+
+export const CompletionMetricsDTO = z.object({
+  totalAssignments: z.number().int(),
+  completedAssignments: z.number().int(),
+  /** 0..100; 0 when totalAssignments is 0. */
+  assignmentCompletionRate: z.number(),
+  totalUniqueTasks: z.number().int(),
+  completedUniqueTasks: z.number().int(),
+  abandonedUniqueTasks: z.number().int(),
+  remainingUniqueTasks: z.number().int(),
+  /** 0..100; 0 when totalUniqueTasks is 0. */
+  uniqueTaskCompletionRate: z.number(),
+});
+export type CompletionMetricsDTO = z.infer<typeof CompletionMetricsDTO>;
+
+export const TaskAnalyticsAssigneeDTO = z.object({
+  assigneeId: z.string().uuid(),
+  assigneeUsername: z.string(),
+  status: AssigneeStatus,
+  assignedAt: z.string().nullable().optional(),
+  acknowledgedAt: z.string().nullable().optional(),
+  completedAt: z.string().nullable().optional(),
+  ignoredAt: z.string().nullable().optional(),
+  leftAt: z.string().nullable().optional(),
+  missedAt: z.string().nullable().optional(),
+  /** completedAt - assignedAt, in seconds. Null unless this assignee is COMPLETED. */
+  turnaroundSeconds: z.number().nullable().optional(),
+});
+export type TaskAnalyticsAssigneeDTO = z.infer<typeof TaskAnalyticsAssigneeDTO>;
+
+export const TaskAnalyticsDTO = z.object({
+  taskId: z.string().uuid(),
+  title: z.string(),
+  senderId: z.string().uuid(),
+  assignees: z.array(TaskAnalyticsAssigneeDTO),
+  statusBreakdown: StatusBreakdownDTO,
+  completion: CompletionMetricsDTO,
+});
+export type TaskAnalyticsDTO = z.infer<typeof TaskAnalyticsDTO>;
+
+export const AssigneeWorkloadDTO = z.object({
+  assigneeId: z.string().uuid(),
+  assigneeUsername: z.string(),
+  assignedCount: z.number().int(),
+  completedCount: z.number().int(),
+  /** 0..100; 0 when assignedCount is 0. */
+  completionRate: z.number(),
+});
+export type AssigneeWorkloadDTO = z.infer<typeof AssigneeWorkloadDTO>;
+
+export const ChannelAnalyticsDTO = z.object({
+  channelId: z.string().uuid(),
+  statusBreakdown: StatusBreakdownDTO,
+  completion: CompletionMetricsDTO,
+  workload: z.array(AssigneeWorkloadDTO),
+});
+export type ChannelAnalyticsDTO = z.infer<typeof ChannelAnalyticsDTO>;
+
 // ── Availability roster ──────────────────────────────────────────────────────
 /** One user's OPEN task counts. Users with no open work at all are absent from
  *  the response entirely, so the client treats a miss as 0/0. */

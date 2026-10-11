@@ -166,6 +166,10 @@
     "errorToast": "无法重命名频道"
   },
   "channelMembers": {
+    "tabs": {
+      "members": "成员",
+      "analytics": "分析"
+    },
     "addPeople": "添加成员",
     "addedToast": "已加入频道",
     "actionFailed": "操作失败",

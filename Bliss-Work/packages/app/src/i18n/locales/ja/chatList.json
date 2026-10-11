@@ -166,6 +166,10 @@
     "errorToast": "チャンネル名を変更できませんでした"
   },
   "channelMembers": {
+    "tabs": {
+      "members": "メンバー",
+      "analytics": "分析"
+    },
     "addPeople": "メンバーを追加",
     "addedToast": "チャンネルに追加しました",
     "actionFailed": "操作に失敗しました",

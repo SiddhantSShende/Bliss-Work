@@ -169,6 +169,10 @@
     "errorToast": "Couldn't rename the channel"
   },
   "channelMembers": {
+    "tabs": {
+      "members": "Members",
+      "analytics": "Analytics"
+    },
     "addPeople": "Add people",
     "addedToast": "Added to the channel",
     "actionFailed": "Action failed",

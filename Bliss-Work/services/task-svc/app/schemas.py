@@ -475,3 +475,77 @@ def actions_for(status: str) -> list[TaskActionT]:
     if status == "ACKNOWLEDGED":
         return ["COMPLETE", "LEAVE"]
     return []
+
+
+# ── Analytics (snapshot-only; no history table, no trend-over-time) ───────────
+#
+# There is no whole-task/aggregate status anywhere in this schema — only the
+# per-assignee `task_assignees.status`. Two completion measures are reported,
+# always separately, NEVER conflated into one "completion rate":
+#
+#   assignmentCompletionRate  COMPLETED rows / ALL rows in scope. The raw rate
+#                             across every assignment, including a task with
+#                             five assignees where only one finished.
+#   uniqueTaskCompletionRate  A TASK counts complete when every one of its
+#                             assignee rows that is NOT LEFT and NOT IGNORED is
+#                             COMPLETED. A task where every assignee left or
+#                             ignored it (zero remaining rows) is reported
+#                             separately as "abandoned" — neither complete nor
+#                             incomplete.
+class StatusBreakdownDTO(BaseModel):
+    sent: int = 0
+    acknowledged: int = 0
+    completed: int = 0
+    ignored: int = 0
+    left: int = 0
+    missed: int = 0
+
+
+class CompletionMetricsDTO(BaseModel):
+    totalAssignments: int
+    completedAssignments: int
+    assignmentCompletionRate: float  # 0..100; 0 when totalAssignments == 0
+
+    totalUniqueTasks: int
+    completedUniqueTasks: int
+    abandonedUniqueTasks: int
+    remainingUniqueTasks: int
+    uniqueTaskCompletionRate: float  # 0..100; 0 when totalUniqueTasks == 0
+
+
+class TaskAnalyticsAssigneeDTO(BaseModel):
+    assigneeId: str
+    assigneeUsername: str
+    status: AssigneeStatus
+    assignedAt: str | None = None
+    acknowledgedAt: str | None = None
+    completedAt: str | None = None
+    ignoredAt: str | None = None
+    leftAt: str | None = None
+    missedAt: str | None = None
+    # completedAt - assignedAt, in seconds. Null unless this assignee is COMPLETED.
+    turnaroundSeconds: float | None = None
+
+
+class TaskAnalyticsDTO(BaseModel):
+    taskId: str
+    title: str
+    senderId: str
+    assignees: list[TaskAnalyticsAssigneeDTO]
+    statusBreakdown: StatusBreakdownDTO
+    completion: CompletionMetricsDTO
+
+
+class AssigneeWorkloadDTO(BaseModel):
+    assigneeId: str
+    assigneeUsername: str
+    assignedCount: int
+    completedCount: int
+    completionRate: float  # 0..100; 0 when assignedCount == 0
+
+
+class ChannelAnalyticsDTO(BaseModel):
+    channelId: str
+    statusBreakdown: StatusBreakdownDTO
+    completion: CompletionMetricsDTO
+    workload: list[AssigneeWorkloadDTO]

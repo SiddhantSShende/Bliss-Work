@@ -364,5 +364,39 @@
       "IGNORED": "무시함",
       "LEFT": "나감"
     }
+  },
+  "analytics": {
+    "loading": "분석을 불러오는 중…",
+    "error": "분석을 불러올 수 없습니다.",
+    "statuses": {
+      "sent": "전송됨",
+      "acknowledged": "확인함",
+      "completed": "완료",
+      "ignored": "무시함",
+      "left": "나감",
+      "missed": "기한 초과"
+    },
+    "task": {
+      "title": "작업 분석",
+      "assigneesHeading": "담당자",
+      "turnaround": "처리 시간 {{time}}",
+      "notCompleted": "아직 완료되지 않음"
+    },
+    "channel": {
+      "title": "채널 작업 분석",
+      "emptyTitle": "아직 작업이 없습니다",
+      "emptyHint": "이 채널에 연결된 작업이 여기에 표시됩니다.",
+      "totalTasks": "전체 작업 수",
+      "completedTasks": "완료된 작업",
+      "abandonedTasks": "포기된 작업",
+      "remainingTasks": "남은 작업",
+      "workloadHeading": "담당자별 업무량"
+    },
+    "completion": {
+      "assignmentRate": "할당 완료율",
+      "assignmentRateTooltip": "여러 담당자가 있는 작업을 포함하여, 범위 내 전체 할당 중 완료된 할당의 비율입니다.",
+      "uniqueRate": "작업 완료율",
+      "uniqueRateTooltip": "남아 있는 담당자 모두가 완료한 고유 작업의 비율입니다. 모두가 나가거나 무시한 작업은 완료가 아닌 포기로 집계됩니다."
+    }
   }
 }
