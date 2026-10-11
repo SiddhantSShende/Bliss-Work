@@ -28,6 +28,7 @@ declare global {
       setBackgroundColor: (color: string) => void;
       ready: () => void;
       unpin: (taskId: string) => void;
+      openChat: (taskId: string) => void;
     };
   }
 }
@@ -197,6 +198,7 @@ function StickyApp() {
           onCollapse={collapse}
           onUnpin={() => window.sticky.unpin(task.taskId)}
           onAction={(action: TaskAction) => window.sticky.act(task.taskId, VERB[action])}
+          onChat={() => window.sticky.openChat(task.taskId)}
         />
       </div>
       {hasMultiple && (

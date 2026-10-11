@@ -46,6 +46,7 @@ import { initScreenshotGuard } from "./screenshot-guard";
 import { initWindowStateGuard } from "./window-state-guard";
 import { incomingCallPopup, notificationPathFor, popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from "./notifier";
 import { openNotificationTarget } from "./notification-open";
+import { openTaskChat } from "./task-chat-open";
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
@@ -958,6 +959,12 @@ ipcMain.on("sticky:unpin", (_e, taskId: unknown) => {
   // it durable and shared. ws-process owns the API client and the retries, and
   // re-reads afterwards so the mirror settles on server truth.
   wsProc?.postMessage({ type: "pin-write", taskId, pinned: false });
+});
+// The note's Chat button: the sticky overlay has no router of its own, so
+// bring the main window forward and tell IT to open this task's discussion.
+ipcMain.on("sticky:open-chat", (_e, taskId: unknown) => {
+  if (typeof taskId !== "string" || !taskId) return;
+  openTaskChat({ taskId }, focusMain, () => mainWindow);
 });
 // The carousel window's renderer has subscribed to "sticky:tasks" and is
 // ready for the current page. Re-push it so a did-finish-load push that

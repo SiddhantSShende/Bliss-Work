@@ -1101,8 +1101,32 @@ export const ChannelMessageDTO = z.object({
   pinned: z.boolean().optional(),
   /** The message this one quotes. Mirrors MessageDTO.replyToId. */
   replyToId: z.string().uuid().optional(),
+  /** Set when sent through a task's "Chat" entry point (see TaskDiscussionDTO
+   *  below). Absent for an ordinary channel message. */
+  taskId: z.string().uuid().nullable().optional(),
 });
 export type ChannelMessageDTO = z.infer<typeof ChannelMessageDTO>;
+
+// ── Task-linked chat ("Chat" on a task card/sticky widget) ─────────────────
+/** One task's resolved chat target — a DM conversation (+ thread, once a
+ *  message has actually been sent into it) or a channel. See messaging-svc's
+ *  task_discussions.go. */
+export const TaskDiscussionDTO = z.object({
+  id: z.string().uuid(),
+  taskId: z.string().uuid(),
+  kind: z.enum(["DM", "CHANNEL"]),
+  conversationId: z.string().uuid().nullable().optional(),
+  threadId: z.string().uuid().nullable().optional(),
+  channelId: z.string().uuid().nullable().optional(),
+});
+export type TaskDiscussionDTO = z.infer<typeof TaskDiscussionDTO>;
+
+/** Adds the caller's unread count for one task's discussion — what the
+ *  sticky widget/task list badge with "Comments" / "Comments N". */
+export const TaskDiscussionSummaryDTO = TaskDiscussionDTO.extend({
+  unreadCount: z.number().int().nonnegative(),
+});
+export type TaskDiscussionSummaryDTO = z.infer<typeof TaskDiscussionSummaryDTO>;
 
 export const ChannelReadReceiptDTO = z.object({
   messageId: z.string().uuid(),

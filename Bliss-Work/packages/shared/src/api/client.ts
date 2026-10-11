@@ -71,6 +71,8 @@ import {
   SentTaskDTO,
   StickyTaskDTO,
   TaskExportRow,
+  TaskDiscussionDTO,
+  TaskDiscussionSummaryDTO,
   OrgActivitySummaryDTO,
   ThreadDTO,
   TimelinePage,
@@ -892,6 +894,48 @@ export class ApiClient {
       "/api/v1/conversations",
       { method: "POST", body: JSON.stringify({ peerId }) },
       z.object({ conversationId: z.string() }),
+    );
+  }
+  /**
+   * Resolve (or create) a task's chat target without sending anything —
+   * exactly `openConversation`'s own "navigate, don't fabricate a greeting"
+   * shape, for the "Chat" button on a task card/sticky widget. Idempotent.
+   */
+  openTaskDiscussion(taskId: string, target: { peerId: string } | { channelId: string }) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/tasks/${taskId}/discussion`,
+      { method: "POST", body: JSON.stringify(target) },
+      TaskDiscussionDTO,
+    );
+  }
+  /**
+   * Every visible task's chat target + unread count, in one round trip — what
+   * the sticky widget/task list badge with "Comments" / "Comments N".
+   */
+  taskDiscussions(taskIds: string[]) {
+    if (taskIds.length === 0) return Promise.resolve([] as TaskDiscussionSummaryDTO[]);
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/tasks/discussions?taskIds=${taskIds.join(",")}`,
+      {},
+      z.array(TaskDiscussionSummaryDTO),
+    );
+  }
+  /** Send through a task's "Chat" entry point — DM or channel, whichever
+   *  `target` names. Creates the discussion (and, for a DM's first message,
+   *  its thread) on first use. */
+  sendTaskDiscussionMessage(
+    taskId: string,
+    body: string,
+    clientMsgId: string,
+    target: { peerId: string } | { channelId: string },
+  ) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/tasks/${taskId}/discussion/messages`,
+      { method: "POST", body: JSON.stringify({ ...target, body, clientMsgId }) },
+      z.object({ messageId: z.string(), seq: z.number() }),
     );
   }
   /**

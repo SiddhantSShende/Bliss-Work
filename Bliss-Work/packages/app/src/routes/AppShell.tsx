@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { NotificationClickBridge } from "../features/NotificationClickBridge";
+import { TaskChatOpenBridge } from "../features/TaskChatOpenBridge";
 import { qk, WsEventBridge } from "../lib/queryBridge";
 import { listSectionOf, railSectionOf } from "../lib/section";
 import { useSelectedChat } from "../lib/selectedChat";
@@ -123,6 +124,7 @@ export function AppShell() {
     <div className="flex flex-col overflow-hidden brand-mesh" style={{ position: "fixed", inset: 0 }}>
       <WsEventBridge />
       <NotificationClickBridge />
+      <TaskChatOpenBridge />
       <TelemetryBridge />
       <CallUI />
       <VerifyEmailBanner />

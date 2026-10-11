@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, Users, ChevronLeft, Lock } from "lucide-react";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { useSession } from "../store/session";
 import { useMessageFocus } from "../lib/useMessageFocus";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
+import { TaskDiscussionBanner } from "../features/TaskDiscussionBanner";
 import { useOlderMessages } from "../lib/useOlderMessages";
 import { ChannelMembersSheet } from "../features/ChannelMembersSheet";
 import { LeaveChannelDialog } from "../features/LeaveChannelDialog";
@@ -46,6 +47,23 @@ export function ChannelView() {
   const { t } = useTranslation("chatThread");
   const { channelId = "" } = useParams();
   const focusMessage = useMessageFocus();
+  // The task a "Chat" button opened this channel for (?taskId=…, same pattern
+  // as useMessageFocus's ?m=). Cleared with `replace` so Back doesn't walk
+  // through it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusTaskId = searchParams.get("taskId");
+  const clearTaskFocus = useCallback(
+    () =>
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("taskId");
+          return next;
+        },
+        { replace: true },
+      ),
+    [setSearchParams],
+  );
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -67,6 +85,17 @@ export function ChannelView() {
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
   const selection = useMessageSelection(channelId);
+
+  // Best-effort title for the TaskDiscussionBanner above — see DMView's
+  // identical lookup. taskDetail is scoped to the caller's own assignment, so
+  // a channel member with no task_assignees row for this task won't resolve
+  // one; the banner still shows with the bare id in that case.
+  const { data: focusedTask } = useQuery({
+    queryKey: ["taskDetail", focusTaskId],
+    queryFn: () => api.taskDetail(focusTaskId!),
+    enabled: !!focusTaskId,
+    retry: false,
+  });
 
   // Switching channels must land on the CHAT, never on the previous channel's
   // members sheet. This component is mounted once for the whole
@@ -689,6 +718,13 @@ export function ChannelView() {
           scopeId={channelId}
           meId={me.id}
           channelLocked={channel.isLocked}
+        />
+      )}
+      {focusTaskId && (
+        <TaskDiscussionBanner
+          taskId={focusTaskId}
+          taskTitle={focusedTask?.title}
+          onClear={clearTaskFocus}
         />
       )}
       <ChatThread

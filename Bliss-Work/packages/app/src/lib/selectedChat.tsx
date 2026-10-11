@@ -50,14 +50,20 @@ interface SelectedChat {
    * whole module exists to keep out of the address bar.
    *
    * `messageId` is the message the conversation should scroll to (a notification's
-   * target). Like the id itself it is kept in memory only — never in the URL.
+   * target). `taskId` is the task a "Chat" button opened this conversation for
+   * (see useOpenTaskDiscussion). Like the id itself, both are kept in memory
+   * only — never in the URL.
    */
-  openChat: (conversationId: string, options?: { replace?: boolean; messageId?: string }) => void;
+  openChat: (conversationId: string, options?: { replace?: boolean; messageId?: string; taskId?: string }) => void;
   /** Close the open conversation, leaving the section on the list. */
   closeChat: () => void;
   /** The message the open conversation should land on, until `clearFocus` is called. */
   focusMessageId: string | null;
   clearFocus: () => void;
+  /** The task this conversation was opened to discuss, until `clearTaskFocus`
+   *  is called — drives the "Discussing task: X" banner. */
+  focusTaskId: string | null;
+  clearTaskFocus: () => void;
 }
 
 const SelectedChatContext = createContext<SelectedChat | null>(null);
@@ -65,6 +71,7 @@ const SelectedChatContext = createContext<SelectedChat | null>(null);
 export function SelectedChatProvider({ children }: { children: ReactNode }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusMessageId, setFocusMessageId] = useState<string | null>(null);
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const navigate = useNavigate();
   const loc = useLocation();
   const navType = useNavigationType();
@@ -100,13 +107,15 @@ export function SelectedChatProvider({ children }: { children: ReactNode }) {
     if (navType === "POP") {
       setSelectedId(null);
       setFocusMessageId(null);
+      setFocusTaskId(null);
     }
   }, [loc.key, navType]);
 
   const openChat = useCallback(
-    (conversationId: string, options?: { replace?: boolean; messageId?: string }) => {
+    (conversationId: string, options?: { replace?: boolean; messageId?: string; taskId?: string }) => {
       setSelectedId(conversationId);
       setFocusMessageId(options?.messageId ?? null);
+      setFocusTaskId(options?.taskId ?? null);
       // Swapping which chat is open is not a new place to come back to — only
       // opening one from the list is. Without this every chat visited would
       // stack an entry and Back would replay the session one chat at a time.
@@ -124,11 +133,15 @@ export function SelectedChatProvider({ children }: { children: ReactNode }) {
   const closeChat = useCallback(() => {
     setSelectedId(null);
     setFocusMessageId(null);
+    setFocusTaskId(null);
   }, []);
   const clearFocus = useCallback(() => setFocusMessageId(null), []);
+  const clearTaskFocus = useCallback(() => setFocusTaskId(null), []);
 
   return (
-    <SelectedChatContext.Provider value={{ selectedId, openChat, closeChat, focusMessageId, clearFocus }}>
+    <SelectedChatContext.Provider
+      value={{ selectedId, openChat, closeChat, focusMessageId, clearFocus, focusTaskId, clearTaskFocus }}
+    >
       {children}
     </SelectedChatContext.Provider>
   );

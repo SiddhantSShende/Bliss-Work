@@ -15,6 +15,7 @@ import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { SendCallLinkDialog } from "../features/SendCallLinkDialog";
 import { deliverCallLink } from "../lib/deliverCallLink";
 import { ChatThread } from "../features/ChatThread";
+import { TaskDiscussionBanner } from "../features/TaskDiscussionBanner";
 import { ConversationMenu } from "../features/ConversationMenu";
 import { ConfirmDialog } from "../features/ConfirmDialog";
 import { SelectionToolbar } from "../features/SelectionToolbar";
@@ -45,7 +46,7 @@ export function DMView() {
   // is still one conversation's worth of state, it is just told which one by
   // the shell rather than by the router.
   const { t } = useTranslation("chatThread");
-  const { selectedId, closeChat, focusMessageId = null, clearFocus } = useSelectedChat();
+  const { selectedId, closeChat, focusMessageId = null, clearFocus, focusTaskId, clearTaskFocus } = useSelectedChat();
   const conversationId = selectedId ?? "";
   const { api, config } = useRuntime();
   const qc = useQueryClient();
@@ -54,6 +55,17 @@ export function DMView() {
 
   const { data: conversations = [] } = useQuery({ queryKey: qk.conversations, queryFn: () => api.conversations() });
   const conv = conversations.find((c: ConversationDTO) => c.id === conversationId);
+
+  // The task a "Chat" button opened this conversation for (see
+  // useOpenTaskDiscussion). Best-effort title lookup — taskDetail is
+  // assignee-scoped, so an allocator viewing their own sent task may not
+  // resolve one; the banner still shows with the bare id in that case.
+  const { data: focusedTask } = useQuery({
+    queryKey: ["taskDetail", focusTaskId],
+    queryFn: () => api.taskDetail(focusTaskId!),
+    enabled: !!focusTaskId,
+    retry: false,
+  });
 
   // One person. This screen used to poll the entire organisation's online set
   // every 20 seconds to light a single dot — see lib/usePresence.
@@ -630,6 +642,13 @@ export function DMView() {
           matches={shown.length}
           loaded={thread.length}
           placeholder={t("dmView.search.placeholder", { name: peerName })}
+        />
+      )}
+      {focusTaskId && (
+        <TaskDiscussionBanner
+          taskId={focusTaskId}
+          taskTitle={focusedTask?.title}
+          onClear={clearTaskFocus}
         />
       )}
       <ChatThread

@@ -39,6 +39,9 @@ export function MailRow({
   dismissPending = false,
   acknowledgePending = false,
   completePending = false,
+  onChat,
+  chatBusy = false,
+  chatUnreadCount,
 }: {
   item: InboxItemDTO;
   /** The list's own query string (folder + person), carried into the reading
@@ -68,6 +71,14 @@ export function MailRow({
   dismissPending?: boolean;
   acknowledgePending?: boolean;
   completePending?: boolean;
+  /** TASK rows only: open this task's chat with its allocator. Navigation,
+   *  not a state transition — kept separate from onAcknowledge/onComplete.
+   *  Omitted (every call site that hasn't been updated yet), no button
+   *  renders and the row is exactly as it was. */
+  onChat?: (refId: string) => void;
+  chatBusy?: boolean;
+  /** Unread messages in this task's discussion; 0/undefined shows no badge. */
+  chatUnreadCount?: number;
 }) {
   const { t } = useTranslation("mail");
   const { nameOf, emailOf } = useUserLabels();
@@ -206,6 +217,21 @@ export function MailRow({
             tone="accent"
             disabled={completePending}
             onClick={(e) => { e.preventDefault(); onComplete(item.refId); }}
+          />
+        )}
+        {isTask && onChat && (
+          <Quick
+            icon={<MessageCircle size={14} />}
+            title={
+              chatUnreadCount
+                ? t("row.chatTitleUnread", { n: chatUnreadCount })
+                : t("row.chatTitle")
+            }
+            label={t("row.chatLabel")}
+            hideLabel
+            tone={chatUnreadCount ? "accent" : "muted"}
+            disabled={chatBusy}
+            onClick={(e) => { e.preventDefault(); onChat(item.refId); }}
           />
         )}
         {onRestore && isMail && (

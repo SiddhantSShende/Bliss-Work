@@ -207,6 +207,13 @@ export interface PlatformConfig {
    */
   onNotificationClick?: (cb: (click: { notificationId: string; path: string | null }) => void) => () => void;
   /**
+   * Present only in Electron: the sticky overlay's Chat button was clicked
+   * for `taskId`. The overlay window has no router of its own, so main
+   * forwards this to the (focused) main window — see TaskChatOpenBridge,
+   * which resolves the actual DM/channel target via useOpenTaskDiscussion.
+   */
+  onTaskChatOpen?: (cb: (open: { taskId: string }) => void) => () => void;
+  /**
    * Present only in Electron: close the always-on-top popup window raised by
    * showMeetingInvitePopup for `callId`, without any user action — the call
    * ended, or was answered elsewhere, while the popup was on screen (see

@@ -136,6 +136,8 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		return http.StatusConflict, CodeConflict, err.Error()
 	case errors.Is(err, store.ErrForbidden):
 		return http.StatusForbidden, CodeForbidden, "forbidden"
+	case errors.Is(err, store.ErrTaskDiscussionTargetRequired):
+		return http.StatusBadRequest, CodeValidationError, err.Error()
 	case errors.Is(err, store.ErrMixedForwardScope):
 		// 400, not 403: the caller can read every source message named — the
 		// request just asks for an order (chronological, across two scopes)

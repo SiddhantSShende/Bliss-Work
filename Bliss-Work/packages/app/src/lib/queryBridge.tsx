@@ -410,6 +410,10 @@ function handleMessageEvent(e: ServerEvent, ctx: EventHandlerContext) {
       // conversation list refreshes (revive + reorder + unread)
       invalidate(qk.conversations);
       invalidate(qk.unreadCounts);
+      // Best-effort: a message in ANY thread might be a task discussion's
+      // (task_discussions.thread_id is opaque to this event), so refetch the
+      // small bulk list rather than try to resolve which task this is here.
+      if (e.threadId) invalidate(qk.taskDiscussions);
       // People sidebar + open per-person feed (all-feed already patched).
       refreshInboxSidebars(invalidate);
       break;
@@ -568,6 +572,7 @@ function handleChannelEvent(e: ServerEvent, ctx: EventHandlerContext) {
               isForward: e.isForward,
               forwardPlatform: e.forwardPlatform,
               replyToId: e.replyToId,
+              taskId: e.taskId,
               createdAt: e.occurredAt,
             });
           return next.sort((a, b) => a.seq - b.seq);
@@ -593,6 +598,7 @@ function handleChannelEvent(e: ServerEvent, ctx: EventHandlerContext) {
       );
       invalidate(qk.channels);
       invalidate(qk.unreadCounts);
+      if (e.taskId) invalidate(qk.taskDiscussions);
       break;
     }
     case EventType.ChannelMessageDeleted: {

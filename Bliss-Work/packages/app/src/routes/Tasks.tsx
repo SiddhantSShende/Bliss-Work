@@ -20,6 +20,7 @@ import { useMySentTasks } from "../features/useMySentTasks";
 import { StickyWidget } from "../features/StickyWidget";
 import { TASK_CARD_GRID } from "../features/taskCardLayout";
 import { TaskPinToggle } from "../features/TaskPinToggle";
+import { useOpenTaskDiscussion } from "../lib/useOpenTaskDiscussion";
 
 const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> = {
   ACKNOWLEDGE: "acknowledge", COMPLETE: "complete", IGNORE: "ignore", LEAVE: "leave",
@@ -169,6 +170,23 @@ function AssignedBucket({ view }: { view: string }) {
   const tasks = isTerminalView(view)
     ? filteredTasks.slice((currentPage - 1) * TERMINAL_VIEW_LIMIT, currentPage * TERMINAL_VIEW_LIMIT)
     : filteredTasks;
+
+  // Every assigned task's chat target + unread count, in one call — see
+  // useOpenTaskDiscussion. Sourced from `all` (not the view-filtered/paginated
+  // `tasks` below) so this stays ONE stable query across every bucket view —
+  // qk.taskDiscussions is a root key, and a per-view task-id set here would
+  // make different buckets fight over the same cache entry.
+  const allTaskIds = useMemo(() => all.map((t: StickyTaskDTO) => t.taskId), [all]);
+  const { data: discussions = [] } = useQuery({
+    queryKey: qk.taskDiscussions,
+    queryFn: () => api.taskDiscussions(allTaskIds),
+    enabled: allTaskIds.length > 0,
+  });
+  const unreadByTask = useMemo(
+    () => new Map(discussions.map((d) => [d.taskId, d.unreadCount])),
+    [discussions],
+  );
+  const { openDiscussion, busy: chatBusy } = useOpenTaskDiscussion();
 
   const act = useMutation({
     mutationFn: ({ taskId, action }: { taskId: string; action: TaskAction }) =>
@@ -337,6 +355,15 @@ function AssignedBucket({ view }: { view: string }) {
                 headerPin={canPinTask(task.myStatus) ? <TaskPinToggle taskId={task.taskId} /> : undefined}
                 onAddParticipants={(targets) => membership.mutateAsync({ taskId: task.taskId, targets }).then(() => undefined)}
                 onWithdrawParticipant={(userId) => withdrawal.mutateAsync({ taskId: task.taskId, userId }).then(() => undefined)}
+                onChat={() =>
+                  openDiscussion(
+                    task.channelId
+                      ? { taskId: task.taskId, channelId: task.channelId }
+                      : { taskId: task.taskId, peerId: task.senderId },
+                  )
+                }
+                chatBusy={chatBusy}
+                chatUnreadCount={unreadByTask.get(task.taskId)}
               />
             </motion.div>
           );

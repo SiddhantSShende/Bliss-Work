@@ -75,6 +75,9 @@ var cappedRoutes = map[string]string{
 	// Bulk "delete for everyone" — a batch of message ids, scoped to the
 	// conversation. Same /api/v1 small-body group, so the cap is inherited.
 	"POST /api/v1/conversations/{id}/messages/delete": "small",
+	// Task-linked chat ("Chat" on a task card). Same /api/v1 small-body group.
+	"POST /api/v1/tasks/{taskId}/discussion":          "small",
+	"POST /api/v1/tasks/{taskId}/discussion/messages": "small",
 	"POST /api/v1/users/{id}/block":                   "small",
 	"DELETE /api/v1/users/{id}/block":                 "small",
 	"POST /api/v1/attachments/{id}/commit":            "small",

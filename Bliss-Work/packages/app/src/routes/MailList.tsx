@@ -12,6 +12,7 @@ import { INBOX_KINDS } from "../lib/inboxKinds";
 import { peerLabel, useInboxPeers } from "../lib/useInboxPeers";
 import { flatInbox, useDeletedMailPages, useInboxPages } from "../lib/useCursorPagination";
 import { useMarkPeerRead } from "../lib/useMarkPeerRead";
+import { useOpenTaskDiscussion } from "../lib/useOpenTaskDiscussion";
 import {
   folderOf,
   folderSpec,
@@ -128,6 +129,24 @@ export function MailList() {
     enabled: !!config.listPinned,
     refetchOnWindowFocus: true,
   });
+
+  // Every TASK row's chat target + unread count, in one call — see
+  // useOpenTaskDiscussion and Tasks.tsx's AssignedBucket (same root key;
+  // mail and tasks sections are never both mounted, so they never collide).
+  const taskItemIds = useMemo(
+    () => items.filter((it) => it.itemKind === "TASK").map((it) => it.refId),
+    [items],
+  );
+  const { data: discussions = [] } = useQuery({
+    queryKey: qk.taskDiscussions,
+    queryFn: () => api.taskDiscussions(taskItemIds),
+    enabled: taskItemIds.length > 0,
+  });
+  const unreadByTask = useMemo(
+    () => new Map(discussions.map((d) => [d.taskId, d.unreadCount])),
+    [discussions],
+  );
+  const { openDiscussion, busy: chatBusy } = useOpenTaskDiscussion();
 
   const fetchMore = () => {
     // Paging through the whole mailbox to fill a folder the feed can never
@@ -365,6 +384,13 @@ export function MailList() {
                   dismissPending={dismissMut.isPending && dismissMut.variables === it.refId}
                   acknowledgePending={ackMut.isPending && ackMut.variables === it.refId}
                   completePending={completeMut.isPending && completeMut.variables === it.refId}
+                  onChat={
+                    it.itemKind === "TASK" && it.peerUserId
+                      ? (refId) => openDiscussion({ taskId: refId, peerId: it.peerUserId! })
+                      : undefined
+                  }
+                  chatBusy={chatBusy}
+                  chatUnreadCount={unreadByTask.get(it.refId)}
                 />
               );
             })}

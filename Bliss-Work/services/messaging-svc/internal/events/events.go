@@ -322,6 +322,11 @@ type ChannelMessageCreated struct {
 	// ReplyToID is the message this one quotes, if any. Mirrors
 	// MessageCreated.ReplyToID.
 	ReplyToID string `json:"replyToId,omitempty"`
+	// TaskID is set when this message was sent through a task's "Chat" entry
+	// point (see store.SendChannelTaskMessage / task_discussions.go). Omitted
+	// for an ordinary channel message, so the wire shape is unchanged for
+	// consumers that predate task-linked chat.
+	TaskID *string `json:"taskId,omitempty"`
 }
 
 // ChannelMessageDeleted is the channel twin of MessageDeleted: one message was

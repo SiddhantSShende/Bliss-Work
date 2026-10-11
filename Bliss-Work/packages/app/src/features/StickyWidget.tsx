@@ -1,4 +1,4 @@
-import { Check, X, Flag, LogOut, PinOff, Minus } from "lucide-react";
+import { Check, X, Flag, LogOut, PinOff, Minus, MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
@@ -53,6 +53,9 @@ export function StickyWidget({
   headerPin,
   landscape = false,
   hideParticipants = false,
+  onChat,
+  chatBusy = false,
+  chatUnreadCount,
 }: {
   task: StickyTaskDTO;
   onAction: (action: TaskAction) => void;
@@ -107,6 +110,21 @@ export function StickyWidget({
    * other card that does not pass it, are unchanged.
    */
   hideParticipants?: boolean;
+  /**
+   * Opens this task's chat discussion (the allocator DM, or the channel it
+   * was assigned to) — navigation, not a task-state transition, so it is a
+   * separate callback and never goes through `onAction`. Omitted (every
+   * existing call site that hasn't been updated yet), no Chat button renders
+   * and the card is exactly as it was.
+   */
+  onChat?: () => void;
+  /** True while a previous onChat call is still resolving — mirrors `busy`. */
+  chatBusy?: boolean;
+  /** Unread messages in this task's discussion. Undefined renders a plain
+   *  "Chat" button with no badge (discussion fetch still pending, or this
+   *  call site doesn't supply one yet); 0 renders "Chat" with no badge either
+   *  — the badge only appears once there is something unread to report. */
+  chatUnreadCount?: number;
 }) {
   const { t } = useTranslation("stickies");
   // senderUsername is the email local-part, so "from j.okafor" is what a note
@@ -353,6 +371,17 @@ export function StickyWidget({
       {task.actions.includes("LEAVE") && (
         <ActionBtn tight={compact} tone="ghost" label={t("card.leave")} disabled={busy} onClick={() => onAction("LEAVE")}>
           <LogOut size={15} className={rowIcon} /> {t("card.leave")}
+        </ActionBtn>
+      )}
+      {onChat && (
+        <ActionBtn tight={compact} tone="ghost" label={t("card.chat")} disabled={chatBusy} onClick={onChat}>
+          <MessageCircle size={15} className={rowIcon} />
+          {t("card.chat")}
+          {!!chatUnreadCount && (
+            <Badge tone="accent" className="px-1.5">
+              {chatUnreadCount}
+            </Badge>
+          )}
         </ActionBtn>
       )}
     </div>

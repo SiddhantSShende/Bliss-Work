@@ -13,6 +13,11 @@ export const qk = {
   /** Inputs for the "Available" bucket (open-task counts + admin-hidden set).
    *  POLLED, not pushed — see the note in useAvailability. */
   availability: ["tasks", "availability"] as const,
+  /** Every visible task's chat target + unread count, bulk-fetched — the
+   *  "Chat"/"Comments N" badge on sticky widgets and task rows. A ROOT key
+   *  (not parameterized per task) since the client always fetches the whole
+   *  visible task list's discussions in one call. */
+  taskDiscussions: ["tasks", "discussions"] as const,
   /** Calls the caller is expected at, including cross-org meetings. */
   calls: ["calls"] as const,
   call: (id: string) => ["calls", id] as const,

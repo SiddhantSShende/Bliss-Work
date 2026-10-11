@@ -126,6 +126,16 @@ const api = {
     return () => ipcRenderer.removeListener("notification:open-route", handler);
   },
 
+  /** Emitted when the sticky overlay's Chat button is clicked: the sticky
+   *  window has no router of its own, so it asks main to forward this to the
+   *  main window instead. Same channel name as main/task-chat-open.ts's
+   *  TASK_CHAT_OPEN_CHANNEL (preload cannot import from main). */
+  onTaskChatOpen: (cb: (open: { taskId: string }) => void) => {
+    const handler = (_: unknown, open: { taskId: string }) => cb(open);
+    ipcRenderer.on("task:open-chat", handler);
+    return () => ipcRenderer.removeListener("task:open-chat", handler);
+  },
+
   /** Which edge of the main window the native window controls sit on: the OS
    *  draws them over the app's top bar (see MAIN_TITLE_BAR_HEIGHT in main/windows.ts),
    *  at the right on Windows/Linux and the left (traffic lights) on macOS. */

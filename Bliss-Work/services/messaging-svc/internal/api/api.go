@@ -333,6 +333,15 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// deleteMessages's own doc comment for why.
 			r.Post("/conversations/{id}/messages/delete", s.deleteMessages)
 
+			// ── Task-linked chat ("Chat" on a task card/sticky widget) ────
+			// Open-or-create with no message (same reasoning as
+			// /conversations above), a bulk unread lookup for a whole task
+			// list, and sending through the entry point. See
+			// internal/store/task_discussions.go.
+			r.Post("/tasks/{taskId}/discussion", s.openTaskDiscussion)
+			r.Get("/tasks/discussions", s.bulkTaskDiscussions)
+			r.Post("/tasks/{taskId}/discussion/messages", s.sendTaskDiscussionMessage)
+
 			// Reactions. Same URL under two verbs, so a double-tap is
 			// idempotent at the HTTP layer and not only in SQL.
 			r.Put("/messages/{id}/reactions/{emoji}", s.setReaction)

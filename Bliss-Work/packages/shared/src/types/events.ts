@@ -413,6 +413,9 @@ export const ChannelMessageCreated = z.object({
   forwardPlatform: z.string().optional(),
   /** Mirrors MessageCreated.replyToId. */
   replyToId: z.string().uuid().optional(),
+  /** Set when sent through a task's "Chat" entry point. Mirrors
+   *  ChannelMessageDTO.taskId; absent for an ordinary channel message. */
+  taskId: z.string().uuid().nullable().optional(),
 });
 
 /**

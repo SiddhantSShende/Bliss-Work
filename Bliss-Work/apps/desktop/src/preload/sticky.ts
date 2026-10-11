@@ -69,6 +69,11 @@ const api = {
    *  about the note, and the task keeps its status. Persisted: the task is not
    *  auto-pinned again, across server pushes and restarts. */
   unpin: (taskId: string) => ipcRenderer.send("sticky:unpin", taskId),
+
+  /** Open this task's chat discussion. The sticky window has no router of its
+   *  own, so this asks main to focus/show the main window and tell IT to open
+   *  the discussion — see main/task-chat-open.ts. */
+  openChat: (taskId: string) => ipcRenderer.send("sticky:open-chat", taskId),
 };
 
 contextBridge.exposeInMainWorld("sticky", api);

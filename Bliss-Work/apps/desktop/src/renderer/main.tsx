@@ -26,6 +26,7 @@ declare global {
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       onMeetingDeepLink: (cb: (token: string) => void) => () => void;
       onNotificationClick: (cb: (click: { notificationId: string; path: string | null }) => void) => () => void;
+      onTaskChatOpen: (cb: (open: { taskId: string }) => void) => () => void;
       showMeetingInvitePopup: (callId: string, title: string, organizer: string) => void;
       dismissMeetingInvitePopup: (callId: string) => void;
       onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
@@ -202,6 +203,7 @@ const config: PlatformConfig = {
   dismissMeetingInvitePopup: (callId) => bridge.dismissMeetingInvitePopup(callId),
   onMeetingInviteAction: (cb) => bridge.onMeetingInviteAction(cb),
   onNotificationClick: (cb) => notificationClicks.subscribe(cb),
+  onTaskChatOpen: (cb) => taskChatOpens.subscribe(cb),
   onBeforeQuit: (cb) => bridge.onBeforeQuit(cb),
   notifyQuitReady: () => bridge.notifyQuitReady(),
   onBeforeWindowClose: (cb) => bridge.onBeforeWindowClose(cb),
@@ -274,6 +276,12 @@ bridge.onMeetingDeepLink((token) => {
 // the page finishes loading — before the shell has mounted — so it waits in the queue.
 const notificationClicks = createClickQueue<{ notificationId: string; path: string | null }>();
 bridge.onNotificationClick((click) => notificationClicks.push(click));
+
+// Sticky overlay's Chat button → handed to the signed-in shell
+// (config.onTaskChatOpen below, consumed by TaskChatOpenBridge), same
+// early-click queueing as the notification click above.
+const taskChatOpens = createClickQueue<{ taskId: string }>();
+bridge.onTaskChatOpen((open) => taskChatOpens.push(open));
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
