@@ -23,7 +23,10 @@
     "acknowledgeTitle": "Confirmar: la nota seguirá en pantalla hasta que completes la tarea",
     "unpinFromDesktopTitle": "Quitar del escritorio: la tarea se conserva en tu lista de tareas",
     "navPrevious": "Tarea fijada anterior",
-    "navNext": "Tarea fijada siguiente"
+    "navNext": "Tarea fijada siguiente",
+    "chat": "Chat",
+    "discussingTask": "Hablando sobre la tarea: {{title}}",
+    "openTask": "Abrir tarea"
   },
   "overlay": {
     "ariaLabel": "Notas adhesivas flotantes"
@@ -35,7 +38,8 @@
     "noteUnpinned": "Nota desfijada",
     "noteUnpinnedDescription": "Sigue en tu lista de tareas: complétala desde allí.",
     "unpinFailed": "No se pudo desfijar la nota",
-    "desktopFull": "No se pudo fijar esta tarea en el escritorio."
+    "desktopFull": "No se pudo fijar esta tarea en el escritorio.",
+    "chatOpenFailed": "No se pudo abrir ese chat. Inténtalo de nuevo."
   },
   "window": {
     "loading": "Cargando…",

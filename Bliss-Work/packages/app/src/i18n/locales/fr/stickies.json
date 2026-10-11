@@ -23,7 +23,10 @@
     "acknowledgeTitle": "Prendre en compte — garder cette note à l'écran jusqu'à ce que vous la terminiez",
     "unpinFromDesktopTitle": "Désépingler du bureau — la tâche reste dans votre liste de tâches",
     "navPrevious": "Tâche épinglée précédente",
-    "navNext": "Tâche épinglée suivante"
+    "navNext": "Tâche épinglée suivante",
+    "chat": "Chat",
+    "discussingTask": "Discussion sur la tâche : {{title}}",
+    "openTask": "Ouvrir la tâche"
   },
   "overlay": {
     "ariaLabel": "Notes adhésives flottantes"
@@ -35,7 +38,8 @@
     "noteUnpinned": "Note désépinglée",
     "noteUnpinnedDescription": "Elle figure toujours dans votre liste de tâches — terminez-la depuis là.",
     "unpinFailed": "Impossible de désépingler la note",
-    "desktopFull": "Impossible d'épingler cette tâche au bureau."
+    "desktopFull": "Impossible d'épingler cette tâche au bureau.",
+    "chatOpenFailed": "Impossible d'ouvrir cette discussion. Veuillez réessayer."
   },
   "window": {
     "loading": "Chargement…",

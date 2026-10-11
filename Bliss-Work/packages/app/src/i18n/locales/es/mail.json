@@ -118,7 +118,10 @@
     "ignoreTitleTask": "Ignorar: se quita de tu buzón",
     "ignoreTitleThread": "Ignorar: se oculta para ambos",
     "ignoreLabel": "Ignorar",
-    "dismissTitle": "Eliminar de tu buzón"
+    "dismissTitle": "Eliminar de tu buzón",
+    "chatTitle": "Chatear sobre esta tarea",
+    "chatTitleUnread": "Chatear sobre esta tarea ({{n}} sin leer)",
+    "chatLabel": "Chat"
   },
   "addressField": {
     "invalidAddressTitle": "Esto no parece una dirección de correo electrónico",

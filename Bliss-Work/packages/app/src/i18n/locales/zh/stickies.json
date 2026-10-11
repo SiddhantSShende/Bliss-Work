@@ -23,7 +23,10 @@
     "acknowledgeTitle": "知悉，此便签会一直显示在屏幕上，直到你完成任务",
     "unpinFromDesktopTitle": "从桌面取消置顶，任务仍保留在你的任务列表中",
     "navPrevious": "上一个置顶任务",
-    "navNext": "下一个置顶任务"
+    "navNext": "下一个置顶任务",
+    "chat": "聊天",
+    "discussingTask": "正在讨论任务:{{title}}",
+    "openTask": "打开任务"
   },
   "overlay": {
     "ariaLabel": "悬浮便签"
@@ -35,7 +38,8 @@
     "noteUnpinned": "便签已取消置顶",
     "noteUnpinnedDescription": "任务仍在你的任务列表中，请在那里完成。",
     "unpinFailed": "无法取消便签置顶",
-    "desktopFull": "无法将此任务置顶到桌面。"
+    "desktopFull": "无法将此任务置顶到桌面。",
+    "chatOpenFailed": "无法打开该聊天,请重试。"
   },
   "window": {
     "loading": "加载中…",

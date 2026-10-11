@@ -23,7 +23,10 @@
     "acknowledgeTitle": "Confirmar — manter esta nota na tela até você concluir a tarefa",
     "unpinFromDesktopTitle": "Desafixar da área de trabalho — a tarefa permanece na sua lista de tarefas",
     "navPrevious": "Tarefa fixada anterior",
-    "navNext": "Próxima tarefa fixada"
+    "navNext": "Próxima tarefa fixada",
+    "chat": "Chat",
+    "discussingTask": "Conversando sobre a tarefa: {{title}}",
+    "openTask": "Abrir tarefa"
   },
   "overlay": {
     "ariaLabel": "Notas adesivas flutuantes"
@@ -35,7 +38,8 @@
     "noteUnpinned": "Nota desafixada",
     "noteUnpinnedDescription": "Ela continua na sua lista de tarefas — conclua-a por lá.",
     "unpinFailed": "Não foi possível desafixar a nota",
-    "desktopFull": "Não foi possível fixar esta tarefa na área de trabalho."
+    "desktopFull": "Não foi possível fixar esta tarefa na área de trabalho.",
+    "chatOpenFailed": "Não foi possível abrir esse chat. Tente novamente."
   },
   "window": {
     "loading": "Carregando…",

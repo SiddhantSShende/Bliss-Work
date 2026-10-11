@@ -116,7 +116,10 @@
     "ignoreTitleTask": "무시 — 내 메일함에서 제거해요",
     "ignoreTitleThread": "무시 — 양쪽에서 숨겨요",
     "ignoreLabel": "무시",
-    "dismissTitle": "내 메일함에서 삭제"
+    "dismissTitle": "내 메일함에서 삭제",
+    "chatTitle": "이 태스크에 대해 채팅하기",
+    "chatTitleUnread": "이 태스크에 대해 채팅하기(읽지 않음 {{n}}개)",
+    "chatLabel": "채팅"
   },
   "addressField": {
     "invalidAddressTitle": "이메일 주소 형식이 아니에요",

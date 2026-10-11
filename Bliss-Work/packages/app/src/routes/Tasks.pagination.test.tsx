@@ -27,6 +27,9 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn() }) }));
+// useOpenTaskDiscussion (the task card's Chat button) reads useSelectedChat;
+// this suite exercises neither Chat nor DM navigation, so a plain stub is enough.
+vi.mock("../lib/selectedChat", () => ({ useSelectedChat: () => ({ openChat: vi.fn() }) }));
 
 import { TASK_CARD_GRID } from "../features/taskCardLayout";
 import { TERMINAL_VIEW_LIMIT } from "./tasksBuckets";

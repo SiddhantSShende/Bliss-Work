@@ -117,7 +117,10 @@
     "ignoreTitleTask": "Ignore — remove from your mailbox",
     "ignoreTitleThread": "Ignore — hides for both",
     "ignoreLabel": "Ignore",
-    "dismissTitle": "Delete from your mailbox"
+    "dismissTitle": "Delete from your mailbox",
+    "chatTitle": "Chat about this task",
+    "chatTitleUnread": "Chat about this task ({{n}} unread)",
+    "chatLabel": "Chat"
   },
   "addressField": {
     "invalidAddressTitle": "This does not look like an email address",

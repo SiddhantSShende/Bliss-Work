@@ -116,7 +116,10 @@
     "ignoreTitleTask": "無視 — メールボックスから削除します",
     "ignoreTitleThread": "無視 — 双方で非表示になります",
     "ignoreLabel": "無視",
-    "dismissTitle": "メールボックスから削除"
+    "dismissTitle": "メールボックスから削除",
+    "chatTitle": "このタスクについてチャットする",
+    "chatTitleUnread": "このタスクについてチャットする(未読{{n}}件)",
+    "chatLabel": "チャット"
   },
   "addressField": {
     "invalidAddressTitle": "メールアドレスの形式ではないようです",

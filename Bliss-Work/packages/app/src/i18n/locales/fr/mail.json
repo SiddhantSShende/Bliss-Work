@@ -118,7 +118,10 @@
     "ignoreTitleTask": "Ignorer — retirer de votre boîte mail",
     "ignoreTitleThread": "Ignorer — masque pour les deux",
     "ignoreLabel": "Ignorer",
-    "dismissTitle": "Supprimer de votre boîte mail"
+    "dismissTitle": "Supprimer de votre boîte mail",
+    "chatTitle": "Discuter de cette tâche",
+    "chatTitleUnread": "Discuter de cette tâche ({{n}} non lus)",
+    "chatLabel": "Chat"
   },
   "addressField": {
     "invalidAddressTitle": "Cela ne ressemble pas à une adresse e-mail",

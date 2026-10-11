@@ -23,7 +23,10 @@
     "acknowledgeTitle": "Bestätigen – diese Notiz bleibt sichtbar, bis Sie die Aufgabe abschließen",
     "unpinFromDesktopTitle": "Vom Desktop loslösen – die Aufgabe bleibt in Ihrer Aufgabenliste",
     "navPrevious": "Vorherige angeheftete Aufgabe",
-    "navNext": "Nächste angeheftete Aufgabe"
+    "navNext": "Nächste angeheftete Aufgabe",
+    "chat": "Chat",
+    "discussingTask": "Besprechung zu Aufgabe: {{title}}",
+    "openTask": "Aufgabe öffnen"
   },
   "overlay": {
     "ariaLabel": "Schwebende Haftnotizen"
@@ -35,7 +38,8 @@
     "noteUnpinned": "Notiz losgelöst",
     "noteUnpinnedDescription": "Sie ist weiterhin in Ihrer Aufgabenliste – schließen Sie sie dort ab.",
     "unpinFailed": "Die Notiz konnte nicht losgelöst werden",
-    "desktopFull": "Diese Aufgabe konnte nicht an den Desktop angeheftet werden."
+    "desktopFull": "Diese Aufgabe konnte nicht an den Desktop angeheftet werden.",
+    "chatOpenFailed": "Der Chat konnte nicht geöffnet werden. Bitte versuche es erneut."
   },
   "window": {
     "loading": "Wird geladen…",

@@ -38,6 +38,9 @@ vi.mock("../lib/runtime", () => ({
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { error: mocks.toastError, success: vi.fn() }),
 }));
+// useOpenTaskDiscussion (the task card's Chat button) reads useSelectedChat;
+// this suite exercises neither Chat nor DM navigation, so a plain stub is enough.
+vi.mock("../lib/selectedChat", () => ({ useSelectedChat: () => ({ openChat: vi.fn() }) }));
 
 import { Tasks } from "./Tasks";
 

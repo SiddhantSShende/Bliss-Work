@@ -117,7 +117,10 @@
     "ignoreTitleTask": "अनदेखा करें — अपने मेलबॉक्स से हटाएँ",
     "ignoreTitleThread": "अनदेखा करें — दोनों के लिए छिप जाता है",
     "ignoreLabel": "अनदेखा करें",
-    "dismissTitle": "अपने मेलबॉक्स से हटाएँ"
+    "dismissTitle": "अपने मेलबॉक्स से हटाएँ",
+    "chatTitle": "इस टास्क पर चैट करें",
+    "chatTitleUnread": "इस टास्क पर चैट करें ({{n}} अपठित)",
+    "chatLabel": "चैट"
   },
   "addressField": {
     "invalidAddressTitle": "यह ईमेल पते जैसा नहीं लगता",

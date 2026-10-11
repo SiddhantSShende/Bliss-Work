@@ -56,6 +56,9 @@ vi.mock("sonner", () => ({
     success: (m: string) => h.toasts.push(m),
   }),
 }));
+// useOpenTaskDiscussion (the task card's Chat button) reads useSelectedChat;
+// this suite exercises neither Chat nor DM navigation, so a plain stub is enough.
+vi.mock("../lib/selectedChat", () => ({ useSelectedChat: () => ({ openChat: vi.fn() }) }));
 
 import { WsEventBridge } from "../lib/queryBridge";
 import { Tasks } from "./Tasks";

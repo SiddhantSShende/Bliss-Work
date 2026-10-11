@@ -117,7 +117,10 @@
     "ignoreTitleTask": "Ignorieren – aus Ihrem Postfach entfernen",
     "ignoreTitleThread": "Ignorieren – für beide ausgeblendet",
     "ignoreLabel": "Ignorieren",
-    "dismissTitle": "Aus Ihrem Postfach löschen"
+    "dismissTitle": "Aus Ihrem Postfach löschen",
+    "chatTitle": "Über diese Aufgabe chatten",
+    "chatTitleUnread": "Über diese Aufgabe chatten ({{n}} ungelesen)",
+    "chatLabel": "Chat"
   },
   "addressField": {
     "invalidAddressTitle": "Das sieht nicht nach einer E-Mail-Adresse aus",

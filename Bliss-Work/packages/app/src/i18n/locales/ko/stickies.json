@@ -23,7 +23,10 @@
     "acknowledgeTitle": "확인 — 완료할 때까지 이 메모를 화면에 유지해요",
     "unpinFromDesktopTitle": "바탕화면에서 고정 해제 — 태스크는 내 태스크 목록에 남아 있어요",
     "navPrevious": "이전 고정 태스크",
-    "navNext": "다음 고정 태스크"
+    "navNext": "다음 고정 태스크",
+    "chat": "채팅",
+    "discussingTask": "태스크에 대해 논의 중: {{title}}",
+    "openTask": "태스크 열기"
   },
   "overlay": {
     "ariaLabel": "떠 있는 스티커 메모"
@@ -35,7 +38,8 @@
     "noteUnpinned": "메모 고정을 해제했어요",
     "noteUnpinnedDescription": "태스크 목록에는 그대로 남아 있어요. 거기에서 완료하세요.",
     "unpinFailed": "메모 고정을 해제하지 못했어요",
-    "desktopFull": "이 태스크를 바탕화면에 고정하지 못했어요."
+    "desktopFull": "이 태스크를 바탕화면에 고정하지 못했어요.",
+    "chatOpenFailed": "채팅을 열지 못했어요. 다시 시도해 주세요."
   },
   "window": {
     "loading": "불러오는 중…",

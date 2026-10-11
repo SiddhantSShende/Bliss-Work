@@ -31,6 +31,9 @@ vi.mock("../lib/runtime", () => ({
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { error: mocks.toastError, success: vi.fn() }),
 }));
+// useOpenTaskDiscussion (the task card's Chat button) reads useSelectedChat;
+// this suite exercises neither Chat nor DM navigation, so a plain stub is enough.
+vi.mock("../lib/selectedChat", () => ({ useSelectedChat: () => ({ openChat: vi.fn() }) }));
 
 // Stand-in for the people/channel picker (it has its own tests): it hands back one fixed
 // target when confirmed, so the test follows Add member all the way to the API call.
@@ -198,10 +201,10 @@ describe("Allocated to me — Add member only, no participants block", () => {
     const body = card("Review the deck").firstElementChild as HTMLElement;
     expect(body.className).toContain("14rem");
     const side = body.lastElementChild as HTMLElement;
-    expect(within(side).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Add member"]);
+    expect(within(side).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Chat", "Add member"]);
 
     const sent = card("Write the report").firstElementChild!.lastElementChild as HTMLElement;
-    expect(within(sent).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Acknowledge", "Ignore", "Add member"]);
+    expect(within(sent).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Acknowledge", "Ignore", "Chat", "Add member"]);
     // Full width, so it reads as part of the action area rather than a stray link.
     expect(within(side).getByRole("button", { name: "Add member" })).toHaveClass("w-full");
   });

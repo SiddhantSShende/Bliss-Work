@@ -116,7 +116,10 @@
     "ignoreTitleTask": "忽略，从你的邮箱中移除",
     "ignoreTitleThread": "忽略，双方都将隐藏",
     "ignoreLabel": "忽略",
-    "dismissTitle": "从你的邮箱中删除"
+    "dismissTitle": "从你的邮箱中删除",
+    "chatTitle": "就此任务聊天",
+    "chatTitleUnread": "就此任务聊天(未读 {{n}} 条)",
+    "chatLabel": "聊天"
   },
   "addressField": {
     "invalidAddressTitle": "这看起来不像邮箱地址",
