@@ -1233,12 +1233,23 @@ class RelayConsumer:
                 recipient_ref=recipient_ref(to_addr),
             )
             return
+        # A recipient who was active when the event was produced may have been
+        # suspended/removed by the time this (offline-gated, delayed) send
+        # fires. Treat that the same as "no email" rather than SMTP-sending to
+        # an account that should no longer hear from this org.
+        if recipient.get("status", "active") != "active":
+            _log.info("relay_skipped_ineligible_recipient", recipient=recipient_id, type=etype)
+            return
         sender_username = ""
+        reply_to = ""
         sid = event.get("senderId")
         if sid:
             sender = await self._lookup_user(sid, request_id=request_id)
             if sender:
                 sender_username = sender.get("username") or ""
+                sender_email = sender.get("email")
+                if sender_email and is_valid_email(str(sender_email)):
+                    reply_to = str(sender_email)
 
         link = f"{self._settings.web_origin.rstrip('/')}/app/inbox"
         if etype == MESSAGE_CREATED:
@@ -1254,18 +1265,25 @@ class RelayConsumer:
             # so oversized headers/bodies don't get rejected by SMTP.
             title = (event.get("title", "") or "Untitled task")[:TITLE_LEN]
             desc = (event.get("description", "") or "")[:PREVIEW_LEN]
-            subject = f"New task: {title}"
+            channel_name = (event.get("channelName") or "")[:TITLE_LEN] or None
+            who = sender_username or "A teammate"
+            subject = (
+                f"BlissWork: New task assigned to {channel_name} — {title}"
+                if channel_name
+                else f"BlissWork: {who} assigned you a task — {title}"
+            )
             text, html = render_new_task_email(
-                sender_username=sender_username or "A teammate",
+                sender_username=who,
                 title=title,
                 description=desc,
                 link=link,
+                channel_name=channel_name,
             )
         # Let a send failure propagate — the caller (_handle) counts consecutive
         # failures and routes poison messages to the DLQ; transient failures
         # leave the offset uncommitted so Kafka redelivers.
         await self._mailer.send(
-            to=to_addr, subject=subject, text_body=text, html_body=html,
+            to=to_addr, subject=subject, text_body=text, html_body=html, reply_to=reply_to,
         )
         _log.info(
             "relay_email_sent",

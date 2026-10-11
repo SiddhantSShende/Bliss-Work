@@ -20,6 +20,37 @@ def _common(evt: dict, expected_type: str) -> None:
     assert evt["type"] == expected_type
 
 
+def test_task_assigned_omits_channel_fields_for_a_named_assignee() -> None:
+    evt = events.task_assigned(
+        org_id="org", task_id="t", assignee_id="a", sender_id="s",
+        status_version=0, sender_username="sender", title="Title", description="",
+    )
+    _common(evt, "task.assigned")
+    assert "channelId" not in evt
+    assert "channelName" not in evt
+
+
+def test_task_assigned_carries_channel_id_and_name_when_channel_sourced() -> None:
+    evt = events.task_assigned(
+        org_id="org", task_id="t", assignee_id="a", sender_id="s",
+        status_version=0, sender_username="sender", title="Title", description="",
+        channel_id="c1", channel_name="Engineering",
+    )
+    _common(evt, "task.assigned")
+    assert evt["channelId"] == "c1"
+    assert evt["channelName"] == "Engineering"
+
+
+def test_task_assigned_omits_channel_name_when_channel_has_none() -> None:
+    evt = events.task_assigned(
+        org_id="org", task_id="t", assignee_id="a", sender_id="s",
+        status_version=0, sender_username="sender", title="Title", description="",
+        channel_id="c1", channel_name="",
+    )
+    assert evt["channelId"] == "c1"
+    assert "channelName" not in evt
+
+
 def test_task_ignored_includes_assignee_username() -> None:
     evt = events.task_ignored(
         org_id="org", task_id="t", assignee_id="a", sender_id="s",

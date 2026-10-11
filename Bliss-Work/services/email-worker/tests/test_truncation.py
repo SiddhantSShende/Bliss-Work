@@ -33,6 +33,10 @@ def _task_description(event: dict) -> str:
     return (event.get("description", "") or "")[:PREVIEW_LEN]
 
 
+def _channel_name(event: dict) -> str | None:
+    return (event.get("channelName") or "")[:TITLE_LEN] or None
+
+
 def test_limits_are_sane_positive_ints() -> None:
     assert isinstance(PREVIEW_LEN, int) and PREVIEW_LEN > 0
     assert isinstance(TITLE_LEN, int) and TITLE_LEN > 0
@@ -122,3 +126,23 @@ def test_missing_or_empty_message_body_is_empty_string(event: dict) -> None:
 )
 def test_missing_or_empty_description_is_empty_string(event: dict) -> None:
     assert _task_description(event) == ""
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {},
+        {"channelId": "c1"},        # named/individual assignment: no channel at all
+        {"channelName": ""},
+        {"channelName": None},
+    ],
+)
+def test_missing_or_empty_channel_name_is_none_not_empty_string(event: dict) -> None:
+    # Unlike title/description, an absent channel name must be falsy (None),
+    # not "" — the caller branches subject/template selection on it.
+    assert _channel_name(event) is None
+
+
+def test_channel_name_truncated_to_title_len() -> None:
+    out = _channel_name({"channelName": "c" * (TITLE_LEN + 20)})
+    assert out == "c" * TITLE_LEN

@@ -278,6 +278,7 @@ func emitChannelMemberJoined(ctx context.Context, tx pgx.Tx, orgID, channelID, c
 // out to its whole membership; see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md.
 type ChannelMembershipSnapshot struct {
 	OrgID     string
+	Name      string
 	IsLocked  bool
 	MemberIDs []string
 }
@@ -300,9 +301,10 @@ func (s *Store) InternalChannelMembership(ctx context.Context, orgID, channelID,
 		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
 			return err
 		}
+		var name string
 		var locked bool
 		if err := tx.QueryRow(ctx,
-			`SELECT is_locked FROM channels WHERE id = $1`, channelID).Scan(&locked); err != nil {
+			`SELECT name, is_locked FROM channels WHERE id = $1`, channelID).Scan(&name, &locked); err != nil {
 			return err
 		}
 		ids, err := channelMemberIDs(ctx, tx, channelID)
@@ -312,7 +314,7 @@ func (s *Store) InternalChannelMembership(ctx context.Context, orgID, channelID,
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
-		out = &ChannelMembershipSnapshot{OrgID: orgID, IsLocked: locked, MemberIDs: ids}
+		out = &ChannelMembershipSnapshot{OrgID: orgID, Name: name, IsLocked: locked, MemberIDs: ids}
 		return nil
 	})
 	if err != nil {

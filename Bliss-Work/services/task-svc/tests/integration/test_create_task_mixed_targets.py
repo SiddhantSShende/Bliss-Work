@@ -43,6 +43,16 @@ async def _client(principal=None) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
+class _ChannelsTable(dict):
+    """channel id -> members table, plus a parallel `names` table (channel id ->
+    display name) for tests that assert on the channelName tagged onto
+    channel-sourced task.assigned events. Unnamed channels resolve to ""."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: dict[str, str] = {}
+
+
 @pytest.fixture
 def channels(monkeypatch):
     """channel id -> what messaging-svc answers, served in place of it: a list of
@@ -53,15 +63,15 @@ def channels(monkeypatch):
     from app import schedule_worker
     from app.routes import tasks_write
 
-    table: dict[str, list[str] | str] = {}
+    table = _ChannelsTable()
 
-    async def _resolve(channel_id: str, org_id: str, caller_id: str) -> list[str]:
+    async def _resolve(channel_id: str, org_id: str, caller_id: str) -> tuple[list[str], str]:
         answer = table[channel_id]
         if answer == "dead":
             raise HTTPException(status_code=404, detail="channel not found")
         if answer == "down":
             raise HTTPException(status_code=503, detail="messaging service unreachable")
-        return list(answer)
+        return list(answer), table.names.get(channel_id, "")
 
     # The create path and the schedule worker each bound the name at import.
     monkeypatch.setattr(tasks_write, "_resolve_channel_members", _resolve)
@@ -91,13 +101,24 @@ async def _task_channels(task_id: str) -> list[str]:
     return sorted(str(r.channel_id) for r in rows)
 
 
-async def _assigned_events(task_id: str) -> list[str]:
-    rows = await _q("SELECT payload FROM outbox WHERE kafka_key = :t", t=task_id)
+def _payload(row) -> dict:
     import json
 
-    return sorted(
-        (json.loads(r.payload) if isinstance(r.payload, str) else r.payload)["assigneeId"] for r in rows
-    )
+    return json.loads(row.payload) if isinstance(row.payload, str) else row.payload
+
+
+async def _assigned_events(task_id: str) -> list[str]:
+    rows = await _q("SELECT payload FROM outbox WHERE kafka_key = :t", t=task_id)
+    return sorted(_payload(r)["assigneeId"] for r in rows)
+
+
+async def _assigned_event_by_assignee(task_id: str, assignee_id: str) -> dict:
+    rows = await _q("SELECT payload FROM outbox WHERE kafka_key = :t", t=task_id)
+    for r in rows:
+        payload = _payload(r)
+        if payload["assigneeId"] == assignee_id:
+            return payload
+    raise AssertionError(f"no task.assigned event for {assignee_id}")
 
 
 async def _create(**body) -> httpx.Response:
@@ -198,6 +219,65 @@ async def test_multiple_channels_are_one_task_with_one_row_per_channel(db_app, s
     assert await _task_count() == 1
     assert await _task_channels(task_id) == sorted([c1, c2])
     assert await _assignees(task_id) == sorted([a, only1, only2, shared])  # `shared` once
+
+
+# channel attribution on task.assigned ───────────────────────────────────────
+async def test_channel_only_recipient_event_carries_channel_id_and_name(db_app, channels):
+    c, m = _id(), _id()
+    channels.names[c] = "Engineering"
+    channels[c] = [m]
+
+    r = await _create(channelId=c)
+
+    assert r.status_code == 201, r.text
+    evt = await _assigned_event_by_assignee(r.json()["taskId"], m)
+    assert evt["channelId"] == c
+    assert evt["channelName"] == "Engineering"
+
+
+async def test_named_person_event_has_no_channel_fields(db_app, seed_members, channels):
+    """A named assignee's event never carries channel attribution, even for a
+    task that ALSO has channels attached — they were asked for by name."""
+    a, c, m = _id(), _id(), _id()
+    await seed_members(ORG, a)
+    channels[c] = [m]
+
+    r = await _create(assigneeIds=[a], channelId=c)
+
+    assert r.status_code == 201, r.text
+    evt = await _assigned_event_by_assignee(r.json()["taskId"], a)
+    assert "channelId" not in evt
+    assert "channelName" not in evt
+
+
+async def test_person_also_in_the_channel_is_treated_as_named_not_channel(db_app, seed_members, channels):
+    """Named intent wins: being named directly AND a member of the chosen
+    channel must not tag the event as channel-sourced."""
+    a, c, m = _id(), _id(), _id()
+    await seed_members(ORG, a)
+    channels[c] = [a, m]
+
+    r = await _create(assigneeIds=[a], channelId=c)
+
+    assert r.status_code == 201, r.text
+    task_id = r.json()["taskId"]
+    assert "channelId" not in (await _assigned_event_by_assignee(task_id, a))
+    assert (await _assigned_event_by_assignee(task_id, m))["channelId"] == c
+
+
+async def test_member_of_two_channels_is_tagged_with_the_first_one(db_app, channels):
+    c1, c2, shared = _id(), _id(), _id()
+    channels.names[c1] = "Alpha"
+    channels.names[c2] = "Beta"
+    channels[c1] = [shared]
+    channels[c2] = [shared]
+
+    r = await _create(channelIds=[c1, c2])
+
+    assert r.status_code == 201, r.text
+    evt = await _assigned_event_by_assignee(r.json()["taskId"], shared)
+    assert evt["channelId"] == c1
+    assert evt["channelName"] == "Alpha"
 
 
 async def test_channelId_and_channelIds_merge_without_duplicating(db_app, channels):

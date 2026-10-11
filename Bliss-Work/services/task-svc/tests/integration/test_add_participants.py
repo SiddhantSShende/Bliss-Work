@@ -50,11 +50,11 @@ def channels(monkeypatch):
 
     table: dict[str, list[str] | str] = {}
 
-    async def _resolve(channel_id: str, org_id: str, caller_id: str) -> list[str]:
+    async def _resolve(channel_id: str, org_id: str, caller_id: str) -> tuple[list[str], str]:
         answer = table[channel_id]
         if answer == "dead":
             raise HTTPException(status_code=404, detail="channel not found")
-        return list(answer)
+        return list(answer), ""
 
     # create path and participants each bound the name at import.
     monkeypatch.setattr(tasks_write, "_resolve_channel_members", _resolve)

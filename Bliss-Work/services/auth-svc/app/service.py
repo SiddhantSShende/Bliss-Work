@@ -113,8 +113,8 @@ async def user_dto(
         await conn.execute(
             text(
                 "SELECT u.id, u.org_id, u.username, u.display_name_enc, u.email_enc, "
-                "       u.avatar_enc, u.email_verified, u.mfa_enrolled, u.theme_prefs, o.plan, "
-                "       o.name AS org_name, o.require_mfa_for_admins, o.mfa_grace_period_ends_at "
+                "       u.avatar_enc, u.email_verified, u.mfa_enrolled, u.theme_prefs, u.status, "
+                "       o.plan, o.name AS org_name, o.require_mfa_for_admins, o.mfa_grace_period_ends_at "
                 "FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = :id"
             ),
             {"id": user_id},
@@ -150,6 +150,7 @@ async def user_dto(
         email=email or "",
         roles=roles,  # type: ignore[arg-type]
         emailVerified=bool(row.email_verified),
+        status=row.status or "active",
         plan=row.plan or "free",
         avatarUrl=avatar_url or None,
         mfaEnrolled=bool(row.mfa_enrolled),
@@ -250,7 +251,7 @@ async def _directory_page(
             text(
                 """
                 SELECT u.id, u.org_id, u.username, u.display_name_enc,
-                       u.email_enc, u.avatar_enc, u.email_verified, u.mfa_enrolled,
+                       u.email_enc, u.avatar_enc, u.email_verified, u.mfa_enrolled, u.status,
                        o.plan, o.name AS org_name, o.require_mfa_for_admins, o.mfa_grace_period_ends_at
                 FROM users u
                 JOIN orgs o ON o.id = u.org_id
@@ -269,7 +270,7 @@ async def _directory_page(
 # Columns every caller of `_user_dtos_from_rows` must select, kept in one place
 # so a new lookup cannot silently omit one and get a KeyError at decrypt time.
 _USER_DTO_COLUMNS = """u.id, u.org_id, u.username, u.display_name_enc,
-                       u.email_enc, u.avatar_enc, u.email_verified, u.mfa_enrolled,
+                       u.email_enc, u.avatar_enc, u.email_verified, u.mfa_enrolled, u.status,
                        o.plan, o.name AS org_name, o.require_mfa_for_admins, o.mfa_grace_period_ends_at"""
 
 
@@ -333,6 +334,7 @@ async def _user_dtos_from_rows(conn: AsyncConnection, rows) -> list[UserDTO]:
                 email=(await c.decrypt(conn, row_org, r.email_enc)) or "",
                 roles=roles_by_user.get(str(r.id), []),  # type: ignore[arg-type]
                 emailVerified=bool(r.email_verified),
+                status=r.status or "active",
                 plan=r.plan or "free",
                 avatarUrl=(await c.decrypt(conn, row_org, r.avatar_enc)) or None,
                 mfaEnrolled=bool(r.mfa_enrolled),

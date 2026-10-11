@@ -147,6 +147,7 @@ class _Row:
     email_enc = b"e"
     avatar_enc = None
     email_verified = True
+    status = "active"
     mfa_enrolled = False
     theme_prefs = {
         "theme": "rose",

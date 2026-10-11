@@ -31,6 +31,7 @@ def task_assigned(
     *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
     status_version: int, sender_username: str, title: str, description: str,
     members: list[str] | None = None,
+    channel_id: str | None = None, channel_name: str | None = None,
 ) -> dict:
     event = {
         **_envelope(org_id, "task.assigned"),
@@ -44,6 +45,14 @@ def task_assigned(
     }
     if members:
         event["members"] = members
+    # Present only when this assignee was resolved via channel membership
+    # rather than named directly — lets email-worker distinguish an
+    # individual assignment from a channel one. See packages/shared's
+    # TaskAssigned for the optional-field versioning convention.
+    if channel_id:
+        event["channelId"] = channel_id
+        if channel_name:
+            event["channelName"] = channel_name
     return event
 
 

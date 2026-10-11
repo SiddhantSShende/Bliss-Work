@@ -68,7 +68,8 @@ async def add_participants(
     # transaction opens: it is a network call.
     channel_member_ids: list[str] = []
     for channel_id in body.channelIds:
-        channel_member_ids.extend(await _resolve_channel_members(channel_id, org_id, me))
+        members, _channel_name = await _resolve_channel_members(channel_id, org_id, me)
+        channel_member_ids.extend(members)
     async with session() as db:
         await set_org_context(db, org_id)
         task = await _task_context(db, org_id, task_id)

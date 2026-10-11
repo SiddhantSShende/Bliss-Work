@@ -88,6 +88,7 @@ func (s *Server) markDelivered(w http.ResponseWriter, r *http.Request) {
 type internalChannelMembersResp struct {
 	OrgID     string   `json:"orgId"`
 	ChannelID string   `json:"channelId"`
+	Name      string   `json:"name"`
 	IsLocked  bool     `json:"isLocked"`
 	MemberIDs []string `json:"memberIds"`
 }
@@ -119,6 +120,7 @@ func (s *Server) internalChannelMembers(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, internalChannelMembersResp{
 		OrgID:     resp.OrgID,
 		ChannelID: channelID,
+		Name:      resp.Name,
 		IsLocked:  resp.IsLocked,
 		MemberIDs: resp.MemberIDs,
 	})

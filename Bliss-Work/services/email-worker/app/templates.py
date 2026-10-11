@@ -176,7 +176,7 @@ _NEW_TASK_HTML = _env.from_string(
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{{ sender_username }} assigned you a task on BlissWork</title>
+    <title>{{ heading }} on BlissWork</title>
   </head>
   <body style="margin:0;padding:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:32px 0;">
@@ -185,7 +185,7 @@ _NEW_TASK_HTML = _env.from_string(
                style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
           <tr><td style="padding:32px 40px 8px 40px;">
             <h1 style="margin:0 0 8px 0;font-size:22px;line-height:1.3;">
-              {{ sender_username }} assigned you a task
+              {{ heading }}
             </h1>
             <h2 style="margin:0 0 12px 0;font-size:17px;line-height:1.4;color:#333;">
               {{ title }}
@@ -205,7 +205,7 @@ _NEW_TASK_HTML = _env.from_string(
           </td></tr>
           <tr><td style="padding:0 40px 32px 40px;">
             <p style="margin:0;font-size:13px;line-height:1.6;color:#999;">
-              You're getting this because you weren't online when the task was assigned.
+              {{ footer_note }}
             </p>
           </td></tr>
         </table>
@@ -218,7 +218,7 @@ _NEW_TASK_HTML = _env.from_string(
 
 _NEW_TASK_TEXT = _text_env.from_string(
     """\
-{{ sender_username }} assigned you a task on BlissWork.
+{{ heading }} on BlissWork.
 
 Title: {{ title }}
 {% if description %}
@@ -226,7 +226,7 @@ Title: {{ title }}
 {% endif %}
 Open in BlissWork: {{ link }}
 
-You're getting this because you weren't online when the task was assigned.
+{{ footer_note }}
 """
 )
 
@@ -256,13 +256,29 @@ def render_new_task_email(
     title: str,
     description: str,
     link: str,
+    channel_name: str | None = None,
 ) -> tuple[str, str]:
-    """Render the offline-relay 'you got a new task' email."""
+    """Render the offline-relay 'you got a new task' email.
+
+    When `channel_name` is set, this assignee was reached via that channel's
+    membership rather than named directly — the heading and footer note call
+    that out instead of implying a personal/direct assignment.
+    """
+    if channel_name:
+        heading = f"{sender_username} assigned a task to #{channel_name}"
+        footer_note = (
+            f"You're getting this because you're a member of #{channel_name} and "
+            "weren't online when the task was assigned."
+        )
+    else:
+        heading = f"{sender_username} assigned you a task"
+        footer_note = "You're getting this because you weren't online when the task was assigned."
     ctx = {
-        "sender_username": sender_username,
+        "heading": heading,
         "title": title,
         "description": description,
         "link": link,
+        "footer_note": footer_note,
     }
     return _NEW_TASK_TEXT.render(**ctx), _NEW_TASK_HTML.render(**ctx)
 

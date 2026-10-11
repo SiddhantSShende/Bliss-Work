@@ -583,6 +583,8 @@ class TaskSvcConsumer:
                     sender_username=row.sender_username,
                     title=title,
                     description=description,
+                    channel_id=channel_id,
+                    channel_name=event.get("channelName"),
                 )
                 await enqueue_outbox(db, events.TASK_TOPIC, task_id, evt)
                 joined_count += 1

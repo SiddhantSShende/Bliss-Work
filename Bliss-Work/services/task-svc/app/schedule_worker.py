@@ -14,7 +14,12 @@ from sqlalchemy import text
 from .db import set_bypass_rls, session
 from .logging_setup import log
 from .deadlines import resolve_deadline, rule_from_row
-from .routes.tasks_write import _insert_task_assignees, _insert_task_channels, _resolve_channel_members
+from .routes.tasks_write import (
+    ChannelOrigin,
+    _insert_task_assignees,
+    _insert_task_channels,
+    _resolve_channel_members,
+)
 from .routes.helpers import resolve_username
 from crypto import cryptor
 
@@ -184,7 +189,7 @@ def _latest_due_occurrence(
     return latest, following
 
 
-async def _resolve_targets(row: Any) -> tuple[list[str], list[str]]:
+async def _resolve_targets(row: Any) -> tuple[list[str], list[str], ChannelOrigin]:
     """Who this occurrence goes to, and which of its channels still exist.
 
     The named people plus the CURRENT members of every channel that can still be
@@ -197,16 +202,26 @@ async def _resolve_targets(row: Any) -> tuple[list[str], list[str]]:
     retried whole instead.
 
     A schedule written before 012 has only the legacy single channel_id.
+
+    Also returns a channel-origin map (see tasks_write.ChannelOrigin), same
+    named-intent-wins / first-channel-wins rules as _resolve_recipients, so the
+    materialized occurrence's task.assigned events can carry the same
+    channel attribution a freshly-created task's would.
     """
     org_id, sender_id = str(row.org_id), str(row.sender_id)
     declared = [str(value) for value in (row.channel_ids or [])] or (
         [str(row.channel_id)] if row.channel_id is not None else []
     )
     recipients = [str(value) for value in (row.assignee_ids or [])]
+    # row.assignee_ids elements come back from asyncpg as its own UUID type
+    # (not str) for a native uuid[] column — str() them first, same as
+    # `recipients` above, before handing them to uuid.UUID().
+    named_canonical = {str(uuid.UUID(r)) for r in recipients}
     live: list[str] = []
+    channel_origin: ChannelOrigin = {}
     for channel_id in declared:
         try:
-            members = await _resolve_channel_members(channel_id, org_id, sender_id)
+            members, channel_name = await _resolve_channel_members(channel_id, org_id, sender_id)
         except HTTPException as exc:
             if exc.status_code != 404:
                 raise
@@ -217,10 +232,15 @@ async def _resolve_targets(row: Any) -> tuple[list[str], list[str]]:
             )
             continue
         live.append(channel_id)
+        for member_id in members:
+            canonical = str(uuid.UUID(member_id))
+            if canonical not in named_canonical and canonical not in channel_origin:
+                channel_origin[canonical] = (channel_id, channel_name)
         recipients.extend(members)
     # Canonical UUIDs: the two sources spell them differently, and task_assignees
     # is keyed (task_id, assignee_id) — see tasks_write._resolve_recipients.
-    return list(dict.fromkeys(str(uuid.UUID(r)) for r in recipients)), live
+    deduped = list(dict.fromkeys(str(uuid.UUID(r)) for r in recipients))
+    return deduped, live, channel_origin
 
 
 async def _claim_due_schedule() -> object | None:
@@ -320,7 +340,7 @@ async def _materialize(db: Any, row: Any) -> object | None:
             return None
 
     # Resolve targets only for an occurrence that will actually be created.
-    assignee_ids, channel_ids = await _resolve_targets(row)
+    assignee_ids, channel_ids, channel_origin = await _resolve_targets(row)
     if not assignee_ids:
         # Nobody left to assign (every channel unresolvable or empty, and no named
         # people). The schedule is left exactly as it was — ACTIVE, listed, and
@@ -372,6 +392,7 @@ async def _materialize(db: Any, row: Any) -> object | None:
         sender_username=sender_username,
         title=title,
         description=description,
+        channel_origin=channel_origin,
     )
 
     if row.kind == "SCHEDULED":

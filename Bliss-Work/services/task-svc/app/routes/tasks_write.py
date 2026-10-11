@@ -38,11 +38,15 @@ def _request_fingerprint(body: CreateTaskRequest) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-async def _resolve_channel_members(channel_id: str, org_id: str, caller_id: str) -> list[str]:
+async def _resolve_channel_members(
+    channel_id: str, org_id: str, caller_id: str
+) -> tuple[list[str], str]:
     """Call messaging-svc's internal endpoint to fetch the channel's current
-    member ids. Falls back to an empty list (caller decides what to do) on
-    any transport / auth failure — the caller's HTTPException converts that
-    into a 400 so the user gets a clean error instead of a half-created task.
+    member ids (and its display name, used to tag channel-sourced
+    task.assigned events — see _resolve_recipients). Falls back to an empty
+    list (caller decides what to do) on any transport / auth failure — the
+    caller's HTTPException converts that into a 400 so the user gets a clean
+    error instead of a half-created task.
 
     org_id and caller_id (the user creating the task) are passed so
     messaging-svc can verify BOTH that the channel belongs to this org AND
@@ -75,12 +79,17 @@ async def _resolve_channel_members(channel_id: str, org_id: str, caller_id: str)
     if body.get("orgId") != org_id:
         # Defense in depth: messaging-svc already checked this server-side.
         raise HTTPException(status_code=404, detail="channel not found")
-    return list(body.get("memberIds") or [])
+    return list(body.get("memberIds") or []), str(body.get("name") or "")
+
+
+# assignee_id (canonical UUID) -> (channel_id, channel_name) of the channel
+# whose membership resolved them, for assignees reached ONLY via a channel.
+ChannelOrigin = dict[str, tuple[str, str]]
 
 
 async def _resolve_recipients(
     named_ids: list[str], channel_ids: list[str], org_id: str, caller_id: str
-) -> list[str]:
+) -> tuple[list[str], ChannelOrigin]:
     """Everyone a task goes to: the people named, then the current members of every
     channel named — each person ONCE.
 
@@ -89,11 +98,27 @@ async def _resolve_recipients(
     differently (the request accepts any UUID casing, messaging-svc returns
     lowercase), and task_assignees is keyed (task_id, assignee_id): a duplicate
     would not just double-notify, it would fail the whole INSERT.
+
+    Also returns a channel-origin map (see ChannelOrigin) so the task.assigned
+    event for a given assignee can say "you got this via #channel" — used by
+    the channel-flavored email variant. Named intent always wins: a person
+    named directly is never recorded as channel-sourced even if they also
+    happen to be a member of one of the chosen channels. Reached via more than
+    one channel, the first one in request order wins (same tie-break already
+    used for the legacy single-channel `tasks.channel_id` mirror).
     """
+    named_canonical = {str(uuid.UUID(r)) for r in named_ids}
     recipients = list(named_ids)
+    channel_origin: ChannelOrigin = {}
     for channel_id in channel_ids:
-        recipients.extend(await _resolve_channel_members(channel_id, org_id, caller_id))
-    return list(dict.fromkeys(str(uuid.UUID(r)) for r in recipients))
+        member_ids, channel_name = await _resolve_channel_members(channel_id, org_id, caller_id)
+        for member_id in member_ids:
+            canonical = str(uuid.UUID(member_id))
+            if canonical not in named_canonical and canonical not in channel_origin:
+                channel_origin[canonical] = (channel_id, channel_name)
+        recipients.extend(member_ids)
+    deduped = list(dict.fromkeys(str(uuid.UUID(r)) for r in recipients))
+    return deduped, channel_origin
 
 
 async def _insert_task_channels(
@@ -157,6 +182,7 @@ async def _insert_task_assignees(
     sender_username: str,
     title: str,
     description: str,
+    channel_origin: ChannelOrigin | None = None,
 ) -> None:
     """Fan a newly-created task out to every assignee in ONE round trip per
     table instead of one INSERT per assignee.
@@ -184,6 +210,7 @@ async def _insert_task_assignees(
         assignee_values.append(f"(:tid, :org, :aid{i}, 'SENT', 0)")
         assignee_params[f"aid{i}"] = assignee_id
 
+        origin = (channel_origin or {}).get(assignee_id)
         evt = events.task_assigned(
             org_id=org_id,
             task_id=task_id,
@@ -193,6 +220,8 @@ async def _insert_task_assignees(
             sender_username=sender_username,
             title=title,
             description=description,
+            channel_id=origin[0] if origin else None,
+            channel_name=origin[1] if origin else None,
         )
         outbox_values.append(f"(:oid{i}, :otopic, :okey, CAST(:opayload{i} AS jsonb))")
         outbox_params[f"oid{i}"] = str(uuid6.uuid7())
@@ -306,7 +335,7 @@ async def create_task(
     channel_ids = body.target_channel_ids()
     if not named_ids and not channel_ids:
         raise HTTPException(status_code=400, detail="at least one assignee required")
-    assignee_ids = await _resolve_recipients(named_ids, channel_ids, org_id, sender_id)
+    assignee_ids, channel_origin = await _resolve_recipients(named_ids, channel_ids, org_id, sender_id)
     if not assignee_ids:
         # Only channels, and they are all empty.
         raise HTTPException(status_code=400, detail="at least one assignee required")
@@ -443,6 +472,7 @@ async def create_task(
             sender_username=sender_username,
             title=body.title,
             description=body.description or "",
+            channel_origin=channel_origin,
         )
 
         await db.commit()

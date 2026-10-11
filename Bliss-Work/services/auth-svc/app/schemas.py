@@ -145,6 +145,11 @@ class UserDTO(BaseModel):
     email: str
     roles: list[Role]
     emailVerified: bool = True
+    # 'active' | 'suspended' | 'removed' (members_service.py). Lets a
+    # service-to-service caller (e.g. email-worker's internal lookup) decide
+    # whether to treat this membership as eligible, without re-deriving it
+    # from roles/active flags of its own.
+    status: str = "active"
     # Org subscription plan (entitlements). 'enterprise' unlocks External
     # Integrations + message forward-tracking. Defaults 'free' for older rows.
     plan: str = "free"

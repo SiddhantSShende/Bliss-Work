@@ -498,6 +498,12 @@ export const TaskAssigned = z.object({
   senderUsername: z.string(),
   title: z.string(),
   description: z.string(),
+  // Present only when this assignee was resolved via channel membership
+  // rather than named directly (see task-svc's _resolve_recipients). Lets a
+  // consumer (e.g. email-worker) distinguish an individual assignment from a
+  // channel one without a separate event type.
+  channelId: z.string().uuid().optional(),
+  channelName: z.string().optional(),
 });
 
 export const TaskWithdrawn = z.object({

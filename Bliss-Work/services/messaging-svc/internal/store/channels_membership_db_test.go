@@ -271,8 +271,8 @@ func TestInternalChannelMembershipRequiresCallerMembership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("member resolving their own locked channel: %v", err)
 	}
-	if !got.IsLocked || len(got.MemberIDs) != 1 || got.MemberIDs[0] != memberID {
-		t.Errorf("got %+v, want the single member and IsLocked=true", got)
+	if !got.IsLocked || got.Name != "private-eng" || len(got.MemberIDs) != 1 || got.MemberIDs[0] != memberID {
+		t.Errorf("got %+v, want name=private-eng, the single member and IsLocked=true", got)
 	}
 
 	// Same org, but never joined this channel — must be refused, not handed

@@ -170,8 +170,8 @@ async def test_channel_assignee_list_over_cap_is_rejected(db_app, monkeypatch):
 
     over_cap = [str(uuid.uuid4()) for _ in range(tasks_write.MAX_ASSIGNEES + 1)]
 
-    async def _fake_resolve(channel_id: str, org_id: str, caller_id: str) -> list[str]:
-        return over_cap
+    async def _fake_resolve(channel_id: str, org_id: str, caller_id: str) -> tuple[list[str], str]:
+        return over_cap, ""
 
     monkeypatch.setattr(tasks_write, "_resolve_channel_members", _fake_resolve)
 
@@ -191,8 +191,8 @@ async def test_channel_assignee_list_at_cap_is_accepted(db_app, monkeypatch):
 
     at_cap = [str(uuid.uuid4()) for _ in range(tasks_write.MAX_ASSIGNEES)]
 
-    async def _fake_resolve(channel_id: str, org_id: str, caller_id: str) -> list[str]:
-        return at_cap
+    async def _fake_resolve(channel_id: str, org_id: str, caller_id: str) -> tuple[list[str], str]:
+        return at_cap, ""
 
     monkeypatch.setattr(tasks_write, "_resolve_channel_members", _fake_resolve)
 
