@@ -50,7 +50,8 @@
       "message": "あなたの側からこのチャット履歴を削除します。相手には履歴が残ります。",
       "confirmLabel": "チャットを削除"
     },
-    "deleteErrorToast": "このチャットを削除できませんでした"
+    "deleteErrorToast": "このチャットを削除できませんでした",
+    "groupCall": "グループ通話"
   },
   "channelsList": {
     "title": "チャンネル",

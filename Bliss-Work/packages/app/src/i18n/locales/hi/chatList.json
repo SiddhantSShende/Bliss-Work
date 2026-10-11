@@ -53,7 +53,8 @@
       "message": "यह चैट इतिहास केवल आपके लिए हटेगा। दूसरे व्यक्ति के पास उसकी प्रति बनी रहेगी।",
       "confirmLabel": "चैट हटाएँ"
     },
-    "deleteErrorToast": "यह चैट हटाई नहीं जा सकी"
+    "deleteErrorToast": "यह चैट हटाई नहीं जा सकी",
+    "groupCall": "ग्रुप कॉल"
   },
   "channelsList": {
     "title": "चैनल",

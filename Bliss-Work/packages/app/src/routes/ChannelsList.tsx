@@ -132,7 +132,7 @@ export function ChannelsList() {
           <button
             onClick={() => setNewOpen(true)}
             title={t("channelsList.addChannel")}
-            className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-soft transition hover:brightness-105"
+            className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg shadow-soft transition hover:brightness-105"
           >
             <Plus size={16} />
           </button>

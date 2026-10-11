@@ -45,11 +45,14 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import type { CallDTO } from "@taskboard/shared";
+import { isAdhocCall, type CallDTO } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 
 /** Where the meeting tab goes when the room is minimised out of /call/:id. */
 const APP_HOME = "/app/meetings";
+/** The same, for an ad-hoc call: it is not a meeting, so it is not put in the
+ *  Meetings area either. */
+const ADHOC_HOME = "/app";
 
 /** Remembers "you were in a meeting" across a reload. See useResumableMeeting. */
 const RESUME_KEY = "tb.meeting-resume.v1";
@@ -87,15 +90,28 @@ export function onMeetingJoinRequest(listener: (callId: string, media?: AutoJoin
  * bridge that raises this (lib/queryBridge) has no reason to sit inside the
  * meeting session's own provider tree.
  */
-export function announceIncomingMeeting(callId: string, title: string) {
-  window.dispatchEvent(new CustomEvent(INCOMING_MEETING_EVENT, { detail: { callId, title } }));
+export function announceIncomingMeeting(callId: string, title: string, adhoc?: AdhocIncoming) {
+  window.dispatchEvent(new CustomEvent(INCOMING_MEETING_EVENT, { detail: { callId, title, adhoc } }));
 }
 
-export function onIncomingMeetingAnnounced(listener: (callId: string, title: string) => void) {
+/** Present when the announced call is an ad-hoc call (a conference somebody was
+ *  added to), which is worded as a call and not as a meeting. `actorName` is who
+ *  added them, when the server said. */
+export interface AdhocIncoming {
+  actorName?: string;
+}
+
+export function onIncomingMeetingAnnounced(
+  listener: (callId: string, title: string, adhoc?: AdhocIncoming) => void,
+) {
   const handle = (event: Event) => {
-    const detail = (event as CustomEvent<{ callId?: unknown; title?: unknown }>).detail;
+    const detail = (event as CustomEvent<{ callId?: unknown; title?: unknown; adhoc?: unknown }>).detail;
     if (typeof detail?.callId !== "string" || !detail.callId) return;
-    listener(detail.callId, typeof detail.title === "string" ? detail.title : "");
+    const adhoc =
+      detail.adhoc && typeof detail.adhoc === "object"
+        ? { actorName: typeof (detail.adhoc as AdhocIncoming).actorName === "string" ? (detail.adhoc as AdhocIncoming).actorName : undefined }
+        : undefined;
+    listener(detail.callId, typeof detail.title === "string" ? detail.title : "", adhoc);
   };
   window.addEventListener(INCOMING_MEETING_EVENT, handle);
   return () => window.removeEventListener(INCOMING_MEETING_EVENT, handle);
@@ -197,7 +213,9 @@ export function MeetingSessionProvider({ children }: { children: ReactNode }) {
       setCall(next);
       setMinimized(false);
       setAutoJoinMedia(media ?? null);
-      rememberResumableMeeting(next.id);
+      // "You were in a meeting — rejoin?" is a Meetings feature; an ad-hoc call
+      // is not one, and a reload ends it for you like any other call.
+      if (!isAdhocCall(next)) rememberResumableMeeting(next.id);
     },
     [config],
   );
@@ -212,12 +230,17 @@ export function MeetingSessionProvider({ children }: { children: ReactNode }) {
     onExit?.();
   }, []);
 
+  const callRef = useRef<CallDTO | null>(null);
+  callRef.current = call;
+
   const minimize = useCallback(() => {
     setMinimized(true);
     // /call/:id holds nothing but the meeting, so minimising there has to put
     // something behind the floating window. Anywhere else, the app is already
     // underneath and moving the user would be taking the page they were on.
-    if (pathRef.current.startsWith("/call/")) nav(APP_HOME);
+    if (pathRef.current.startsWith("/call/")) {
+      nav(callRef.current && isAdhocCall(callRef.current) ? ADHOC_HOME : APP_HOME);
+    }
   }, [nav]);
 
   const restore = useCallback(() => setMinimized(false), []);

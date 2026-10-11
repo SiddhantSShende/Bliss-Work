@@ -33,6 +33,7 @@ const (
 	CodeNotFound           ErrorCode = "not_found"
 	CodeConflict           ErrorCode = "conflict"
 	CodeCallSessionActive  ErrorCode = "call_session_active"
+	CodeCallEnded          ErrorCode = "call_ended"
 	CodeValidationError    ErrorCode = "validation_error"
 	CodeRateLimited        ErrorCode = "rate_limited"
 	CodePayloadTooLarge    ErrorCode = "payload_too_large"
@@ -126,6 +127,10 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		// 409: the upload itself was fine; a concurrent removal unlinked the
 		// shared bytes while it was being recorded. Uploading again works.
 		return http.StatusConflict, CodeConflict, err.Error()
+	case errors.Is(err, store.ErrCallFull):
+		// 409: well-formed and allowed, but the call is at its limit — the client
+		// can say so, and nothing about retrying the same request changes it.
+		return http.StatusConflict, CodeConflict, err.Error()
 	case errors.Is(err, store.ErrTooManySeries):
 		// 409: well-formed and allowed, but the organiser is at the limit — a state
 		// the client can resolve by cancelling one.
@@ -154,7 +159,12 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		// error so the status cannot distinguish them either.
 		return http.StatusNotFound, CodeNotFound, "this invite link is no longer valid"
 	case errors.Is(err, store.ErrCallEnded):
-		return http.StatusConflict, CodeConflict, "this call has already ended"
+		// 409 with its own code, not the generic "conflict": a client opening a
+		// meeting that is over has to say "this meeting has ended", and must be
+		// able to tell that apart from every other 409 without matching on the
+		// message. Never a 403 — the caller is allowed here, there is just
+		// nothing left to join. Authorization failures stay 403.
+		return http.StatusConflict, CodeCallEnded, "this call has already ended"
 	case errors.Is(err, store.ErrCallNotStarted):
 		// 409, and pointedly not 403: the caller is entitled to be here, the
 		// call simply has not been opened yet. A 403 would read as "you are not

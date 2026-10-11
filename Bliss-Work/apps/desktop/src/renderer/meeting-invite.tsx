@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CUSTOM_THEME_CLASS, customThemeStyle, isCustomThemeActive, isThemeId, readStoredCustomTheme, Logo, themeClasses, defaultThemeFor, ALL_THEME_CLASSES } from "@taskboard/ui";
+import { applyTheme, isCustomThemeActive, isThemeId, readStoredCustomTheme, Logo, defaultThemeFor } from "@taskboard/ui";
 import { Phone, Video, X } from "lucide-react";
 import { followStoredLocale, useTranslation } from "@taskboard/app/i18n/windowLocale";
 import "@taskboard/ui/styles.css";
@@ -10,6 +10,10 @@ interface Invite {
   callId: string;
   title: string;
   organizer: string;
+  /** An ad-hoc call (not a Meeting) — only the OS-level window title reacts
+   *  to this; `title` itself already carries the right body wording either
+   *  way (see IncomingMeetingNotice's own `heading`). */
+  adhoc: boolean;
 }
 
 declare global {
@@ -18,6 +22,7 @@ declare global {
       callId: string;
       title: string;
       organizer: string;
+      adhoc: boolean;
       onUpdate: (cb: (invite: Invite) => void) => () => void;
       ready: () => void;
       act: (action: "video" | "voice" | "leave") => void;
@@ -34,19 +39,12 @@ function useSyncedTheme(): void {
   useEffect(() => {
     const apply = () => {
       const stored = localStorage.getItem("tb-theme");
-      const classes = themeClasses(stored && isThemeId(stored) ? stored : defaultThemeFor(false));
-      const root = document.documentElement;
-      root.classList.remove(...ALL_THEME_CLASSES);
-      root.classList.add(...classes);
-      root.classList.remove(CUSTOM_THEME_CLASS);
-      for (const property of ["--color-accent", "--color-accent-strong", "--color-accent-fg", "--color-accent-soft", "--color-brand-from", "--color-brand-mid", "--color-brand-to", "--color-brand-gradient"]) {
-        root.style.removeProperty(property);
-      }
       const custom = readStoredCustomTheme();
-      if (custom && isCustomThemeActive()) {
-        root.classList.add(CUSTOM_THEME_CLASS);
-        for (const [property, value] of Object.entries(customThemeStyle(custom))) root.style.setProperty(property, value);
-      }
+      applyTheme(
+        document.documentElement,
+        stored && isThemeId(stored) ? stored : defaultThemeFor(false),
+        custom && isCustomThemeActive() ? custom : null,
+      );
     };
     apply();
     window.addEventListener("storage", apply);
@@ -57,15 +55,21 @@ function useSyncedTheme(): void {
 function MeetingInviteApp() {
   useSyncedTheme();
   const { t } = useTranslation("stickies");
-  useEffect(() => {
-    document.title = t("window.titles.invite");
-  }, [t]);
   const bridge = window.meetingInvite;
   const [invite, setInvite] = useState<Invite>({
     callId: bridge.callId,
     title: bridge.title,
     organizer: bridge.organizer,
+    adhoc: bridge.adhoc,
   });
+  // The window's OWN OS-level title (taskbar/alt-tab), distinct from the body
+  // text above — "Meeting invite" was always wrong for an ad-hoc call, which
+  // is never a Meeting. Depends on invite.adhoc, not just `t`: the SAME window
+  // is reused and refreshed in place for a later update to the same callId
+  // (see MeetingInviteManager's "update" branch), never recreated.
+  useEffect(() => {
+    document.title = t(invite.adhoc ? "window.titles.call" : "window.titles.invite");
+  }, [t, invite.adhoc]);
 
   useEffect(() => {
     const off = bridge.onUpdate(setInvite);

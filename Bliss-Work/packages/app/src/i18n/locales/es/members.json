@@ -185,6 +185,10 @@
         "reset_completed": "completó el restablecimiento de la contraseña"
       },
       "email": { "verified": "verificó su correo electrónico" },
+      "file": {
+        "opened": "abrió un archivo",
+        "downloaded": "descargó un archivo"
+      },
       "member": {
         "role_changed": "cambió un rol",
         "deactivated": "suspendió a un miembro",
@@ -230,6 +234,10 @@
       "auth": "Inicios de sesión",
       "security": "Seguridad"
     },
+    "fileContext": {
+      "direct": "en el chat con {{name}}",
+      "channel": "en #{{name}}"
+    },
     "empty": {
       "title": "Aún no se registró actividad",
       "hint": "La actividad aparece aquí a medida que usan {{brand}}."
@@ -252,6 +260,7 @@
       "message": { "sent": "Envió un mensaje" },
       "mail": { "attachment": { "downloaded": "Descargó un archivo adjunto de correo" } },
       "attachment": { "opened": "Abrió un archivo", "downloaded": "Descargó un archivo" },
+      "file": { "opened": "Abrió un archivo", "downloaded": "Descargó un archivo" },
       "channel": { "message": { "sent": "Publicó en un canal" } },
       "conversation": { "ignored": "Ignoró una conversación" },
       "user": { "blocked": "Bloqueó a alguien", "unblocked": "Desbloqueó a alguien" },

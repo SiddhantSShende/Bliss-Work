@@ -47,12 +47,14 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { isAdhocCall } from "@taskboard/shared";
 import { Button, EmptyState } from "@taskboard/ui";
 import { useConnectEventBridge, useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { OPENED_BY_APP_PARAM, closeMeetingTab, rememberMeetingTab } from "../lib/callWindow";
 import { MeetingSessionContext } from "../lib/MeetingSession";
 import { CallRoom } from "../features/CallRoomLazy";
+import { isCallOver } from "../lib/meetingView";
 
 export function CallWindow() {
   const { t } = useTranslation("calls");
@@ -92,9 +94,12 @@ export function CallWindow() {
     if (openedByApp && callId) rememberMeetingTab(callId);
   }, [openedByApp, callId]);
 
+  // Where a tab that could not close goes: an ad-hoc call is not a meeting, so
+  // it does not land in the Meetings area.
+  const adhoc = !!call && isAdhocCall(call);
   const close = useCallback(() => {
-    closeMeetingTab(() => nav("/app/meetings", { replace: true }));
-  }, [nav]);
+    closeMeetingTab(() => nav(adhoc ? "/app" : "/app/meetings", { replace: true }));
+  }, [nav, adhoc]);
 
   // By the time this route renders at all, RequireAuth + SessionBootstrap
   // (App.tsx) have already resolved a session — there is no unauthenticated
@@ -117,7 +122,7 @@ export function CallWindow() {
     if (!call) return;
     const previous = document.title;
     document.title = t("window.tabTitle", {
-      title: call.title || t("window.untitledMeeting"),
+      title: call.title || (isAdhocCall(call) ? t("incomingNotice.conferenceTitle") : t("window.untitledMeeting")),
       brand: "BlissWork",
     });
     return () => {
@@ -167,16 +172,19 @@ export function CallWindow() {
   // while the tab was gone would hand it to the room, which only discovers the
   // problem later via LiveKit's own connect timeout — a needless "Connecting…"
   // instead of an immediate answer.
-  if (call.status === "ENDED" || call.status === "CANCELLED") {
+  if (isCallOver(call)) {
+    // "Ended" is what happened to a meeting that ran its course; a cancelled one
+    // never happened, and keeps the vaguer wording that also covers losing access.
+    const cancelled = call.status === "CANCELLED";
     return (
       <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
-          title={t("window.unavailable.title")}
-          hint={t("window.unavailable.hint")}
+          title={cancelled ? t("window.unavailable.title") : t("window.ended.title")}
+          hint={cancelled ? t("window.unavailable.hint") : t("window.ended.hint")}
         />
         <Button variant="ghost" size="sm" onClick={close}>
-          {t("window.unavailable.close")}
+          {cancelled ? t("window.unavailable.close") : t("window.ended.close")}
         </Button>
       </div>
     );

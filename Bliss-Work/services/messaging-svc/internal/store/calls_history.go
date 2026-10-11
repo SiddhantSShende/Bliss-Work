@@ -82,6 +82,7 @@ func (s *Store) ListMyCallHistory(
 			SELECT c.id FROM calls c
 			JOIN call_participants p ON p.call_id = c.id AND p.user_id = $1
 			WHERE c.status IN ('ENDED', 'CANCELLED')
+			  AND NOT `+adhocDirectSQL("c")+`
 			  AND ($2 = ''
 			       OR COALESCE(c.scheduled_at, c.started_at, c.ended_at, c.created_at) < $3
 			       OR (COALESCE(c.scheduled_at, c.started_at, c.ended_at, c.created_at) = $3

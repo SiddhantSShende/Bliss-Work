@@ -93,6 +93,7 @@ func (s *Store) ListMyCallsInRange(
 			JOIN call_participants p ON p.call_id = c.id AND p.user_id = $1
 			WHERE `+callOccurrenceStart+` < $3
 			  AND `+callOccurrenceEnd+` > $2
+			  AND NOT `+adhocDirectSQL("c")+`
 			ORDER BY `+callOccurrenceStart+` ASC, c.id ASC
 			LIMIT $4`, callerID, from, to, MaxCallRangePage)
 		if ierr != nil {

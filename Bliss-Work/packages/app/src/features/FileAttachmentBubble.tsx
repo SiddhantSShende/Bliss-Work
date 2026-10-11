@@ -33,7 +33,7 @@ export function FileAttachmentBubble(props: FileAttachmentBubbleProps) {
     <div
       className={`flex w-[80%] flex-col gap-2 rounded-2xl px-3.5 py-2.5 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
         mine
-          ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
+          ? "rounded-br-md bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
           : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
       }`}
     >

@@ -8,7 +8,14 @@ import type { TimelineEntry } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
 import { Tabs, type TabSpec } from "../Tabs";
-import { actionLabel, dayHeading, formatDuration, sourceLabel } from "./activityLabels";
+import {
+  actionLabel,
+  dayHeading,
+  fileContextLabel,
+  formatDuration,
+  isFileAction,
+  sourceLabel,
+} from "./activityLabels";
 import { LoadOlderFooter } from "./LoadOlderFooter";
 
 type Filter = "all" | "auth" | "engagement" | "navigation" | "outside" | "security";
@@ -119,11 +126,11 @@ function Row({ entry }: { entry: TimelineEntry }) {
   const context =
     entry.action === "screenshot.attempted"
       ? entry.detail?.context
-      : entry.action === "mail.attachment.downloaded" ||
-          entry.action === "attachment.opened" ||
-          entry.action === "attachment.downloaded"
+      : isFileAction(entry.action)
         ? entry.detail?.filename
         : undefined;
+  // For a chat or channel file, a second, quieter line: which chat or channel.
+  const where = fileContextLabel(entry, t);
 
   return (
     <li className="flex items-start gap-3 rounded-xl px-2 py-2 hover:bg-surface-2">
@@ -151,6 +158,9 @@ function Row({ entry }: { entry: TimelineEntry }) {
         </div>
         {context && (
           <p className="mt-0.5 truncate text-sm text-muted" title={context}>{context}</p>
+        )}
+        {context && where && (
+          <p className="truncate text-xs text-muted" title={where}>{where}</p>
         )}
         {!context && preview && (
           <p className="mt-0.5 truncate text-sm text-muted" title={preview}>“{preview}”</p>

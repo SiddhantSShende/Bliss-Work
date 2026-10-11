@@ -6,7 +6,6 @@ export interface CustomTheme {
 
 export const CUSTOM_THEME_KEY = "tb-custom-theme";
 export const CUSTOM_THEME_ACTIVE_KEY = "tb-custom-theme-active";
-export const CUSTOM_THEME_CLASS = "custom-theme";
 
 const HEX_COLOR = /^#[\da-fA-F]{6}$/;
 
@@ -50,28 +49,6 @@ export function readableForeground(background: string): string {
   }) as [number, number, number];
   const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   return luminance > 0.179 ? "#000000" : "#ffffff";
-}
-
-export function customThemeStyle(theme: CustomTheme): Record<string, string> {
-  const [first, ...rest] = theme.colors;
-  const last = rest[rest.length - 1] ?? first;
-  const middle = theme.colors[1] ?? last!;
-  const foreground = readableForeground(first!);
-  return {
-    "--color-accent": first!,
-    // The hover shade (`hover:bg-accent-strong` on every accent button). It used
-    // to equal the accent, so a custom theme gave no hover feedback at all.
-    // Shifted 12% AWAY from the text colour — lighter under black text, darker
-    // under white — so hovering can only raise the text's contrast, never lower
-    // it (a fixed direction would dip below 4.5:1 for mid-tones).
-    "--color-accent-strong": `color-mix(in srgb, ${first} 88%, ${foreground === "#000000" ? "white" : "black"})`,
-    "--color-accent-fg": foreground,
-    "--color-accent-soft": `color-mix(in srgb, ${first} 12%, white)`,
-    "--color-brand-from": first!,
-    "--color-brand-mid": middle,
-    "--color-brand-to": last!,
-    "--color-brand-gradient": customThemeGradient(theme.colors),
-  };
 }
 
 export function readStoredCustomTheme(): CustomTheme | null {

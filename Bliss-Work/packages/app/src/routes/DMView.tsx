@@ -476,6 +476,7 @@ export function DMView() {
     scope: "conversation",
     scopeId: conversationId,
     meId: me.id,
+    contextName: conv ? peerName : undefined,
     send: (body) => reply.mutate({ body, replyToId: takeReply() }),
   });
 
@@ -754,6 +755,7 @@ export function DMView() {
           scope="conversation"
           scopeId={conversationId}
           meId={me.id}
+          contextName={peerName}
         />
       )}
       {scheduleOpen && (

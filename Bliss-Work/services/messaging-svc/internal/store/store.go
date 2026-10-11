@@ -616,6 +616,12 @@ const (
 	MessageKindChannelRenamed       = "channel_renamed"
 	MessageKindChannelCreated       = "channel_created"
 	MessageKindChannelMemberAdded   = "channel_member_added"
+	// MessageKindChannelMemberRemoved / MessageKindChannelMemberLeft are written
+	// in the same transaction as the membership change they describe: "<actor>
+	// removed <member> from the channel" (kick, block) and "<member> left the
+	// channel". Server only, like every kind above.
+	MessageKindChannelMemberRemoved = "channel_member_removed"
+	MessageKindChannelMemberLeft    = "channel_member_left"
 	// MessageKindChannelForwardNotice is posted into a LOCKED channel when a
 	// message that originated there is forwarded (see forward_notice.go). Server
 	// only: the body names the forwarder, so it stays out of ValidMessageKind for
@@ -638,7 +644,7 @@ var clientMessageKinds = []string{
 }
 
 // IsServerAuthoredKind reports whether a stored message's kind is one only the
-// server writes: channel_created / channel_renamed / channel_member_added,
+// server writes: channel_created / channel_renamed / channel_member_added / _removed / _left,
 // channel_forward_notice, forward_external, and any kind added later that has
 // not been put on the client list. It is the complement of ValidMessageKind
 // rather than a second list, so a new server-only kind is protected by default.

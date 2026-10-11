@@ -10,6 +10,7 @@
     "screenShareStopped": "Bildschirmfreigabe beendet",
     "screenShareStoppedDescription": "Durch die erneute Verbindung zum Anruf wurde Ihre Freigabe beendet – starten Sie sie erneut, wenn Sie noch präsentieren.",
     "meetingEnded": "Dieses Meeting wurde beendet",
+    "meetingEnded_call": "Dieser Anruf wurde beendet",
     "micBlocked": "Mikrofon blockiert",
     "micBlockedHint": "Prüfen Sie die Mikrofonberechtigung dieser App.",
     "micUnavailable": "Mikrofon nicht verfügbar",
@@ -17,7 +18,8 @@
     "cameraBlocked": "Kamera blockiert",
     "cameraBlockedHint": "Prüfen Sie die Kameraberechtigung dieser App.",
     "cameraUnavailable": "Kamera nicht verfügbar",
-    "cameraUnavailableHint": "Prüfen Sie, ob eine Kamera angeschlossen ist und nicht bereits verwendet wird."
+    "cameraUnavailableHint": "Prüfen Sie, ob eine Kamera angeschlossen ist und nicht bereits verwendet wird.",
+    "addedSome": "{{added}} von {{total}} Personen hinzugefügt – die übrigen konnten nicht hinzugefügt werden"
   },
   "preJoin": {
     "readyToJoinLabel": "Bereit zum Beitreten",
@@ -38,7 +40,9 @@
     "cameraOn": "Kamera einschalten",
     "heading": "Bereit zum Beitreten?",
     "description": "Prüfen Sie Kamera und Mikrofon, bevor Sie das Meeting betreten.",
-    "joinButton": "Meeting beitreten"
+    "description_call": "Prüfen Sie Kamera und Mikrofon, bevor Sie dem Anruf beitreten.",
+    "joinButton": "Meeting beitreten",
+    "joinButton_call": "Anruf beitreten"
   },
   "waitingRoom": {
     "canStartHint": "Sie sind als Erste oder Erster hier. Starten Sie das Meeting, damit alle anderen hereinkommen.",
@@ -49,16 +53,28 @@
   },
   "joinFailed": {
     "anotherDeviceTitle": "Sie sind bereits auf einem anderen Gerät in diesem Meeting",
+    "anotherDeviceTitle_call": "Sie sind bereits auf einem anderen Gerät in diesem Anruf",
     "anotherDeviceHint": "Sie sind derzeit von einem anderen Gerät aus mit diesem Meeting verbunden.",
+    "anotherDeviceHint_call": "Sie sind derzeit von einem anderen Gerät aus mit diesem Anruf verbunden.",
     "switchHere": "Hierher wechseln",
     "displacedTitle": "Sie sind diesem Meeting auf einem anderen Gerät beigetreten",
+    "displacedTitle_call": "Sie sind diesem Anruf auf einem anderen Gerät beigetreten",
     "displacedHint": "Dieses Meeting ist jetzt auf einem anderen Gerät aktiv.",
+    "displacedHint_call": "Dieser Anruf ist jetzt auf einem anderen Gerät aktiv.",
     "tokenTitle": "Meeting-Zugangsdaten konnten nicht abgerufen werden",
+    "tokenTitle_call": "Zugangsdaten für den Anruf konnten nicht abgerufen werden",
     "disconnectedTitle": "Verbindung zum Meeting getrennt",
+    "disconnectedTitle_call": "Verbindung zum Anruf getrennt",
     "genericTitle": "Verbindung zum Meeting nicht möglich",
+    "genericTitle_call": "Verbindung zum Anruf nicht möglich",
     "tokenHint": "Die Token-Anfrage ist fehlgeschlagen. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "endedTitle": "Dieses Meeting wurde beendet",
+    "endedTitle_call": "Dieser Anruf wurde beendet",
+    "endedHint": "Es ist vorbei, daher gibt es nichts mehr, dem man beitreten könnte.",
     "disconnectedHint": "Die Verbindung zum Meeting ging verloren und konnte nicht wiederhergestellt werden. Prüfen Sie Ihre Verbindung und treten Sie erneut bei.",
+    "disconnectedHint_call": "Die Verbindung zum Anruf ging verloren und konnte nicht wiederhergestellt werden. Prüfen Sie Ihre Verbindung und treten Sie erneut bei.",
     "genericHint": "Die Verbindung zum Meeting-Server ist fehlgeschlagen. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "genericHint_call": "Die Verbindung zum Anruf-Server ist fehlgeschlagen. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "leave": "Verlassen",
     "retrying": "Neuer Versuch…",
     "retry": "Erneut versuchen"
@@ -66,6 +82,7 @@
   "room": {
     "defaultTitleChannel": "Kanalanruf",
     "defaultTitleMeeting": "Meeting",
+    "defaultTitleConference": "Konferenzanruf",
     "youFallbackName": "Sie",
     "addPeopleDefaultTitle": "Personen hinzufügen",
     "channelAlreadyInvited": "Alle im Kanal sind bereits eingeladen",
@@ -86,7 +103,13 @@
       "recordingSaved": "Aufnahme in Ihren Downloads gespeichert",
       "recordingUnsupported": "Dieser Browser kann keine Meetings aufnehmen",
       "recordingStarted": "Aufnahme gestartet – sie wird auf diesem Gerät gespeichert",
-      "inviteLinkCopied": "Einladungslink kopiert"
+      "inviteLinkCopied": "Einladungslink kopiert",
+      "couldNotEndForEveryone": "Der Anruf konnte nicht für alle beendet werden"
+    },
+    "endForEveryoneConfirm": {
+      "title": "Anruf für alle beenden?",
+      "message": "Alle, die noch in diesem Anruf sind, werden getrennt. Das kann nicht rückgängig gemacht werden.",
+      "confirm": "Für alle beenden"
     }
   },
   "controls": {
@@ -106,6 +129,7 @@
     "searchPlaceholder": "Mitglieder suchen…",
     "searchAriaLabel": "Mitglieder suchen",
     "inMeetingCount": "Im Meeting · {{count}}",
+    "inMeetingCount_call": "Im Anruf · {{count}}",
     "youSuffix": " (Sie)",
     "sharing": "Teilt",
     "handUp": "Hand gehoben",
@@ -158,6 +182,17 @@
     "addedToCall": "Zum Anruf hinzugefügt",
     "addedPeople": "{{count}} Personen hinzugefügt",
     "couldNotAdd": "Niemand konnte zu diesem Anruf hinzugefügt werden",
-    "groupCallingUnavailable": "Gruppenanrufe sind auf diesem Server möglicherweise nicht verfügbar."
+    "groupCallingUnavailable": "Gruppenanrufe sind auf diesem Server möglicherweise nicht verfügbar.",
+    "addTitle": "Personen zu diesem Anruf hinzufügen",
+    "addButton": "Hinzufügen"
+  },
+  "groupCall": {
+    "title": "Gruppenanruf starten",
+    "description": "Wählen Sie mindestens zwei Personen. Alle werden in einem gemeinsamen Anruf angerufen.",
+    "callButton": "Anrufen",
+    "pickTwo": "Wählen Sie mindestens zwei Personen",
+    "limit": "Bis zu {{max}} Personen in einem Anruf",
+    "failed": "Der Anruf konnte nicht gestartet werden",
+    "alreadyInCall": "Sie sind bereits in einem Anruf"
   }
 }

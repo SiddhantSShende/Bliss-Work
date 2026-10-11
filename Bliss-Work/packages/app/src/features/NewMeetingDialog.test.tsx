@@ -15,9 +15,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setClockTime } from "../test/timePicker";
+import { CHANNELS, DIRECTORY, ME } from "../test/meetingFixtures";
+import { addPerson, channelsPageOf, directoryPageOf } from "../test/meetingPaging";
+import { useSession } from "../store/session";
 
 const h = vi.hoisted(() => ({
-  api: { scheduleMeeting: vi.fn(), createCallInvite: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: { scheduleMeeting: vi.fn(), createCallInvite: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({
   useRuntime: () => ({ api: h.api, config: { webBaseUrl: "https://app.test" } }),
@@ -57,8 +60,9 @@ beforeEach(() => {
   h.api.createCallInvite
     .mockReset()
     .mockResolvedValue({ id: "invite-1", callId: "call-1", token: "tok_abc", expiresAt: "2026-09-16T10:00:00.000Z" });
-  h.api.directory.mockReset().mockResolvedValue([]);
-  h.api.channels.mockReset().mockResolvedValue([]);
+  useSession.setState({ user: ME });
+  h.api.directoryPage.mockReset().mockImplementation(directoryPageOf(DIRECTORY));
+  h.api.channelsPage.mockReset().mockImplementation(channelsPageOf(CHANNELS));
   onStarted.mockReset();
   onClose.mockReset();
   onViewInCalendar.mockReset();
@@ -75,6 +79,7 @@ describe("NewMeetingDialog", () => {
 
     vi.setSystemTime(minutesLater(5));
     await user.type(screen.getByPlaceholderText("Enter meeting title"), "Standup");
+    await addPerson(user, /Ada Lovelace/);
     await user.click(screen.getByRole("button", { name: "Start Meeting" }));
 
     expect(screen.queryByText("Start time cannot be in the past.")).not.toBeInTheDocument();
@@ -123,6 +128,7 @@ describe("NewMeetingDialog", () => {
   it("sends scheduledAt + durationMinutes for a start time pushed into the future", async () => {
     const user = openDialog();
     await user.type(screen.getByPlaceholderText("Enter meeting title"), "Planning");
+    await addPerson(user, /Ada Lovelace/);
 
     await setClockTime(user, "Start Time", 14, 0);
     await setClockTime(user, "End Time", 15, 0);
@@ -145,6 +151,7 @@ describe("NewMeetingDialog", () => {
 describe("the confirmation dialog", () => {
   async function schedule(user: ReturnType<typeof userEvent.setup>, title = "Standup") {
     await user.type(screen.getByPlaceholderText("Enter meeting title"), title);
+    await addPerson(user, /Ada Lovelace/);
     // A future start: only a scheduled meeting gets the confirmation.
     await setClockTime(user, "Start Time", 14, 0);
     await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
@@ -209,13 +216,10 @@ describe("the confirmation dialog", () => {
 });
 
 /**
- * End used to be entirely independent of Start: opening the popup set it once
- * (buggily — see the first test below) and nothing ever touched it again, so
- * an End picked for a 9am start was still sitting there, unchanged and now
- * meaningless, after Start moved to 2pm. Start's own onDateChange/onTimeChange
- * now also reset End to Start + 1 hour — see resetEndAfterStartChange in
- * NewMeetingDialog.tsx — every time either half of Start changes, discarding
- * whatever End held, including a value the user set by hand.
+ * End opens at Start + 1 hour and follows Start while the user has not set it:
+ * Start's own onDateChange/onTimeChange move End (resetEndAfterStartChange in
+ * NewMeetingDialog.tsx). The first time the user sets End themselves it stops
+ * following, and a later Start change leaves their End alone.
  */
 describe("NewMeetingDialog — End follows Start", () => {
   const dateField = (label: string) => screen.getByLabelText(`${label} date`) as HTMLInputElement;
@@ -263,24 +267,43 @@ describe("NewMeetingDialog — End follows Start", () => {
     expect(timeText("End Time")).toBe("12:30 AM");
   });
 
-  it("discards a manually customized End the moment Start changes again", async () => {
+  it("keeps a manually set End when Start changes afterwards", async () => {
     const user = openDialog();
 
     // Pick an End nowhere near Start + 1 hour.
     await setClockTime(user, "End Time", 16, 0);
     expect(timeText("End Time")).toBe("4:00 PM");
 
-    // Start moves. The custom End is not "sticky" — it resets the same as it
-    // would have from an untouched default.
+    // Start moves; the End the user chose stands.
     await setClockTime(user, "Start Time", 12, 0);
 
     expect(dateField("End Time").value).toBe("2026-09-15");
+    expect(timeText("End Time")).toBe("4:00 PM");
+  });
+
+  it("keeps following Start for as long as End has not been set by hand, across several changes", async () => {
+    const user = openDialog();
+
+    await setClockTime(user, "Start Time", 12, 0);
     expect(timeText("End Time")).toBe("1:00 PM");
+    await setClockTime(user, "Start Time", 15, 30);
+    expect(timeText("End Time")).toBe("4:30 PM");
+  });
+
+  it("a hand-set End also survives a change of Start DATE", async () => {
+    const user = openDialog();
+
+    await setClockTime(user, "End Time", 16, 0);
+    fireEvent.change(dateField("Start Time"), { target: { value: "2026-09-20" } });
+
+    expect(dateField("End Time").value).toBe("2026-09-15");
+    expect(timeText("End Time")).toBe("4:00 PM");
   });
 
   it("submits durationMinutes computed from the auto-derived End, unmodified by hand", async () => {
     const user = openDialog();
     await user.type(screen.getByPlaceholderText("Enter meeting title"), "Design review");
+    await addPerson(user, /Ada Lovelace/);
 
     // A future Start, End left exactly at its auto-derived value.
     await setClockTime(user, "Start Time", 14, 0);

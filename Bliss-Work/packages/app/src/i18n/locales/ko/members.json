@@ -183,6 +183,10 @@
         "reset_completed": "비밀번호 재설정을 완료했어요"
       },
       "email": { "verified": "이메일을 인증했어요" },
+      "file": {
+        "opened": "파일을 열었어요",
+        "downloaded": "파일을 다운로드했어요"
+      },
       "member": {
         "role_changed": "역할을 변경했어요",
         "deactivated": "멤버를 정지했어요",
@@ -228,6 +232,10 @@
       "auth": "로그인",
       "security": "보안"
     },
+    "fileContext": {
+      "direct": "{{name}}과(와)의 채팅에서",
+      "channel": "#{{name}}에서"
+    },
     "empty": {
       "title": "아직 기록된 활동이 없어요",
       "hint": "{{brand}} 사용 내역이 여기에 표시돼요."
@@ -250,6 +258,7 @@
       "message": { "sent": "메시지 전송" },
       "mail": { "attachment": { "downloaded": "메일 첨부 파일 다운로드" } },
       "attachment": { "opened": "파일 열기", "downloaded": "파일 다운로드" },
+      "file": { "opened": "파일 열기", "downloaded": "파일 다운로드" },
       "channel": { "message": { "sent": "채널에 게시" } },
       "conversation": { "ignored": "대화 무시" },
       "user": { "blocked": "사용자 차단", "unblocked": "사용자 차단 해제" },

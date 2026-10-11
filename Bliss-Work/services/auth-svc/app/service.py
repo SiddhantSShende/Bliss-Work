@@ -171,6 +171,20 @@ def _theme_prefs_from_row(raw: object) -> ThemePrefs | None:
     return ThemePrefs.model_validate(json.loads(raw) if isinstance(raw, str) else raw)
 
 
+# How many rows a directory SEARCH decrypts per round trip while looking for matches.
+_DIRECTORY_SCAN_BATCH = 500
+
+
+def _directory_matches(user: UserDTO, needle: str) -> bool:
+    """Case-insensitive substring over display name, username and email — the same
+    three fields, in the same way, as the client's `matchUser`."""
+    return (
+        needle in user.displayName.lower()
+        or needle in user.username.lower()
+        or needle in user.email.lower()
+    )
+
+
 async def user_dtos_for_org(
     conn: AsyncConnection,
     org_id: str,
@@ -178,6 +192,7 @@ async def user_dtos_for_org(
     include_inactive: bool = False,
     limit: int,
     offset: int = 0,
+    query: str = "",
 ) -> list[UserDTO]:
     """The org's members, in TWO queries regardless of how many there are.
 
@@ -192,7 +207,44 @@ async def user_dtos_for_org(
     `= ANY(...)`. Decryption stays per-row because it must — each value is
     separately AES-GCM sealed — but the org's key is cached after the first use,
     so it is CPU and not another round trip.
+
+    ── `query` ──────────────────────────────────────────────────────────────────
+    Display name and email are encrypted at rest, so there is nothing for SQL to
+    match them against. A search therefore walks the org in username order, a
+    batch at a time, decrypts each batch and keeps what matches — stopping as soon
+    as `offset + limit` matches are in hand. `offset` then counts MATCHES, so a
+    client pages a search exactly as it pages the whole directory. The work is
+    bounded by how far into the org the matches are, never by the page size, and
+    the CLIENT never receives more than `limit` rows. Absent `query`, the plain
+    single-page read below, unchanged.
     """
+    needle = query.strip().lower()
+    if not needle:
+        return await _directory_page(conn, org_id, include_inactive, limit, offset)
+
+    matched: list[UserDTO] = []
+    to_skip = offset
+    scanned = 0
+    while len(matched) < limit:
+        batch = await _directory_page(conn, org_id, include_inactive, _DIRECTORY_SCAN_BATCH, scanned)
+        for user in batch:
+            if not _directory_matches(user, needle):
+                continue
+            if to_skip > 0:
+                to_skip -= 1
+            else:
+                matched.append(user)
+                if len(matched) == limit:
+                    break
+        if len(batch) < _DIRECTORY_SCAN_BATCH:
+            break
+        scanned += _DIRECTORY_SCAN_BATCH
+    return matched
+
+
+async def _directory_page(
+    conn: AsyncConnection, org_id: str, include_inactive: bool, limit: int, offset: int
+) -> list[UserDTO]:
     rows = (
         await conn.execute(
             text(
@@ -204,7 +256,7 @@ async def user_dtos_for_org(
                 JOIN orgs o ON o.id = u.org_id
                 WHERE u.org_id = :org
                   AND (CAST(:all AS boolean) OR u.status = 'active')
-                ORDER BY u.username
+                ORDER BY u.username, u.id
                 LIMIT :lim OFFSET :off
                 """
             ),
@@ -370,14 +422,17 @@ async def update_theme_prefs(conn: AsyncConnection, user_id: str, prefs: ThemePr
 async def update_custom_theme(
     conn: AsyncConnection, user_id: str, colors: list[str] | None
 ) -> None:
-    """Merge the shared custom palette without changing legacy/device selection fields."""
+    """Merge the shared custom palette without changing legacy/device selection fields.
+
+    No `"key":value` JSON literal in the SQL: text() reads every `:word` in it as a
+    bind parameter (`:null`, `:false`), which made this statement fail on every call."""
     await conn.execute(
         text(
             """
             UPDATE users
             SET theme_prefs = COALESCE(
                 theme_prefs,
-                '{"theme":"bluePurple","customColors":null,"customActive":false}'::jsonb
+                jsonb_build_object('theme', 'bluePurple', 'customColors', NULL, 'customActive', false)
             ) || jsonb_build_object(
                 'customColors', CAST(:colors AS jsonb),
                 'customThemeRevision', COALESCE((theme_prefs->>'customThemeRevision')::int, 0) + 1

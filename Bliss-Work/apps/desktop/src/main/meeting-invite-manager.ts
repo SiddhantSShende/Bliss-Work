@@ -23,6 +23,10 @@ export interface MeetingInvite {
   callId: string;
   title: string;
   organizer: string;
+  /** An ad-hoc call (a 1:1 growing into, or already, a conference) — not a
+   *  Meeting. Lets the popup's OS-level window title say "call" rather than
+   *  "meeting", a separate string from the body text `title` already covers. */
+  adhoc?: boolean;
 }
 
 /** What the manager's own bookkeeping looks like as plain data — the same
@@ -200,7 +204,8 @@ export class MeetingInviteManager {
     const query =
       `?callId=${encodeURIComponent(invite.callId)}` +
       `&title=${encodeURIComponent(invite.title)}` +
-      `&organizer=${encodeURIComponent(invite.organizer)}`;
+      `&organizer=${encodeURIComponent(invite.organizer)}` +
+      `&adhoc=${invite.adhoc ? "1" : "0"}`;
     if (DEV_URL) void win.loadURL(`${DEV_URL}/meeting-invite.html${query}`);
     else void win.loadFile(join(rendererDir, "meeting-invite.html"), { search: query });
 

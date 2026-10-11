@@ -35,6 +35,11 @@
       "title": "Dieses Meeting ist nicht verfügbar",
       "hint": "Es wurde möglicherweise beendet, oder Sie stehen nicht mehr auf der Teilnehmerliste.",
       "close": "Schließen"
+    },
+    "ended": {
+      "title": "Dieses Meeting wurde beendet",
+      "hint": "Es ist vorbei, daher gibt es nichts mehr, dem man beitreten könnte.",
+      "close": "Schließen"
     }
   },
   "join": {
@@ -119,7 +124,9 @@
     "minimize": "Minimieren",
     "minimise": "Minimieren",
     "end": "Beenden",
-    "endCall": "Anruf beenden"
+    "endCall": "Anruf beenden",
+    "endForEveryone": "Für alle",
+    "endForEveryoneTitle": "Anruf für alle beenden"
   },
   "sidePanel": {
     "tabNames": {
@@ -155,7 +162,10 @@
     "joinWithCamera": "Mit Kamera beitreten",
     "voice": "Audio",
     "joinVoiceOnly": "Nur mit Audio beitreten",
-    "leave": "Verlassen"
+    "leave": "Verlassen",
+    "conferenceTitle": "Konferenzanruf",
+    "addedYou": "{{name}} hat Sie zu einem Konferenzanruf hinzugefügt",
+    "ariaLabelCall": "Eingehender Anruf: {{title}}"
   },
   "scheduledNotice": {
     "untitledMeeting": "Meeting",
@@ -170,6 +180,7 @@
     "reconnecting": "Verbindung wird wiederhergestellt…",
     "connecting": "Verbindung wird aufgebaut…",
     "backToMeeting": "Zurück zum Meeting",
+    "backToMeeting_call": "Zurück zum Anruf",
     "nobodySpeaking": "Niemand spricht",
     "mute": "Stummschalten",
     "unmute": "Stummschaltung aufheben",
@@ -177,7 +188,8 @@
     "turnCameraOn": "Kamera einschalten",
     "newChatMessages_one": "{{count}} neue Chatnachricht",
     "newChatMessages_other": "{{count}} neue Chatnachrichten",
-    "leaveMeeting": "Meeting verlassen"
+    "leaveMeeting": "Meeting verlassen",
+    "leaveMeeting_call": "Anruf verlassen"
   },
   "sendLinkDialog": {
     "title": "Anruflink senden",

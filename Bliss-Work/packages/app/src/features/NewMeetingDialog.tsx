@@ -1,5 +1,5 @@
-import { useEffect, useId, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -9,7 +9,6 @@ import { ApiError, type CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useToggleSet } from "../lib/useToggleSet";
-import { usePeopleCandidates } from "../lib/usePeopleCandidates";
 import {
   browserTimeZone,
   describeRecurrenceForm,
@@ -18,7 +17,7 @@ import {
   validateRecurrence,
   type RecurrenceForm,
 } from "../lib/meetingRecurrence";
-import { MeetingAudienceFields } from "./MeetingAudienceFields";
+import { MeetingAddSection } from "./MeetingAddSection";
 import { MeetingDialogShell } from "./MeetingDialogShell";
 import { MeetingPreview } from "./MeetingPreview";
 import { MeetingRepeatField } from "./MeetingRepeatField";
@@ -79,6 +78,8 @@ interface FormErrors {
   title?: string;
   start?: string;
   end?: string;
+  /** Nobody and no channel added. */
+  audience?: string;
 }
 
 /** Pure so it can run on every render — the Cancel/submit row never has to
@@ -91,9 +92,12 @@ function validate(
   endAt: Date | null,
   /** The Start Time is still the value the form opened with, i.e. "now". */
   startsNow: boolean,
+  /** How many people plus channels have been added. */
+  audienceSize: number,
 ): FormErrors {
   const errors: FormErrors = {};
   if (!title.trim()) errors.title = t("newMeeting.errors.titleRequired");
+  if (audienceSize === 0) errors.audience = t("newMeeting.errors.audienceRequired");
 
   if (!startAt) errors.start = t("newMeeting.errors.startRequired");
   // The default Start Time is the minute the popup OPENED at, so it drifts into
@@ -150,13 +154,18 @@ function validate(
  * Now" meeting no longer jumps straight into the room; the confirmation is
  * always in between, with Start Meeting Now as its own explicit action.
  *
- * ── Members, channels, repeat ────────────────────────────────────────────────
- * Members and channels say who is invited (the channels' members are all
- * invited); Repeat makes this the first of a series. All three ride the same
- * request. A REPEATING meeting is always scheduled, never "start now": there is
- * nothing to repeat from otherwise, so choosing Repeat also turns off the
- * "an untouched start time means now" allowance and holds the start to the same
- * not-in-the-past rule a chosen time gets.
+ * ── Add (people + channels), repeat ──────────────────────────────────────────
+ * Add says who is invited — people, and channels (every member of a channel is
+ * invited) — and is required: a meeting needs at least one of the two. Both lists are
+ * paged from the server (MeetingAddSection), never loaded whole. Repeat makes this the
+ * first of a series. All of it rides the same request. A REPEATING meeting is always
+ * scheduled, never "start now": there is nothing to repeat from otherwise, so choosing
+ * Repeat also turns off the "an untouched start time means now" allowance and holds
+ * the start to the same not-in-the-past rule a chosen time gets.
+ *
+ * ── End follows Start, until it is set by hand ───────────────────────────────
+ * End opens at Start + 1 hour and keeps that distance while Start moves. The first time
+ * the user sets End themselves it stops following, and their End stands.
  */
 export function NewMeetingDialog({
   onClose,
@@ -173,7 +182,6 @@ export function NewMeetingDialog({
   const { t } = useTranslation("meetings");
   const { api } = useRuntime();
   const qc = useQueryClient();
-  const detailsId = useId();
   const { isDark } = useTheme();
   const tone: PickerTone = isDark ? "theme" : "light";
   const c = MEETING_TONES[tone];
@@ -198,6 +206,9 @@ export function NewMeetingDialog({
   const [attempted, setAttempted] = useState(false);
   /** Whether the user has changed the Start Time from its "right now" default. */
   const [startEdited, setStartEdited] = useState(false);
+  /** Whether the user has set the End Time themselves. Until then End simply
+   *  follows Start (+1 hour); once they have, moving Start leaves their End alone. */
+  const [endEdited, setEndEdited] = useState(false);
   /** Set once `create` succeeds — swaps the form for MeetingScheduledDialog.
    *  See the component doc comment's "Confirmation, not an immediate
    *  redirect". */
@@ -210,33 +221,38 @@ export function NewMeetingDialog({
     return () => window.clearInterval(id);
   }, []);
 
-  // Names for the Meeting Preview (and, after success, the confirmation's
-  // recap of the same thing) — same directory/channel queries
-  // MeetingAudienceFields itself uses, cached under the same keys.
-  const { all: people } = usePeopleCandidates("");
-  const { data: channelList } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
-  const inviteeNames = useMemo(() => {
-    const byId = new Map(people.map((u) => [u.id, u]));
-    return [...invitees.selected].map(
-      (id) => byId.get(id)?.displayName || byId.get(id)?.username || t("newMeeting.unknownMember"),
-    );
-  }, [invitees.selected, people, t]);
-  const channelNames = useMemo(() => {
-    const byId = new Map((channelList ?? []).map((c) => [c.id, c]));
-    return [...channels.selected].map((id) => byId.get(id)?.name || t("newMeeting.unknownChannel"));
-  }, [channels.selected, channelList, t]);
+  // Names for the Meeting Preview (and, after success, the confirmation's recap of
+  // the same thing). The Add section only ever holds a page of the organisation at a
+  // time, so a pick's name is recorded here the moment it is made: the preview and
+  // the confirmation keep naming people and channels that have since scrolled out of
+  // (or been searched out of) the loaded pages.
+  const pickedPeople = useRef(new Map<string, string>());
+  const pickedChannels = useRef(new Map<string, string>());
+  const togglePerson = (id: string, name: string) => {
+    pickedPeople.current.set(id, name);
+    invitees.toggle(id);
+  };
+  const toggleChannel = (id: string, name: string) => {
+    pickedChannels.current.set(id, name);
+    channels.toggle(id);
+  };
+  const inviteeNames = useMemo(
+    () => [...invitees.selected].map((id) => pickedPeople.current.get(id) || t("newMeeting.unknownMember")),
+    [invitees.selected, t],
+  );
+  const channelNames = useMemo(
+    () => [...channels.selected].map((id) => pickedChannels.current.get(id) || t("newMeeting.unknownChannel")),
+    [channels.selected, t],
+  );
 
-  /** Start changed (either half) -> End resets to Start + the default length,
-   *  discarding whatever End currently held, including a value the user
-   *  customized by hand: once Start moves, a previously-picked End almost
-   *  never means what it used to. Called from the Start field's own
-   *  onDateChange/onTimeChange below rather than an effect watching startAt —
-   *  an effect keyed on startAt would also fire from EndTime's own combine()
-   *  dependency chain re-running for unrelated reasons, and would have no way
-   *  to tell "Start just changed" from "this is just a render". Driving it
-   *  from the two handlers that are the only real sources of a Start change
-   *  needs neither a loop nor that guesswork. */
+  /** Start changed (either half) -> End follows to Start + the default length, unless
+   *  the user has set End themselves, in which case their End stands (and the usual
+   *  "End is before Start" check tells them if the move has left it unusable). Called
+   *  from the Start field's own handlers rather than an effect watching startAt: those
+   *  two are the only real sources of a Start change, so it needs no loop guard and
+   *  cannot mistake a plain re-render for an edit. */
   const resetEndAfterStartChange = (nextStartDate: string, nextStartTime: string) => {
+    if (endEdited) return;
     const nextStart = combine(nextStartDate, nextStartTime);
     if (!nextStart) return;
     const end = plusDefaultDuration(nextStart);
@@ -247,7 +263,8 @@ export function NewMeetingDialog({
   const repeating = recurrence.repeat !== "NONE";
   const startAt = useMemo(() => combine(startDate, startTime), [startDate, startTime]);
   const endAt = useMemo(() => combine(endDate, endTime), [endDate, endTime]);
-  const errors = validate(t, title, startAt, endAt, !startEdited && !repeating);
+  const audienceSize = invitees.selected.size + channels.selected.size;
+  const errors = validate(t, title, startAt, endAt, !startEdited && !repeating, audienceSize);
   const recurrenceErrors = validateRecurrence(t, recurrence, startDate);
   const hasErrors = Object.keys(errors).length > 0 || Object.keys(recurrenceErrors).length > 0;
 
@@ -313,7 +330,7 @@ export function NewMeetingDialog({
     // Decided NOW, not read from the last render: whether a start is "in the
     // past" depends on the clock, and a popup left open with nothing touched has
     // not re-rendered since the time it was validated at.
-    const stale = Object.keys(validate(t, title, startAt, endAt, !startEdited && !repeating)).length > 0;
+    const stale = Object.keys(validate(t, title, startAt, endAt, !startEdited && !repeating, audienceSize)).length > 0;
     if (stale || hasErrors || !startAt || !endAt) {
       setAttempted(true);
       return;
@@ -337,9 +354,8 @@ export function NewMeetingDialog({
     );
   }
 
-  // The actions live INSIDE the preview card (below its divider), not in a footer: the
-  // button that creates the meeting sits with the summary of what it will create.
-  const actions = (
+  // Pinned bottom-right of the dialog, below both columns.
+  const footer = (
     <>
       <button
         type="button"
@@ -371,24 +387,19 @@ export function NewMeetingDialog({
       title={t("newMeeting.title")}
       closeLabel={t("newMeeting.close")}
       onClose={onClose}
+      footer={footer}
       wide
       tone={tone}
     >
-      {/* Two columns from md up: the details to fill in, and — beside them, so a basic
-          meeting never needs scrolling — the live preview with its actions, then who is
-          invited. One column below md, in the same order: details, preview + actions,
-          members, channels. grid-cols-1 matters: without it the single mobile column is
-          an implicit auto track that grows to fit its widest content, so a long people
-          list or many chips pushed the whole form past the dialog's edge. */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,11fr)_minmax(0,10fr)] md:items-start md:gap-5">
-        <section
-          aria-labelledby={detailsId}
-          className={`flex flex-col gap-3 rounded-xl border p-3 ${c.card}`}
-        >
-          <h3 id={detailsId} className={`text-xs font-semibold uppercase tracking-wide ${c.heading}`}>
-            {t("newMeeting.detailsTitle")}
-          </h3>
-
+      {/* Two columns from md up. Left, what is being scheduled and who is asked:
+          title, start, end, then Add (People / Channels). Right: the live preview, and
+          Repeat beneath it. One column below md, in that same order. grid-cols-1
+          matters: without it the single mobile column is an implicit auto track that
+          grows to fit its widest content, so a long name pushed the whole form past
+          the dialog's edge. The Add lists have a fixed height and scroll inside
+          themselves, so the dialog is the same height with ten people or ten thousand. */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,11fr)_minmax(0,10fr)] md:items-start md:gap-6">
+        <div className="flex min-w-0 flex-col gap-3">
           <label className="flex flex-col gap-1.5">
             <span className={`text-sm font-medium ${c.label}`}>{t("newMeeting.titleLabel")}</span>
             <input
@@ -425,24 +436,31 @@ export function NewMeetingDialog({
             label={t("newMeeting.endTimeLabel")}
             date={endDate}
             time={endTime}
-            onDateChange={setEndDate}
-            onTimeChange={setEndTime}
+            onDateChange={(v) => {
+              setEndEdited(true);
+              setEndDate(v);
+            }}
+            onTimeChange={(v) => {
+              setEndEdited(true);
+              setEndTime(v);
+            }}
             error={attempted ? errors.end : undefined}
             minDate={startDate}
             minTime={sameDayAsStart ? startTime : undefined}
             tone={tone}
           />
 
-          <MeetingRepeatField
-            value={recurrence}
-            onChange={setRecurrence}
-            startDate={startDate}
-            errors={attempted ? recurrenceErrors : undefined}
+          <MeetingAddSection
+            invitees={invitees.selected}
+            onTogglePerson={togglePerson}
+            channels={channels.selected}
+            onToggleChannel={toggleChannel}
+            error={attempted ? errors.audience : undefined}
             tone={tone}
           />
-        </section>
+        </div>
 
-        <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-4">
           <MeetingPreview
             layout="card"
             title={title}
@@ -451,15 +469,13 @@ export function NewMeetingDialog({
             inviteeNames={inviteeNames}
             channelNames={channelNames}
             repeat={describeRecurrenceForm(t, recurrence, startDate)}
-            actions={actions}
             tone={tone}
           />
-          <MeetingAudienceFields
-            layout="card"
-            invitees={invitees.selected}
-            onToggleInvitee={invitees.toggle}
-            channels={channels.selected}
-            onToggleChannel={channels.toggle}
+          <MeetingRepeatField
+            value={recurrence}
+            onChange={setRecurrence}
+            startDate={startDate}
+            errors={attempted ? recurrenceErrors : undefined}
             tone={tone}
           />
         </div>

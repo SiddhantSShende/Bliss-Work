@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRuntime } from '@taskboard/app/lib/runtime';
 
 /**
@@ -21,15 +21,19 @@ export function useCaptcha(enabled = true) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [value, setValue] = useState('');
   const [loading, setLoading] = useState(false);
+  // The id on screen; a refresh sends it as `replaces` so the server drops it.
+  const currentId = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setValue('');
     try {
-      const challenge = await api.getCaptcha();
+      const challenge = await api.getCaptcha(currentId.current ?? undefined);
+      currentId.current = challenge.captchaId;
       setCaptchaId(challenge.captchaId);
       setImageUrl(challenge.captchaImage);
     } catch {
+      currentId.current = null;
       setCaptchaId(null);
       setImageUrl(null);
     } finally {

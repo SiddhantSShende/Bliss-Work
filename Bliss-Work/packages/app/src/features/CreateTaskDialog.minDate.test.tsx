@@ -9,9 +9,10 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSession } from "../store/session";
 import { CHANNELS, DIRECTORY, ME } from "../test/meetingFixtures";
+import { pagedChannels, pagedDirectory } from "../test/pagedPickerApi";
 
 const h = vi.hoisted(() => ({
-  api: { createTask: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -26,8 +27,8 @@ beforeEach(() => {
   // 22:00 on 15 Sep in Los Angeles is already 05:00 on 16 Sep UTC.
   vi.setSystemTime(new Date("2026-09-16T05:00:00Z"));
   useSession.setState({ user: ME });
-  h.api.directory.mockReset().mockResolvedValue(DIRECTORY);
-  h.api.channels.mockReset().mockResolvedValue(CHANNELS);
+  h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(DIRECTORY));
+  h.api.channelsPage.mockReset().mockImplementation(pagedChannels(CHANNELS));
 });
 afterEach(() => {
   vi.useRealTimers();

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -23,7 +24,18 @@ import { Field } from "../routes/Onboarding";
  * hand-rolled copy — nothing here is submitted until the whole form's Create
  * button is pressed, so MemberPicker's onConfirm only updates local state.
  */
-export function CreateChannelPanel({ onCreated }: { onCreated: () => void }) {
+export function CreateChannelPanel({
+  onCreated,
+  actionsHost,
+}: {
+  onCreated: () => void;
+  /** Where the submit button is rendered. `undefined` (default): at the end of
+   *  the form. An element: portaled there instead — AddChannelDialog's pinned
+   *  footer — and `null` means "that element is not mounted yet", so nothing
+   *  is drawn until it is rather than flashing a button in the wrong place. */
+  actionsHost?: HTMLElement | null;
+}) {
+  const formId = useId();
   const { t } = useTranslation("chatList");
   const { api } = useRuntime();
   const qc = useQueryClient();
@@ -53,14 +65,22 @@ export function CreateChannelPanel({ onCreated }: { onCreated: () => void }) {
     onError: (e) => toast.error(t("createChannel.createErrorToast"), { description: String(e) }),
   });
 
+  // `form` ties the button to the form wherever it is rendered (see actionsHost).
+  const submit = (
+    <Button type="submit" form={formId} loading={create.isPending}>
+      {create.isPending ? t("createChannel.creating") : t("createChannel.createButton")}
+    </Button>
+  );
+
   return (
     <form
+      id={formId}
       onSubmit={(e) => {
         e.preventDefault();
         if (!name.trim()) return toast.error(t("createChannel.nameRequiredToast"));
         create.mutate();
       }}
-      className="flex flex-col gap-3.5"
+      className="flex flex-col gap-4"
     >
       <Field label={t("createChannel.channelNameLabel")}>
         <div className="relative">
@@ -137,11 +157,7 @@ export function CreateChannelPanel({ onCreated }: { onCreated: () => void }) {
           )}
         </div>
       </Field>
-      <div className="mt-2 flex justify-end gap-2">
-        <Button type="submit" loading={create.isPending}>
-          {create.isPending ? t("createChannel.creating") : t("createChannel.createButton")}
-        </Button>
-      </div>
+      {actionsHost === undefined ? <div className="flex justify-end gap-2">{submit}</div> : actionsHost && createPortal(submit, actionsHost)}
     </form>
   );
 }

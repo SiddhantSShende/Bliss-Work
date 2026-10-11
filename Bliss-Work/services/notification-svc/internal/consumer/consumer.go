@@ -588,6 +588,11 @@ func callNotice(ev events.CallLifecycle) (kind, text string, linksCall bool) {
 		}
 		return events.KindMeetingScheduled, callNotificationText(ev.Title, ev.ScheduledAt), true
 	case events.TypeCallRing:
+		// A DIRECT call with no schedule is an ad-hoc call somebody was added to,
+		// whatever it was called on the way: a call, not a meeting invitation.
+		if ev.Kind == callKindDirect && ev.ScheduledAt == "" {
+			return events.KindCallAdded, conferenceAddedText(ev.ActorName), true
+		}
 		return events.KindMeetingInvite, callNotificationText(ev.Title, ev.ScheduledAt), true
 	case events.TypeCallStarted:
 		// Only a call that is actually under way. A started event for anything else
@@ -617,6 +622,17 @@ func callEventText(what, title, scheduledAt string) string {
 		return what + ": " + title + " · " + scheduledAt
 	}
 	return what + ": " + title
+}
+
+// callKindDirect is messaging-svc's kind for a call between people with no
+// meeting around it (store.CallDirect).
+const callKindDirect = "DIRECT"
+
+func conferenceAddedText(actor string) string {
+	if actor == "" {
+		return "You were added to a conference call"
+	}
+	return actor + " added you to a conference call"
 }
 
 func callNotificationText(title, scheduledAt string) string {

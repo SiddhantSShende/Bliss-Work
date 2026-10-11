@@ -35,6 +35,11 @@
       "title": "यह मीटिंग उपलब्ध नहीं है",
       "hint": "हो सकता है यह समाप्त हो चुकी हो, या अब आप इसकी सूची में न हों।",
       "close": "बंद करें"
+    },
+    "ended": {
+      "title": "यह मीटिंग समाप्त हो चुकी है",
+      "hint": "यह खत्म हो चुकी है, इसलिए इसमें शामिल होने के लिए कुछ नहीं बचा है।",
+      "close": "बंद करें"
     }
   },
   "join": {
@@ -119,7 +124,9 @@
     "minimize": "छोटा करें",
     "minimise": "छोटा करें",
     "end": "समाप्त",
-    "endCall": "कॉल समाप्त करें"
+    "endCall": "कॉल समाप्त करें",
+    "endForEveryone": "सबके लिए",
+    "endForEveryoneTitle": "सभी के लिए कॉल समाप्त करें"
   },
   "sidePanel": {
     "tabNames": {
@@ -155,7 +162,10 @@
     "joinWithCamera": "कैमरा चालू करके जुड़ें",
     "voice": "आवाज़",
     "joinVoiceOnly": "केवल आवाज़ से जुड़ें",
-    "leave": "छोड़ें"
+    "leave": "छोड़ें",
+    "conferenceTitle": "कॉन्फ़्रेंस कॉल",
+    "addedYou": "{{name}} ने आपको एक कॉन्फ़्रेंस कॉल में जोड़ा",
+    "ariaLabelCall": "आने वाली कॉल: {{title}}"
   },
   "scheduledNotice": {
     "untitledMeeting": "मीटिंग",
@@ -170,6 +180,7 @@
     "reconnecting": "दोबारा कनेक्ट हो रहा है…",
     "connecting": "कनेक्ट हो रहा है…",
     "backToMeeting": "मीटिंग पर वापस जाएँ",
+    "backToMeeting_call": "कॉल पर वापस जाएँ",
     "nobodySpeaking": "कोई नहीं बोल रहा",
     "mute": "म्यूट करें",
     "unmute": "अनम्यूट करें",
@@ -177,7 +188,8 @@
     "turnCameraOn": "कैमरा चालू करें",
     "newChatMessages_one": "{{count}} नया चैट संदेश",
     "newChatMessages_other": "{{count}} नए चैट संदेश",
-    "leaveMeeting": "मीटिंग छोड़ें"
+    "leaveMeeting": "मीटिंग छोड़ें",
+    "leaveMeeting_call": "कॉल छोड़ें"
   },
   "sendLinkDialog": {
     "title": "कॉल लिंक भेजें",

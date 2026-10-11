@@ -12,6 +12,7 @@ const api = {
   callId: params.get("callId") ?? "",
   title: params.get("title") ?? "",
   organizer: params.get("organizer") ?? "",
+  adhoc: params.get("adhoc") === "1",
 
   /** Main pushed a refreshed title/organizer for the SAME callId — see
    *  MeetingInviteManager.show()'s early-return branch. */

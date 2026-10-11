@@ -322,8 +322,11 @@ func (s *Server) scheduleMeeting(w http.ResponseWriter, r *http.Request) {
 
 type directCallReq struct {
 	PeerID string `json:"peerId"`
-	Media  string `json:"media"`
-	Title  string `json:"title"`
+	// PeerIDs starts ONE ad-hoc conference with all of them (2 or more) instead
+	// of a 1:1 with PeerID. Never combined with scheduledAt.
+	PeerIDs []string `json:"peerIds"`
+	Media   string   `json:"media"`
+	Title   string   `json:"title"`
 	// RFC3339. Omit to ring now; set it to schedule the call for later.
 	ScheduledAt string `json:"scheduledAt"`
 	// How long the call is expected to run; see scheduleCallReq — a pointer
@@ -346,6 +349,10 @@ func (s *Server) startDirectCall(w http.ResponseWriter, r *http.Request) {
 	var req directCallReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if len(req.PeerIDs) > 0 {
+		s.startConferenceCall(w, r, req)
 		return
 	}
 	if !validUUID(req.PeerID) {

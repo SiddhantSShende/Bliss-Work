@@ -232,6 +232,56 @@ func (s *Store) EndCallFromSFU(ctx context.Context, callID string) (*CallDTO, er
 	return out, nil
 }
 
+// ── What "over" means, in one place ──────────────────────────────────────────
+//
+// A call is over when its status says so (ENDED, CANCELLED) OR when it is still
+// SCHEDULED/LIVE but its own record says it finished: `ended_at` is set, or it
+// has run past `ends_at`. The clock half is the sweeper's rule
+// (ExpireOverdueCalls), and the sweeper only runs every callSweepInterval
+// on replicas that may be down, deploying, or behind — so for as long as it has
+// not got round to a row, that row is over in fact and LIVE in the table.
+//
+// Every READ therefore asks the same question the sweeper does, through the two
+// helpers below, rather than trusting the status column alone. The sweeper stays
+// the only WRITER: it alone moves the row, closes the roster, revokes the links
+// and tells the room. Reads just refuse to report a call as open that the clock
+// has already closed — which is what keeps a lapsed call out of "Live" and out
+// of the token endpoint for the seconds (or, with a sweeper outage, hours)
+// before the row catches up. A repeating meeting is untouched: each occurrence
+// is its own row with its own ends_at, so only the past one lapses.
+
+// lapsedSQL is the predicate "open in the table, but finished": an ended_at
+// that was recorded without the status following (nothing in this service
+// writes that, which is why it is checked rather than assumed), or a scheduled
+// end that has passed. alias is the calls table's alias in the surrounding
+// query ("" for none).
+func lapsedSQL(alias string) string {
+	if alias != "" {
+		alias += "."
+	}
+	return `(` + alias + `status IN ('SCHEDULED', 'LIVE') AND (` + alias + `ended_at IS NOT NULL OR (` +
+		alias + `ends_at IS NOT NULL AND ` + alias + `ends_at <= now())))`
+}
+
+// effectiveStatusSQL and effectiveEndedAtSQL are the status and ended_at a
+// reader should be told: the stored values, except for a lapsed call, which is
+// ENDED as of its recorded end (or, failing that, its scheduled one).
+func effectiveStatusSQL(alias string) string {
+	col := "status"
+	if alias != "" {
+		col = alias + ".status"
+	}
+	return `(CASE WHEN ` + lapsedSQL(alias) + ` THEN 'ENDED' ELSE ` + col + ` END)`
+}
+
+func effectiveEndedAtSQL(alias string) string {
+	p := ""
+	if alias != "" {
+		p = alias + "."
+	}
+	return `(CASE WHEN ` + lapsedSQL(alias) + ` THEN COALESCE(` + p + `ended_at, ` + p + `ends_at) ELSE ` + p + `ended_at END)`
+}
+
 // OverdueSweepLimit bounds one pass of the sweeper.
 //
 // Small on purpose. The sweep runs on a short interval, and every call it ends
@@ -357,9 +407,84 @@ func (s *Store) ExpireHostlessCalls(
 			      SELECT 1 FROM call_participants p
 			      WHERE p.call_id = c.id AND p.role = 'HOST'
 			        AND (p.left_at IS NULL OR p.left_at > now() - $1::interval))
+			  -- A conference outlives its host: it is only hostless while nobody
+			  -- else is in it. (A 1:1 keeps the old rule.)
+			  AND NOT (`+adhocConferenceSQL("c")+` AND EXISTS (
+			      SELECT 1 FROM call_participants p
+			      WHERE p.call_id = c.id AND p.role <> 'HOST'
+			        AND p.joined_at IS NOT NULL AND p.left_at IS NULL))
 			ORDER BY c.id
 			LIMIT $2
 			FOR UPDATE SKIP LOCKED`, grace, limit)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			c, err := endCallTx(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if c != nil {
+				ended = append(ended, c)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ended, nil
+}
+
+// AbandonedCallAfter is how long a LIVE call with no scheduled end may sit with
+// nobody connected before the sweeper closes it.
+//
+// This is the one case the clock cannot close: a call that named no end time
+// ("No end time", or a "meet now" nobody joined) has no ends_at for
+// ExpireOverdueCalls to reach, and ExpireHostlessCalls requires that a host
+// actually joined. A scheduled call the sweeper opens at its start time that
+// nobody ever turns up to has no SFU room either, so there is no room_finished
+// webhook to end it — it stayed LIVE, in everyone's Live list, indefinitely.
+//
+// Deliberately long. Ending a meeting under someone who is merely late is the
+// worse mistake; twelve hours of nobody being connected is not "late".
+const AbandonedCallAfter = 12 * time.Hour
+
+// ExpireAbandonedCalls ends LIVE calls that have no scheduled end, have nobody
+// connected, and have had no activity (start, join or leave) for longer than
+// the given period — and, regardless of age, any open call whose own record
+// already says it ended (ended_at set; reads already report it as over, see
+// lapsedSQL, and this makes the row agree). Returns the calls this pass ended.
+//
+// Concurrency-safe on the same terms as ExpireOverdueCalls: SKIP LOCKED to
+// claim and endCallTx's status guard so exactly one sweeper reports each call.
+func (s *Store) ExpireAbandonedCalls(
+	ctx context.Context, idle time.Duration, limit int,
+) ([]*CallDTO, error) {
+	if limit <= 0 {
+		limit = OverdueSweepLimit
+	}
+	if idle <= 0 {
+		idle = AbandonedCallAfter
+	}
+	var ended []*CallDTO
+	err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		ids, err := callIDsTx(ctx, tx, `
+			SELECT c.id FROM calls c
+			WHERE c.status IN ('SCHEDULED', 'LIVE')
+			  AND (c.ended_at IS NOT NULL OR (
+			      c.status = 'LIVE'
+			      AND c.ends_at IS NULL
+			      AND NOT EXISTS (
+			          SELECT 1 FROM call_participants p
+			          WHERE p.call_id = c.id AND p.joined_at IS NOT NULL AND p.left_at IS NULL)
+			      AND GREATEST(c.started_at, c.scheduled_at, c.created_at,
+			          (SELECT max(GREATEST(p.joined_at, p.left_at))
+			             FROM call_participants p WHERE p.call_id = c.id))
+			          < now() - $1::interval))
+			ORDER BY c.id
+			LIMIT $2
+			FOR UPDATE OF c SKIP LOCKED`, idle, limit)
 		if err != nil {
 			return err
 		}

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Download, ChevronDown, Monitor, Apple } from "lucide-react";
-import { Button, cn } from "@taskboard/ui";
+import { Download, Monitor, Apple } from "lucide-react";
+import { IconButton, cn } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { PLATFORMS, PLATFORM_ORDER, detectPlatform, type PlatformId } from "../lib/downloads";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
@@ -18,8 +18,8 @@ import { usePopupDismiss } from "../lib/usePopupDismiss";
  *
  *  • mode="inline"  → the login / onboarding card: a labelled row of the three
  *    OS installers, with the visitor's detected OS highlighted.
- *  • mode="compact" → the app top-navbar: a small "Get App" button that opens a
- *    menu of the three platforms.
+ *  • mode="compact" → the app top-navbar: an icon-only download button (tooltip
+ *    "Get App") that opens a menu of the three platforms.
  */
 const OsIcon = ({ id, size = 15 }: { id: PlatformId; size?: number }) =>
   id === "mac" ? <Apple size={size} /> : <Monitor size={size} />;
@@ -86,17 +86,16 @@ export function GetAppButton({
   // compact — navbar dropdown
   return (
     <div ref={wrap} className={cn("relative", className)}>
-      <Button
-        variant="subtle"
-        size="sm"
+      <IconButton
+        tone="soft"
         onClick={() => setOpen((v) => !v)}
+        title={t("getAppButton.getApp")}
+        aria-label={t("getAppButton.getApp")}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <Download size={15} />
-        <span className="hidden sm:inline">{t("getAppButton.getApp")}</span>
-        <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
-      </Button>
+        <Download size={18} />
+      </IconButton>
       {open && (
         // usePopupDismiss handles outside clicks, Escape, and closing whatever
         // other popup was open — see lib/usePopupDismiss for why the old

@@ -1,7 +1,9 @@
 /**
  * The channel's own membership notices — "<Creator> created channel X",
- * "<A>, <B> were added to channel", "<User> joined the channel" — arrive as
- * ordinary channel messages with kind `channel_created` / `channel_member_added`.
+ * "<A>, <B> were added to channel", "<Actor> added <User> to the channel",
+ * "<Actor> removed <User> from the channel", "<User> left the channel" — arrive as
+ * ordinary channel messages with kind `channel_created` / `channel_member_added` /
+ * `channel_member_removed` / `channel_member_left`.
  * They must render as centered SystemPills (no bubble, no message-actions menu),
  * in order, and identically whether the viewer is the creator or someone else.
  *
@@ -24,6 +26,9 @@ const messages: ThreadMessage[] = [
   { id: "m1", senderId: "me", body: "Jordan Doe created channel project room", kind: "channel_created", at: "2026-10-01T09:00:00Z" },
   { id: "m2", senderId: "me", body: "Zed Zimmer, Amy Adams, Bob Brown were added to channel", kind: "channel_member_added", at: "2026-10-01T09:00:00Z" },
   { id: "m3", senderId: "peer", body: "Cy Dunn joined the channel", kind: "channel_member_added", at: "2026-10-01T09:05:00Z" },
+  { id: "m4", senderId: "me", body: "Jordan Doe added Cy Dunn, Di Eng to the channel", kind: "channel_member_added", at: "2026-10-01T09:06:00Z" },
+  { id: "m5", senderId: "me", body: "Jordan Doe removed Zed Zimmer from the channel", kind: "channel_member_removed", at: "2026-10-01T09:07:00Z" },
+  { id: "m6", senderId: "peer", body: "Amy Adams left the channel", kind: "channel_member_left", at: "2026-10-01T09:08:00Z" },
 ];
 
 const renderThread = (meId: string, list: ThreadMessage[] = messages) =>

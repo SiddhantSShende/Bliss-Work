@@ -29,7 +29,7 @@ export function LocationBubble({
     <div
       className={`flex w-[min(20rem,80vw)] flex-col overflow-hidden rounded-2xl text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
         mine
-          ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
+          ? "rounded-br-md bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
           : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
       }`}
     >

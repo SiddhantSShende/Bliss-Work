@@ -448,6 +448,8 @@ export const MessageKind = z.enum([
   "channel_renamed",
   "channel_created",
   "channel_member_added",
+  "channel_member_removed",
+  "channel_member_left",
 ]);
 export type MessageKind = z.infer<typeof MessageKind>;
 
@@ -1057,6 +1059,7 @@ export const NOTIFICATION_KINDS = [
   "MEETING_UPDATED",
   "MEETING_STARTED",
   "MEETING_CANCELLED",
+  "CALL_ADDED",
 ] as const;
 export type KnownNotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -1286,6 +1289,18 @@ export type CallKind = z.infer<typeof CallKind>;
 
 export const CallStatus = z.enum(["SCHEDULED", "LIVE", "ENDED", "CANCELLED"]);
 export type CallStatus = z.infer<typeof CallStatus>;
+
+/** An ad-hoc call: a DIRECT call with no schedule. Two people is a 1:1 call, three or
+ *  more a conference call — the SAME call row all the way, which is why this is the
+ *  one test every surface uses to keep it out of the Meetings lifecycle (no list
+ *  entry, no resume offer, no "meeting" wording). A DIRECT call WITH a `scheduledAt`
+ *  is a diary entry in a chat and is not ad-hoc. Takes a call or a call event. */
+export const isAdhocCall = (c: { kind: CallKind; scheduledAt?: string | null }): boolean =>
+  c.kind === "DIRECT" && !c.scheduledAt;
+
+/** The most people one ad-hoc call seats at once, the caller included. Mirrors
+ *  messaging-svc store.MaxAdhocCallParticipants, which is what enforces it. */
+export const MAX_ADHOC_CALL_PARTICIPANTS = 20;
 
 export const CallParticipantDTO = z.object({
   userId: z.string().uuid(),

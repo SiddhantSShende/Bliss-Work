@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { CheckCheck, Bell, CalendarDays, Hash, MessageSquare } from "lucide-react";
+import { CheckCheck, Bell, CalendarDays, Hash, MessageSquare, Phone } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ChannelDTO, ConversationDTO, NotificationDTO } from "@taskboard/shared";
@@ -199,6 +199,8 @@ function CategoryIcon({ category }: { category: NotificationCategory }) {
       return <Hash size={16} />;
     case "meeting":
       return <CalendarDays size={16} />;
+    case "call":
+      return <Phone size={16} />;
     default:
       return <Bell size={16} />;
   }

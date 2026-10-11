@@ -21,7 +21,7 @@ export function MeetingBar() {
   const direct = useDirectCall();
   const { room: rc, direct: dc } = useCalls();
   const inRoom = room.phase !== 'idle';
-  const title = inRoom ? room.title || 'Meeting' : direct.peerName || 'Call';
+  const title = inRoom ? room.title || (room.adhoc ? 'Conference call' : 'Meeting') : direct.peerName || 'Call';
   const since = inRoom ? room.connectedAt : direct.connectedAt;
   const micOn = inRoom ? room.micOn : direct.micOn;
   const now = useClock(!!since);

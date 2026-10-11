@@ -10,6 +10,7 @@
     "screenShareStopped": "Screen sharing stopped",
     "screenShareStoppedDescription": "Reconnecting to the call ended your share — start it again if you're still presenting.",
     "meetingEnded": "This meeting has ended",
+    "meetingEnded_call": "This call has ended",
     "micBlocked": "Microphone blocked",
     "micBlockedHint": "Check this app's microphone permission.",
     "micUnavailable": "Microphone unavailable",
@@ -17,7 +18,8 @@
     "cameraBlocked": "Camera blocked",
     "cameraBlockedHint": "Check this app's camera permission.",
     "cameraUnavailable": "Camera unavailable",
-    "cameraUnavailableHint": "Check that a camera is connected and not already in use."
+    "cameraUnavailableHint": "Check that a camera is connected and not already in use.",
+    "addedSome": "Added {{added}} of {{total}} people — the rest couldn't be added"
   },
   "preJoin": {
     "readyToJoinLabel": "Ready to join",
@@ -38,7 +40,9 @@
     "cameraOn": "Turn camera on",
     "heading": "Ready to join?",
     "description": "Check your camera and microphone before entering the meeting.",
-    "joinButton": "Join meeting"
+    "description_call": "Check your camera and microphone before joining the call.",
+    "joinButton": "Join meeting",
+    "joinButton_call": "Join call"
   },
   "waitingRoom": {
     "canStartHint": "You're the first one here. Start it to let everyone else in.",
@@ -49,16 +53,28 @@
   },
   "joinFailed": {
     "anotherDeviceTitle": "You’re already in this meeting on another device",
+    "anotherDeviceTitle_call": "You’re already in this call on another device",
     "anotherDeviceHint": "You’re currently connected to this meeting from another device.",
+    "anotherDeviceHint_call": "You’re currently connected to this call from another device.",
     "switchHere": "Switch here",
     "displacedTitle": "You joined this meeting on another device",
+    "displacedTitle_call": "You joined this call on another device",
     "displacedHint": "This meeting is now active on another device.",
+    "displacedHint_call": "This call is now active on another device.",
     "tokenTitle": "Unable to obtain meeting credentials",
+    "tokenTitle_call": "Unable to obtain call credentials",
     "disconnectedTitle": "Disconnected from the meeting",
+    "disconnectedTitle_call": "Disconnected from the call",
     "genericTitle": "Unable to connect to the meeting",
+    "genericTitle_call": "Unable to connect to the call",
     "tokenHint": "The token request didn't go through. Check your connection and try again.",
+    "endedTitle": "This meeting has ended",
+    "endedTitle_call": "This call has ended",
+    "endedHint": "It's finished, so there's nothing to join.",
     "disconnectedHint": "The connection to the meeting was lost and couldn't be recovered. Check your connection, then rejoin.",
+    "disconnectedHint_call": "The connection to the call was lost and couldn't be recovered. Check your connection, then rejoin.",
     "genericHint": "The connection to the meeting server didn't go through. Check your connection and try again.",
+    "genericHint_call": "The connection to the call server didn't go through. Check your connection and try again.",
     "leave": "Leave",
     "retrying": "Retrying…",
     "retry": "Retry"
@@ -66,6 +82,7 @@
   "room": {
     "defaultTitleChannel": "Channel call",
     "defaultTitleMeeting": "Meeting",
+    "defaultTitleConference": "Conference call",
     "youFallbackName": "You",
     "addPeopleDefaultTitle": "Add people",
     "channelAlreadyInvited": "Everyone in the channel is already invited",
@@ -86,7 +103,13 @@
       "recordingSaved": "Recording saved to your downloads",
       "recordingUnsupported": "This browser can't record meetings",
       "recordingStarted": "Recording started — it will save to this device",
-      "inviteLinkCopied": "Invite link copied"
+      "inviteLinkCopied": "Invite link copied",
+      "couldNotEndForEveryone": "Couldn't end the call for everyone"
+    },
+    "endForEveryoneConfirm": {
+      "title": "End call for everyone?",
+      "message": "Everyone still on this call will be disconnected. This cannot be undone.",
+      "confirm": "End for everyone"
     }
   },
   "controls": {
@@ -106,6 +129,7 @@
     "searchPlaceholder": "Search members…",
     "searchAriaLabel": "Search members",
     "inMeetingCount": "In meeting · {{count}}",
+    "inMeetingCount_call": "In call · {{count}}",
     "youSuffix": " (you)",
     "sharing": "Sharing",
     "handUp": "Hand up",
@@ -158,6 +182,17 @@
     "addedToCall": "Added to the call",
     "addedPeople": "Added {{count}} people",
     "couldNotAdd": "Couldn't add anyone to this call",
-    "groupCallingUnavailable": "Group calling may not be available on this server."
+    "groupCallingUnavailable": "Group calling may not be available on this server.",
+    "addTitle": "Add people to this call",
+    "addButton": "Add"
+  },
+  "groupCall": {
+    "title": "Start a group call",
+    "description": "Pick at least two people. They are all rung in one call.",
+    "callButton": "Call",
+    "pickTwo": "Pick at least two people",
+    "limit": "Up to {{max}} people in one call",
+    "failed": "Couldn't start the call",
+    "alreadyInCall": "You're already in a call"
   }
 }

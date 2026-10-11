@@ -63,7 +63,7 @@ function DateTile({ startIso }: { startIso?: string | null }) {
   return (
     <div
       aria-hidden
-      className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-soft"
+      className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg shadow-soft"
     >
       {Number.isFinite(start) ? (
         <>
@@ -163,7 +163,7 @@ export function ScheduledMeetingNotice() {
         yielding ? "bottom-[14rem]" : "bottom-4"
       }`}
     >
-      <div className="relative flex items-center gap-2.5 overflow-hidden bg-gradient-to-br from-brand-from to-brand-to px-4 py-3 text-accent-fg">
+      <div className="relative flex items-center gap-2.5 overflow-hidden bg-gradient-to-br from-brand-from via-brand-mid to-brand-to px-4 py-3 text-accent-fg">
         {/* A soft highlight, so the header reads as a lit surface and not a flat bar. */}
         <span aria-hidden className="pointer-events-none absolute -right-6 -top-10 h-28 w-28 rounded-full bg-white/15" />
         <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/95 shadow-soft">

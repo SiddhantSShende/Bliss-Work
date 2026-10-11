@@ -45,10 +45,11 @@ import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, ScreenShare, Video, Vid
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button, cn } from "@taskboard/ui";
-import { type CallDTO } from "@taskboard/shared";
+import { isAdhocCall, type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { isCallOver } from "../lib/meetingView";
 import { isGetUserMediaDenied, useCallRoom } from "../lib/useCallRoom";
 import { CAMERA_PREVIEW_CONSTRAINTS } from "../lib/mediaConstraints";
 import { useVideoAspect } from "../lib/useVideoAspect";
@@ -102,6 +103,7 @@ import { CallChat } from "./CallChat";
 import { CallRoster } from "./CallRoster";
 import { ScreenSharePopup } from "./ScreenSharePopup";
 import { AddPeopleDialog } from "./AddPeopleDialog";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 /** Which tab is open in the shared side panel. One at a time — Chat, Notes,
  *  and Participants all share the one column. */
@@ -157,7 +159,11 @@ export function CallRoom({
   autoJoin?: "video" | "voice";
 }) {
   const { t, i18n } = useTranslation("callRoom");
-  const room = useCallRoom(initialCall.id);
+  // An ad-hoc call (a 1:1 that became a conference) is a call, not a meeting: the
+  // strings that say "meeting" have a `_call` variant (i18next context), used here.
+  const adhoc = isAdhocCall(initialCall);
+  const tc = (key: string, opts?: Record<string, unknown>) => t(key, adhoc ? { ...opts, context: "call" } : opts);
+  const room = useCallRoom(initialCall.id, isAdhocCall(initialCall));
   const {
     join,
     leave,
@@ -204,12 +210,22 @@ export function CallRoom({
   });
   const me = useSession((s) => s.user);
   /**
+   * The server says this meeting is over, and we have not entered it. Neither
+   * the camera preview nor a token request is made for it: the answer would be
+   * a refusal, and "Unable to obtain meeting credentials" is not what happened.
+   * Only `idle` counts — someone already in the room is taken out by the
+   * call-ended event, never by a refetch landing mid-call.
+   */
+  const endedBeforeJoin = status === "idle" && isCallOver(call);
+  /**
    * Optional so this component can still be rendered on its own — the dev
    * preview harness does. Without a session there is nothing to minimise INTO,
    * so the room simply always shows itself.
    */
   const session = useMeetingSessionOptional();
   const [addOpen, setAddOpen] = useState(false);
+  const [endForEveryoneOpen, setEndForEveryoneOpen] = useState(false);
+  const [endingForEveryone, setEndingForEveryone] = useState(false);
   const [preJoin, setPreJoin] = useState(() => !autoJoin);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [previewMicOn, setPreviewMicOn] = useState(true);
@@ -310,7 +326,13 @@ export function CallRoom({
   );
   const minimized = display.mode === "MINIMIZED";
 
-  const title = call.title || (call.kind === "CHANNEL" ? t("room.defaultTitleChannel") : t("room.defaultTitleMeeting"));
+  const title =
+    call.title ||
+    (call.kind === "CHANNEL"
+      ? t("room.defaultTitleChannel")
+      : adhoc
+        ? t("room.defaultTitleConference")
+        : t("room.defaultTitleMeeting"));
   // The MEETING's own start time, not this client's own connectedAt — every
   // participant's timer must read the same number regardless of when THEY
   // joined. call.startedAt is server-authoritative and kept fresh by the
@@ -329,7 +351,7 @@ export function CallRoom({
   }, []);
 
   useEffect(() => {
-    if (!preJoin || !navigator.mediaDevices?.getUserMedia) return;
+    if (!preJoin || endedBeforeJoin || !navigator.mediaDevices?.getUserMedia) return;
     let cancelled = false;
     setPreviewError(null);
     navigator.mediaDevices
@@ -364,7 +386,7 @@ export function CallRoom({
         return null;
       });
     };
-  }, [preJoin, previewAttempt, call.id]);
+  }, [preJoin, endedBeforeJoin, previewAttempt, call.id]);
 
   useEffect(() => {
     if (previewVideoRef.current && previewStream) {
@@ -390,6 +412,10 @@ export function CallRoom({
   // Only a HOST may record, and the server says so too — this gate exists so
   // nobody is shown a button that answers 403, not as the control itself.
   const isHost = call.participants.some((p) => p.userId === me?.id && p.role === "HOST");
+  // A genuine multi-party conference (not just a still-1:1 ad-hoc ring): the
+  // one case where leaving no longer ends the call for everyone by itself (see
+  // messaging-svc's adhocEndsOnLeave) and the host needs an explicit way to.
+  const conference = adhoc && call.participants.length > 2;
 
   // Read by the data-channel subscriber, which is registered once and must not
   // close over a stale copy of what we hold.
@@ -463,7 +489,7 @@ export function CallRoom({
 
   // Join once, after the pre-join lobby. The hook guards re-entry.
   useEffect(() => {
-    if (preJoin) return;
+    if (preJoin || endedBeforeJoin) return;
     void join();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [call.id, preJoin]);
@@ -800,6 +826,47 @@ export function CallRoom({
     onClose();
   };
 
+  // The explicit "End for everyone" a conference needs now that leaving no
+  // longer does it implicitly (see `conference`'s own comment): the SAME
+  // api.endCall every other call kind already ends on, host-only server-side,
+  // so authorization is exactly what it has always been — this only adds
+  // somewhere in the UI to reach it for a call that never had one.
+  const endForEveryone = async () => {
+    setEndingForEveryone(true);
+    try {
+      await api.endCall(call.id);
+      setEndForEveryoneOpen(false);
+      onClose();
+    } catch (e) {
+      toast.error(t("room.toasts.couldNotEndForEveryone"), {
+        description: e instanceof Error && e.message ? e.message : undefined,
+      });
+    } finally {
+      setEndingForEveryone(false);
+    }
+  };
+
+  // Over before we got in, or the server said so when we asked for a token
+  // (`call_ended`, the stale row a list or an old link still pointed at). One
+  // plain statement and a way out — not the pre-join lobby, not a retry for
+  // something that cannot be retried, and not a credentials error.
+  if (endedBeforeJoin || (status === "failed" && failStage === "ended")) {
+    return (
+      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+          <AlertCircle size={24} />
+        </div>
+        <div className="max-w-sm">
+          <div className="text-lg font-semibold text-fg">{tc("joinFailed.endedTitle")}</div>
+          <p className="mt-1 text-sm text-muted">{t("joinFailed.endedHint")}</p>
+        </div>
+        <Button size="sm" onClick={() => void hangUp()}>
+          {t("joinFailed.leave")}
+        </Button>
+      </div>
+    );
+  }
+
   if (preJoin) {
     // What the preview box is shaped like: the camera's own aspect ratio while
     // there is a picture, clamped between 9:16 and 16:9 — every ordinary camera
@@ -938,10 +1005,10 @@ export function CallRoom({
                 <h1 className="text-xl font-semibold">{t("preJoin.heading")}</h1>
                 {/* The one piece that can go on a very short window: the heading
                     and the button are what the screen is for. */}
-                <p className="mt-1 text-sm text-muted [@media(max-height:480px)]:hidden">{t("preJoin.description")}</p>
+                <p className="mt-1 text-sm text-muted [@media(max-height:480px)]:hidden">{tc("preJoin.description")}</p>
               </div>
               <Button size="lg" onClick={() => setPreJoin(false)}>
-                {t("preJoin.joinButton")}
+                {tc("preJoin.joinButton")}
               </Button>
             </section>
           </div>
@@ -1025,8 +1092,8 @@ export function CallRoom({
           <AlertCircle size={24} />
         </div>
         <div className="max-w-sm">
-          <div className="text-lg font-semibold text-fg">{t("joinFailed.anotherDeviceTitle")}</div>
-          <p className="mt-1 text-sm text-muted">{t("joinFailed.anotherDeviceHint")}</p>
+          <div className="text-lg font-semibold text-fg">{tc("joinFailed.anotherDeviceTitle")}</div>
+          <p className="mt-1 text-sm text-muted">{tc("joinFailed.anotherDeviceHint")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
@@ -1047,20 +1114,20 @@ export function CallRoom({
     };
     const failTitle =
       failStage === "token"
-        ? t("joinFailed.tokenTitle")
+        ? tc("joinFailed.tokenTitle")
         : failStage === "disconnected"
-          ? t("joinFailed.disconnectedTitle")
+          ? tc("joinFailed.disconnectedTitle")
           : failStage === "displaced"
-            ? t("joinFailed.displacedTitle")
-            : t("joinFailed.genericTitle");
+            ? tc("joinFailed.displacedTitle")
+            : tc("joinFailed.genericTitle");
     const failHint =
       failStage === "token"
         ? t("joinFailed.tokenHint")
         : failStage === "disconnected"
-          ? t("joinFailed.disconnectedHint")
+          ? tc("joinFailed.disconnectedHint")
           : failStage === "displaced"
-            ? t("joinFailed.displacedHint")
-            : t("joinFailed.genericHint");
+            ? tc("joinFailed.displacedHint")
+            : tc("joinFailed.genericHint");
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-danger/10 text-danger">
@@ -1129,6 +1196,7 @@ export function CallRoom({
           onToggleCam={() => void toggleCam()}
           onRestore={session.restore}
           onLeave={() => void hangUp()}
+          adhoc={adhoc}
         />
       )}
 
@@ -1154,6 +1222,7 @@ export function CallRoom({
           addPeopleTitle={addPeopleTitle}
           onAddPeople={() => setAddOpen(true)}
           canInviteLink={canAddPeople}
+          showInviteLink={call.kind !== "DIRECT"}
           inviteLinkTitle={addPeopleTitle}
           mintingInviteLink={mintingInviteLink}
           onCopyInviteLink={() => void copyInviteLink()}
@@ -1172,6 +1241,7 @@ export function CallRoom({
           onTogglePip={pip.toggle}
           onMinimize={session ? display.handleMinimize : undefined}
           onEnd={() => void hangUp()}
+          onEndForEveryone={conference && isHost ? () => setEndForEveryoneOpen(true) : undefined}
         />
 
         {/* min-w-0: this is a flex-ROW child of the sidebar+content shell
@@ -1324,7 +1394,7 @@ export function CallRoom({
                 ) : effectivePanel === "notes" ? (
                   <CallNotes notes={notes} onAdd={addNote} />
                 ) : (
-                  <CallRoster participants={participants} hands={hands} pinned={pinned} onTogglePin={togglePin} />
+                  <CallRoster participants={participants} hands={hands} pinned={pinned} onTogglePin={togglePin} adhoc={adhoc} />
                 )}
               </CallSidePanel>
             )}
@@ -1353,7 +1423,20 @@ export function CallRoom({
           exclude={onTheCall}
           onAdd={addPeople}
           callId={call.id}
+          adhoc={adhoc}
         />
+        {conference && isHost && (
+          <ConfirmDialog
+            open={endForEveryoneOpen}
+            onClose={() => setEndForEveryoneOpen(false)}
+            title={t("room.endForEveryoneConfirm.title")}
+            message={t("room.endForEveryoneConfirm.message")}
+            confirmLabel={t("room.endForEveryoneConfirm.confirm")}
+            danger
+            busy={endingForEveryone}
+            onConfirm={() => void endForEveryone()}
+          />
+        )}
       </div>
     </>
   );

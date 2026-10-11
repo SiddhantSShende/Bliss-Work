@@ -519,6 +519,7 @@ export function ChannelView() {
     scopeId: channelId,
     meId: me.id,
     channelLocked: channel?.isLocked,
+    contextName: channel?.name,
     send: (body) => send.mutate({ body, replyToId: takeReply() }),
   });
 
@@ -564,8 +565,11 @@ export function ChannelView() {
           (z-20), but was still capped below TopNavbar (z-50), which is what put
           the options/call menu behind the top nav bar. z-50 clears TopNavbar
           too while staying under the lightbox (z-[100]), which should still
-          cover it; Modal/dialog overlays are `fixed inset-0 z-50` siblings
-          outside this header's stacking context, so they are unaffected. */}
+          cover it. A plain Modal overlay is ALSO `fixed inset-0 z-50`, so one
+          mounted earlier in the DOM (a sidebar pane's dialog) loses the tie to
+          this header and is painted under it; a dialog that can open next to a
+          channel passes `elevated` (see Modal) rather than this header
+          giving way. */}
       <header className="relative z-50 flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
         {/* min-w-0 + truncate: a long channel name must not push the member
             count and options menu off the right edge on a narrow window. */}
@@ -718,6 +722,7 @@ export function ChannelView() {
           scopeId={channelId}
           meId={me.id}
           channelLocked={channel.isLocked}
+          contextName={channel.name}
         />
       )}
       {focusTaskId && (

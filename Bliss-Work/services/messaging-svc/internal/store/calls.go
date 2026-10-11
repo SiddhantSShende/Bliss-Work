@@ -537,11 +537,29 @@ func (s *Store) AddParticipant(
 		} else if conflict {
 			return ErrForbidden
 		}
+		// A conference is bounded; a meeting has its own cap on its own path.
+		if c.adhoc {
+			if err := requireAdhocRoom(ctx, tx, callID, inviteeID); err != nil {
+				return err
+			}
+		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by)
 			VALUES ($1, $2, $3, 'PARTICIPANT', $4)
 			ON CONFLICT (call_id, user_id)
-			DO UPDATE SET left_at = NULL, invited_by = EXCLUDED.invited_by`,
+			DO UPDATE SET
+				left_at = NULL,
+				invited_by = EXCLUDED.invited_by,
+				-- Re-adding someone who had actually left (their OLD row's
+				-- left_at was set) rings them again, it does not reconnect
+				-- them — their stale joined_at from the earlier stint must
+				-- not go on counting them "present" (see ExpireEmptyConferences
+				-- and adhocEndsOnLeave) until MarkJoined sets a fresh one when
+				-- they really rejoin. Re-adding someone who never left (left_at
+				-- was already NULL — a harmless re-invite of someone still in
+				-- the room) leaves their real joined_at alone.
+				joined_at = CASE WHEN call_participants.left_at IS NOT NULL
+				                 THEN NULL ELSE call_participants.joined_at END`,
 			callID, inviteeID, orgID, callerID)
 		return err
 	})
@@ -681,7 +699,16 @@ func (s *Store) LeaveCall(
 		if err != nil {
 			return err
 		}
-		if !endsCallOnLeave(orgID, seat, c) {
+		closes := endsCallOnLeave(orgID, seat, c)
+		if c.adhoc {
+			// An ad-hoc call that has grown past two people is a conference: a
+			// leave never ends it synchronously. See adhocEndsOnLeave.
+			closes, err = adhocEndsOnLeave(ctx, tx, orgID, seat, c)
+			if err != nil {
+				return err
+			}
+		}
+		if !closes {
 			return nil
 		}
 		ended, err = endCallTx(ctx, tx, callID)
@@ -763,7 +790,7 @@ func endsCallOnLeave(orgID string, seat callerSeat, c *callRow) bool {
 	if seat.role != RoleHost || c.orgID != orgID {
 		return false
 	}
-	return c.status == CallLive || c.status == CallScheduled
+	return c.lapsed || c.status == CallLive || c.status == CallScheduled
 }
 
 // endCallTx closes a call inside an existing transaction and returns it as it
@@ -775,7 +802,7 @@ func endsCallOnLeave(orgID string, seat callerSeat, c *callRow) bool {
 // here re-checks it.
 func endCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) {
 	ct, err := tx.Exec(ctx, `
-		UPDATE calls SET status = 'ENDED', ended_at = now()
+		UPDATE calls SET status = 'ENDED', ended_at = COALESCE(ended_at, now())
 		WHERE id = $1 AND status IN ('SCHEDULED', 'LIVE')`, callID)
 	if err != nil {
 		return nil, err
@@ -1071,15 +1098,29 @@ func (s *Store) RevokeInvite(ctx context.Context, orgID, callerID, callID, invit
 // ── Reads ────────────────────────────────────────────────────────────────────
 
 type callRow struct {
+	// status is the EFFECTIVE status (see effectiveStatusSQL): a call that has
+	// run past its scheduled end reads ENDED here even before the sweeper has
+	// moved the row, so every guard below that refuses an ended call refuses a
+	// lapsed one too.
 	id, orgID, kind, status string
 	channelID               *string
+	// lapsed is true when the row is still open in the table but past its
+	// end. Only endsCallOnLeave needs it: a host leaving such a call should
+	// still close it for real rather than leave that to the next sweep.
+	lapsed bool
+	// adhoc is DIRECT with no scheduled_at (see adhocDirectSQL): a 1:1 ring that
+	// grows into a conference. It is not a Meeting and does not follow the
+	// Meeting lifecycle.
+	adhoc bool
 }
 
 func getCallRowTx(ctx context.Context, tx pgx.Tx, callID string) (*callRow, error) {
 	var c callRow
 	err := tx.QueryRow(ctx,
-		`SELECT id, org_id, kind, status, channel_id FROM calls WHERE id = $1`, callID).
-		Scan(&c.id, &c.orgID, &c.kind, &c.status, &c.channelID)
+		`SELECT id, org_id, kind, `+effectiveStatusSQL("")+`, channel_id, `+lapsedSQL("")+`,
+		        `+adhocDirectSQL("")+`
+		 FROM calls WHERE id = $1`, callID).
+		Scan(&c.id, &c.orgID, &c.kind, &c.status, &c.channelID, &c.lapsed, &c.adhoc)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrForbidden
 	}
@@ -1128,13 +1169,15 @@ func getCallAndSeatTx(
 		seat callerSeat
 	)
 	err := tx.QueryRow(ctx, `
-		SELECT c.id, c.org_id, c.kind, c.status, c.channel_id,
+		SELECT c.id, c.org_id, c.kind, `+effectiveStatusSQL("c")+`, c.channel_id,
+		       `+lapsedSQL("c")+`, `+adhocDirectSQL("c")+`,
 		       COALESCE(p.role, ''), p.waiting_since IS NOT NULL
 		FROM calls c
 		LEFT JOIN call_participants p
 		       ON p.call_id = c.id AND p.user_id = $2
 		WHERE c.id = $1`, callID, userID).
-		Scan(&c.id, &c.orgID, &c.kind, &c.status, &c.channelID, &seat.role, &seat.waiting)
+		Scan(&c.id, &c.orgID, &c.kind, &c.status, &c.channelID, &c.lapsed, &c.adhoc,
+			&seat.role, &seat.waiting)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, seat, ErrForbidden
 	}
@@ -1259,7 +1302,8 @@ func getCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) 
 	)
 	err := tx.QueryRow(ctx, `
 		SELECT id, org_id, kind, channel_id, title, media, created_by,
-		       scheduled_at, ends_at, started_at, started_by, ended_at, status, created_at,
+		       scheduled_at, ends_at, started_at, started_by, `+effectiveEndedAtSQL("")+`,
+		       `+effectiveStatusSQL("")+`, created_at,
 		       series_id::text, `+channelIDsVisible+`
 		FROM calls WHERE id = $1`, callID).
 		Scan(&d.ID, &d.OrgID, &d.Kind, &d.ChannelID, &d.Title, &d.Media, &d.CreatedBy,
@@ -1387,6 +1431,7 @@ func (s *Store) ListChannelCalls(
 		ids, err := callIDsTx(ctx, tx, `
 			SELECT id FROM calls
 			WHERE channel_id = $1 AND status IN ('SCHEDULED', 'LIVE')
+			  AND NOT `+lapsedSQL("")+`
 			ORDER BY scheduled_at DESC NULLS FIRST
 			LIMIT $2`, channelID, limit)
 		if err != nil {
@@ -1409,6 +1454,9 @@ func (s *Store) ListChannelCalls(
 const MyCallsHistoryDays = 30
 
 // ListMyCalls returns the calls the caller is a participant of, newest first.
+//
+// Ad-hoc calls (adhocDirectSQL) are not in it, here or in the history and range
+// reads: a call somebody rang is not a meeting on anyone's list.
 // Includes cross-org meetings they were invited to, which is the read path the
 // participant RLS disjunct exists for.
 //
@@ -1433,22 +1481,39 @@ func (s *Store) ListMyCalls(ctx context.Context, orgID, callerID string, limit i
 		// then finished calls most-recent-first, and only then put back into the
 		// response order clients have always received: newest first. A list that
 		// fits its page is therefore unchanged.
+		//
+		// "Open" below means the EFFECTIVE status (effectiveStatusSQL), not the
+		// stored one: a call past its scheduled end is a finished call here even
+		// if the sweeper has not yet moved the row, so it can never be offered as
+		// Live or Upcoming. And a CHANNEL call is only open to a CURRENT member of
+		// its channel — the same rule the token endpoint applies
+		// (AuthorizeCallAccess), so a call this list shows as joinable is one the
+		// caller can actually enter. Someone who has left the channel keeps a stale
+		// participant row; without this they were shown a Live call that always
+		// answered 403.
 		ids, err := callIDsTx(ctx, tx, `
 			WITH eligible AS (
 			    SELECT c.id,
 			           COALESCE(c.scheduled_at, c.created_at) AS at,
-			           c.status AS st,
-			           (c.series_id IS NOT NULL AND c.status = 'SCHEDULED') AS upcoming_of_series,
-			           row_number() OVER (PARTITION BY c.series_id, c.status
-			                              ORDER BY c.scheduled_at) AS nth
+			           `+effectiveStatusSQL("c")+` AS st,
+			           (c.series_id IS NOT NULL AND `+effectiveStatusSQL("c")+` = 'SCHEDULED') AS upcoming_of_series,
+			           row_number() OVER (PARTITION BY c.series_id, `+effectiveStatusSQL("c")+`
+			                              ORDER BY c.scheduled_at) AS nth,
+			           COALESCE(`+effectiveEndedAtSQL("c")+`, c.scheduled_at, c.created_at) AS finished_at
 			    FROM calls c
 			    JOIN call_participants p ON p.call_id = c.id AND p.user_id = $1
-			    WHERE c.status IN ('SCHEDULED', 'LIVE')
-			       OR (c.status IN ('ENDED', 'CANCELLED')
-			           AND COALESCE(c.ended_at, c.scheduled_at, c.created_at)
-			               > now() - make_interval(days => $3))
+			    WHERE NOT `+adhocDirectSQL("c")+`
+			      AND NOT (c.kind = 'CHANNEL' AND c.channel_id IS NOT NULL
+			               AND c.status IN ('SCHEDULED', 'LIVE')
+			               AND NOT EXISTS (SELECT 1 FROM channel_members m
+			                               WHERE m.channel_id = c.channel_id AND m.user_id = $1))
+			), open_or_recent AS (
+			    SELECT * FROM eligible
+			    WHERE st IN ('SCHEDULED', 'LIVE')
+			       OR (st IN ('ENDED', 'CANCELLED')
+			           AND finished_at > now() - make_interval(days => $3))
 			), page AS (
-			    SELECT id, at FROM eligible
+			    SELECT id, at FROM open_or_recent
 			    WHERE NOT upcoming_of_series OR nth <= $4
 			    ORDER BY CASE st WHEN 'LIVE' THEN 0 WHEN 'SCHEDULED' THEN 1 ELSE 2 END,
 			             CASE WHEN st IN ('LIVE', 'SCHEDULED') THEN at END ASC,
@@ -1509,7 +1574,8 @@ func appendCallsTx(ctx context.Context, tx pgx.Tx, ids []string, out *[]CallDTO)
 	seriesOf := map[string]string{} // call id -> series id, for the summaries below
 	rows, err := tx.Query(ctx, `
 		SELECT id, org_id, kind, channel_id, title, media, created_by,
-		       scheduled_at, ends_at, started_at, started_by, ended_at, status, created_at,
+		       scheduled_at, ends_at, started_at, started_by, `+effectiveEndedAtSQL("")+`,
+		       `+effectiveStatusSQL("")+`, created_at,
 		       series_id::text, `+channelIDsVisible+`
 		FROM calls WHERE id = ANY($1)`, ids)
 	if err != nil {
@@ -1980,6 +2046,18 @@ func (s *Store) EmitCallLifecycle(ctx context.Context, c *CallDTO, n CallNotice)
 		evt.ScheduledAt = *c.ScheduledAt
 	}
 	return s.withBypass(ctx, func(tx pgx.Tx) error {
+		// Only a ring is read aloud ("X added you to ..."), so only a ring pays
+		// for the lookup. A user with no projected name yet is simply left out.
+		if n.Type == events.TypeCallRing && n.ActorID != "" {
+			uname, display, nerr := s.cachedUserNames(ctx, tx, c.OrgID, n.ActorID)
+			if nerr != nil {
+				return nerr
+			}
+			evt.ActorName = display
+			if evt.ActorName == "" {
+				evt.ActorName = uname
+			}
+		}
 		// Keyed by call id so every event for one call lands on the same Kafka
 		// partition and therefore arrives in order — a client must never see
 		// "ended" before the "ring" that preceded it.

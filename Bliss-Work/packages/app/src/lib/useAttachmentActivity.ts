@@ -42,6 +42,14 @@ export function showsAttachmentActivity(scope: AttachmentScope, channelLocked?: 
  *      queryBridge's handleMessageEvent — on the assumption a mutation already
  *      rendered it, so this patches the cache itself, as ScreenshotNotice does).
  *
+ * `contextName` is what the chat or channel the file was in is CALLED — the peer's
+ * display name for a 1:1 chat, the channel's name for a channel — captured here,
+ * at the moment of the action, from the surface the caller is already showing. It
+ * is stored on the activity row beside the file name (`contextKind`/`contextId`/
+ * `contextName`), so the timeline can say WHERE without anyone having to work it
+ * back out from a file name later. Omitted (a caller with no name to give) it
+ * simply leaves the row without a context, exactly as every row before this was.
+ *
  * `channelLocked` is the channel's own `isLocked`, from the channel the caller is
  * already showing. DMs and group chats (scope "conversation") never post a
  * message, so they need nothing.
@@ -54,7 +62,13 @@ export function showsAttachmentActivity(scope: AttachmentScope, channelLocked?: 
  * deliberately NOT handled here: a mail download is recorded server-side
  * instead — see useMailAttachmentDownload.
  */
-export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, meId: string, channelLocked?: boolean) {
+export function useAttachmentActivity(
+  scope: AttachmentScope,
+  scopeId: string,
+  meId: string,
+  channelLocked?: boolean,
+  contextName?: string,
+) {
   const { api, config } = useRuntime();
   const qc = useQueryClient();
   const user = useSession((s) => s.user);
@@ -81,6 +95,14 @@ export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, m
       // Flushed on its own, as ScreenshotNotice's beacon is: a deliberate act, not
       // ambient traffic worth batching. Telemetry failure is swallowed — it must
       // never break, or interrupt, the thing it observes.
+      const name = contextName?.trim();
+      const context = name
+        ? {
+            contextKind: scope === "channel" ? "channel" : "direct",
+            contextId: scopeId,
+            contextName: name.slice(0, 255),
+          }
+        : {};
       let tracked: Promise<unknown>;
       try {
         tracked = Promise.resolve(
@@ -99,7 +121,7 @@ export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, m
                 surface: scope === "channel" ? "channels" : "chats",
                 targetKind: "attachment",
                 targetId: item.id,
-                detail: { filename: item.name.slice(0, 255), [scope]: scopeId },
+                detail: { filename: item.name.slice(0, 255), [scope]: scopeId, ...context },
               },
             ],
           }),
@@ -117,9 +139,9 @@ export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, m
       // server-side, for the sender's own instant, optimistic pill — the
       // server is still the one writing the row, this is only ever what gets
       // painted locally before its response comes back.
-      const name = user.displayName || user.username;
+      const actor = user.displayName || user.username;
       const verb = kind === "attachment_opened" ? "opened" : "downloaded";
-      const body = `${name} ${verb} ${item.name}`;
+      const body = `${actor} ${verb} ${item.name}`;
       const createdAt = new Date().toISOString();
       const clientMsgId = crypto.randomUUID();
 
@@ -147,6 +169,6 @@ export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, m
         .catch((err) => console.error("[attachment-activity] failed to post", err))
         .finally(clear);
     },
-    [api, channelLocked, config.kind, meId, qc, scope, scopeId, user],
+    [api, channelLocked, config.kind, contextName, meId, qc, scope, scopeId, user],
   );
 }

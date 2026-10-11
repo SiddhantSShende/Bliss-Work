@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
@@ -112,6 +113,7 @@ export function Modal({
   footer,
   wide = false,
   showClose = false,
+  elevated = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -124,15 +126,35 @@ export function Modal({
   wide?: boolean;
   /** An X beside the title (opt-in, like Sheet's). Needs `title`. */
   showClose?: boolean;
+  /**
+   * Opt-in: render in its own layer and with a lighter scrim. Off for every
+   * existing dialog, which are unchanged.
+   *
+   * The ordinary overlay is `fixed inset-0 z-50` wherever it is mounted, and
+   * z-50 is also what the page chrome uses (TopNavbar, a channel's header). A
+   * tie is settled by DOM order, so a dialog mounted inside a sidebar pane — the
+   * Add Channel popup — is painted UNDER the header of the pane to its right,
+   * which cut its title off. Pinned notes (BrowserStickies, z-[200]) float above
+   * it for the same reason.
+   *
+   * This portals to <body> (so no ancestor can cap or reorder it) at z-[210] —
+   * above the notes, below toasts — so the scrim covers everything behind the
+   * dialog, notes included, and it is always centred in the viewport. The scrim
+   * is `black/30` with a 2px blur: enough to establish focus without turning the
+   * app behind into a smear.
+   */
+  elevated?: boolean;
 }) {
   const { t } = useTranslation("common");
   const panelRef = useDialogBehavior(open, onClose);
 
-  return (
+  const overlay = (
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          className={`fixed inset-0 flex items-center justify-center p-4 ${
+            elevated ? "z-[210] bg-black/30 backdrop-blur-[2px]" : "z-50 bg-black/40 backdrop-blur-sm"
+          }`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -185,6 +207,7 @@ export function Modal({
       )}
     </AnimatePresence>
   );
+  return elevated && typeof document !== "undefined" ? createPortal(overlay, document.body) : overlay;
 }
 
 /** Slide-over sheet, from the right by default. */

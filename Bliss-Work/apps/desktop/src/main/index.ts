@@ -1121,9 +1121,14 @@ ipcMain.on("sticky-chat:unpin", (_e, threadId: unknown) => {
 ipcMain.on("meeting-invite:show", (e, payload: unknown) => {
   if (!fromMainWindow(e)) return;
   if (!payload || typeof payload !== "object") return;
-  const { callId, title, organizer } = payload as Record<string, unknown>;
+  const { callId, title, organizer, adhoc } = payload as Record<string, unknown>;
   if (typeof callId !== "string" || !callId || typeof title !== "string") return;
-  meetingInvite.show({ callId, title, organizer: typeof organizer === "string" ? organizer : "" });
+  meetingInvite.show({
+    callId,
+    title,
+    organizer: typeof organizer === "string" ? organizer : "",
+    adhoc: adhoc === true,
+  });
 });
 
 // The call this popup was announcing ended, or was answered elsewhere, while

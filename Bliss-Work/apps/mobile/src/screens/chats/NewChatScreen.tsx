@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft } from 'lucide-react-native';
-import { ActivityIndicator, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,6 +9,8 @@ import { useRuntime } from '@taskboard/app/lib/runtime';
 import { displayNameOf } from '@taskboard/app/lib/userLabel';
 import { useDirectory } from '../../hooks/useDirectory';
 import { useConversations } from '../../hooks/useConversations';
+import { useCalls } from '../../calls/CallProvider';
+import { canCallTogether } from '../../calls/conferenceCall';
 import { usePresence } from '../../hooks/usePresence';
 import { qk } from '../../hooks/queryKeys';
 import { Avatar } from '../../components/Avatar';
@@ -42,6 +44,8 @@ export function NewChatScreen({ navigation }: Props) {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [starting, setStarting] = useState(false);
+  const [calling, setCalling] = useState(false);
+  const { startConferenceCall } = useCalls();
   const { filtered, isLoading } = useDirectory(query);
   const { data: conversations = [] } = useConversations();
 
@@ -96,6 +100,18 @@ export function NewChatScreen({ navigation }: Props) {
     }
   };
 
+  // "Call": everyone ticked, in ONE call — not a chat per person, not a meeting.
+  const callSelected = async () => {
+    setCalling(true);
+    try {
+      const out = await startConferenceCall([...selected], 'video');
+      if (out.ok) navigation.goBack();
+      else Alert.alert("Couldn't start the call", out.message);
+    } finally {
+      setCalling(false);
+    }
+  };
+
   const renderRow = (user: UserDTO) => (
     <Pressable onPress={() => toggle(user.id)} style={styles.row}>
       <Avatar name={user.displayName} src={user.avatarUrl} size={40} online={online.has(user.id)} />
@@ -144,7 +160,17 @@ export function NewChatScreen({ navigation }: Props) {
             title={`Start Chat${selected.size > 1 ? ` (${selected.size})` : ''}`}
             onPress={() => void startChat()}
             loading={starting}
+            disabled={calling}
           />
+          {canCallTogether(selected.size) ? (
+            <Button
+              title={`Call (${selected.size})`}
+              variant="ghost"
+              onPress={() => void callSelected()}
+              loading={calling}
+              disabled={starting}
+            />
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -185,6 +211,7 @@ function createStyles(colors: ThemeColors) {
     },
     name: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.fg },
     footer: {
+      gap: spacing.sm,
       padding: spacing.lg,
       borderTopWidth: 1,
       borderTopColor: colors.border,

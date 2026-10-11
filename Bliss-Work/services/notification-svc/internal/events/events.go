@@ -56,6 +56,9 @@ const (
 	KindMeetingUpdated   = "MEETING_UPDATED"
 	KindMeetingStarted   = "MEETING_STARTED"
 	KindMeetingCancelled = "MEETING_CANCELLED"
+	// KindCallAdded is a person being rung into an ad-hoc call (a conference): a
+	// call, not a meeting, so it is not a MEETING_* kind.
+	KindCallAdded = "CALL_ADDED"
 )
 
 // TaskEvent is the shape consumed off task.events.v1. It is a superset that
@@ -126,16 +129,18 @@ type ChannelMessageCreated struct {
 }
 
 type CallLifecycle struct {
-	Type        string   `json:"type"`
-	EventID     string   `json:"eventId"`
-	OrgID       string   `json:"orgId"`
-	OccurredAt  string   `json:"occurredAt"`
-	CallID      string   `json:"callId"`
-	Kind        string   `json:"kind"`
-	Title       string   `json:"title"`
-	ScheduledAt string   `json:"scheduledAt"`
-	ActorID     string   `json:"actorId"`
-	Members     []string `json:"members"`
+	Type        string `json:"type"`
+	EventID     string `json:"eventId"`
+	OrgID       string `json:"orgId"`
+	OccurredAt  string `json:"occurredAt"`
+	CallID      string `json:"callId"`
+	Kind        string `json:"kind"`
+	Title       string `json:"title"`
+	ScheduledAt string `json:"scheduledAt"`
+	ActorID     string `json:"actorId"`
+	// ActorName is the actor's display name, set by messaging-svc on call.ring.
+	ActorName string   `json:"actorName"`
+	Members   []string `json:"members"`
 	// Status is the call's status when the event was emitted: LIVE on a start,
 	// CANCELLED on the call.ended that withdraws a meeting that never happened
 	// (as opposed to ENDED, a meeting that did).

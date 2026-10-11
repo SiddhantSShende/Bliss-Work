@@ -191,6 +191,10 @@
       "email": {
         "verified": "a vérifié son e-mail"
       },
+      "file": {
+        "opened": "a ouvert un fichier",
+        "downloaded": "a téléchargé un fichier"
+      },
       "member": {
         "role_changed": "a modifié un rôle",
         "deactivated": "a suspendu un membre",
@@ -236,6 +240,10 @@
       "auth": "Connexions",
       "security": "Sécurité"
     },
+    "fileContext": {
+      "direct": "dans le chat avec {{name}}",
+      "channel": "dans #{{name}}"
+    },
     "empty": {
       "title": "Aucune activité enregistrée pour l'instant",
       "hint": "L'activité apparaît ici au fur et à mesure de l'utilisation de {{brand}}."
@@ -266,6 +274,10 @@
         }
       },
       "attachment": {
+        "opened": "Fichier ouvert",
+        "downloaded": "Fichier téléchargé"
+      },
+      "file": {
         "opened": "Fichier ouvert",
         "downloaded": "Fichier téléchargé"
       },

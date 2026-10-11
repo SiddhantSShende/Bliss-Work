@@ -40,9 +40,13 @@
   --color-accent-fg: #ffffff;
   --color-accent-soft: #eff6ff;
   --color-brand-from: #60a5fa;
-  --color-brand-mid: #60a5fa;
+  /* The gradient's middle stop (`via-brand-mid` beside from/to on every brand
+     surface). A preset has two stops, so its middle is their blend — in the same
+     colour space Tailwind interpolates in, so the three-stop gradient is
+     pixel-identical to the two-stop one. A Custom theme with three colours sets
+     its own. */
+  --color-brand-mid: color-mix(in oklab, var(--color-brand-from) 50%, var(--color-brand-to));
   --color-brand-to: #2563eb;
-  --color-brand-gradient: linear-gradient(135deg, #60a5fa, #2563eb);
   --color-success: oklch(0.7 0.15 158);
   --color-danger: oklch(0.62 0.21 25);
   --color-warning: oklch(0.8 0.15 80);
@@ -99,9 +103,7 @@
   --color-accent-fg: #000000;
   --color-accent-soft: #172554;
   --color-brand-from: #60a5fa;
-  --color-brand-mid: #60a5fa;
   --color-brand-to: #3b82f6;
-  --color-brand-gradient: linear-gradient(135deg, #60a5fa, #3b82f6);
   --color-success: oklch(0.75 0.15 158);
   --color-danger: oklch(0.68 0.2 25);
   --color-warning: oklch(0.82 0.15 80);
@@ -128,23 +130,6 @@
   --glass-bg: rgba(15, 23, 42, 0.55);
   --glass-border: rgba(59, 130, 246, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
-
-/* Custom themes keep the existing gradient utilities and replace their stops
-   with the builder's fixed top-left to bottom-right gradient. */
-.custom-theme .bg-gradient-to-br {
-  background: var(--color-brand-gradient) !important;
-}
-
-/* Secondary-nav icon tiles (NavIconTile) under a custom theme: a dark shade of
-   the theme's accent behind a light shade of it — the reverse of the pale fill
-   + accent icon every other theme uses. Both shades are mixed from the same
-   --color-accent the builder already sets, so no new colour token exists. The
-   mix ratios keep the icon ≥ 4.5:1 on the tile for any accent, light or dark
-   (checked in navIconTileContrast.test.ts). */
-.custom-theme .nav-icon-tile {
-  background-color: color-mix(in srgb, var(--color-accent) 30%, black);
-  color: color-mix(in srgb, var(--color-accent) 40%, white);
 }
 
 /* ── Named colour themes ──────────────────────────────────────────────────
@@ -485,6 +470,7 @@
   --color-accent-2-soft: #33163f;
   --color-brand-from: #22d3ee;
   --color-brand-to: #e879f9;
+  --color-brand-mid: color-mix(in oklab, var(--color-brand-from) 50%, var(--color-brand-to));
   --color-success: #39ff8f;
   --color-danger: #ff3b5c;
   --color-warning: #ffb020;

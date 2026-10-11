@@ -41,6 +41,7 @@ export function CallRoster({
   inviteTitle,
   onInvite,
   className,
+  adhoc,
 }: {
   participants: RoomParticipant[];
   hands: Set<string>;
@@ -57,6 +58,8 @@ export function CallRoster({
   onInvite?: () => void;
   /** Sizing/positioning, set by the caller's layout. */
   className?: string;
+  /** The call is ad-hoc: it is a call, so the header says "In call", not "In meeting". */
+  adhoc?: boolean;
 }) {
   const { t } = useTranslation("callRoom");
   const [query, setQuery] = useState("");
@@ -101,7 +104,7 @@ export function CallRoster({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <div className="px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
-          {t("roster.inMeetingCount", { count: filtered.length })}
+          {t("roster.inMeetingCount", { count: filtered.length, context: adhoc ? "call" : undefined })}
         </div>
 
         <div className="space-y-0.5">

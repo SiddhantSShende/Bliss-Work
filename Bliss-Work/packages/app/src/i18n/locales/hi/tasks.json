@@ -285,6 +285,27 @@
         "4": "चौथा",
         "5": "पाँचवाँ"
       }
+    },
+    "assign": {
+      "required": "आवश्यक",
+      "peopleTab": "लोग ({{count}})",
+      "channelsTab": "चैनल ({{count}})",
+      "peopleSearch": "अपने संगठन में लोगों को खोजें…",
+      "channelsSearch": "अपने चैनल खोजें…",
+      "peopleSearchLabel": "अपने संगठन में लोगों को खोजें",
+      "channelsSearchLabel": "अपने चैनल खोजें",
+      "peopleListLabel": "असाइन करने के लिए लोग",
+      "channelsListLabel": "असाइन करने के लिए चैनल",
+      "loading": "लोड हो रहा है…",
+      "peopleLoadingMore": "और लोग लोड हो रहे हैं…",
+      "channelsLoadingMore": "और चैनल लोड हो रहे हैं…",
+      "peopleEmpty": "आपकी खोज से कोई व्यक्ति मेल नहीं खाता।",
+      "channelsEmpty": "आपकी खोज से कोई चैनल मेल नहीं खाता।",
+      "loadError": "यह सूची लोड नहीं हो सकी।",
+      "retry": "फिर से कोशिश करें",
+      "locked": "लॉक किया हुआ चैनल",
+      "members_one": "{{count}} सदस्य",
+      "members_other": "{{count}} सदस्य"
     }
   },
   "exportTasksDialog": {

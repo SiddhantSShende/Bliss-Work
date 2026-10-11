@@ -221,7 +221,7 @@ function RailBtn({
             : "w-full flex-row justify-start gap-3 px-3 py-3 text-left"
       } ${
         active
-          ? "bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-[0_6px_18px_-6px_var(--color-accent)] hover:brightness-105"
+          ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg shadow-[0_6px_18px_-6px_var(--color-accent)] hover:brightness-105"
           : "text-muted hover:bg-surface-2 hover:text-fg"
       }`}
     >

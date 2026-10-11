@@ -41,6 +41,13 @@ class Settings(BaseSettings):
 
     port: int = 8006
 
+    # auth-svc's internal API, where every file open/download is reported to the
+    # hash-chained audit log that backs the member-detail Security tab (see
+    # app/audit_forward.py). The secret is auth-svc's own AUTH_INTERNAL_TOKEN —
+    # the one it validates its callers against — not a telemetry secret.
+    auth_internal_base: str = "http://auth-svc:8001"
+    auth_internal_token: str = ""
+
     # Redis for distributed rate limiting (honest across pods). Empty = in-process
     # fallback (per-pod, fails open). slowapi_storage_uri overrides redis_url for
     # the slowapi limiter specifically; usually set both to the same redis:// URL.
@@ -69,6 +76,15 @@ class Settings(BaseSettings):
     # rejecting, so an old client asking for more silently gets the window
     # instead of an error.
     visible_window_days: int = 7
+
+    # Executable names (comma-separated, case-insensitive) that ARE BlissWork. The
+    # desktop reports every foreground application as an `app.focus` span,
+    # including BlissWork's own window, but time spent in BlissWork is in-app
+    # activity (route.dwell, tasks, chat…), not "outside". These spans still count
+    # toward active time and stay in the unfiltered record; the Outside Activity
+    # view and Top Applications leave them out. A dev build runs as `electron.exe`
+    # — add it here to match.
+    in_app_executables: str = "blisswork.exe"
 
     # A client heartbeats every 60s while visible. Three missed beats (plus a
     # little slack for a slow network) is the point at which we call a session
@@ -116,6 +132,10 @@ class Settings(BaseSettings):
             problems.append("DATA_MASTER_SALT is still the dev default")
         if self.data_blind_index_key == "dev-blind-index-key-change-me-32+bytes":
             problems.append("DATA_BLIND_INDEX_KEY is still the dev default")
+        if not self.auth_internal_token or self.auth_internal_token.startswith("dev-internal-token"):
+            problems.append(
+                "AUTH_INTERNAL_TOKEN must be set to a real value (file-access audit forwarding)"
+            )
         if "taskboard_dev_pw" in self.telemetry_database_url:
             problems.append("TELEMETRY_DATABASE_URL still uses the dev password")
         if "sslmode=verify-full" not in self.telemetry_database_url:
@@ -131,6 +151,11 @@ class Settings(BaseSettings):
                 + "\n  - ".join(problems)
             )
         return self
+
+    @property
+    def in_app_executable_names(self) -> list[str]:
+        """`in_app_executables` as lowercase names, ready to compare with lower(target_id)."""
+        return sorted({n.strip().lower() for n in self.in_app_executables.split(",") if n.strip()})
 
     @property
     def sqlalchemy_url(self) -> str:

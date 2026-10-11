@@ -64,6 +64,7 @@ import { meetingUi } from './meetingUi';
 import { pip } from './pip';
 import { useClock } from './useClock';
 import { useMeetingSkin } from './skin';
+import { CONFERENCE_TITLE } from '../calls/conferenceCall';
 
 /** The "Add member" hooks CallOverlay owns (picker, progress, outcome). */
 export interface MeetingAddUi {
@@ -169,7 +170,9 @@ export function MeetingRoom({
   }, [live, chrome, busy, touches]);
 
   const now = useClock(live);
-  const title = s.title || 'Meeting';
+  // An ad-hoc call is a call: "Call notes", "Leave call" — not meeting wording.
+  const noun = s.adhoc ? 'call' : 'meeting';
+  const title = s.title || (s.adhoc ? CONFERENCE_TITLE : 'Meeting');
 
   const plan = useMemo(
     () => pickStage(s.participants, { pinned, lastSpokeAt: lastSpoke }),
@@ -278,13 +281,13 @@ export function MeetingRoom({
     { key: 'add', label: 'Add member', icon: UserPlus, onPress: add.open },
     {
       key: 'notes',
-      label: 'Meeting notes',
+      label: s.adhoc ? 'Call notes' : 'Meeting notes',
       icon: StickyNote,
       onPress: () => setTab('notes'),
     },
     {
       key: 'info',
-      label: 'Meeting info',
+      label: s.adhoc ? 'Call info' : 'Meeting info',
       icon: Info,
       onPress: () => setTab('people'),
     },
@@ -319,7 +322,7 @@ export function MeetingRoom({
     },
     {
       key: 'leave',
-      label: 'Leave meeting',
+      label: `Leave ${noun}`,
       icon: PhoneOff,
       onPress: () => setLeaveOpen(true),
       danger: true,
@@ -706,6 +709,7 @@ export function MeetingRoom({
           <LeaveDialog
             title={title}
             isHost={s.isHost}
+            adhoc={s.adhoc}
             onCancel={() => setLeaveOpen(false)}
             onLeave={doLeave}
             onEndForAll={doEnd}

@@ -31,18 +31,21 @@ import { useNotificationPages } from "../lib/useCursorPagination";
  *  navigation labels — see the width comment on the <aside> below. */
 const ROW_LIST_SECTIONS = new Set<string>(["chats", "channels", "members"]);
 
-/** Width of the secondary-navigation pane from lg up: one value for every
- *  section except Mail. Chat's pane was 280px (md:w-[280px] below); 280 × 1.5 =
- *  420px. The main pane (flex-1) takes the rest. Literal class so Tailwind can
- *  see it. */
-const LIST_PANE_LG_WIDTH = "lg:w-[420px]";
-
-/** Mail's folder pane from lg up: half of LIST_PANE_LG_WIDTH. It holds only
- *  five short folder labels, so the rest of 420px was dead space. */
-const MAIL_PANE_LG_WIDTH = "lg:w-[210px]";
+/** Width of the secondary-navigation pane. Literal classes so Tailwind can see
+ *  them. `md` is the tablet range, `lg` from 1024px up; the main pane (flex-1)
+ *  takes the rest. Below md the pane is full width and these do not apply.
+ *  Desktop (Electron) keeps `PANE_WIDTHS.desktop`; the web app uses `web`, which
+ *  is exactly 75% of it at every breakpoint (420 → 315, 280 → 210, 208 → 156).
+ *  `rows` = Chats/Channels/Members (avatar rows); `nav` = Tasks/Mail labels.
+ *  Mail is half of the lg width: five short folder labels, so the rest was dead
+ *  space. */
+const PANE_WIDTHS = {
+  desktop: { mdRows: "md:w-[280px]", mdNav: "md:w-[208px]", lg: "lg:w-[420px]", lgMail: "lg:w-[210px]" },
+  web: { mdRows: "md:w-[210px]", mdNav: "md:w-[156px]", lg: "lg:w-[315px]", lgMail: "lg:w-[157.5px]" },
+} as const;
 
 export function AppShell() {
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const loc = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -99,6 +102,7 @@ export function AppShell() {
   // inconsistently.
   const section = listSectionOf(loc.pathname);
   const railSection = railSectionOf(loc.pathname);
+  const paneWidths = config.kind === "web" ? PANE_WIDTHS.web : PANE_WIDTHS.desktop;
 
   // On phones we only have room for ONE pane. A path with a third segment
   // (/app/members/:userId, /app/tasks/:view) is a "detail" → show the main
@@ -136,14 +140,14 @@ export function AppShell() {
         {section && (
           <aside
             // Pure navigation panes (Tasks categories, Mail folders) are short
-            // labels + a count and fit 208px. Chats/Channels/Members rows carry
-            // an avatar, a name, a timestamp, a preview, an unread badge and a
-            // ⋮ menu — below ~280px the name collapses to "J…" — so those get
-            // a wider pane. Both are md+ only; below md the pane is full width,
-            // and from lg up every section shares LIST_PANE_LG_WIDTH.
+            // labels + a count. Chats/Channels/Members rows carry an avatar, a
+            // name, a timestamp, a preview, an unread badge and a ⋮ menu, so
+            // those get a wider pane. Both are md+ only; below md the pane is
+            // full width, and from lg up every section but Mail shares one
+            // width. Sizes: PANE_WIDTHS.
             className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 ${
-              ROW_LIST_SECTIONS.has(section) ? "md:w-[280px]" : "md:w-[208px]"
-            } ${section === "mail" ? MAIL_PANE_LG_WIDTH : LIST_PANE_LG_WIDTH} ${showListOnMobile ? "flex" : "hidden"} md:flex`}
+              ROW_LIST_SECTIONS.has(section) ? paneWidths.mdRows : paneWidths.mdNav
+            } ${section === "mail" ? paneWidths.lgMail : paneWidths.lg} ${showListOnMobile ? "flex" : "hidden"} md:flex`}
           >
             {section === "mail" && <MailFolders />}
             {section === "chats" && <ChatsList />}

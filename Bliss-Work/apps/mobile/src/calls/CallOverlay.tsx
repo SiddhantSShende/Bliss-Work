@@ -722,7 +722,7 @@ function RoomCallView({ s, add }: { s: RoomSnapshot; add: AddProps }) {
   const styles2 = useMemo(() => createStyles(colors), [colors]);
   const { width } = useWindowDimensions();
   const elapsed = useElapsed(s.phase === 'connected' || s.phase === 'reconnecting' ? s.connectedAt : undefined);
-  const title = s.title || 'Meeting';
+  const title = s.title || (s.adhoc ? 'Conference call' : 'Meeting');
   const now = useNow(add.invited.length > 0);
 
   const ringing = pendingInvitees(add.invited, s.participants.map((p) => p.identity), now);

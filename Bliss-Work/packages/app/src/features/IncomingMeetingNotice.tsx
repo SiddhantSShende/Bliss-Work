@@ -28,6 +28,7 @@ import { Phone, Video, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Logo } from "@taskboard/ui";
 import {
+  type AdhocIncoming,
   onIncomingMeetingAnnounced,
   onIncomingMeetingDismissed,
   requestMeetingJoin,
@@ -38,6 +39,9 @@ import { qk } from "../lib/queryBridge";
 interface Incoming {
   callId: string;
   title: string;
+  /** Set when this is an ad-hoc call somebody was added to: worded as a call,
+   *  and there is no organiser to name. */
+  adhoc?: AdhocIncoming;
 }
 
 /** 12s — inside the requested 10-15s window. Matches an incoming phone call:
@@ -59,10 +63,10 @@ export function IncomingMeetingNotice() {
 
   useEffect(
     () =>
-      onIncomingMeetingAnnounced((callId, title) => {
+      onIncomingMeetingAnnounced((callId, title, adhoc) => {
         if (seenRef.current.has(callId)) return;
         seenRef.current.add(callId);
-        setIncoming({ callId, title });
+        setIncoming({ callId, title, adhoc });
       }),
     [],
   );
@@ -120,7 +124,16 @@ export function IncomingMeetingNotice() {
     enabled: !!incoming,
     staleTime: 60_000,
   });
-  const organizer = call?.participants.find((p) => p.role === "HOST")?.username ?? "";
+  const adhoc = !!incoming?.adhoc;
+  const organizer = adhoc ? "" : (call?.participants.find((p) => p.role === "HOST")?.username ?? "");
+  // "X added you to a conference call" when the server named X, else just what it is.
+  const heading = !incoming
+    ? ""
+    : adhoc
+      ? incoming.adhoc?.actorName
+        ? t("incomingNotice.addedYou", { name: incoming.adhoc.actorName })
+        : t("incomingNotice.conferenceTitle")
+      : incoming.title || t("incomingNotice.untitledMeeting");
 
   // Electron: hand off to the always-on-top popup window instead of
   // rendering here. Called again once `organizer` resolves — the manager
@@ -129,8 +142,8 @@ export function IncomingMeetingNotice() {
   // moment later, instead of waiting on the extra round trip.
   useEffect(() => {
     if (!incoming || !config.showMeetingInvitePopup) return;
-    config.showMeetingInvitePopup(incoming.callId, incoming.title || t("incomingNotice.untitledMeeting"), organizer);
-  }, [incoming, organizer, config, t]);
+    config.showMeetingInvitePopup(incoming.callId, heading, organizer, adhoc);
+  }, [incoming, heading, organizer, adhoc, config]);
 
   if (!incoming || config.showMeetingInvitePopup) return null;
 
@@ -143,7 +156,9 @@ export function IncomingMeetingNotice() {
   return (
     <div
       role="alertdialog"
-      aria-label={t("incomingNotice.ariaLabel", { title: incoming.title })}
+      aria-label={
+        adhoc ? t("incomingNotice.ariaLabelCall", { title: heading }) : t("incomingNotice.ariaLabel", { title: incoming.title })
+      }
       className="fixed bottom-4 right-4 z-[150] w-60 rounded-2xl bg-surface p-4 shadow-widget ring-1 ring-border"
     >
       <div className="flex flex-col items-center gap-2 text-center">
@@ -151,9 +166,7 @@ export function IncomingMeetingNotice() {
         {/* Falls back defensively even though every caller (queryBridge's
             meetingTitle) already supplies a non-empty title — this is the
             last line stopping a blank/undefined popup, not the first. */}
-        <div className="line-clamp-2 text-sm font-semibold text-fg">
-          {incoming.title || t("incomingNotice.untitledMeeting")}
-        </div>
+        <div className="line-clamp-2 text-sm font-semibold text-fg">{heading}</div>
         {organizer && (
           <div className="text-xs text-muted">{t("incomingNotice.hostedBy", { organizer })}</div>
         )}

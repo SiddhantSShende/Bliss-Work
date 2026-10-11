@@ -189,8 +189,14 @@ export interface PlatformConfig {
    * Absent on web, where IncomingMeetingNotice renders its own in-page
    * popup instead — a browser tab has no equivalent of an always-on-top
    * window, so there is nothing for this to do there.
+   *
+   * `adhoc` is true for an ad-hoc call (a 1:1 that is growing into, or already
+   * is, a conference) — not a Meeting. `title` already carries the right
+   * wording either way (IncomingMeetingNotice computes it); this is what lets
+   * the popup's own OS-level window title say "call" rather than "meeting"
+   * too, since that is a separate string the body text does not cover.
    */
-  showMeetingInvitePopup?: (callId: string, title: string, organizer: string) => void;
+  showMeetingInvitePopup?: (callId: string, title: string, organizer: string, adhoc?: boolean) => void;
   /**
    * Present only in Electron: the invite popup's Video Call / Voice Call
    * button was clicked (in the SEPARATE popup window, not this one) — join

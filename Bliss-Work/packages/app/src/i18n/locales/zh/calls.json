@@ -35,6 +35,11 @@
       "title": "此会议不可用",
       "hint": "会议可能已结束，或你已不在参会名单中。",
       "close": "关闭"
+    },
+    "ended": {
+      "title": "此会议已结束",
+      "hint": "会议已经结束，无法再加入。",
+      "close": "关闭"
     }
   },
   "join": {
@@ -119,7 +124,9 @@
     "minimize": "最小化",
     "minimise": "最小化",
     "end": "结束",
-    "endCall": "结束通话"
+    "endCall": "结束通话",
+    "endForEveryone": "结束全部",
+    "endForEveryoneTitle": "为所有人结束通话"
   },
   "sidePanel": {
     "tabNames": {
@@ -155,7 +162,10 @@
     "joinWithCamera": "开启摄像头加入",
     "voice": "语音",
     "joinVoiceOnly": "仅语音加入",
-    "leave": "离开"
+    "leave": "离开",
+    "conferenceTitle": "电话会议",
+    "addedYou": "{{name}} 已将你加入电话会议",
+    "ariaLabelCall": "来电：{{title}}"
   },
   "scheduledNotice": {
     "untitledMeeting": "会议",
@@ -170,13 +180,15 @@
     "reconnecting": "正在重新连接…",
     "connecting": "正在连接…",
     "backToMeeting": "返回会议",
+    "backToMeeting_call": "返回通话",
     "nobodySpeaking": "无人发言",
     "mute": "静音",
     "unmute": "取消静音",
     "turnCameraOff": "关闭摄像头",
     "turnCameraOn": "开启摄像头",
     "newChatMessages_other": "{{count}} 条新聊天消息",
-    "leaveMeeting": "离开会议"
+    "leaveMeeting": "离开会议",
+    "leaveMeeting_call": "离开通话"
   },
   "sendLinkDialog": {
     "title": "发送通话链接",

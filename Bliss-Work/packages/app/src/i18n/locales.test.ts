@@ -25,6 +25,15 @@ describe("release gate", () => {
     expect(dev[0]?.code).toBe("en");
   });
 
+  // Regression: the gate once left every locale but English `ready: false`, so the
+  // production selector showed only English while dev builds (and vitest, which
+  // runs with DEV on) showed all nine. Assert the PRODUCTION list itself.
+  it("production: all nine languages are selectable — the gate hides none of them", () => {
+    expect(selectableLocales(LOCALES, false).map((l) => l.code)).toEqual(LOCALES.map((l) => l.code));
+    expect(LOCALES.filter((l) => !l.ready).map((l) => l.code)).toEqual([]);
+    expect(LOCALES).toHaveLength(9);
+  });
+
   it("the exported list is the dev preview under vitest (a dev environment)", () => {
     expect(SELECTABLE_LOCALES.map((l) => l.code)).toEqual(LOCALES.map((l) => l.code));
   });

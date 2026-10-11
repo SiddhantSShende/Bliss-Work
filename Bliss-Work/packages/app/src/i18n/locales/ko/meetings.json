@@ -145,7 +145,8 @@
       "startInPast": "시작 시간은 과거일 수 없어요.",
       "endRequired": "종료 날짜와 시간을 입력해 주세요.",
       "endBeforeStart": "종료 시간은 시작 시간보다 늦어야 해요.",
-      "peopleUnavailable": "선택한 멤버나 채널 중 일부를 더 이상 사용할 수 없어요."
+      "peopleUnavailable": "선택한 멤버나 채널 중 일부를 더 이상 사용할 수 없어요.",
+      "audienceRequired": "한 명 이상 또는 채널을 하나 이상 추가하세요."
     },
     "cancel": "취소",
     "scheduleMeeting": "미팅 예약",
@@ -256,7 +257,14 @@
     "detailsTitle": "미팅 상세",
     "membersDescription": "이 미팅에 참가할 사람을 추가하세요",
     "membersEmptyHint": "미팅에 사람을 초대하세요",
-    "channelsDescription": "이 미팅에 채널을 추가하세요"
+    "channelsDescription": "이 미팅에 채널을 추가하세요",
+    "add": {
+      "label": "추가",
+      "people": "사람",
+      "channels": "채널",
+      "loadingMore": "더 불러오는 중…",
+      "loadError": "다음 페이지를 불러오지 못했습니다."
+    }
   },
   "schedule": {
     "error": "통화를 예약하지 못했어요",

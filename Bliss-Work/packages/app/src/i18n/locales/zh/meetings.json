@@ -145,7 +145,8 @@
       "startInPast": "开始时间不能早于当前时间。",
       "endRequired": "请填写结束日期和时间。",
       "endBeforeStart": "结束时间必须晚于开始时间。",
-      "peopleUnavailable": "你选择的部分成员或频道已不可用。"
+      "peopleUnavailable": "你选择的部分成员或频道已不可用。",
+      "audienceRequired": "请至少添加一位成员或一个频道。"
     },
     "cancel": "取消",
     "scheduleMeeting": "预约会议",
@@ -256,7 +257,14 @@
     "detailsTitle": "会议详情",
     "membersDescription": "将成员添加到此会议",
     "membersEmptyHint": "邀请成员参加你的会议",
-    "channelsDescription": "将频道添加到此会议"
+    "channelsDescription": "将频道添加到此会议",
+    "add": {
+      "label": "添加",
+      "people": "成员",
+      "channels": "频道",
+      "loadingMore": "正在加载更多…",
+      "loadError": "无法加载下一页。"
+    }
   },
   "schedule": {
     "error": "无法预约该通话",

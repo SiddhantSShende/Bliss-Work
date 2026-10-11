@@ -208,6 +208,8 @@ class SummaryDTO(BaseModel):
     days: list[DayBucket] = Field(default_factory=list)
     bySurface: list[NamedCount] = Field(default_factory=list)
     byAction: list[NamedCount] = Field(default_factory=list)
+    # Desktop foreground applications, most used first (member summary only).
+    topApps: list[NamedCount] = Field(default_factory=list)
     # 7 x 24 grid of active ms, Monday-first, in the rollup timezone.
     hourly: list[list[int]] = Field(default_factory=list)
 

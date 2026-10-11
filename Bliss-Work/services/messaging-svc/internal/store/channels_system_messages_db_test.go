@@ -6,7 +6,9 @@ package store
 //
 //	creation        "<Creator> created channel <Name>"                  channel_created
 //	                "<A>, <B> were added to channel" (ONE message)      channel_member_added
-//	added later     "<User> joined the channel" (one per new member)    channel_member_added
+//	added later     "<Actor> added <A>, <B> to the channel" (ONE message) channel_member_added
+//	removed         "<Actor> removed <User> from the channel"           channel_member_removed
+//	left            "<User> left the channel"                           channel_member_left
 //	self-join       "<User> joined the channel"                         channel_member_added
 //
 // These have to be DB tests: the properties that matter — seq order between the
@@ -296,9 +298,10 @@ func TestCreateChannelUnprojectedMemberReadsAsSomeone(t *testing.T) {
 		added("Alex Lee, Someone were added to channel"))
 }
 
-// D, E, F. Members added later: one "joined" message per genuinely new member;
-// re-adding an existing member (alone or mixed into a batch) adds nothing.
-func TestAddChannelMembersWritesOneJoinedMessagePerNewMember(t *testing.T) {
+// D, E, F. Members added later: ONE "<actor> added …" message per request,
+// naming only the genuinely new members; re-adding an existing member (alone or
+// mixed into a batch) adds nothing, and a request that adds nobody writes nothing.
+func TestAddChannelMembersWritesOneMessageNamingEveryNewMember(t *testing.T) {
 	s := lifecycleStore(t)
 	ctx := context.Background()
 	orgID := uuid.Must(uuid.NewV7()).String()
@@ -315,23 +318,23 @@ func TestAddChannelMembersWritesOneJoinedMessagePerNewMember(t *testing.T) {
 	if err := s.AddChannelMembers(ctx, orgID, ch.ID, owner, nil, []string{alex}); err != nil {
 		t.Fatalf("AddChannelMembers: %v", err)
 	}
-	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID), base, added("Alex Lee joined the channel"))
+	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID), base, added("Jordan Doe added Alex Lee to the channel"))
 
 	// F. Re-adding the existing member writes nothing.
 	if err := s.AddChannelMembers(ctx, orgID, ch.ID, owner, nil, []string{alex}); err != nil {
 		t.Fatalf("duplicate AddChannelMembers: %v", err)
 	}
-	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID), base, added("Alex Lee joined the channel"))
+	requireMessages(t, channelSystemMessages(t, s, orgID, ch.ID), base, added("Jordan Doe added Alex Lee to the channel"))
 
-	// E + F. Two new members and one existing one: exactly two new messages.
+	// E + F. Two new members and one existing one: exactly ONE new message,
+	// naming the two new people (in request order) and not the existing one.
 	if err := s.AddChannelMembers(ctx, orgID, ch.ID, owner, nil, []string{bea, alex, cy}); err != nil {
 		t.Fatalf("batch AddChannelMembers: %v", err)
 	}
 	msgs := channelSystemMessages(t, s, orgID, ch.ID)
 	requireMessages(t, msgs, base,
-		added("Alex Lee joined the channel"),
-		added("Bea Cho joined the channel"),
-		added("Cy Dunn joined the channel"))
+		added("Jordan Doe added Alex Lee to the channel"),
+		added("Jordan Doe added Bea Cho, Cy Dunn to the channel"))
 
 	// One ChannelMemberJoined (task fan-out) event per genuinely new member —
 	// unchanged by the new messages.
@@ -470,7 +473,7 @@ func TestJoinChannelConcurrentDoubleJoinWritesOneMessage(t *testing.T) {
 //	                     and as userId/actorId on the ChannelMemberJoined event
 //	self-join            sender = the joiner (they are the caller)
 //
-// Making an added user the sender of "<User> joined the channel" would credit
+// Making an added user the sender of "<Actor> added <User> to the channel" would credit
 // them with an action they never took and hand them the right to delete the
 // notice of their own addition; the second half of this test pins that.
 func TestSystemMessageSenderIsThePrincipalWhoCausedTheWrite(t *testing.T) {
@@ -503,7 +506,7 @@ func TestSystemMessageSenderIsThePrincipalWhoCausedTheWrite(t *testing.T) {
 	requireMessages(t, msgs,
 		created("Jordan Doe created channel attrib room"),
 		added("Alex Lee, Bea Cho were added to channel"),
-		added("Cy Dunn joined the channel"))
+		added("Jordan Doe added Cy Dunn to the channel"))
 	join := msgs[2]
 	if join.senderID != owner {
 		t.Errorf("added-by-other join message sender = %s, want the adder %s (not the added user %s)", join.senderID, owner, cy)
@@ -664,5 +667,5 @@ func TestMembershipChangesLeaveExistingHistoryUntouched(t *testing.T) {
 	}
 	got := channelSystemMessages(t, s, orgID, chanID)
 	requireMessages(t, got, created(legacy[0].body), added(legacy[1].body),
-		added("Alex Lee joined the channel"), added("Bea Cho joined the channel"))
+		added("Jordan Doe added Alex Lee to the channel"), added("Bea Cho joined the channel"))
 }

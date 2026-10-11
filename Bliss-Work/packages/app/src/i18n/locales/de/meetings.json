@@ -146,7 +146,8 @@
       "startInPast": "Die Startzeit darf nicht in der Vergangenheit liegen.",
       "endRequired": "Enddatum und Endzeit sind erforderlich.",
       "endBeforeStart": "Die Endzeit muss nach der Startzeit liegen.",
-      "peopleUnavailable": "Einige der gewählten Mitglieder oder Kanäle sind nicht mehr verfügbar."
+      "peopleUnavailable": "Einige der gewählten Mitglieder oder Kanäle sind nicht mehr verfügbar.",
+      "audienceRequired": "Füge mindestens eine Person oder einen Kanal hinzu."
     },
     "cancel": "Abbrechen",
     "scheduleMeeting": "Meeting planen",
@@ -267,7 +268,14 @@
     "detailsTitle": "Meeting-Details",
     "membersDescription": "Personen zu diesem Meeting hinzufügen",
     "membersEmptyHint": "Personen zu Ihrem Meeting einladen",
-    "channelsDescription": "Kanäle zu diesem Meeting hinzufügen"
+    "channelsDescription": "Kanäle zu diesem Meeting hinzufügen",
+    "add": {
+      "label": "Hinzufügen",
+      "people": "Personen",
+      "channels": "Kanäle",
+      "loadingMore": "Weitere werden geladen…",
+      "loadError": "Die nächste Seite konnte nicht geladen werden."
+    }
   },
   "schedule": {
     "error": "Dieser Anruf konnte nicht geplant werden",

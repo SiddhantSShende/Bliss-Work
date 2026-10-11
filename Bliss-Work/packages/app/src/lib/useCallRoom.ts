@@ -12,6 +12,7 @@ import {
   type RemoteParticipant,
 } from "livekit-client";
 import { toast } from "sonner";
+import { addCallParticipants } from "./addCallParticipants";
 import { useTranslation } from "react-i18next";
 import { ApiError, EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
@@ -155,7 +156,7 @@ function isLive(track: Track | undefined): track is Track {
  * so it was unconditionally reported as lost; now the SAME capture is simply
  * republished, with no gesture needed, because it was never stopped.
  */
-export function useCallRoom(callId: string | null) {
+export function useCallRoom(callId: string | null, adhoc = false) {
   // Named `tr`, not `t`: this hook already uses `t` throughout for the
   // call-token response (see scheduleRefresh/join below).
   const { t: tr } = useTranslation("callRoom");
@@ -196,7 +197,7 @@ export function useCallRoom(callId: string | null) {
    *  while status is "failed". Reset at the start of every join attempt; a
    *  disconnect sets it directly instead, since that path never goes through
    *  join(). */
-  const [failStage, setFailStage] = useState<"token" | "connect" | "disconnected" | "displaced" | null>(null);
+  const [failStage, setFailStage] = useState<"token" | "connect" | "disconnected" | "displaced" | "ended" | null>(null);
   const roomRef = useRef<Room | null>(null);
   /** Which call `roomRef.current` is connected — or connecting — to. Set
    *  alongside `roomRef.current`, cleared alongside it too.
@@ -713,6 +714,15 @@ export function useCallRoom(callId: string | null) {
         setFailStage(null);
         return;
       }
+      // The server answers 409 `call_ended` for a call that is over. That is
+      // not a credentials problem and not retryable — say so, and do not toast
+      // an error for what is simply the state of the meeting. (A 403 is a real
+      // refusal and keeps the generic path below.)
+      if (stage === "token" && e instanceof ApiError && e.code === "call_ended") {
+        setStatus("failed");
+        setFailStage("ended");
+        return;
+      }
       setStatus("failed");
       setFailStage(stage);
       console.error(`[CALL ROOM] Join failed at "${stage}" stage`, e);
@@ -774,9 +784,9 @@ export function useCallRoom(callId: string | null) {
         api.leaveCall(callId).catch(() => {});
       }
       setEnded(true);
-      toast(tr("notify.meetingEnded"));
+      toast(tr("notify.meetingEnded", { context: adhoc ? "call" : undefined }));
     });
-  }, [api, callId, stopWaiting, subscribeToEvents, tr]);
+  }, [adhoc, api, callId, stopWaiting, subscribeToEvents, tr]);
 
   /** Start the call we are waiting for, admitting everyone else waiting on it
    *  at the same moment. Only does anything for the people the server named in
@@ -960,9 +970,13 @@ export function useCallRoom(callId: string | null) {
   const addPeople = useCallback(
     async (userIds: string[]) => {
       if (!callId) return;
-      for (const id of userIds) await api.addCallParticipant(callId, id);
+      const { added, failed } = await addCallParticipants((id) => api.addCallParticipant(callId, id), userIds);
+      // Nobody got in: say why. Some did: they are on their way, so this is
+      // not a failure — only a note that the rest were not added.
+      if (added.length === 0 && failed.length > 0) throw failed[0]!.error;
+      if (failed.length > 0) toast.warning(tr("notify.addedSome", { added: added.length, total: userIds.length }));
     },
-    [api, callId],
+    [api, callId, tr],
   );
 
   // Disconnect on unmount. Without this, navigating away leaves the camera on

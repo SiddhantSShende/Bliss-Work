@@ -10,6 +10,7 @@
     "screenShareStopped": "화면 공유가 중지되었어요",
     "screenShareStoppedDescription": "통화에 다시 연결하면서 공유가 끝났어요. 계속 발표 중이라면 다시 시작하세요.",
     "meetingEnded": "이 미팅이 종료되었어요",
+    "meetingEnded_call": "이 통화가 종료되었어요",
     "micBlocked": "마이크가 차단되었어요",
     "micBlockedHint": "이 앱의 마이크 권한을 확인해 주세요.",
     "micUnavailable": "마이크를 사용할 수 없어요",
@@ -17,7 +18,8 @@
     "cameraBlocked": "카메라가 차단되었어요",
     "cameraBlockedHint": "이 앱의 카메라 권한을 확인해 주세요.",
     "cameraUnavailable": "카메라를 사용할 수 없어요",
-    "cameraUnavailableHint": "카메라가 연결되어 있고 다른 곳에서 사용 중이 아닌지 확인해 주세요."
+    "cameraUnavailableHint": "카메라가 연결되어 있고 다른 곳에서 사용 중이 아닌지 확인해 주세요.",
+    "addedSome": "{{total}}명 중 {{added}}명을 추가했어요. 나머지는 추가하지 못했어요"
   },
   "preJoin": {
     "readyToJoinLabel": "참여 준비 완료",
@@ -38,7 +40,9 @@
     "cameraOn": "카메라 켜기",
     "heading": "참여할 준비가 되셨나요?",
     "description": "미팅에 들어가기 전에 카메라와 마이크를 확인하세요.",
-    "joinButton": "미팅 참여"
+    "description_call": "통화에 참여하기 전에 카메라와 마이크를 확인하세요.",
+    "joinButton": "미팅 참여",
+    "joinButton_call": "통화 참여"
   },
   "waitingRoom": {
     "canStartHint": "가장 먼저 오셨어요. 미팅을 시작하면 다른 참가자들이 들어올 수 있어요.",
@@ -49,16 +53,28 @@
   },
   "joinFailed": {
     "anotherDeviceTitle": "다른 기기에서 이미 이 미팅에 참여 중이에요",
+    "anotherDeviceTitle_call": "다른 기기에서 이미 이 통화에 참여 중이에요",
     "anotherDeviceHint": "현재 다른 기기에서 이 미팅에 연결되어 있어요.",
+    "anotherDeviceHint_call": "현재 다른 기기에서 이 통화에 연결되어 있어요.",
     "switchHere": "여기로 전환",
     "displacedTitle": "다른 기기에서 이 미팅에 참여했어요",
+    "displacedTitle_call": "다른 기기에서 이 통화에 참여했어요",
     "displacedHint": "이 미팅은 이제 다른 기기에서 진행 중이에요.",
+    "displacedHint_call": "이 통화는 이제 다른 기기에서 진행 중이에요.",
     "tokenTitle": "미팅 인증 정보를 가져오지 못했어요",
+    "tokenTitle_call": "통화 인증 정보를 가져오지 못했어요",
     "disconnectedTitle": "미팅과의 연결이 끊어졌어요",
+    "disconnectedTitle_call": "통화와의 연결이 끊어졌어요",
     "genericTitle": "미팅에 연결하지 못했어요",
+    "genericTitle_call": "통화에 연결하지 못했어요",
     "tokenHint": "토큰 요청이 처리되지 않았어요. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "endedTitle": "이 회의는 종료되었습니다",
+    "endedTitle_call": "이 통화는 종료되었습니다",
+    "endedHint": "이미 끝났으므로 참여할 수 없습니다.",
     "disconnectedHint": "미팅과의 연결이 끊어져 복구하지 못했어요. 연결 상태를 확인한 뒤 다시 참여해 주세요.",
+    "disconnectedHint_call": "통화와의 연결이 끊어져 복구하지 못했어요. 연결 상태를 확인한 뒤 다시 참여해 주세요.",
     "genericHint": "미팅 서버에 연결하지 못했어요. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "genericHint_call": "통화 서버에 연결하지 못했어요. 연결 상태를 확인하고 다시 시도해 주세요.",
     "leave": "나가기",
     "retrying": "다시 시도하는 중…",
     "retry": "다시 시도"
@@ -66,6 +82,7 @@
   "room": {
     "defaultTitleChannel": "채널 통화",
     "defaultTitleMeeting": "미팅",
+    "defaultTitleConference": "컨퍼런스 통화",
     "youFallbackName": "나",
     "addPeopleDefaultTitle": "참가자 추가",
     "channelAlreadyInvited": "채널의 모든 멤버가 이미 초대되었어요",
@@ -85,7 +102,13 @@
       "recordingSaved": "녹화 파일을 다운로드 폴더에 저장했어요",
       "recordingUnsupported": "이 브라우저에서는 미팅을 녹화할 수 없어요",
       "recordingStarted": "녹화를 시작했어요. 이 기기에 저장돼요",
-      "inviteLinkCopied": "초대 링크를 복사했어요"
+      "inviteLinkCopied": "초대 링크를 복사했어요",
+      "couldNotEndForEveryone": "모든 참가자의 통화를 종료하지 못했어요"
+    },
+    "endForEveryoneConfirm": {
+      "title": "모든 참가자의 통화를 종료할까요?",
+      "message": "이 통화에 남아 있는 모든 사람의 연결이 끊어져요. 이 작업은 되돌릴 수 없어요.",
+      "confirm": "전체 통화 종료"
     }
   },
   "controls": {
@@ -105,6 +128,7 @@
     "searchPlaceholder": "멤버 검색…",
     "searchAriaLabel": "멤버 검색",
     "inMeetingCount": "참석 중 · {{count}}",
+    "inMeetingCount_call": "통화 중 · {{count}}",
     "youSuffix": " (나)",
     "sharing": "공유 중",
     "handUp": "손듦",
@@ -157,6 +181,17 @@
     "addedToCall": "통화에 추가했어요",
     "addedPeople": "{{count}}명을 추가했어요",
     "couldNotAdd": "이 통화에 아무도 추가하지 못했어요",
-    "groupCallingUnavailable": "이 서버에서는 그룹 통화를 사용할 수 없을 수 있어요."
+    "groupCallingUnavailable": "이 서버에서는 그룹 통화를 사용할 수 없을 수 있어요.",
+    "addTitle": "이 통화에 참가자 추가",
+    "addButton": "추가"
+  },
+  "groupCall": {
+    "title": "그룹 통화 시작",
+    "description": "두 명 이상을 선택하세요. 선택한 모든 사람에게 하나의 통화로 연결돼요.",
+    "callButton": "통화",
+    "pickTwo": "두 명 이상을 선택하세요",
+    "limit": "한 통화에 최대 {{max}}명",
+    "failed": "통화를 시작하지 못했어요",
+    "alreadyInCall": "이미 통화 중이에요"
   }
 }

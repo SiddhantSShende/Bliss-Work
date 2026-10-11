@@ -12,6 +12,9 @@
     "ignore": "Ignore",
     "complete": "Complete",
     "leave": "Leave",
+    "chat": "Chat",
+    "discussingTask": "Discussing task: {{title}}",
+    "openTask": "Open task",
     "untitledTask": "Untitled task",
     "expand": "Expand",
     "expandLabel": "Expand sticky note",
@@ -23,10 +26,7 @@
     "acknowledgeTitle": "Acknowledge — keep this note on screen until you complete it",
     "unpinFromDesktopTitle": "Unpin from the desktop — the task stays in your Tasks list",
     "navPrevious": "Previous pinned task",
-    "navNext": "Next pinned task",
-    "chat": "Chat",
-    "discussingTask": "Discussing task: {{title}}",
-    "openTask": "Open task"
+    "navNext": "Next pinned task"
   },
   "overlay": {
     "ariaLabel": "Floating sticky notes"
@@ -68,7 +68,8 @@
     "titles": {
       "task": "Task",
       "chat": "Chat",
-      "invite": "Meeting invite"
+      "invite": "Meeting invite",
+      "call": "Incoming call"
     }
   }
 }

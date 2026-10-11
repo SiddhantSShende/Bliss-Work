@@ -25,7 +25,7 @@ export function MeetingPip({ room }: { room: RoomSnapshot }) {
         <Tile p={plan.stage} width="100%" height="100%" screen={plan.stageIsScreen} large />
       ) : (
         <View style={styles.center}>
-          <Text style={{ color: skin.muted }}>{room.title || 'Meeting'}</Text>
+          <Text style={{ color: skin.muted }}>{room.title || (room.adhoc ? 'Conference call' : 'Meeting')}</Text>
         </View>
       )}
     </View>

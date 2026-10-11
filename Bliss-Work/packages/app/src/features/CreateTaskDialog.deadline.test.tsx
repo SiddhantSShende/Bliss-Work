@@ -11,10 +11,11 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSession } from "../store/session";
 import { ADA, CHANNELS, DIRECTORY, ME } from "../test/meetingFixtures";
+import { pagedChannels, pagedDirectory } from "../test/pagedPickerApi";
 import { setClockTime } from "../test/timePicker";
 
 const h = vi.hoisted(() => ({
-  api: { createTask: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -42,8 +43,7 @@ function sent() {
 
 async function readyToSend(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByPlaceholderText("What needs doing?"), "Ship the report");
-  await user.click(screen.getByRole("button", { name: "Add people" }));
-  await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
+  await user.click(await screen.findByRole("checkbox", { name: /Ada Lovelace/ }));
 }
 
 const deadlineKind = () => screen.getByLabelText("Deadline", { selector: "select" }) as HTMLSelectElement;
@@ -61,8 +61,8 @@ beforeEach(() => {
   vi.setSystemTime(OPENED_AT);
   useSession.setState({ user: ME });
   h.api.createTask.mockReset().mockResolvedValue({ taskId: "task-1" });
-  h.api.directory.mockReset().mockResolvedValue(DIRECTORY);
-  h.api.channels.mockReset().mockResolvedValue(CHANNELS);
+  h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(DIRECTORY));
+  h.api.channelsPage.mockReset().mockImplementation(pagedChannels(CHANNELS));
   vi.mocked(toast.error).mockReset();
 });
 afterEach(() => vi.useRealTimers());
@@ -236,13 +236,14 @@ describe("a recurring task's deadline rule", () => {
 });
 
 describe("the rest of the form is untouched", () => {
-  it("keeps the title, description, assign-to groups and allocation cards", () => {
+  it("keeps the title, description, assign-to panel and allocation cards", () => {
     openDialog();
     expect(screen.getByPlaceholderText("What needs doing?")).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "People" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Channels" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /Assign to/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /People/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Channels/ })).toBeInTheDocument();
     expect(screen.getAllByRole("radio")).toHaveLength(3);
-    // the deadline sits after them, inside the same form
+    // the deadline sits after the allocation cards, inside the same form
     const form = document.querySelector("form")!;
     expect(within(form).getByTestId("deadline-field")).toBeInTheDocument();
     expect(ADA.id).toBeTruthy();

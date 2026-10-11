@@ -18,7 +18,13 @@ export function CaptchaField({ captcha }: { captcha: CaptchaState }) {
       <View style={styles.row}>
         <View style={styles.imageBox}>
           {captcha.imageUrl ? (
-            <Image source={{ uri: captcha.imageUrl }} style={styles.image} resizeMode="cover" />
+            <Image
+              source={{ uri: captcha.imageUrl }}
+              style={styles.image}
+              resizeMode="contain"
+              accessible
+              accessibilityLabel="Security check image"
+            />
           ) : (
             <ActivityIndicator color={colors.muted} size="small" />
           )}
@@ -27,9 +33,12 @@ export function CaptchaField({ captcha }: { captcha: CaptchaState }) {
           onPress={() => void captcha.refresh()}
           disabled={captcha.loading}
           style={styles.refreshButton}
-          accessibilityLabel="Get a new CAPTCHA"
+          accessibilityRole="button"
+          accessibilityLabel="Refresh security check"
+          accessibilityState={{ disabled: captcha.loading }}
+          hitSlop={8}
         >
-          <RefreshCw size={18} color={colors.muted} />
+          <RefreshCw size={20} color={colors.muted} />
         </Pressable>
       </View>
       <TextField
@@ -40,7 +49,9 @@ export function CaptchaField({ captcha }: { captcha: CaptchaState }) {
         autoCapitalize="none"
         autoCorrect={false}
         accessibilityLabel="CAPTCHA answer"
+        accessibilityHint="Upper and lower case letters are different."
       />
+      <Text style={styles.hint}>Upper and lower case letters are different.</Text>
     </View>
   );
 }
@@ -50,9 +61,11 @@ function createStyles(colors: ThemeColors) {
     container: { gap: spacing.xs },
     label: { fontSize: 13, fontWeight: '600', color: colors.muted },
     row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    // Same 300:90 ratio the server renders at; `contain` so nothing is cropped.
     imageBox: {
-      height: 52,
-      width: 160,
+      flex: 1,
+      maxWidth: 300,
+      aspectRatio: 300 / 90,
       borderRadius: 12,
       borderWidth: 1,
       borderColor: colors.border,
@@ -63,5 +76,6 @@ function createStyles(colors: ThemeColors) {
     },
     image: { height: '100%', width: '100%' },
     refreshButton: { padding: spacing.sm },
+    hint: { fontSize: 12, color: colors.muted },
   });
 }

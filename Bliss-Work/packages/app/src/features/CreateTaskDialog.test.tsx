@@ -10,10 +10,11 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSession } from "../store/session";
 import { ADA, CHANNELS, DESIGN, DIRECTORY, GENERAL, GRACE, ME } from "../test/meetingFixtures";
+import { makeChannels, makeUsers, pagedChannels, pagedDirectory, stubScrollGeometry } from "../test/pagedPickerApi";
 import { setClockTime } from "../test/timePicker";
 
 const h = vi.hoisted(() => ({
-  api: { createTask: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn(), directory: vi.fn(), channels: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -45,16 +46,16 @@ async function title(user: ReturnType<typeof userEvent.setup>, text = "Ship the 
 }
 
 async function pickAssignee(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
-  await user.click(screen.getByRole("button", { name: "Add people" }));
-  await user.click(await screen.findByRole("button", { name }));
+  await user.click(await screen.findByRole("checkbox", { name }));
 }
 
-const peopleGroup = () => screen.getByRole("group", { name: "People" });
-const channelsGroup = () => screen.getByRole("group", { name: "Channels" });
+/** The Assign-to panel's two tabs, named by their live counts: "People (1)". */
+const tab = (name: "People" | "Channels", count?: number) =>
+  screen.getByRole("tab", { name: count === undefined ? new RegExp(`^${name}`) : new RegExp(`^${name} \\(${count}\\)`) });
 
 async function pickChannel(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
-  await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-  await user.click(await within(channelsGroup()).findByRole("button", { name }));
+  await user.click(tab("Channels"));
+  await user.click(await screen.findByRole("checkbox", { name }));
 }
 
 /** A start on Wednesday 16 Sep 2026, 09:00 — always in the future relative to
@@ -69,13 +70,22 @@ beforeEach(() => {
   vi.setSystemTime(OPENED_AT);
   useSession.setState({ user: ME });
   h.api.createTask.mockReset().mockResolvedValue({ taskId: "task-1" });
-  h.api.directory.mockReset().mockResolvedValue(DIRECTORY);
-  h.api.channels.mockReset().mockResolvedValue(CHANNELS);
+  h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(DIRECTORY));
+  h.api.channelsPage.mockReset().mockImplementation(pagedChannels(CHANNELS));
+  h.api.directory.mockReset();
+  h.api.channels.mockReset();
   onClose.mockReset();
   vi.mocked(toast.error).mockReset();
   vi.mocked(toast.success).mockReset();
 });
-afterEach(() => vi.useRealTimers());
+let restoreGeometry: () => void;
+beforeEach(() => {
+  restoreGeometry = stubScrollGeometry();
+});
+afterEach(() => {
+  restoreGeometry();
+  vi.useRealTimers();
+});
 
 describe("layout", () => {
   it("starts on the Now card, with no schedule fields showing", () => {
@@ -115,12 +125,12 @@ describe("layout", () => {
 });
 
 describe("Now", () => {
-  it("sends no scheduledAt/recurrence, and the assignees picked as chips", async () => {
+  it("sends no scheduledAt/recurrence, and the assignee picked", async () => {
     const user = openDialog();
     await title(user);
     await pickAssignee(user, /Ada Lovelace/);
 
-    expect(within(screen.getByRole("list", { name: "People" })).getByText("Ada Lovelace")).toBeInTheDocument();
+    expect(tab("People", 1)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
@@ -133,17 +143,17 @@ describe("Now", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("a chip's own remove button drops that assignee", async () => {
+  it("un-ticking a person drops that assignee", async () => {
     const user = openDialog();
+    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
-    await user.click(screen.getByRole("button", { name: /Grace Hopper/ }));
+    await pickAssignee(user, /Grace Hopper/);
+    expect(tab("People", 2)).toBeInTheDocument();
 
-    const group = peopleGroup();
-    expect(within(group).getAllByRole("listitem")).toHaveLength(2);
-    await user.click(within(group).getByRole("button", { name: "Remove Ada Lovelace" }));
-    const list = within(group).getByRole("list");
-    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
-    expect(within(list).getByText("Grace Hopper")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /Ada Lovelace/ }));
+    expect(tab("People", 1)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    expect(sent().assigneeIds).toEqual([GRACE.id]);
   });
 
   it("refuses to submit with no assignee picked", async () => {
@@ -154,12 +164,12 @@ describe("Now", () => {
     expect(h.api.createTask).not.toHaveBeenCalled();
   });
 
-  it("a channel alone is shown as a chip and sent as channelIds only", async () => {
+  it("a channel alone is counted on its tab and sent as channelIds only", async () => {
     const user = openDialog();
     await title(user);
     await pickChannel(user, /general/);
 
-    expect(within(screen.getByRole("list", { name: "Channels" })).getByText("general")).toBeInTheDocument();
+    expect(tab("Channels", 1)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Create Task" }));
     const body = sent();
@@ -169,86 +179,166 @@ describe("Now", () => {
     expect(toast.success).toHaveBeenCalledWith("Task sent to #general — 12 members");
   });
 
-  it("a channel chip's remove button clears the pick", async () => {
+  it("un-ticking a channel clears the pick", async () => {
     const user = openDialog();
     await pickChannel(user, /general/);
+    await user.click(screen.getByRole("checkbox", { name: /general/ }));
+    expect(tab("Channels", 0)).toBeInTheDocument();
+  });
+});
 
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Remove general" }));
-    expect(within(channelsGroup()).getByText("No channels added yet.")).toBeInTheDocument();
+describe("the Assign to panel in the dialog", () => {
+  it("sits in the right column, with Allocation and Deadline on the left beside Title and Description", () => {
+    openDialog();
+    const form = document.querySelector("form")!;
+    const [left, right] = [...form.children] as HTMLElement[];
+    expect(within(left!).getByPlaceholderText("What needs doing?")).toBeInTheDocument();
+    expect(within(left!).getByRole("radio", { name: /Now/ })).toBeInTheDocument();
+    expect(within(left!).getByLabelText("Deadline", { selector: "select" })).toBeInTheDocument();
+    expect(within(right!).getByRole("group", { name: /Assign to/ })).toBeInTheDocument();
+    expect(within(left!).queryByRole("group", { name: /Assign to/ })).not.toBeInTheDocument();
+  });
+
+  it("marks Assign to as required, and opens on People", () => {
+    openDialog();
+    expect(screen.getByRole("group", { name: /Assign to/ })).toHaveTextContent("Assign to*");
+    expect(tab("People").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("has no Add people / Add channels toggles", () => {
+    openDialog();
+    expect(screen.queryByRole("button", { name: "Add people" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add channels" })).not.toBeInTheDocument();
+  });
+
+  it("asks for one page of a large organisation, and never for the whole directory or channel list", async () => {
+    h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(makeUsers(5000)));
+    h.api.channelsPage.mockReset().mockImplementation(pagedChannels(makeChannels(800)));
+    const user = openDialog();
+    await screen.findByRole("checkbox", { name: /Person 000/ });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(30);
+    await user.click(tab("Channels"));
+    await screen.findByRole("checkbox", { name: /team-000/ });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(30); // the visible tab
+    expect(screen.getAllByRole("checkbox", { hidden: true })).toHaveLength(30 + 30); // both lists, one page each
+
+    expect(h.api.directoryPage).toHaveBeenCalledTimes(1);
+    expect(h.api.channelsPage).toHaveBeenCalledTimes(1);
+    expect(h.api.directory).not.toHaveBeenCalled();
+    expect(h.api.channels).not.toHaveBeenCalled();
+  });
+
+  it("keeps the list in a bounded scroll box inside the right column, so the dialog does not grow with the organisation", async () => {
+    h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(makeUsers(5000)));
+    openDialog();
+    await screen.findByRole("checkbox", { name: /Person 000/ });
+    const box = screen.getByLabelText("People to assign to");
+    expect(box).toHaveClass("absolute", "inset-0", "overflow-y-auto"); // takes no height of its own
+    expect(box.parentElement!.parentElement).toHaveClass("min-h-[20rem]", "flex-1", "overflow-hidden"); // a floor, and fills the column
+    expect(box.closest("form")!.children[1]).toContainElement(box); // …and that column is the right one
   });
 });
 
 describe("People + Channels together", () => {
-  it("shows both groups at all times, and opening one picker never hides the other", async () => {
+  it("keeps both counts in step as people and channels are toggled, across tabs", async () => {
     const user = openDialog();
-    await pickAssignee(user, /Ada Lovelace/);
-    await pickChannel(user, /general/);
-
-    // Both pickers are open and both groups' chips are still on screen.
-    expect(within(peopleGroup()).getByRole("textbox", { name: "Search your organisation" })).toBeInTheDocument();
-    expect(within(channelsGroup()).getByRole("textbox", { name: "Search your channels" })).toBeInTheDocument();
-    expect(within(peopleGroup()).getByRole("list")).toHaveTextContent("Ada Lovelace");
-    expect(within(channelsGroup()).getByRole("list")).toHaveTextContent("general");
-
-    // Closing People leaves Channels exactly as it was.
-    await user.click(within(peopleGroup()).getByRole("button", { name: "Done" }));
-    expect(within(channelsGroup()).getByRole("textbox", { name: "Search your channels" })).toBeInTheDocument();
-    expect(within(channelsGroup()).getByRole("list")).toHaveTextContent("general");
-    expect(within(peopleGroup()).getByRole("list")).toHaveTextContent("Ada Lovelace");
-  });
-
-  it("keeps chips, list state and counts in step as people and channels are toggled", async () => {
-    const user = openDialog();
-    expect(within(peopleGroup()).getByText("(0)")).toBeInTheDocument();
-    expect(within(channelsGroup()).getByText("(0)")).toBeInTheDocument();
+    expect(tab("People", 0)).toBeInTheDocument();
+    expect(tab("Channels", 0)).toBeInTheDocument();
 
     await pickAssignee(user, /Ada Lovelace/);
-    await user.click(within(peopleGroup()).getByRole("button", { name: /Grace Hopper/ }));
+    await pickAssignee(user, /Grace Hopper/);
     await pickChannel(user, /general/);
-    await user.click(within(channelsGroup()).getByRole("button", { name: /design/ }));
+    await user.click(screen.getByRole("checkbox", { name: /design/ }));
+    expect(tab("People", 2)).toBeInTheDocument();
+    expect(tab("Channels", 2)).toBeInTheDocument();
 
-    expect(within(peopleGroup()).getByText("(2)")).toBeInTheDocument();
-    expect(within(channelsGroup()).getByText("(2)")).toBeInTheDocument();
-    expect(within(peopleGroup()).getByRole("button", { name: /Ada Lovelace/, pressed: true })).toBeInTheDocument();
+    // Back on People the ticks are still there.
+    await user.click(tab("People"));
+    expect(screen.getByRole("checkbox", { name: /Ada Lovelace/ })).toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: /Ada Lovelace/ }));
+    expect(tab("People", 1)).toBeInTheDocument();
 
-    // Un-toggle in the list -> the chip and the count follow.
-    await user.click(within(peopleGroup()).getByRole("button", { name: /Ada Lovelace/, pressed: true }));
-    expect(within(peopleGroup()).getByText("(1)")).toBeInTheDocument();
-    expect(within(peopleGroup()).getByRole("list")).not.toHaveTextContent("Ada Lovelace");
-
-    // Remove a chip -> the list row un-checks and the count follows.
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Remove design" }));
-    expect(within(channelsGroup()).getByText("(1)")).toBeInTheDocument();
-    expect(within(channelsGroup()).getByRole("button", { name: /design/, pressed: false })).toBeInTheDocument();
+    await user.click(tab("Channels"));
+    await user.click(screen.getByRole("checkbox", { name: /design/ }));
+    expect(tab("Channels", 1)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /general/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /design/ })).not.toBeChecked();
   });
 
-  it("searches people and channels independently", async () => {
+  it("searches people and channels independently, on the server", async () => {
     const user = openDialog();
-    await user.click(screen.getByRole("button", { name: "Add people" }));
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
+    await screen.findByRole("checkbox", { name: /Ada Lovelace/ });
+    await user.type(screen.getByRole("searchbox", { name: "Search people in your organisation" }), "grace");
+    await vi.waitFor(() => expect(h.api.directoryPage).toHaveBeenCalledWith(expect.objectContaining({ q: "grace", offset: 0 })));
+    await vi.waitFor(() => expect(screen.queryByRole("checkbox", { name: /Ada Lovelace/ })).not.toBeInTheDocument());
+    expect(screen.getByRole("checkbox", { name: /Grace Hopper/ })).toBeInTheDocument();
 
-    await user.type(screen.getByRole("textbox", { name: "Search your organisation" }), "grace");
-    expect(within(peopleGroup()).getByRole("button", { name: /Grace Hopper/ })).toBeInTheDocument();
-    expect(within(peopleGroup()).queryByRole("button", { name: /Ada Lovelace/ })).not.toBeInTheDocument();
-    // The channel list is untouched by the people query.
-    expect(within(channelsGroup()).getByRole("button", { name: /general/ })).toBeInTheDocument();
-
-    await user.type(screen.getByRole("textbox", { name: "Search your channels" }), "des");
-    expect(within(channelsGroup()).queryByRole("button", { name: /general/ })).not.toBeInTheDocument();
-    expect(within(channelsGroup()).getByRole("button", { name: /design/ })).toBeInTheDocument();
+    await user.click(tab("Channels"));
+    await screen.findByRole("checkbox", { name: /general/ });
+    expect(screen.getByRole("searchbox", { name: "Search your channels" })).toHaveValue(""); // not the people query
+    await user.type(screen.getByRole("searchbox", { name: "Search your channels" }), "des");
+    await vi.waitFor(() => expect(screen.queryByRole("checkbox", { name: /general/ })).not.toBeInTheDocument());
+    expect(screen.getByRole("checkbox", { name: /design/ })).toBeInTheDocument();
   });
 
   it("offers the caller as an assignee, marked (You)", async () => {
     const user = openDialog();
     await pickAssignee(user, /Me Myself/);
-    expect(within(peopleGroup()).getAllByText(/\(You\)/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/\(You\)/).length).toBeGreaterThan(0);
+  });
+
+  it("a pick that a later search hides is still sent", async () => {
+    const user = openDialog();
+    await title(user);
+    await pickAssignee(user, /Ada Lovelace/);
+    await user.type(screen.getByRole("searchbox", { name: "Search people in your organisation" }), "grace");
+    await vi.waitFor(() => expect(screen.queryByRole("checkbox", { name: /Ada Lovelace/ })).not.toBeInTheDocument());
+    await pickAssignee(user, /Grace Hopper/);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    expect(sent().assigneeIds.sort()).toEqual([ADA.id, GRACE.id].sort());
+  });
+
+  it("a person picked from a LATER page is sent too, alongside one from the first", async () => {
+    h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(makeUsers(100)));
+    const user = openDialog();
+    await title(user);
+    await pickAssignee(user, /Person 001/);
+    const box = screen.getByLabelText("People to assign to");
+    box.scrollTop = box.scrollHeight - box.clientHeight;
+    fireEvent.scroll(box);
+    await pickAssignee(user, /Person 040/);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    const body = sent();
+    expect(body.assigneeIds).toHaveLength(2);
+    expect(body.assigneeIds).toEqual(expect.arrayContaining([makeUsers(1, 1)[0]!.id, makeUsers(1, 40)[0]!.id]));
+  });
+
+  it("a channel picked from a later page and one found by search are both sent as channelIds", async () => {
+    h.api.channelsPage.mockReset().mockImplementation(pagedChannels(makeChannels(75)));
+    const user = openDialog();
+    await title(user);
+    await user.click(tab("Channels"));
+    await user.click(await screen.findByRole("checkbox", { name: /team-001/ }));
+    const box = screen.getByLabelText("Channels to assign to");
+    box.scrollTop = box.scrollHeight - box.clientHeight;
+    fireEvent.scroll(box);
+    await user.click(await screen.findByRole("checkbox", { name: /team-045/ }));
+    await user.type(screen.getByRole("searchbox", { name: "Search your channels" }), "team-070");
+    await user.click(await screen.findByRole("checkbox", { name: /team-070/ }));
+    expect(tab("Channels", 3)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    const ids = makeChannels(75);
+    expect(sent().channelIds.sort()).toEqual([ids[1]!.id, ids[45]!.id, ids[70]!.id].sort());
   });
 
   it("people + channel is ONE request carrying both, with the channel left as a channel", async () => {
     const user = openDialog();
     await title(user);
     await pickAssignee(user, /Ada Lovelace/);
-    await user.click(within(peopleGroup()).getByRole("button", { name: /Grace Hopper/ }));
+    await pickAssignee(user, /Grace Hopper/);
     await pickChannel(user, /general/);
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
@@ -267,27 +357,12 @@ describe("People + Channels together", () => {
     const user = openDialog();
     await title(user);
     await pickChannel(user, /general/);
-    await user.click(within(channelsGroup()).getByRole("button", { name: /design/ }));
+    await user.click(screen.getByRole("checkbox", { name: /design/ }));
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
     const body = sent();
     expect(body.channelIds.sort()).toEqual([GENERAL.id, DESIGN.id].sort());
     expect(body.assigneeIds).toBeUndefined();
-  });
-
-  it("people + several channels is still ONE request carrying all of them", async () => {
-    const user = openDialog();
-    await title(user);
-    await pickAssignee(user, /Ada Lovelace/);
-    await user.click(within(peopleGroup()).getByRole("button", { name: /Grace Hopper/ }));
-    await pickChannel(user, /general/);
-    await user.click(within(channelsGroup()).getByRole("button", { name: /design/ }));
-    await user.click(screen.getByRole("button", { name: "Create Task" }));
-
-    const body = sent();
-    expect(body.assigneeIds.sort()).toEqual([ADA.id, GRACE.id].sort());
-    expect(body.channelIds.sort()).toEqual([GENERAL.id, DESIGN.id].sort());
-    expect(body.channelId).toBeUndefined();
   });
 
   it("a person who may also be in the picked channel is sent once, as picked — one request, no client-side merging", async () => {
@@ -345,13 +420,34 @@ describe("People + Channels together", () => {
 
     await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not create task", expect.anything()));
     expect(onClose).not.toHaveBeenCalled();
-    expect(within(peopleGroup()).getByText("(1)")).toBeInTheDocument();
-    expect(within(channelsGroup()).getByText("(1)")).toBeInTheDocument();
+    expect(tab("People", 1)).toBeInTheDocument();
+    expect(tab("Channels", 1)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Create Task" }));
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(h.api.createTask).toHaveBeenCalledTimes(2);
     expect(h.api.createTask.mock.calls[1]![0]).toMatchObject({ assigneeIds: [ADA.id], channelIds: [GENERAL.id] });
+  });
+});
+
+describe("duplicate submission", () => {
+  it("sends one request when the form is submitted twice while the first is in flight", async () => {
+    let resolve!: (v: { taskId: string; scheduleId: null }) => void;
+    h.api.createTask.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    const user = openDialog();
+    await title(user);
+    await pickAssignee(user, /Ada Lovelace/);
+    const form = (screen.getByRole("button", { name: "Create Task" }) as HTMLButtonElement).form!;
+    // Two submits in the same tick (Enter held down / a double click): React has
+    // not re-rendered with isPending yet, so only a latch can stop the second.
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await new Promise((r) => setTimeout(r, 0)); // mutate() invokes mutationFn on a microtask
+    expect(h.api.createTask).toHaveBeenCalledTimes(1);
+
+    resolve({ taskId: "t1", scheduleId: null });
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(h.api.createTask).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -147,7 +147,8 @@
       "startInPast": "L'heure de début ne peut pas être dans le passé.",
       "endRequired": "La date et l'heure de fin sont obligatoires.",
       "endBeforeStart": "L'heure de fin doit être postérieure à l'heure de début.",
-      "peopleUnavailable": "Certains des membres ou canaux que vous avez choisis ne sont plus disponibles."
+      "peopleUnavailable": "Certains des membres ou canaux que vous avez choisis ne sont plus disponibles.",
+      "audienceRequired": "Ajoutez au moins une personne ou un canal."
     },
     "cancel": "Annuler",
     "scheduleMeeting": "Planifier la réunion",
@@ -278,7 +279,14 @@
     "detailsTitle": "Détails de la réunion",
     "membersDescription": "Ajouter des personnes à cette réunion",
     "membersEmptyHint": "Invitez des personnes à votre réunion",
-    "channelsDescription": "Ajouter des canaux à cette réunion"
+    "channelsDescription": "Ajouter des canaux à cette réunion",
+    "add": {
+      "label": "Ajouter",
+      "people": "Personnes",
+      "channels": "Canaux",
+      "loadingMore": "Chargement…",
+      "loadError": "Impossible de charger la page suivante."
+    }
   },
   "schedule": {
     "error": "Impossible de planifier cet appel",

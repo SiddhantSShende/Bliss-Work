@@ -184,6 +184,10 @@
         "reset_completed": "hat das Passwort zurückgesetzt"
       },
       "email": { "verified": "hat die eigene E-Mail-Adresse bestätigt" },
+      "file": {
+        "opened": "hat eine Datei geöffnet",
+        "downloaded": "hat eine Datei heruntergeladen"
+      },
       "member": {
         "role_changed": "hat eine Rolle geändert",
         "deactivated": "hat ein Mitglied deaktiviert",
@@ -229,6 +233,10 @@
       "auth": "Anmeldungen",
       "security": "Sicherheit"
     },
+    "fileContext": {
+      "direct": "im Chat mit {{name}}",
+      "channel": "in #{{name}}"
+    },
     "empty": {
       "title": "Noch keine Aktivität erfasst",
       "hint": "Aktivität erscheint hier, sobald {{brand}} genutzt wird."
@@ -251,6 +259,7 @@
       "message": { "sent": "Nachricht gesendet" },
       "mail": { "attachment": { "downloaded": "Mail-Anhang heruntergeladen" } },
       "attachment": { "opened": "Datei geöffnet", "downloaded": "Datei heruntergeladen" },
+      "file": { "opened": "Datei geöffnet", "downloaded": "Datei heruntergeladen" },
       "channel": { "message": { "sent": "In einem Kanal gepostet" } },
       "conversation": { "ignored": "Unterhaltung ignoriert" },
       "user": { "blocked": "Jemanden gesperrt", "unblocked": "Jemanden entsperrt" },

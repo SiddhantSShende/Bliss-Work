@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { ScrollText } from 'lucide-react-native';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { fileContextLabel } from '@taskboard/app/features/member/activityLabels';
 import { useRuntime } from '@taskboard/app/lib/runtime';
 import type { AuditEntryDTO, MemberDTO } from '@taskboard/shared';
 import { Avatar } from '../../../components/Avatar';
@@ -28,6 +29,8 @@ const LABELS: Record<string, string> = {
   'member.deactivated': 'deactivated a member',
   'member.reactivated': 'reactivated a member',
   'member.removed': 'removed a member',
+  'file.opened': 'opened a file',
+  'file.downloaded': 'downloaded a file',
 };
 
 /**
@@ -92,6 +95,7 @@ export function SecurityTab({ member, members }: { member: MemberDTO; members: M
 function AuditRow({ colors, entry, actor }: { colors: ThemeColors; entry: AuditEntryDTO; actor?: MemberDTO }) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const change = renderChange(entry.meta);
+  const file = renderFile(entry);
   return (
     <View style={styles.row}>
       <Avatar name={actor?.displayName ?? 'System'} src={actor?.avatarUrl} size={32} />
@@ -100,6 +104,7 @@ function AuditRow({ colors, entry, actor }: { colors: ThemeColors; entry: AuditE
           <Text style={styles.actor}>{actor?.displayName ?? 'System'}</Text> {LABELS[entry.action] ?? entry.action}
         </Text>
         <Text style={styles.meta}>{new Date(entry.at).toLocaleString()}</Text>
+        {file ? <Text style={styles.meta} numberOfLines={2}>{file}</Text> : null}
         {change ? (
           <View style={styles.change}>
             <Text style={styles.meta}>{change}</Text>
@@ -115,6 +120,17 @@ function renderChange(meta: Record<string, unknown> | null): string | null {
   if (!meta || meta.to == null) return null;
   const fmt = (v: unknown) => (Array.isArray(v) ? v.join(', ') : String(v));
   return meta.from != null ? `${fmt(meta.from)} → ${fmt(meta.to)}` : fmt(meta.to);
+}
+
+/** A file open/download's name and where it was ("image.png · in Chat with Divya
+ *  Bhamri"), worded by the same helper as web. Null for every other entry, and
+ *  for a file entry recorded without either part. */
+function renderFile(entry: AuditEntryDTO): string | null {
+  if (entry.action !== 'file.opened' && entry.action !== 'file.downloaded') return null;
+  const detail: Record<string, string> = {};
+  for (const [key, value] of Object.entries(entry.meta ?? {})) if (typeof value === 'string') detail[key] = value;
+  const parts = [detail.filename?.trim(), fileContextLabel({ action: entry.action, detail })].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 function createStyles(colors: ThemeColors) {

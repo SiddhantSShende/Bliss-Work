@@ -2,13 +2,14 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Bell, BellOff, MessageSquarePlus, MoreVertical, Pin, Plus, Search, Trash2 } from "lucide-react";
+import { Bell, BellOff, MessageSquarePlus, MoreVertical, Phone, Pin, Plus, Search, Trash2 } from "lucide-react";
 import { Avatar, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { displayNameOf, useUserLabels } from "../lib/userLabel";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
+import { GroupCallDialog } from "../features/GroupCallDialog";
 import { NewChatDialog } from "../features/NewChatDialog";
 import { usePresence } from "../lib/usePresence";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
@@ -120,6 +121,7 @@ export function ChatsList() {
   const me = useSession((s) => s.user)!;
   const { selectedId, openChat, closeChat } = useSelectedChat();
   const [newOpen, setNewOpen] = useState(false);
+  const [groupCallOpen, setGroupCallOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "unread" | "mentions">("all");
   const [deleteTarget, setDeleteTarget] = useState<ConversationDTO | null>(null);
@@ -178,13 +180,23 @@ export function ChatsList() {
       <ListHeader
         title={t("chatsList.title")}
         action={
-          <button
-            onClick={() => setNewOpen(true)}
-            title={t("chatsList.newChat")}
-            className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-soft transition hover:brightness-105"
-          >
-            <Plus size={16} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setGroupCallOpen(true)}
+              title={t("chatsList.groupCall")}
+              aria-label={t("chatsList.groupCall")}
+              className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-2 text-fg transition hover:bg-surface-2/70"
+            >
+              <Phone size={15} />
+            </button>
+            <button
+              onClick={() => setNewOpen(true)}
+              title={t("chatsList.newChat")}
+              className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg shadow-soft transition hover:brightness-105"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
         }
       />
       <div className="space-y-2 border-b border-border/60 px-3 py-2">
@@ -300,6 +312,7 @@ export function ChatsList() {
         )}
       </div>
       <NewChatDialog open={newOpen} onClose={() => setNewOpen(false)} />
+      <GroupCallDialog open={groupCallOpen} onClose={() => setGroupCallOpen(false)} />
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}

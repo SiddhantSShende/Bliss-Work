@@ -44,6 +44,7 @@ export function ChatAssetsSheet({
   scopeId,
   meId,
   channelLocked,
+  contextName,
 }: {
   open: boolean;
   onClose: () => void;
@@ -61,10 +62,13 @@ export function ChatAssetsSheet({
   meId: string;
   /** Channel only: its `isLocked` — see useAttachmentActivity. */
   channelLocked?: boolean;
+  /** What the chat or channel is called, recorded with the activity — see
+   *  useAttachmentActivity. Not `title`: that carries the "#" and is a heading. */
+  contextName?: string;
 }) {
   const { t } = useTranslation("chatList");
   const { config } = useRuntime();
-  const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId, channelLocked);
+  const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId, channelLocked, contextName);
   const [tab, setTab] = useState<AssetTab>("media");
   // A single doc opened from the Docs tab, previewed in the SAME Lightbox the
   // inline chat bubble and the Media tab use — one in-app viewer, not a

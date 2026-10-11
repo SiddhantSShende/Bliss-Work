@@ -23,10 +23,9 @@ export { StatTile, Sparkline } from "./components/charts/StatTile";
 export { formatMs } from "./components/charts/scale";
 export { UiStringsProvider, useUiStrings, DEFAULT_UI_STRINGS, type UiStrings } from "./strings";
 export { ThemeProvider, useTheme, hasStoredThemeChoice, type Theme, type ThemePrefs } from "./theme/ThemeProvider";
+export { applyTheme } from "./theme/applyTheme";
 export {
-  CUSTOM_THEME_CLASS,
   customThemeGradient,
-  customThemeStyle,
   isCustomThemeActive,
   readStoredCustomTheme,
   type CustomTheme,

@@ -151,7 +151,7 @@ func (s *Server) RunCallSweeper(ctx context.Context) {
 }
 
 // sweepOverdueCalls runs one pass of every rule: topping up repeating meetings,
-// then the three that end or start calls. Separated from the loop
+// then the four that end or start calls. Separated from the loop
 // so it is testable without a clock.
 //
 // All three run every tick, and none short-circuits another: a call can be
@@ -215,5 +215,27 @@ func (s *Server) sweepOverdueCalls(ctx context.Context) {
 		s.endedCallSideEffects(ctx, c, "")
 		s.log.Info("call ended: its host has been gone longer than the grace period",
 			"call_id", c.ID, "kind", c.Kind, "grace", store.HostGracePeriod)
+	}
+
+	abandoned, err := s.store.ExpireAbandonedCalls(ctx, store.AbandonedCallAfter, store.OverdueSweepLimit)
+	if err != nil {
+		s.log.Warn("call sweep failed", "rule", "abandoned", "err", err)
+		return
+	}
+	for _, c := range abandoned {
+		s.endedCallSideEffects(ctx, c, "")
+		s.log.Info("call ended: nobody has been in it, and it has no scheduled end",
+			"call_id", c.ID, "kind", c.Kind, "idle", store.AbandonedCallAfter)
+	}
+
+	emptied, err := s.store.ExpireEmptyConferences(ctx, store.ConferenceEmptyGracePeriod, store.OverdueSweepLimit)
+	if err != nil {
+		s.log.Warn("call sweep failed", "rule", "empty_conference", "err", err)
+		return
+	}
+	for _, c := range emptied {
+		s.endedCallSideEffects(ctx, c, "")
+		s.log.Info("call ended: an ad-hoc conference has had nobody in it longer than the grace period",
+			"call_id", c.ID, "kind", c.Kind, "grace", store.ConferenceEmptyGracePeriod)
 	}
 }

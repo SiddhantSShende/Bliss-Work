@@ -10,10 +10,11 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSession } from "../store/session";
 import { CHANNELS, DIRECTORY, ME } from "../test/meetingFixtures";
+import { channelsPageOf, directoryPageOf } from "../test/meetingPaging";
 
 const h = vi.hoisted(() => ({
   isDark: true,
-  api: { scheduleMeeting: vi.fn(), createCallInvite: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: { scheduleMeeting: vi.fn(), createCallInvite: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({
   useRuntime: () => ({ api: h.api, config: { webBaseUrl: "https://app.test" } }),
@@ -41,16 +42,19 @@ async function openDialog() {
     </QueryClientProvider>,
   );
   const user = userEvent.setup();
-  // Weekly repeat and an open picker, so the optional controls are painted too.
+  // Weekly repeat, the People list loaded with a row picked, and the Channels tab's list
+  // too, so the optional controls and every list state are painted.
   await user.selectOptions(screen.getByLabelText("Repeat"), "WEEKLY");
-  await user.click(screen.getByRole("button", { name: /Add Members/i }));
+  await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
+  await user.click(screen.getByRole("tab", { name: /^Channels/ }));
+  await screen.findByRole("button", { name: /general/ });
   return screen.getByRole("dialog", { name: "New Meeting" });
 }
 
 beforeEach(() => {
   useSession.setState({ user: ME });
-  h.api.directory.mockReset().mockResolvedValue(DIRECTORY);
-  h.api.channels.mockReset().mockResolvedValue(CHANNELS);
+  h.api.directoryPage.mockReset().mockImplementation(directoryPageOf(DIRECTORY));
+  h.api.channelsPage.mockReset().mockImplementation(channelsPageOf(CHANNELS));
 });
 
 describe("New Meeting dialog palette", () => {

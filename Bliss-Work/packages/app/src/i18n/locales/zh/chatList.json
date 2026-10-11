@@ -50,7 +50,8 @@
       "message": "这将为你删除此聊天记录，对方仍会保留自己的副本。",
       "confirmLabel": "删除聊天"
     },
-    "deleteErrorToast": "无法删除此聊天"
+    "deleteErrorToast": "无法删除此聊天",
+    "groupCall": "群组通话"
   },
   "channelsList": {
     "title": "频道",

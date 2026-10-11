@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { customThemeStyle, isCustomColors, isCustomTheme, readableForeground } from "./customTheme";
+import { isCustomColors, isCustomTheme, readableForeground } from "./customTheme";
+import { customThemeStyle } from "./customThemeTokens";
 
 const WHITE = "#ffffff";
 const DARK = "#000000";

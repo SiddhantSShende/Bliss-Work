@@ -22,6 +22,9 @@ export function MemberPicker({
   onCancel,
   onOrganization,
   confirmLabel,
+  minSelected = 1,
+  maxSelected,
+  hint,
 }: {
   exclude: Set<string>;
   busy?: boolean;
@@ -30,6 +33,13 @@ export function MemberPicker({
   /** Optional organization-wide action, offered to organization owners/admins. */
   onOrganization?: (userIds: string[]) => void;
   confirmLabel?: string;
+  /** How few / how many people the confirm action accepts. The default is "at
+   *  least one" — a group call needs two, and is capped. */
+  minSelected?: number;
+  maxSelected?: number;
+  /** A line under the list, from the current selection size — the explanation
+   *  for a confirm button that is disabled by minSelected / maxSelected. */
+  hint?: (selectedCount: number) => string | null;
 }) {
   const { t } = useTranslation("org");
   const { q, setQ, candidates, all } = usePeopleSearch(exclude);
@@ -84,6 +94,7 @@ export function MemberPicker({
           })
         )}
       </div>
+      {hint?.(selected.size) && <p className="px-1 text-xs text-muted">{hint(selected.size)}</p>}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
           {t("org:memberPicker.cancelButton")}
@@ -91,7 +102,7 @@ export function MemberPicker({
         <Button
           size="sm"
           loading={busy}
-          disabled={selected.size === 0}
+          disabled={selected.size === 0 || selected.size < minSelected || (maxSelected !== undefined && selected.size > maxSelected)}
           onClick={() => onConfirm([...selected])}
         >
           {confirmLabelResolved} {selected.size || ""}

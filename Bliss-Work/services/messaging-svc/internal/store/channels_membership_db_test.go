@@ -190,7 +190,7 @@ func TestAddChannelMembersPersistsSingleSystemMessageAndJoinedEvent(t *testing.T
 	}); err != nil {
 		t.Fatalf("read member-added system message: %v", err)
 	}
-	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Alex Lee joined the channel" {
+	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Jordan Doe added Alex Lee to the channel" {
 		t.Errorf("system message = %q", got)
 	}
 	if senderID != actorID || kind != MessageKindChannelMemberAdded {

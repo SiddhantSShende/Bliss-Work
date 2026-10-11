@@ -40,28 +40,21 @@ its own file. See captcha_image.py's docstring for the anti-OCR rationale.
 from __future__ import annotations
 
 import secrets
-import string
 import time
 
 from fastapi import HTTPException, status
 
 from . import captcha_image
+from .captcha_alphabet import ALPHABET
 from .. import service
 from ..config import settings
 from ..logging_config import log
 
-# A-Z a-z 0-9, minus the classic visually-confusable set (0/O, 1/l/I) — kept
-# out because heavier per-character distortion (rotation, scale, warp; see
-# captcha_image.py) makes an already-ambiguous pair harder still to call
-# correctly, and excluding 5 of 62 characters costs negligible entropy.
-_AMBIGUOUS = "0O1lI"
-_ALPHABET = "".join(c for c in string.ascii_letters + string.digits if c not in _AMBIGUOUS)
-
-
 def _generate_value(length: int) -> str:
     """Cryptographically secure — `secrets.choice` is CSPRNG-backed (os.urandom
-    under the hood), unlike `random.choice`."""
-    return "".join(secrets.choice(_ALPHABET) for _ in range(length))
+    under the hood), unlike `random.choice`. Draws ONLY from
+    captcha_alphabet.ALPHABET (mixed case, look-alikes removed — see there)."""
+    return "".join(secrets.choice(ALPHABET) for _ in range(length))
 
 
 class _CaptchaStore:
@@ -207,11 +200,16 @@ class _CaptchaStore:
 _store = _CaptchaStore()
 
 
-async def generate_challenge() -> tuple[str, bytes, int]:
-    """(captcha_id, png_bytes, ttl_seconds). Also the "regenerate" path — the
-    client just calls this again for a completely fresh id/value/image; the
-    old id is left to expire or be exhausted on its own, still independently
-    single-use and attempt-limited."""
+async def generate_challenge(replaces: str | None = None) -> tuple[str, bytes, int]:
+    """(captcha_id, png_bytes, ttl_seconds). Also the "regenerate" path: a
+    client that is refreshing passes the id it is discarding as `replaces`, and
+    that challenge is invalidated here — so a refresh cannot leave an older
+    image still answerable (and its remaining attempts still spendable)
+    alongside the new one. Knowing the id is the only authority needed: it is
+    an unguessable one-time value only the page that holds it has seen, and
+    invalidating it can at worst make that page ask for a new one."""
+    if replaces:
+        await _store.invalidate(replaces)
     value = _generate_value(settings.captcha_length)
     captcha_id = service.new_uuid()
     await _store.put(captcha_id, service.sha256_bytes(value), settings.captcha_ttl_seconds)
@@ -258,7 +256,10 @@ async def verify_and_consume(
     if not captcha_id or not captcha_value:
         raise _INVALID_CAPTCHA
 
-    submitted_hash = service.sha256_bytes(captcha_value)
+    # Whitespace only: a phone keyboard's autocomplete or a pasted answer often
+    # adds a trailing space, and no character in the alphabet is whitespace.
+    # The answer is otherwise compared exactly — it is CASE-SENSITIVE.
+    submitted_hash = service.sha256_bytes(captcha_value.strip())
     if not await _store.validate_and_consume(
         captcha_id,
         submitted_hash,

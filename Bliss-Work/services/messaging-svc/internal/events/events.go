@@ -511,6 +511,10 @@ type CallLifecycle struct {
 	// the host who ended or started it, the person who arrived in the lobby, or
 	// the one who started sharing their screen.
 	ActorID string `json:"actorId,omitempty"`
+	// ActorName is the actor's display name, on call.ring only: it is what lets
+	// "X added you to a conference call" be written without every consumer
+	// resolving a user.
+	ActorName string `json:"actorName,omitempty"`
 	// ShareSource is SCREEN, WINDOW or TAB, on the screen-share events only.
 	ShareSource string `json:"shareSource,omitempty"`
 	// Members is who should RECEIVE this, which is usually but not always the

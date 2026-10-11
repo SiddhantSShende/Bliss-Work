@@ -277,6 +277,26 @@
         "4": "第4",
         "5": "第5"
       }
+    },
+    "assign": {
+      "required": "必須",
+      "peopleTab": "メンバー ({{count}})",
+      "channelsTab": "チャンネル ({{count}})",
+      "peopleSearch": "組織内のメンバーを検索…",
+      "channelsSearch": "チャンネルを検索…",
+      "peopleSearchLabel": "組織内のメンバーを検索",
+      "channelsSearchLabel": "チャンネルを検索",
+      "peopleListLabel": "割り当てるメンバー",
+      "channelsListLabel": "割り当てるチャンネル",
+      "loading": "読み込み中…",
+      "peopleLoadingMore": "さらにメンバーを読み込み中…",
+      "channelsLoadingMore": "さらにチャンネルを読み込み中…",
+      "peopleEmpty": "検索に一致するメンバーはいません。",
+      "channelsEmpty": "検索に一致するチャンネルはありません。",
+      "loadError": "このリストを読み込めませんでした。",
+      "retry": "再試行",
+      "locked": "ロックされたチャンネル",
+      "members_other": "{{count}}人のメンバー"
     }
   },
   "exportTasksDialog": {

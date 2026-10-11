@@ -68,7 +68,8 @@
     "titles": {
       "task": "Tâche",
       "chat": "Discussion",
-      "invite": "Invitation à une réunion"
+      "invite": "Invitation à une réunion",
+      "call": "Appel entrant"
     }
   }
 }

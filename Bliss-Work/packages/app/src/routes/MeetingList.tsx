@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { AlertCircle, Calendar } from "lucide-react";
@@ -22,6 +22,7 @@ import {
   type MeetingBucket,
   type MeetingFilter,
 } from "../lib/meetingView";
+import { useLapseRevalidation } from "../lib/useLapseRevalidation";
 import { MeetingRow } from "../features/MeetingRow";
 import { MeetingFilterMenu } from "../features/MeetingFilterMenu";
 
@@ -79,6 +80,12 @@ export function MeetingList({
   // Upcoming + Live. One request for the section, shared with everything else
   // that reads qk.calls.
   const live = useQuery({ queryKey: qk.calls, queryFn: () => api.myCalls() });
+  // The server decides what is live. A meeting that reaches its end while this
+  // page is open is dropped by asking the server again when it is due, not by
+  // this list second-guessing it from the local clock.
+  const { refetch: refetchLive } = live;
+  const revalidateLive = useCallback(() => void refetchLive(), [refetchLive]);
+  useLapseRevalidation(live.data, revalidateLive);
 
   // Past, paged. Only fetched while Past is open — nobody's history should be
   // downloaded because they glanced at their calendar.

@@ -7,6 +7,7 @@ import { CallSession, type CallMedia } from "./callManager";
 import { isGetUserMediaDenied } from "./useCallRoom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { addCallParticipants } from "./addCallParticipants";
 import { createRingtone, primeRingtoneAudio } from "./ringtone";
 import {
   notifyIncomingCall,
@@ -467,14 +468,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       // nobody, rather than to add someone into a room the other two can never
       // move to.
       await api.checkCallReady(record);
-      for (const id of userIds) await api.addCallParticipant(record, id);
+      const { added, failed } = await addCallParticipants((id) => api.addCallParticipant(record, id), userIds);
+      // Nobody added: the call is still the call it was, and the caller is told why.
+      if (added.length === 0 && failed.length > 0) throw failed[0]!.error;
+      if (failed.length > 0) toast.warning(t("callRoom:notify.addedSome", { added: added.length, total: userIds.length }));
       // Take the peer across, then move ourselves. Whoever was added is rung by
       // the server and joins the same room from their side.
       s.send({ t: "room", callId: record });
       enterRoom(record);
       void qc.invalidateQueries({ queryKey: qk.calls });
     },
-    [api, enterRoom, qc],
+    [api, enterRoom, qc, t],
   );
 
   // Inbound call + media signaling. Stable subscription (reads live state via

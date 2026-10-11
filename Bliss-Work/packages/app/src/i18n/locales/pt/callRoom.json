@@ -10,6 +10,7 @@
     "screenShareStopped": "Compartilhamento de tela interrompido",
     "screenShareStoppedDescription": "A reconexão à chamada encerrou o seu compartilhamento — inicie-o novamente se ainda estiver apresentando.",
     "meetingEnded": "Esta reunião foi encerrada",
+    "meetingEnded_call": "Esta chamada foi encerrada",
     "micBlocked": "Microfone bloqueado",
     "micBlockedHint": "Verifique a permissão de microfone deste app.",
     "micUnavailable": "Microfone indisponível",
@@ -17,7 +18,8 @@
     "cameraBlocked": "Câmera bloqueada",
     "cameraBlockedHint": "Verifique a permissão de câmera deste app.",
     "cameraUnavailable": "Câmera indisponível",
-    "cameraUnavailableHint": "Verifique se há uma câmera conectada e se ela não está em uso por outro app."
+    "cameraUnavailableHint": "Verifique se há uma câmera conectada e se ela não está em uso por outro app.",
+    "addedSome": "{{added}} de {{total}} pessoas adicionadas; não foi possível adicionar as demais"
   },
   "preJoin": {
     "readyToJoinLabel": "Pronto para entrar",
@@ -38,7 +40,9 @@
     "cameraOn": "Ligar câmera",
     "heading": "Pronto para entrar?",
     "description": "Confira sua câmera e seu microfone antes de entrar na reunião.",
-    "joinButton": "Entrar na reunião"
+    "description_call": "Confira sua câmera e seu microfone antes de entrar na chamada.",
+    "joinButton": "Entrar na reunião",
+    "joinButton_call": "Entrar na chamada"
   },
   "waitingRoom": {
     "canStartHint": "Você é a primeira pessoa aqui. Inicie a reunião para deixar os demais entrarem.",
@@ -49,16 +53,28 @@
   },
   "joinFailed": {
     "anotherDeviceTitle": "Você já está nesta reunião em outro dispositivo",
+    "anotherDeviceTitle_call": "Você já está nesta chamada em outro dispositivo",
     "anotherDeviceHint": "Você está conectado a esta reunião em outro dispositivo no momento.",
+    "anotherDeviceHint_call": "Você está conectado a esta chamada em outro dispositivo no momento.",
     "switchHere": "Mudar para este",
     "displacedTitle": "Você entrou nesta reunião em outro dispositivo",
+    "displacedTitle_call": "Você entrou nesta chamada em outro dispositivo",
     "displacedHint": "Esta reunião agora está ativa em outro dispositivo.",
+    "displacedHint_call": "Esta chamada agora está ativa em outro dispositivo.",
     "tokenTitle": "Não foi possível obter as credenciais da reunião",
+    "tokenTitle_call": "Não foi possível obter as credenciais da chamada",
     "disconnectedTitle": "Desconectado da reunião",
+    "disconnectedTitle_call": "Desconectado da chamada",
     "genericTitle": "Não foi possível conectar à reunião",
+    "genericTitle_call": "Não foi possível conectar à chamada",
     "tokenHint": "A solicitação do token não foi concluída. Verifique sua conexão e tente novamente.",
+    "endedTitle": "Esta reunião terminou",
+    "endedTitle_call": "Esta chamada terminou",
+    "endedHint": "Ela já acabou, então não há nada para entrar.",
     "disconnectedHint": "A conexão com a reunião foi perdida e não pôde ser recuperada. Verifique sua conexão e entre novamente.",
+    "disconnectedHint_call": "A conexão com a chamada foi perdida e não pôde ser recuperada. Verifique sua conexão e entre novamente.",
     "genericHint": "A conexão com o servidor da reunião não foi estabelecida. Verifique sua conexão e tente novamente.",
+    "genericHint_call": "A conexão com o servidor da chamada não foi estabelecida. Verifique sua conexão e tente novamente.",
     "leave": "Sair",
     "retrying": "Tentando novamente…",
     "retry": "Tentar novamente"
@@ -66,6 +82,7 @@
   "room": {
     "defaultTitleChannel": "Chamada do canal",
     "defaultTitleMeeting": "Reunião",
+    "defaultTitleConference": "Chamada em conferência",
     "youFallbackName": "Você",
     "addPeopleDefaultTitle": "Adicionar pessoas",
     "channelAlreadyInvited": "Todas as pessoas do canal já foram convidadas",
@@ -87,7 +104,13 @@
       "recordingSaved": "Gravação salva em seus downloads",
       "recordingUnsupported": "Este navegador não consegue gravar reuniões",
       "recordingStarted": "Gravação iniciada — ela será salva neste dispositivo",
-      "inviteLinkCopied": "Link de convite copiado"
+      "inviteLinkCopied": "Link de convite copiado",
+      "couldNotEndForEveryone": "Não foi possível encerrar a chamada para todos"
+    },
+    "endForEveryoneConfirm": {
+      "title": "Encerrar a chamada para todos?",
+      "message": "Todas as pessoas que ainda estiverem nesta chamada serão desconectadas. Essa ação não pode ser desfeita.",
+      "confirm": "Encerrar para todos"
     }
   },
   "controls": {
@@ -107,6 +130,7 @@
     "searchPlaceholder": "Buscar membros…",
     "searchAriaLabel": "Buscar membros",
     "inMeetingCount": "Na reunião · {{count}}",
+    "inMeetingCount_call": "Na chamada · {{count}}",
     "youSuffix": " (você)",
     "sharing": "Compartilhando",
     "handUp": "Mão levantada",
@@ -159,6 +183,17 @@
     "addedToCall": "Adicionado à chamada",
     "addedPeople": "{{count}} pessoas adicionadas",
     "couldNotAdd": "Não foi possível adicionar ninguém a esta chamada",
-    "groupCallingUnavailable": "As chamadas em grupo podem não estar disponíveis neste servidor."
+    "groupCallingUnavailable": "As chamadas em grupo podem não estar disponíveis neste servidor.",
+    "addTitle": "Adicionar pessoas a esta chamada",
+    "addButton": "Adicionar"
+  },
+  "groupCall": {
+    "title": "Iniciar uma chamada em grupo",
+    "description": "Escolha pelo menos duas pessoas. Todas são chamadas em uma só chamada.",
+    "callButton": "Ligar",
+    "pickTwo": "Escolha pelo menos duas pessoas",
+    "limit": "Até {{max}} pessoas em uma chamada",
+    "failed": "Não foi possível iniciar a chamada",
+    "alreadyInCall": "Você já está em uma chamada"
   }
 }

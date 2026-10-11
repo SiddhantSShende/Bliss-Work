@@ -53,7 +53,8 @@
       "message": "Damit wird dieser Chatverlauf für Sie gelöscht. Die andere Person behält ihre Kopie.",
       "confirmLabel": "Chat löschen"
     },
-    "deleteErrorToast": "Dieser Chat konnte nicht gelöscht werden"
+    "deleteErrorToast": "Dieser Chat konnte nicht gelöscht werden",
+    "groupCall": "Gruppenanruf"
   },
   "channelsList": {
     "title": "Kanäle",

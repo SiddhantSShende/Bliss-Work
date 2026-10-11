@@ -12,12 +12,13 @@ payload), and the batch size and every field length are bounded by the schema.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import text
 
+from ..audit_forward import AuditForwardError, file_audit_event, forward_file_events
 from ..auth import Principal, require_principal
 from ..db import session, set_org_context
-from ..ingest import ActivityRow, clamp_occurred_at, insert_events
+from ..ingest import SECURITY_MIRROR_ACTIONS, ActivityRow, clamp_occurred_at, insert_events, security_mirror_of
 from ..logging_setup import log
 from ..rate_limit import limiter
 from ..schemas import Beacon, BeaconAck
@@ -87,6 +88,11 @@ async def beacon(
             ip=ip,
         )
 
+        # The file security actions are derived below, never accepted: see
+        # ingest.security_mirror_of. A client naming one is dropped, not trusted.
+        offered = [e for e in body.events if e.action not in SECURITY_MIRROR_ACTIONS]
+        if len(offered) != len(body.events):
+            log.info("beacon_reserved_action_dropped", dropped=len(body.events) - len(offered))
         rows = [
             ActivityRow(
                 org_id=principal.org_id,
@@ -103,9 +109,16 @@ async def beacon(
                 detail=dict(e.detail or {}),
                 client_event_id=e.clientEventId,
             )
-            for e in body.events
+            for e in offered
         ]
-        inserted = await insert_events(db, rows)
+        # One security row per file open/download, written in the SAME call so the
+        # pair lands (or is skipped as a retry) together.
+        mirrors = [m for m in (security_mirror_of(r) for r in rows) if m is not None]
+        inserted = await insert_events(db, rows + mirrors)
+        # `accepted` is what the client OFFERED that landed; the derived rows are
+        # ours and must not make a 1-event batch report 2.
+        offered_ids = {id(r) for r in rows}
+        accepted = sum(1 for i in inserted if id(i.row) in offered_ids)
 
         if body.ended:
             # The client said goodbye (pagehide / sign-out). Close precisely
@@ -116,7 +129,31 @@ async def beacon(
             )
         await db.commit()
 
-    return BeaconAck(sessionId=session_id, accepted=len(inserted))
+    # Every file act is ALSO reported to auth-svc's audit log (the member-detail
+    # Security tab). After the commit, so a failed audit call cannot roll back
+    # the activity rows; and a failure fails the beacon, so the client resends
+    # the batch and the report is retried (auth-svc writes one row per eventId).
+    inserted_ids = {id(i.row): i.id for i in inserted}
+    audit_events = [
+        file_audit_event(
+            m,
+            event_id,
+            auth_session_id=principal.session_id,
+            ip=ip,
+            user_agent=ua,
+            request_id=request.headers.get("x-request-id"),
+        )
+        for m in mirrors
+        if (event_id := m.client_event_id or inserted_ids.get(id(m)))
+    ]
+    try:
+        await forward_file_events(principal.org_id, audit_events)
+    except AuditForwardError:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "audit record unavailable, retry"
+        ) from None
+
+    return BeaconAck(sessionId=session_id, accepted=accepted)
 
 
 def _client_ip(request: Request) -> str | None:

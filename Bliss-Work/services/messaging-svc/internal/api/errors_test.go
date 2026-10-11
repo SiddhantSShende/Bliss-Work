@@ -129,3 +129,15 @@ func TestCallFailReasonClassifiesEveryKnownCallError(t *testing.T) {
 		})
 	}
 }
+
+// An ended call is a 409 with its own code — never a 403. The client words
+// "this meeting has ended" from the code; a 403 would read as "not allowed".
+func TestEndedCallIsConflictWithItsOwnCodeNotForbidden(t *testing.T) {
+	status, code, _ := mapStoreError(store.ErrCallEnded)
+	if status != http.StatusConflict || code != CodeCallEnded {
+		t.Errorf("ErrCallEnded = %d %q, want 409 %q", status, code, CodeCallEnded)
+	}
+	if fs, _, _ := mapStoreError(store.ErrForbidden); fs != http.StatusForbidden {
+		t.Errorf("ErrForbidden = %d, want 403 — authorization must not be weakened", fs)
+	}
+}

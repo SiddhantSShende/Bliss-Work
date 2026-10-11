@@ -21,6 +21,7 @@ from sqlalchemy import text
 
 from ..config import settings
 from ..db import dispose_engine, init_engine, session, set_bypass_rls
+from ..ingest import SECURITY_MIRROR_ACTIONS
 from ..logging_setup import configure_logging, log
 
 # `day` is a date, and a date only means something once you name a zone. The tz
@@ -116,6 +117,10 @@ _EVENT_ROLLUP = text(
                EXTRACT(HOUR FROM occurred_at AT TIME ZONE '{_TZ}')::int AS hour
           FROM activity_events
          WHERE (occurred_at AT TIME ZONE '{_TZ}')::date = :day
+           -- The security record of a file open/download is derived from an
+           -- engagement row that is already counted (ingest.security_mirror_of);
+           -- counting both would report every file act twice.
+           AND NOT (action = ANY(CAST(:mirror AS text[])))
     ),
     totals AS (
         SELECT org_id, user_id, COUNT(*) AS events FROM day_rows GROUP BY org_id, user_id
@@ -168,7 +173,7 @@ async def rollup_day(day: date) -> None:
         # upserts, but this way the common path takes the INSERT branch once
         # rather than inserting and immediately updating.
         await db.execute(_SESSION_ROLLUP, {"day": day})
-        await db.execute(_EVENT_ROLLUP, {"day": day})
+        await db.execute(_EVENT_ROLLUP, {"day": day, "mirror": sorted(SECURITY_MIRROR_ACTIONS)})
         await db.commit()
     log.info("rollup_complete", day=day.isoformat(), timezone=_TZ)
 

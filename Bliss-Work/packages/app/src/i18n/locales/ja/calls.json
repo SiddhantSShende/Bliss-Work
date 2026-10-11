@@ -35,6 +35,11 @@
       "title": "このミーティングは利用できません",
       "hint": "ミーティングが終了したか、参加者から外れた可能性があります。",
       "close": "閉じる"
+    },
+    "ended": {
+      "title": "このミーティングは終了しました",
+      "hint": "すでに終了しているため、参加できません。",
+      "close": "閉じる"
     }
   },
   "join": {
@@ -119,7 +124,9 @@
     "minimize": "最小化",
     "minimise": "最小化",
     "end": "終了",
-    "endCall": "通話を終了"
+    "endCall": "通話を終了",
+    "endForEveryone": "全員終了",
+    "endForEveryoneTitle": "全員の通話を終了"
   },
   "sidePanel": {
     "tabNames": {
@@ -155,7 +162,10 @@
     "joinWithCamera": "カメラをオンにして参加",
     "voice": "音声",
     "joinVoiceOnly": "音声のみで参加",
-    "leave": "退出"
+    "leave": "退出",
+    "conferenceTitle": "会議通話",
+    "addedYou": "{{name}}さんがあなたを会議通話に追加しました",
+    "ariaLabelCall": "通話の着信:{{title}}"
   },
   "scheduledNotice": {
     "untitledMeeting": "ミーティング",
@@ -170,13 +180,15 @@
     "reconnecting": "再接続中…",
     "connecting": "接続中…",
     "backToMeeting": "ミーティングに戻る",
+    "backToMeeting_call": "通話に戻る",
     "nobodySpeaking": "話している人はいません",
     "mute": "ミュート",
     "unmute": "ミュート解除",
     "turnCameraOff": "カメラをオフにする",
     "turnCameraOn": "カメラをオンにする",
     "newChatMessages_other": "チャットの新着メッセージ{{count}}件",
-    "leaveMeeting": "ミーティングを退出"
+    "leaveMeeting": "ミーティングを退出",
+    "leaveMeeting_call": "通話を退出"
   },
   "sendLinkDialog": {
     "title": "通話リンクを送信",

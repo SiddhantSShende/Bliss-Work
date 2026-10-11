@@ -56,7 +56,8 @@
       "message": "Cela supprimera l'historique de cette discussion pour vous. L'autre personne conservera sa copie.",
       "confirmLabel": "Supprimer la discussion"
     },
-    "deleteErrorToast": "Impossible de supprimer cette discussion"
+    "deleteErrorToast": "Impossible de supprimer cette discussion",
+    "groupCall": "Appel de groupe"
   },
   "channelsList": {
     "title": "Canaux",

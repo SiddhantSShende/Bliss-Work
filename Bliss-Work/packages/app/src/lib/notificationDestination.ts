@@ -92,12 +92,12 @@ export function notificationRoute(notification: NotificationTarget): string | nu
 }
 
 /** The family a notification belongs to — what its icon and grouping are drawn from. */
-export type NotificationCategory = "task" | "chat" | "channel" | "meeting" | "other";
+export type NotificationCategory = "task" | "chat" | "channel" | "meeting" | "call" | "other";
 
 /**
  * Task → task, DM / channel message → chat, channel added / created → channel,
- * meeting scheduled / updated / started / cancelled / invitation (a ringing call is
- * persisted as an invitation) → meeting. Anything else is "other": shown, with a
+ * meeting scheduled / updated / started / cancelled / invitation → meeting; being added to
+ * an ad-hoc call (CALL_ADDED) → call. Anything else is "other": shown, with a
  * generic presentation, never dropped.
  * The kind families (TASK_, MEETING_, CHANNEL_) are matched by prefix so a sibling a
  * newer server adds lands in the right family; CHANNEL_MESSAGE is the one exception.
@@ -106,7 +106,9 @@ export function notificationCategory(kind: string): NotificationCategory {
   if (kind === "DM_MESSAGE" || kind === "CHANNEL_MESSAGE") return "chat";
   if (kind.startsWith("TASK_")) return "task";
   if (kind.startsWith("CHANNEL_")) return "channel";
-  if (kind.startsWith("MEETING_") || kind.startsWith("CALL_")) return "meeting";
+  if (kind.startsWith("MEETING_")) return "meeting";
+  // A call somebody was added to (CALL_ADDED) is a call, not a calendar entry.
+  if (kind.startsWith("CALL_")) return "call";
   return "other";
 }
 

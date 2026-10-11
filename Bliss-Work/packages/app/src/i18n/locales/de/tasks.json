@@ -285,6 +285,27 @@
         "4": "Vierter",
         "5": "Fünfter"
       }
+    },
+    "assign": {
+      "required": "erforderlich",
+      "peopleTab": "Personen ({{count}})",
+      "channelsTab": "Kanäle ({{count}})",
+      "peopleSearch": "Personen in Ihrer Organisation suchen…",
+      "channelsSearch": "Ihre Kanäle durchsuchen…",
+      "peopleSearchLabel": "Personen in Ihrer Organisation suchen",
+      "channelsSearchLabel": "Ihre Kanäle durchsuchen",
+      "peopleListLabel": "Personen zum Zuweisen",
+      "channelsListLabel": "Kanäle zum Zuweisen",
+      "loading": "Wird geladen…",
+      "peopleLoadingMore": "Weitere Personen werden geladen…",
+      "channelsLoadingMore": "Weitere Kanäle werden geladen…",
+      "peopleEmpty": "Keine Personen entsprechen Ihrer Suche.",
+      "channelsEmpty": "Keine Kanäle entsprechen Ihrer Suche.",
+      "loadError": "Diese Liste konnte nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "locked": "Gesperrter Kanal",
+      "members_one": "{{count}} Mitglied",
+      "members_other": "{{count}} Mitglieder"
     }
   },
   "exportTasksDialog": {

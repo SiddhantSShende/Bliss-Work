@@ -476,6 +476,7 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Post("/channels", s.createChannel)
 			r.Get("/channels", s.listChannels)
 			r.Get("/channels/open", s.listOpenChannels)
+			r.Get("/channels/mine", s.listMyChannelsPage)
 			r.Patch("/channels/{id}", s.renameChannel)
 			r.Delete("/channels/{id}", s.deleteChannel)
 			r.Get("/channels/{id}/messages", s.listChannelMessages)

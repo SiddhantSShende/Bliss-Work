@@ -277,6 +277,26 @@
         "4": "넷째",
         "5": "다섯째"
       }
+    },
+    "assign": {
+      "required": "필수",
+      "peopleTab": "사람 ({{count}})",
+      "channelsTab": "채널 ({{count}})",
+      "peopleSearch": "조직 내 사람 검색…",
+      "channelsSearch": "내 채널 검색…",
+      "peopleSearchLabel": "조직 내 사람 검색",
+      "channelsSearchLabel": "내 채널 검색",
+      "peopleListLabel": "할당할 사람",
+      "channelsListLabel": "할당할 채널",
+      "loading": "불러오는 중…",
+      "peopleLoadingMore": "사람을 더 불러오는 중…",
+      "channelsLoadingMore": "채널을 더 불러오는 중…",
+      "peopleEmpty": "검색과 일치하는 사람이 없습니다.",
+      "channelsEmpty": "검색과 일치하는 채널이 없습니다.",
+      "loadError": "이 목록을 불러오지 못했습니다.",
+      "retry": "다시 시도",
+      "locked": "잠긴 채널",
+      "members_other": "멤버 {{count}}명"
     }
   },
   "exportTasksDialog": {

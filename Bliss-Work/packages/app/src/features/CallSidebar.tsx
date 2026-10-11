@@ -26,6 +26,7 @@
  * never a scroll away.
  */
 import {
+  Ban,
   Disc,
   Hand,
   Link2,
@@ -61,6 +62,7 @@ export function CallSidebar({
   addPeopleTitle,
   onAddPeople,
   canInviteLink,
+  showInviteLink = true,
   inviteLinkTitle,
   mintingInviteLink,
   onCopyInviteLink,
@@ -79,6 +81,7 @@ export function CallSidebar({
   onTogglePip,
   onMinimize,
   onEnd,
+  onEndForEveryone,
 }: {
   micOn: boolean;
   onToggleMic: () => void;
@@ -96,6 +99,9 @@ export function CallSidebar({
   addPeopleTitle: string;
   onAddPeople: () => void;
   canInviteLink: boolean;
+  /** False for a call that can never have a link (a DIRECT call): the button is
+   *  not shown rather than shown to fail. */
+  showInviteLink?: boolean;
   inviteLinkTitle: string;
   mintingInviteLink: boolean;
   onCopyInviteLink: () => void;
@@ -115,6 +121,10 @@ export function CallSidebar({
   onTogglePip: () => void;
   onMinimize?: () => void;
   onEnd: () => void;
+  /** Host of a conference ONLY — closes it for everyone, not just this device.
+   *  Omitted everywhere else: a 1:1 or a Meeting already ends the ordinary way
+   *  (the host leaving), and a non-host has no such power to offer. */
+  onEndForEveryone?: () => void;
 }) {
   const { t } = useTranslation("calls");
   return (
@@ -168,13 +178,15 @@ export function CallSidebar({
           />
         )}
         <div className="mx-1 h-8 w-px shrink-0 bg-border/70 sm:mx-0 sm:my-1 sm:h-px sm:w-8" />
-        <SidebarButton
-          icon={<Link2 size={20} />}
-          label={t("sidebar.copyLink")}
-          onClick={onCopyInviteLink}
-          disabled={!canInviteLink || mintingInviteLink}
-          title={canInviteLink ? t("sidebar.copyInviteLink") : inviteLinkTitle}
-        />
+        {showInviteLink && (
+          <SidebarButton
+            icon={<Link2 size={20} />}
+            label={t("sidebar.copyLink")}
+            onClick={onCopyInviteLink}
+            disabled={!canInviteLink || mintingInviteLink}
+            title={canInviteLink ? t("sidebar.copyInviteLink") : inviteLinkTitle}
+          />
+        )}
         {pipSupported && (
           <SidebarButton
             icon={<PictureInPicture2 size={20} />}
@@ -195,7 +207,7 @@ export function CallSidebar({
           <SidebarButton icon={<Minimize2 size={20} />} label={t("sidebar.minimize")} onClick={onMinimize} title={t("sidebar.minimise")} />
         )}
       </div>
-      <div className="flex shrink-0 items-center justify-center border-l border-border/70 px-2 sm:border-l-0 sm:border-t sm:px-0 sm:py-3">
+      <div className="flex shrink-0 items-center justify-center gap-2 border-l border-border/70 px-2 sm:flex-col sm:border-l-0 sm:border-t sm:px-0 sm:py-3">
         <SidebarButton
           icon={<PhoneOff size={20} />}
           label={t("sidebar.end")}
@@ -203,6 +215,15 @@ export function CallSidebar({
           title={t("sidebar.endCall")}
           className="bg-danger text-white hover:bg-danger hover:brightness-90 hover:text-white"
         />
+        {onEndForEveryone && (
+          <SidebarButton
+            icon={<Ban size={20} />}
+            label={t("sidebar.endForEveryone")}
+            onClick={onEndForEveryone}
+            title={t("sidebar.endForEveryoneTitle")}
+            className="bg-danger/15 text-danger ring-1 ring-danger/50 hover:bg-danger/25"
+          />
+        )}
       </div>
     </nav>
   );

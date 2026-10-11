@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
+from .audit_forward import close_client as close_audit_client
 from .config import settings
 from .consumer import consumer
 from crypto import init_cryptor
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
     finally:
         await sweeper.stop()
         await consumer.stop()
+        await close_audit_client()
         await dispose_engine()
         shutdown_tracing(log=log)  # flush any buffered spans (no-op when disabled)
         log.info("telemetry_svc_stopped")

@@ -56,7 +56,8 @@
       "message": "Isso excluirá o histórico deste chat para você. A outra pessoa manterá a cópia dela.",
       "confirmLabel": "Excluir chat"
     },
-    "deleteErrorToast": "Não foi possível excluir este chat"
+    "deleteErrorToast": "Não foi possível excluir este chat",
+    "groupCall": "Chamada em grupo"
   },
   "channelsList": {
     "title": "Canais",

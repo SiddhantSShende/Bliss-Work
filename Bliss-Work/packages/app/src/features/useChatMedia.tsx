@@ -68,6 +68,10 @@ interface ChatMediaOptions {
   /** Channel surface only: the channel's `isLocked`. Whether file activity is also
    *  shown in the chat — see showsAttachmentActivity. */
   channelLocked?: boolean;
+  /** What this chat or channel is called — the peer's name, or the channel's —
+   *  recorded with every file open/download so the activity timeline can say
+   *  where it happened. See useAttachmentActivity. */
+  contextName?: string;
   /** The surface's own send path — reply, replyToThread, sendChannelMessage. */
   send: (body: string) => void;
   /**
@@ -98,7 +102,7 @@ type UploadOutcome =
 // legitimate files.
 
 export function useChatMedia(opts: ChatMediaOptions) {
-  const { scope, scopeId, meId, channelLocked, send, p2pFallback } = opts;
+  const { scope, scopeId, meId, channelLocked, contextName, send, p2pFallback } = opts;
   const { t } = useTranslation("chatMedia");
   const { api, config } = useRuntime();
   const ft = useFileTransfers();
@@ -535,7 +539,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
     [idsVersion],
   );
   const links = useAttachmentLinks(allIds);
-  const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId, channelLocked);
+  const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId, channelLocked, contextName);
 
   // A click on an attachment, routed by `attachmentCapability` (the one place that
   // decides, shared with Mail and the assets panel):

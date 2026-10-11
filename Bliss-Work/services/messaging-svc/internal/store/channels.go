@@ -352,25 +352,25 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 			return err
 		}
 		actorName := userDisplayName(actorDisplay, actorUsername)
-		bodies := make([]string, 0, len(added))
-		clientMsgIDs := make([]string, 0, len(added))
-		// The text names the user who joined; sender_id stays the CALLER who added
-		// them, deliberately. sender_id is the authenticated principal that caused
-		// the write, and everything keyed on it assumes that: telemetry records a
-		// "channel.message.sent" for the sender (a member who was merely added would
-		// be credited with an action they never took), delete-for-all lets a
-		// message's sender retract it without moderator rights (an added member
-		// could erase the notice of their own addition), and the unread/last-sender
-		// queries treat the sender as the one who just acted. The joined user is
-		// still named in the body, and the ChannelMemberJoined event below carries
-		// userId (who joined) and actorId (who added them) separately.
-		for _, uid := range added {
-			addedName := userDisplayName(names[uid].displayName, names[uid].username)
-			bodies = append(bodies, fmt.Sprintf("%s joined the channel", addedName))
-			clientMsgIDs = append(clientMsgIDs, uuid.Must(uuid.NewV7()).String())
-		}
-		if err := s.appendChannelMessagesTx(ctx, tx, orgID, channelID, callerID,
-			bodies, clientMsgIDs, MessageKindChannelMemberAdded); err != nil {
+		// ONE message for the whole request, however many people it added: "A
+		// added B, C to the channel". Written only for the rows the INSERT above
+		// reports as new, so a retry (or a second click) that adds nobody writes
+		// nothing, and a request that fails rolls the message back with the rows.
+		//
+		// sender_id is the CALLER who added them, deliberately. sender_id is the
+		// authenticated principal that caused the write, and everything keyed on
+		// it assumes that: telemetry records a "channel.message.sent" for the
+		// sender (a member who was merely added would be credited with an action
+		// they never took), delete-for-all lets a message's sender retract it
+		// without moderator rights (an added member could erase the notice of
+		// their own addition), and the unread/last-sender queries treat the sender
+		// as the one who just acted. The added users are named in the body, and
+		// the ChannelMemberJoined events below carry userId (who joined) and
+		// actorId (who added them) separately.
+		if _, err := s.appendChannelMessageTx(ctx, tx, orgID, channelID, callerID,
+			fmt.Sprintf("%s added %s to the channel", actorName, displayNameList(added, names)),
+			uuid.Must(uuid.NewV7()).String(),
+			channelAppendOpts{kind: MessageKindChannelMemberAdded}); err != nil {
 			return err
 		}
 
@@ -392,15 +392,52 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 // order and are never truncated. A user with no projection row yet reads as
 // "Someone", the same fallback every other system message uses.
 func initialMembersBody(userIDs []string, names map[string]projectedUserNames) string {
+	verb := "were"
+	if len(userIDs) == 1 {
+		verb = "was"
+	}
+	return fmt.Sprintf("%s %s added to channel", displayNameList(userIDs, names), verb)
+}
+
+// displayNameList is the names of userIDs in the order given, comma-separated
+// and never truncated. A user with no projection row reads as "Someone".
+func displayNameList(userIDs []string, names map[string]projectedUserNames) string {
 	display := make([]string, len(userIDs))
 	for i, uid := range userIDs {
 		display[i] = userDisplayName(names[uid].displayName, names[uid].username)
 	}
-	verb := "were"
-	if len(display) == 1 {
-		verb = "was"
+	return strings.Join(display, ", ")
+}
+
+// appendMembershipNoticeTx writes "<actor> removed <target> from the channel"
+// (or, when actor and target are the same person, "<member> left the channel")
+// inside the transaction that already removed the member, so the notice exists
+// exactly when the removal does and goes only to the people still in the
+// channel. sender_id is the actor — the authenticated principal who caused the
+// write, for the same reasons as the add notice in AddChannelMembers.
+func (s *Store) appendMembershipNoticeTx(
+	ctx context.Context, tx pgx.Tx, orgID, channelID, actorID, targetID string,
+) error {
+	ids := []string{actorID}
+	if targetID != actorID {
+		ids = append(ids, targetID)
 	}
-	return fmt.Sprintf("%s %s added to channel", strings.Join(display, ", "), verb)
+	names, err := usernames(ctx, tx, ids)
+	if err != nil {
+		return err
+	}
+	actorName := displayNameList([]string{actorID}, names)
+	body, kind := actorName+" left the channel", MessageKindChannelMemberLeft
+	if targetID != actorID {
+		body = fmt.Sprintf("%s removed %s from the channel", actorName, displayNameList([]string{targetID}, names))
+		kind = MessageKindChannelMemberRemoved
+	}
+	// A fresh client_msg_id: leaving and being added back, then leaving again, is
+	// a genuinely new departure. Exactly-once comes from the caller only getting
+	// here when its DELETE reported a row.
+	_, err = s.appendChannelMessageTx(ctx, tx, orgID, channelID, actorID, body,
+		uuid.Must(uuid.NewV7()).String(), channelAppendOpts{kind: kind})
+	return err
 }
 
 // memberJoinedEvents builds one ChannelMemberJoined per newly-added member.

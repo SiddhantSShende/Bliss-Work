@@ -35,6 +35,11 @@
       "title": "This meeting isn't available",
       "hint": "It may have ended, or you may no longer be on its roster.",
       "close": "Close"
+    },
+    "ended": {
+      "title": "This meeting has ended",
+      "hint": "It's finished, so there's nothing to join.",
+      "close": "Close"
     }
   },
   "join": {
@@ -119,7 +124,9 @@
     "minimize": "Minimize",
     "minimise": "Minimise",
     "end": "End",
-    "endCall": "End call"
+    "endCall": "End call",
+    "endForEveryone": "End all",
+    "endForEveryoneTitle": "End call for everyone"
   },
   "sidePanel": {
     "tabNames": {
@@ -155,7 +162,10 @@
     "joinWithCamera": "Join with camera on",
     "voice": "Voice",
     "joinVoiceOnly": "Join with voice only",
-    "leave": "Leave"
+    "leave": "Leave",
+    "conferenceTitle": "Conference call",
+    "addedYou": "{{name}} added you to a conference call",
+    "ariaLabelCall": "Incoming call: {{title}}"
   },
   "scheduledNotice": {
     "untitledMeeting": "Meeting",
@@ -170,6 +180,7 @@
     "reconnecting": "Reconnecting…",
     "connecting": "Connecting…",
     "backToMeeting": "Back to the meeting",
+    "backToMeeting_call": "Back to the call",
     "nobodySpeaking": "Nobody is speaking",
     "mute": "Mute",
     "unmute": "Unmute",
@@ -177,7 +188,8 @@
     "turnCameraOn": "Turn camera on",
     "newChatMessages_one": "{{count}} new chat message",
     "newChatMessages_other": "{{count}} new chat messages",
-    "leaveMeeting": "Leave the meeting"
+    "leaveMeeting": "Leave the meeting",
+    "leaveMeeting_call": "Leave the call"
   },
   "sendLinkDialog": {
     "title": "Send a call link",

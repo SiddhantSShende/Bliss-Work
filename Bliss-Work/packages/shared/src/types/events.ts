@@ -887,6 +887,9 @@ const callFields = {
    *  who ended or started it, the person who arrived in the lobby, or the one
    *  who started sharing their screen. */
   actorId: z.string().uuid().optional(),
+  /** The actor's display name, on call.ring only — what "X added you to a conference
+   *  call" is written from. */
+  actorName: z.string().optional(),
   /** What is being shared, on the screen-share events only. */
   shareSource: CallShareSource.optional(),
   /** Who should RECEIVE this. Usually the roster — and it may span ORGS for a

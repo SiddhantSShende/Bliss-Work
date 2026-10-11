@@ -1,7 +1,7 @@
 /**
- * WHO a new meeting is for: the members picked one by one and the channels whose
- * members are all invited. The real dialog, its real pickers and the real
- * directory/channel queries run; only the network-facing api is stubbed.
+ * WHO a new meeting is for: the "Add" section's People and Channels tabs. The real dialog,
+ * the real Add section and the real paging hooks run; only the network-facing api is
+ * stubbed (with the same search + offset/limit semantics as the server's).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -11,9 +11,10 @@ import { ApiError } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useSession } from "../store/session";
 import { ADA, CHANNELS, DIRECTORY, GRACE, LINUS, ME } from "../test/meetingFixtures";
+import { addChannel, addPerson, channelsList, channelsPageOf, directoryPageOf, peopleList } from "../test/meetingPaging";
 
 const h = vi.hoisted(() => ({
-  api: { scheduleMeeting: vi.fn(), createCallInvite: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: { scheduleMeeting: vi.fn(), createCallInvite: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({
   useRuntime: () => ({ api: h.api, config: { webBaseUrl: "https://app.test" } }),
@@ -46,252 +47,253 @@ async function submitMeeting(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
 }
 
-const membersGroup = () => screen.getByRole("group", { name: "Members" });
-const channelsGroup = () => screen.getByRole("group", { name: "Channels" });
-
 beforeEach(() => {
   useSession.setState({ user: ME });
   h.api.scheduleMeeting.mockReset().mockResolvedValue({ id: "call-1" });
   h.api.createCallInvite
     .mockReset()
     .mockResolvedValue({ id: "invite-1", callId: "call-1", token: "tok_abc", expiresAt: "2026-09-16T10:00:00.000Z" });
-  h.api.directory.mockReset().mockResolvedValue(DIRECTORY);
-  h.api.channels.mockReset().mockResolvedValue(CHANNELS);
+  h.api.directoryPage.mockReset().mockImplementation(directoryPageOf(DIRECTORY));
+  h.api.channelsPage.mockReset().mockImplementation(channelsPageOf(CHANNELS));
   onClose.mockReset();
   onStarted.mockReset();
   vi.mocked(toast.error).mockReset();
 });
 
-describe("a plain meeting", () => {
-  // Every existing client sends exactly this; it must not grow fields.
-  it("sends no members, channels or recurrence", async () => {
-    const user = openDialog();
-    await submitMeeting(user);
-    const body = sent();
-    expect(body.inviteeIds).toBeUndefined();
-    expect(body.channelIds).toBeUndefined();
-    expect(body.recurrence).toBeUndefined();
+/** A debounced search (250ms) plus a render, under a loaded CI box. */
+const SLOW = { timeout: 4000 };
+const peopleTab = () => screen.getByRole("tab", { name: /^People/ });
+const channelsTab = () => screen.getByRole("tab", { name: /^Channels/ });
+const row = (name: RegExp) => within(peopleList()).findByRole("button", { name }, SLOW);
+
+describe("the Add section", () => {
+  it("is required, says so, and has no optional wording", () => {
+    openDialog();
+    const section = screen.getByTestId("meeting-add-section");
+    expect(within(section).getByText("Add")).toBeInTheDocument();
+    expect(section).not.toHaveTextContent(/optional/i);
   });
 
-  it("says plainly that nobody has been added", () => {
+  it("opens on People, with both tabs counted and no separate Members / Channels sections", async () => {
     openDialog();
-    expect(within(membersGroup()).getByText("No members added yet.")).toBeInTheDocument();
-    expect(within(channelsGroup()).getByText("No channels added yet.")).toBeInTheDocument();
+    expect(peopleTab()).toHaveAttribute("aria-selected", "true");
+    expect(channelsTab()).toHaveAttribute("aria-selected", "false");
+    expect(peopleTab()).toHaveTextContent("People(0)");
+    expect(channelsTab()).toHaveTextContent("Channels(0)");
+    expect(await row(/Ada Lovelace/)).toBeVisible();
+    // No old Add members / Add channels buttons or group panels.
+    expect(screen.queryByRole("button", { name: /Add (members|channels)/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /Members|Channels/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the list at once, in a fixed-height box that scrolls inside itself", async () => {
+    openDialog();
+    await row(/Ada Lovelace/);
+    expect(peopleList()).toHaveClass("h-72", "overflow-y-auto");
   });
 });
 
-describe("members", () => {
-  it("selects one member and sends them", async () => {
+describe("a meeting with nobody added", () => {
+  it("is refused with a message under Add, and nothing is sent", async () => {
     const user = openDialog();
-    await user.click(within(membersGroup()).getByRole("button", { name: "Add members" }));
-    await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
+    await submitMeeting(user);
+    expect(h.api.scheduleMeeting).not.toHaveBeenCalled();
+    expect(within(screen.getByTestId("meeting-add-section")).getByRole("alert")).toHaveTextContent(
+      "Add at least one person or channel.",
+    );
+  });
 
-    expect(within(membersGroup()).getByRole("list", { name: "Members" })).toHaveTextContent("Ada Lovelace");
+  it("is accepted once a person is added, a channel is added, or both", async () => {
+    const user = openDialog();
+    await submitMeeting(user);
+    expect(h.api.scheduleMeeting).not.toHaveBeenCalled();
+    await addChannel(user, /general/);
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
+    expect(sent().channelIds).toEqual([CHANNELS[0]!.id]);
+  });
+});
+
+describe("people", () => {
+  it("selects one person and sends them", async () => {
+    const user = openDialog();
+    await addPerson(user, /Ada Lovelace/);
+
+    expect(await row(/Ada Lovelace/)).toHaveAttribute("aria-pressed", "true");
+    expect(peopleTab()).toHaveTextContent("People(1)");
     await submitMeeting(user);
     expect(sent().inviteeIds).toEqual([ADA.id]);
+    expect(sent().channelIds).toBeUndefined();
   });
 
   it("selects several, in the order picked", async () => {
     const user = openDialog();
-    await user.click(within(membersGroup()).getByRole("button", { name: "Add members" }));
-    await user.click(await screen.findByRole("button", { name: /Grace Hopper/ }));
-    await user.click(screen.getByRole("button", { name: /Ada Lovelace/ }));
-    await user.click(screen.getByRole("button", { name: /Linus Torvalds/ }));
+    await addPerson(user, /Grace Hopper/);
+    await addPerson(user, /Ada Lovelace/);
+    await addPerson(user, /Linus Torvalds/);
 
-    const chips = within(membersGroup()).getAllByRole("listitem");
-    expect(chips).toHaveLength(3);
-    expect(chips[0]).toHaveTextContent("Grace Hopper");
-    expect(chips[1]).toHaveTextContent("Ada Lovelace");
-    expect(chips[2]).toHaveTextContent("Linus Torvalds");
-    // The avatar's initials are decoration: the chip's accessible name is the name.
-    expect(within(chips[0]!).getByText("Grace Hopper")).toBeVisible();
+    expect(peopleTab()).toHaveTextContent("People(3)");
     await submitMeeting(user);
     expect(sent().inviteeIds).toEqual([GRACE.id, ADA.id, LINUS.id]);
   });
 
   it("never offers the organiser, who is already the host", async () => {
-    const user = openDialog();
-    await user.click(within(membersGroup()).getByRole("button", { name: "Add members" }));
-    await screen.findByRole("button", { name: /Ada Lovelace/ });
-    expect(screen.queryByRole("button", { name: /Me Myself/ })).not.toBeInTheDocument();
+    openDialog();
+    await row(/Ada Lovelace/);
+    expect(within(peopleList()).queryByRole("button", { name: /Me Myself/ })).not.toBeInTheDocument();
   });
 
-  it("searches by name and by email", async () => {
+  it("searches by name and by email, on the server", async () => {
     const user = openDialog();
-    await user.click(within(membersGroup()).getByRole("button", { name: "Add members" }));
-    await screen.findByRole("button", { name: /Ada Lovelace/ });
+    await row(/Ada Lovelace/);
     const search = screen.getByRole("textbox", { name: "Search your organisation" });
 
     await user.type(search, "hopp");
-    expect(screen.getByRole("button", { name: /Grace Hopper/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Ada Lovelace/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(within(peopleList()).queryByRole("button", { name: /Ada Lovelace/ })).not.toBeInTheDocument(), SLOW);
+    expect(await row(/Grace Hopper/)).toBeInTheDocument();
+    expect(h.api.directoryPage).toHaveBeenCalledWith(expect.objectContaining({ q: "hopp", offset: 0 }));
 
     await user.clear(search);
     await user.type(search, "linus@acme");
-    expect(screen.getByRole("button", { name: /Linus Torvalds/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Grace Hopper/ })).not.toBeInTheDocument();
+    expect(await row(/Linus Torvalds/)).toBeInTheDocument();
+    await waitFor(() => expect(within(peopleList()).queryByRole("button", { name: /Grace Hopper/ })).not.toBeInTheDocument(), SLOW);
 
     await user.clear(search);
     await user.type(search, "zzz");
-    expect(screen.getByText("No matches.")).toBeInTheDocument();
+    expect(await within(peopleList()).findByText("No matches.", undefined, SLOW)).toBeInTheDocument();
   });
 
-  it("removes a member with the chip's own button, and they are no longer sent", async () => {
+  it("a person cannot be added twice: picking again takes them off", async () => {
     const user = openDialog();
-    await user.click(within(membersGroup()).getByRole("button", { name: "Add members" }));
-    await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
-    await user.click(screen.getByRole("button", { name: /Grace Hopper/ }));
-
-    await user.click(within(membersGroup()).getByRole("button", { name: "Remove Ada Lovelace" }));
-
-    expect(within(membersGroup()).getAllByRole("listitem")).toHaveLength(1);
-    // The picker row un-highlights too: one selection, shown in both places.
-    expect(screen.getByRole("button", { name: /Ada Lovelace/ })).toHaveAttribute("aria-pressed", "false");
-    await submitMeeting(user);
-    expect(sent().inviteeIds).toEqual([GRACE.id]);
-  });
-
-  it("a member cannot be added twice: picking again takes them off", async () => {
-    const user = openDialog();
-    await user.click(within(membersGroup()).getByRole("button", { name: "Add members" }));
-    const row = await screen.findByRole("button", { name: /Ada Lovelace/ });
-    await user.click(row);
-    expect(within(membersGroup()).getAllByRole("listitem")).toHaveLength(1);
-    await user.click(row);
-    expect(within(membersGroup()).queryAllByRole("listitem")).toHaveLength(0);
-    await user.click(row);
-    expect(within(membersGroup()).getAllByRole("listitem")).toHaveLength(1);
-  });
-
-  it("opens the picker with the search box focused, and Done closes it", async () => {
-    const user = openDialog();
-    const toggle = within(membersGroup()).getByRole("button", { name: "Add members" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await user.click(toggle);
-    expect(screen.getByRole("textbox", { name: "Search your organisation" })).toHaveFocus();
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await user.click(within(membersGroup()).getByRole("button", { name: "Done" }));
-    expect(screen.queryByRole("textbox", { name: "Search your organisation" })).not.toBeInTheDocument();
+    const ada = await row(/Ada Lovelace/);
+    await user.click(ada);
+    expect(peopleTab()).toHaveTextContent("People(1)");
+    await user.click(ada);
+    expect(peopleTab()).toHaveTextContent("People(0)");
+    expect(ada).toHaveAttribute("aria-pressed", "false");
+    await user.click(ada);
+    expect(peopleTab()).toHaveTextContent("People(1)");
   });
 
   it("says when there is nobody to add", async () => {
-    h.api.directory.mockResolvedValue([ME]);
-    const user = openDialog();
-    await user.click(within(membersGroup()).getByRole("button", { name: "Add members" }));
+    h.api.directoryPage.mockImplementation(directoryPageOf([ME]));
+    openDialog();
     expect(await screen.findByText("No one else to invite.")).toBeInTheDocument();
   });
 
   it("says it is loading rather than claiming nobody is there", async () => {
-    h.api.directory.mockReturnValue(new Promise(() => {}));
-    const user = openDialog();
-    await user.click(within(membersGroup()).getByRole("button", { name: "Add members" }));
+    h.api.directoryPage.mockReturnValue(new Promise(() => {}));
+    openDialog();
     expect(await screen.findByText("Loading people…")).toBeInTheDocument();
     expect(screen.queryByText("No one else to invite.")).not.toBeInTheDocument();
+  });
+
+  it("shows an error with a retry that works", async () => {
+    h.api.directoryPage.mockRejectedValueOnce(new Error("boom"));
+    const user = openDialog();
+    expect(await within(peopleList()).findByRole("alert")).toHaveTextContent("Couldn't load the next page.");
+    await user.click(within(peopleList()).getByRole("button", { name: "Try again" }));
+    expect(await row(/Ada Lovelace/)).toBeInTheDocument();
   });
 });
 
 describe("channels", () => {
   it("selects one channel and sends it", async () => {
     const user = openDialog();
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-    await user.click(await screen.findByRole("button", { name: /general/ }));
+    await addChannel(user, /general/);
 
-    expect(within(channelsGroup()).getByRole("list", { name: "Channels" })).toHaveTextContent("general");
+    expect(channelsTab()).toHaveTextContent("Channels(1)");
     await submitMeeting(user);
     expect(sent().channelIds).toEqual([CHANNELS[0]!.id]);
+    expect(sent().inviteeIds).toBeUndefined();
   });
 
   it("selects several channels", async () => {
     const user = openDialog();
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-    await user.click(await screen.findByRole("button", { name: /design/ }));
-    await user.click(screen.getByRole("button", { name: /general/ }));
+    await addChannel(user, /design/);
+    await user.click(within(channelsList()).getByRole("button", { name: /general/ }));
     await submitMeeting(user);
     expect(sent().channelIds).toEqual([CHANNELS[1]!.id, CHANNELS[0]!.id]);
   });
 
   it("shows how many people a channel would invite", async () => {
     const user = openDialog();
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-    const row = await screen.findByRole("button", { name: /general/ });
-    expect(row).toHaveTextContent("12 members");
+    await user.click(channelsTab());
+    expect(await within(channelsList()).findByRole("button", { name: /general/ })).toHaveTextContent("12 members");
   });
 
-  it("filters channels by name", async () => {
+  it("filters channels by name, on the server", async () => {
     const user = openDialog();
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-    await screen.findByRole("button", { name: /general/ });
+    await user.click(channelsTab());
+    await within(channelsList()).findByRole("button", { name: /general/ });
     const search = screen.getByRole("textbox", { name: "Search your channels" });
 
     await user.type(search, "DESI");
-    expect(screen.getByRole("button", { name: /design/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /general/ })).not.toBeInTheDocument();
+    expect(await within(channelsList()).findByRole("button", { name: /design/ }, SLOW)).toBeInTheDocument();
+    await waitFor(() => expect(within(channelsList()).queryByRole("button", { name: /general/ })).not.toBeInTheDocument(), SLOW);
+    expect(h.api.channelsPage).toHaveBeenCalledWith(expect.objectContaining({ q: "DESI" }));
     await user.clear(search);
     await user.type(search, "nope");
-    expect(screen.getByText("No matches.")).toBeInTheDocument();
+    expect(await within(channelsList()).findByText("No matches.", undefined, SLOW)).toBeInTheDocument();
   });
 
-  it("removes a channel with the chip's own button", async () => {
+  it("a channel can be taken off again by picking it again", async () => {
     const user = openDialog();
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-    await user.click(await screen.findByRole("button", { name: /general/ }));
-    await user.click(screen.getByRole("button", { name: /design/ }));
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Remove general" }));
-
-    expect(within(channelsGroup()).getAllByRole("listitem")).toHaveLength(1);
-    await submitMeeting(user);
-    expect(sent().channelIds).toEqual([CHANNELS[1]!.id]);
-  });
-
-  it("a channel cannot be added twice", async () => {
-    const user = openDialog();
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-    const row = await screen.findByRole("button", { name: /general/ });
-    await user.click(row);
-    await user.click(row);
-    await user.click(row);
-    expect(within(channelsGroup()).getAllByRole("listitem")).toHaveLength(1);
+    await addChannel(user, /general/);
+    const general = within(channelsList()).getByRole("button", { name: /general/ });
+    await user.click(general);
+    expect(channelsTab()).toHaveTextContent("Channels(0)");
+    expect(general).toHaveAttribute("aria-pressed", "false");
   });
 
   it("says when the caller is in no channels", async () => {
-    h.api.channels.mockResolvedValue([]);
+    h.api.channelsPage.mockImplementation(channelsPageOf([]));
     const user = openDialog();
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
+    await user.click(channelsTab());
     expect(await screen.findByText("You're not in any channels.")).toBeInTheDocument();
   });
 
   it("shows a loading state, then the channels", async () => {
     let release!: (v: typeof CHANNELS) => void;
-    h.api.channels.mockReturnValue(new Promise((r) => (release = r)));
+    h.api.channelsPage.mockReturnValue(new Promise((r) => (release = r)));
     const user = openDialog();
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Loading channels…");
+    await user.click(channelsTab());
+    expect(await within(channelsList()).findByRole("status")).toHaveTextContent("Loading channels…");
     release(CHANNELS);
-    expect(await screen.findByRole("button", { name: /general/ })).toBeInTheDocument();
+    expect(await within(channelsList()).findByRole("button", { name: /general/ })).toBeInTheDocument();
   });
 
   it("shows an error with a retry that works", async () => {
-    h.api.channels.mockRejectedValue(new Error("boom"));
+    h.api.channelsPage.mockRejectedValueOnce(new Error("boom"));
     const user = openDialog();
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load your channels.");
-    h.api.channels.mockResolvedValue(CHANNELS);
-    await user.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("button", { name: /general/ })).toBeInTheDocument();
+    await user.click(channelsTab());
+    expect(await within(channelsList()).findByRole("alert")).toHaveTextContent("Couldn't load your channels.");
+    await user.click(within(channelsList()).getByRole("button", { name: "Try again" }));
+    expect(await within(channelsList()).findByRole("button", { name: /general/ })).toBeInTheDocument();
   });
 });
 
 describe("both together", () => {
-  it("send members and channels in the same request", async () => {
+  it("send people and channels in the same request, and the preview counts both", async () => {
     const user = openDialog();
-    await user.click(within(membersGroup()).getByRole("button", { name: "Add members" }));
-    await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
-    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
-    await user.click(await screen.findByRole("button", { name: /general/ }));
+    await addPerson(user, /Ada Lovelace/);
+    await addChannel(user, /general/);
+    expect(screen.getByText("1 member")).toBeInTheDocument();
+    expect(screen.getByText("1 channel")).toBeInTheDocument();
     await submitMeeting(user);
     const body = sent();
     expect(body.inviteeIds).toEqual([ADA.id]);
     expect(body.channelIds).toEqual([CHANNELS[0]!.id]);
+  });
+
+  it("keeps each tab's selection and search when switching back and forth", async () => {
+    const user = openDialog();
+    await addPerson(user, /Ada Lovelace/);
+    await user.type(screen.getByRole("textbox", { name: "Search your organisation" }), "ada");
+    await addChannel(user, /general/);
+    await user.click(peopleTab());
+    expect(screen.getByRole("textbox", { name: "Search your organisation" })).toHaveValue("ada");
+    expect(await row(/Ada Lovelace/)).toHaveAttribute("aria-pressed", "true");
+    expect(channelsTab()).toHaveTextContent("Channels(1)");
   });
 });
 
@@ -299,6 +301,7 @@ describe("saving", () => {
   it("does not submit twice while the first request is in flight", async () => {
     h.api.scheduleMeeting.mockReturnValue(new Promise(() => {}));
     const user = openDialog();
+    await addPerson(user, /Ada Lovelace/);
     await user.type(screen.getByPlaceholderText("Enter meeting title"), "Standup");
     const go = screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ });
     await user.click(go);
@@ -312,6 +315,7 @@ describe("saving", () => {
   it("explains a 403 — a member or channel that is gone — rather than a generic failure", async () => {
     h.api.scheduleMeeting.mockRejectedValue(new ApiError(403, "forbidden"));
     const user = openDialog();
+    await addPerson(user, /Ada Lovelace/);
     await submitMeeting(user);
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
@@ -324,6 +328,7 @@ describe("saving", () => {
   it("keeps the generic message for anything else, and stays open to retry", async () => {
     h.api.scheduleMeeting.mockRejectedValue(new ApiError(500, "internal error"));
     const user = openDialog();
+    await addPerson(user, /Ada Lovelace/);
     await submitMeeting(user);
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't schedule that meeting"));
     expect(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ })).toBeEnabled();

@@ -17,6 +17,7 @@ vi.mock("sonner", () => ({ toast: { error: h.toastError, success: vi.fn() } }));
 import { LanguageProvider } from "./LanguageProvider";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import i18n from "./index";
+import { LOCALES, matchLocale } from "./locales";
 
 function mount() {
   return render(
@@ -63,6 +64,15 @@ describe("LanguageSwitcher", () => {
     ]);
   });
 
+  it("offers exactly the registered locales — nothing unsupported — with their codes", async () => {
+    mount();
+    await openMenu();
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(LOCALES.length);
+    expect(screen.queryByRole("menuitemradio", { name: "Русский" })).not.toBeInTheDocument();
+    expect(matchLocale("ru")).toBeNull();
+    expect(matchLocale("zh-TW")).toBeNull(); // Traditional is not shipped
+  });
+
   it("marks English as the current language by default", async () => {
     mount();
     await openMenu();
@@ -73,8 +83,11 @@ describe("LanguageSwitcher", () => {
   it("switches the active language, remembers it, and closes the menu", async () => {
     mount();
     const user = await openMenu();
+    const change = vi.spyOn(i18n, "changeLanguage");
     await user.click(screen.getByRole("menuitemradio", { name: "Deutsch" }));
     await waitFor(() => expect(i18n.language).toBe("de"));
+    expect(change).toHaveBeenCalledWith("de");
+    expect(h.load).toHaveBeenCalledWith(i18n, "de");
     expect(localStorage.getItem("tb-locale")).toBe("de");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });

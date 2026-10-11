@@ -147,7 +147,8 @@
       "startInPast": "O horário de início não pode estar no passado.",
       "endRequired": "A data e a hora de término são obrigatórias.",
       "endBeforeStart": "O horário de término deve ser posterior ao horário de início.",
-      "peopleUnavailable": "Alguns dos membros ou canais que você escolheu não estão mais disponíveis."
+      "peopleUnavailable": "Alguns dos membros ou canais que você escolheu não estão mais disponíveis.",
+      "audienceRequired": "Adicione pelo menos uma pessoa ou um canal."
     },
     "cancel": "Cancelar",
     "scheduleMeeting": "Agendar reunião",
@@ -278,7 +279,14 @@
     "detailsTitle": "Detalhes da reunião",
     "membersDescription": "Adicione pessoas a esta reunião",
     "membersEmptyHint": "Convide pessoas para a sua reunião",
-    "channelsDescription": "Adicione canais a esta reunião"
+    "channelsDescription": "Adicione canais a esta reunião",
+    "add": {
+      "label": "Adicionar",
+      "people": "Pessoas",
+      "channels": "Canais",
+      "loadingMore": "Carregando mais…",
+      "loadError": "Não foi possível carregar a próxima página."
+    }
   },
   "schedule": {
     "error": "Não foi possível agendar essa chamada",

@@ -41,6 +41,11 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
   const { api } = useRuntime();
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"create" | "browse">("create");
+  // The Create button lives in Modal's pinned footer (below the scrolling body,
+  // so it is always reachable and separated from the form) but belongs to the
+  // form, which owns the mutation. The footer exposes this slot and the form
+  // portals its submit button into it — see CreateChannelPanel's `actionsHost`.
+  const [actionsHost, setActionsHost] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -89,8 +94,14 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
   const joinMut = useJoinChannel();
 
   return (
-    <Modal open={open} onClose={onClose} title={t("addChannel.title")}>
-      <div className="flex flex-col gap-3.5">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t("addChannel.title")}
+      elevated
+      footer={tab === "create" ? <div ref={setActionsHost} className="flex justify-end" /> : undefined}
+    >
+      <div className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
@@ -113,7 +124,7 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
         </div>
 
         {tab === "create" ? (
-          <CreateChannelPanel onCreated={onClose} />
+          <CreateChannelPanel onCreated={onClose} actionsHost={actionsHost} />
         ) : (
           <div className="flex flex-col gap-3">
             <div className="relative">

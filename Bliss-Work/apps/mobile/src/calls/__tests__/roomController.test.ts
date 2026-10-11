@@ -457,3 +457,47 @@ describe('room call: startMuted (joining from a link)', () => {
     expect(c.getSnapshot()).toMatchObject({ micOn: true, camOn: true });
   });
 });
+
+describe('an ad-hoc call is a call, not a meeting', () => {
+  it('keeps what the ring learnt through answering it', async () => {
+    const { c } = setup([JOINED]);
+    c.announce(CALL, 'Conference call', 'video', 'Jordan', 'u-1', true);
+    expect(c.getSnapshot()).toMatchObject({ phase: 'ringing', adhoc: true, title: 'Conference call' });
+
+    await c.join(CALL, 'video', c.getSnapshot().title);
+
+    expect(c.getSnapshot()).toMatchObject({ phase: 'connected', adhoc: true, title: 'Conference call' });
+  });
+
+  it('is told by whoever enters it directly — the caller who widened a 1:1, or started a conference', async () => {
+    const { c } = setup([JOINED]);
+    await c.join(CALL, 'video', 'Conference call', { adhoc: true });
+    expect(c.getSnapshot().adhoc).toBe(true);
+  });
+
+  it('a meeting is not ad-hoc, and one call does not leak into the next', async () => {
+    const { c } = setup([JOINED]);
+    await c.join(CALL, 'video', 'Conference call', { adhoc: true });
+    c.leave();
+    await tick(40);
+    await c.join('55555555-5555-4555-8555-555555555555', 'video', 'Standup');
+    expect(c.getSnapshot().adhoc).toBeUndefined();
+  });
+
+  it('survives a retry after a failed join', async () => {
+    const { c } = setup([new Error('down'), JOINED]);
+    await c.join(CALL, 'video', 'Conference call', { adhoc: true });
+    expect(phase(c)).toBe('failed');
+    c.retry();
+    await tick(10);
+    expect(c.getSnapshot()).toMatchObject({ phase: 'connected', adhoc: true });
+  });
+
+  it('leaving does not end it for the others — only the host pressing End does', async () => {
+    const { c, api } = setup([JOINED]);
+    await c.join(CALL, 'video', 'Conference call', { adhoc: true });
+    c.leave();
+    expect(api.leaveCall).toHaveBeenCalledWith(CALL);
+    expect(api.endCall).not.toHaveBeenCalled();
+  });
+});

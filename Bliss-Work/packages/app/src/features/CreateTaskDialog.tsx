@@ -1,22 +1,26 @@
 /**
  * "New task" modal.
  *
- * Who it goes to is a People group and a Channels group, shown together
- * (MeetingAudienceFields, the same control the meeting form uses); either, or
- * both, may be filled. One Create is one request and one task: task-svc takes
+ * Left: what the task is and when it is allocated (title, description, Now /
+ * Schedule / Recurring, deadline). Right: who gets it — the AssignToPanel, a People
+ * tab and a Channels tab, each a searchable, lazily loaded list; either, or both,
+ * may be filled. One Create is one request and one task: task-svc takes
  * `assigneeIds` and `channelIds` together, resolves each channel's members, and
  * keeps the channels attached to the task so a later joiner is added too.
+ *
+ * Selection is held HERE, as ids, not in the lists: the lists load a page at a time
+ * and a picked person or channel is routinely not in the page on screen.
  *
  * Locked channels appear here only if the caller is a member; open channels they
  * aren't in are intentionally excluded — the assigner has to join first.
  */
-import { useEffect, useId, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useId, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { CalendarClock, Repeat, Zap, type LucideIcon } from "lucide-react";
 import { Button, Input, Textarea } from "@taskboard/ui";
 import { toast } from "sonner";
-import type { UserDTO } from "@taskboard/shared";
+import type { ChannelDTO, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { dayLabel, timeLabel } from "../lib/meetingTime";
@@ -25,7 +29,7 @@ import { localDay } from "../lib/dateRange";
 import { deadlineProblem, deadlineRequest, emptyDeadline, type Allocation, type DeadlineForm, type DeadlineProblem } from "../lib/taskDeadline";
 import { Modal } from "./Modal";
 import { Field } from "../routes/Onboarding";
-import { MeetingAudienceFields, type AudienceCopy } from "./MeetingAudienceFields";
+import { AssignToPanel } from "./AssignToPanel";
 import { TaskDeadlineField } from "./TaskDeadlineField";
 import { TimePicker } from "./TimePicker";
 
@@ -50,6 +54,9 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
   return next;
 }
 
+/** A picked channel: just what the summary line and the success toast say about it. */
+type ChannelPick = { name: string; memberCount: number };
+
 export function CreateTaskDialog({
   open,
   onClose,
@@ -65,7 +72,9 @@ export function CreateTaskDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
-  const [selectedChannels, setSelectedChannels] = useState<Set<string>>(new Set());
+  // Keyed by channel id; the value is only what this form later SAYS about the channel,
+  // captured when it was picked — the dialog never holds the channel list itself.
+  const [selectedChannels, setSelectedChannels] = useState<Map<string, ChannelPick>>(new Map());
   const [allocation, setAllocation] = useState<Allocation>("NOW");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
@@ -81,18 +90,12 @@ export function CreateTaskDialog({
   const [occurrenceCount, setOccurrenceCount] = useState("1");
   const [deadline, setDeadline] = useState<DeadlineForm>(emptyDeadline);
 
-  const { data: channels = [] } = useQuery({
-    queryKey: qk.channels,
-    queryFn: () => api.channels(),
-    enabled: open,
-  });
-
   // "Schedule for later"'s small allocation summary — who, and the real
   // combined start moment (same localDateTimeWithOffset the request itself
   // is built from, so the summary can never say something the request doesn't).
   const summaryTargets = [
     ...(selectedPeople.size > 0 ? [t("createTaskDialog.allocation.peopleCount", { count: selectedPeople.size })] : []),
-    ...channels.filter((c) => selectedChannels.has(c.id)).map((c) => `#${c.name}`),
+    ...[...selectedChannels.values()].map((c) => `#${c.name}`),
   ];
   const summaryWho = summaryTargets.length > 0 ? summaryTargets.join(", ") : t("createTaskDialog.allocation.noTargetYet");
   const summaryStartIso = localDateTimeWithOffset(scheduledDate, scheduledTime);
@@ -100,29 +103,12 @@ export function CreateTaskDialog({
     ? `${dayLabel(new Date(summaryStartIso).getTime())} · ${timeLabel(new Date(summaryStartIso).getTime())}`
     : null;
 
-  const assignToId = useId();
   const formId = useId();
-  const audienceCopy: AudienceCopy = {
-    peopleLabel: t("createTaskDialog.fields.peopleLabel"),
-    peopleNone: t("createTaskDialog.fields.assignToEmpty"),
-    peopleAdd: t("createTaskDialog.fields.addPeople"),
-    peopleDone: t("createTaskDialog.fields.done"),
-    peopleRemove: (name) => t("createTaskDialog.fields.removePerson", { name }),
-    unknownPerson: t("createTaskDialog.fields.unknownPerson"),
-    you: t("createTaskDialog.fields.you"),
-    channelsLabel: t("createTaskDialog.fields.channelsLabel"),
-    channelsHint: t("createTaskDialog.fields.channelHint"),
-    channelsNone: t("createTaskDialog.fields.assignToChannelEmpty"),
-    channelsAdd: t("createTaskDialog.fields.addChannels"),
-    channelsDone: t("createTaskDialog.fields.done"),
-    channelsRemove: (name) => t("createTaskDialog.fields.removeChannel", { name }),
-    unknownChannel: t("createTaskDialog.fields.unknownChannel"),
-  };
 
   useEffect(() => {
     if (open) {
       setSelectedPeople(new Set(preselect.map((u) => u.id)));
-      setSelectedChannels(new Set());
+      setSelectedChannels(new Map());
       setAllocation("NOW");
       setScheduledDate("");
       setScheduledTime("");
@@ -144,6 +130,11 @@ export function CreateTaskDialog({
   // A deadline is optional: with none, the request is exactly what it always was.
   const { deadlineAt, recurrenceDeadline } = deadlineRequest(deadline, allocation);
 
+  // isPending only flips after React re-renders, so a second submit in the same
+  // tick (Enter held, double click) would otherwise send a second request — and
+  // a second task, since each request mints its own idempotency key.
+  const inFlight = useRef(false);
+
   const create = useMutation({
     // ONE request for the whole selection, whatever mix of people and channels it
     // is. task-svc resolves each channel's members (so someone both picked and in a
@@ -155,7 +146,7 @@ export function CreateTaskDialog({
         description,
         allocation,
         ...(selectedPeople.size > 0 ? { assigneeIds: [...selectedPeople] } : {}),
-        ...(selectedChannels.size > 0 ? { channelIds: [...selectedChannels] } : {}),
+        ...(selectedChannels.size > 0 ? { channelIds: [...selectedChannels.keys()] } : {}),
         ...(allocation === "SCHEDULED" ? { scheduledFor: localDateTimeWithOffset(scheduledDate, scheduledTime)! } : {}),
         ...(allocation === "RECURRING" ? { recurrence: recurrencePayload() } : {}),
         ...(deadlineAt ? { deadlineAt } : {}),
@@ -164,9 +155,7 @@ export function CreateTaskDialog({
       // Only a lone channel gets the channel-specific toast: with people (or other
       // channels) alongside it, "sent to #general — 12 members" would undercount.
       const lone =
-        selectedPeople.size === 0 && selectedChannels.size === 1
-          ? channels.find((c) => selectedChannels.has(c.id))
-          : undefined;
+        selectedPeople.size === 0 && selectedChannels.size === 1 ? [...selectedChannels.values()][0] : undefined;
       toast.success(
         lone
           ? t("createTaskDialog.toasts.sentToChannel", {
@@ -191,17 +180,26 @@ export function CreateTaskDialog({
       setTitle("");
       setDescription("");
       setSelectedPeople(new Set());
-      setSelectedChannels(new Set());
+      setSelectedChannels(new Map());
       onClose();
     },
     onError: (e) => toast.error(t("createTaskDialog.errors.createFailed"), { description: String(e) }),
+    onSettled: () => {
+      inFlight.current = false;
+    },
   });
 
-  const togglePerson = (id: string) => setSelectedPeople((s) => toggled(s, id));
-  const toggleChannel = (id: string) => setSelectedChannels((s) => toggled(s, id));
+  const togglePerson = (user: UserDTO) => setSelectedPeople((s) => toggled(s, user.id));
+  const toggleChannel = (channel: ChannelDTO) =>
+    setSelectedChannels((s) => {
+      const next = new Map(s);
+      if (!next.delete(channel.id)) next.set(channel.id, { name: channel.name, memberCount: channel.memberCount });
+      return next;
+    });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (inFlight.current) return;
     if (!title.trim()) return toast.error(t("createTaskDialog.errors.needTitle"));
     if (selectedPeople.size === 0 && selectedChannels.size === 0)
       return toast.error(t("createTaskDialog.errors.needAssignee"));
@@ -222,6 +220,7 @@ export function CreateTaskDialog({
     }
     const problem = deadlineProblem(deadline, allocation, { date: scheduledDate, time: scheduledTime }, Date.now());
     if (problem) return toast.error(t(DEADLINE_ERRORS[problem]));
+    inFlight.current = true;
     create.mutate();
   };
 
@@ -264,8 +263,9 @@ export function CreateTaskDialog({
         </div>
       }
     >
-      <form id={formId} onSubmit={submit} className="grid gap-x-6 gap-y-3.5 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-        {/* LEFT: what the task is and who gets it. */}
+      <form id={formId} onSubmit={submit} className="grid gap-x-6 gap-y-3.5 md:grid-cols-2">
+        {/* LEFT: what the task is and when it is allocated — the selected allocation
+            mode decides which of start / repeat / deadline appear. */}
         <div className="flex min-w-0 flex-col gap-3.5">
           <Field label={t("createTaskDialog.fields.title")}>
             <Input
@@ -286,27 +286,6 @@ export function CreateTaskDialog({
             />
           </Field>
 
-          <div role="group" aria-labelledby={assignToId} className="flex flex-col gap-2.5">
-            <span id={assignToId} className="text-sm font-medium text-fg">
-              {t("createTaskDialog.fields.assignTo")}
-            </span>
-            {/* includeSelf: task assignment allows sending a task to yourself, same as
-                fanning one to a channel you are a member of (see task-svc's create_task). */}
-            <MeetingAudienceFields
-              tone="theme"
-              includeSelf
-              invitees={selectedPeople}
-              onToggleInvitee={togglePerson}
-              channels={selectedChannels}
-              onToggleChannel={toggleChannel}
-              copy={audienceCopy}
-            />
-          </div>
-        </div>
-
-        {/* RIGHT: when it is allocated — the selected mode decides which of
-            start / repeat / deadline appear. */}
-        <div className="flex min-w-0 flex-col gap-3 md:border-l md:border-border/60 md:pl-6">
           <div className="flex flex-col gap-1.5">
             <span className="text-[13px] font-medium text-fg/80">{t("createTaskDialog.allocation.title")}</span>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -420,6 +399,18 @@ export function CreateTaskDialog({
             onChange={setDeadline}
             startDate={scheduledDate}
             startTime={scheduledTime}
+          />
+        </div>
+
+        {/* RIGHT: who gets it. The panel's list fills this column and scrolls inside
+            it, so the dialog is as tall as the left column asks, never as long as
+            the organisation. */}
+        <div className="flex min-w-0 flex-col md:border-l md:border-border/60 md:pl-6">
+          <AssignToPanel
+            people={selectedPeople}
+            channels={new Set(selectedChannels.keys())}
+            onTogglePerson={togglePerson}
+            onToggleChannel={toggleChannel}
           />
         </div>
       </form>

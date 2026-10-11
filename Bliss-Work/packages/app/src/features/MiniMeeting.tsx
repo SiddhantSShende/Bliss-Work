@@ -112,6 +112,7 @@ export function MiniMeeting({
   onToggleCam,
   onRestore,
   onLeave,
+  adhoc,
 }: {
   title: string;
   /** Whoever the room is looking at — the active speaker, or a manual pin. */
@@ -129,8 +130,11 @@ export function MiniMeeting({
   onToggleCam: () => void;
   onRestore: () => void;
   onLeave: () => void;
+  /** An ad-hoc call: "the call", not "the meeting". */
+  adhoc?: boolean;
 }) {
   const { t } = useTranslation("calls");
+  const ctx = adhoc ? "call" : undefined;
   const [pos, setPos] = useState<Point>(() => clampToViewport(readPosition() ?? defaultPosition()));
   const duration = useCallDuration(startedAt);
 
@@ -244,8 +248,8 @@ export function MiniMeeting({
         type="button"
         data-no-drag
         onClick={onRestore}
-        title={t("miniMeeting.backToMeeting")}
-        aria-label={t("miniMeeting.backToMeeting")}
+        title={t("miniMeeting.backToMeeting", { context: ctx })}
+        aria-label={t("miniMeeting.backToMeeting", { context: ctx })}
         className="group relative block h-28 w-full bg-surface-2"
       >
         {stage ? (
@@ -290,10 +294,10 @@ export function MiniMeeting({
         </div>
 
         <div className="flex items-center gap-1">
-          <MiniButton title={t("miniMeeting.backToMeeting")} onClick={onRestore}>
+          <MiniButton title={t("miniMeeting.backToMeeting", { context: ctx })} onClick={onRestore}>
             <Maximize2 size={14} />
           </MiniButton>
-          <MiniButton title={t("miniMeeting.leaveMeeting")} onClick={onLeave} solidDanger>
+          <MiniButton title={t("miniMeeting.leaveMeeting", { context: ctx })} onClick={onLeave} solidDanger>
             <PhoneOff size={14} />
           </MiniButton>
         </div>

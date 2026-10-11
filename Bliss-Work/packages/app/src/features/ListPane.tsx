@@ -27,13 +27,11 @@ export function ListHeader({ title, action }: { title: string; action?: React.Re
   );
 }
 
-/** The rounded icon tile at the start of a secondary-nav row. The
- *  `nav-icon-tile` class is the hook theme.css uses to reverse its colours
- *  (dark fill, light icon) when a custom theme is active; the Tailwind classes
- *  here are the look for every other theme. */
+/** The rounded icon tile at the start of a secondary-nav row. Same tile in every
+ *  theme — its colours are the accent tokens, which the active theme supplies. */
 export function NavIconTile({ children }: { children: React.ReactNode }) {
   return (
-    <span className="nav-icon-tile flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
       {children}
     </span>
   );

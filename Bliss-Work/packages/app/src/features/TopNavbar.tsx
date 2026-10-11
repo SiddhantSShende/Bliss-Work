@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Menu, Search, UserPlus, Bell, X } from "lucide-react";
-import { Button, IconButton, Wordmark } from "@taskboard/ui";
+import { IconButton, Wordmark } from "@taskboard/ui";
 import { ProfileMenu } from "./ProfileMenu";
 import { GetAppButton } from "./GetAppButton";
 import { OrgSwitcher } from "./OrgSwitcher";
@@ -165,14 +165,15 @@ export function TopNavbar({
         <GetAppButton mode="compact" className="hidden md:block" />
         {/* Not offered in the desktop app. */}
         {!controls && (
-          <Button
-            variant="subtle"
-            size="sm"
+          <IconButton
+            tone="soft"
             onClick={() => nav("/app/invite")}
+            title={t("topNavbar.invite")}
+            aria-label={t("topNavbar.invite")}
             className="hidden md:inline-flex"
           >
-            <UserPlus size={15} /> {t("topNavbar.invite")}
-          </Button>
+            <UserPlus size={18} />
+          </IconButton>
         )}
         {/* Search moves here below md, in place of the hidden inline form
             above — the mobile header has no room for a full search bar. */}

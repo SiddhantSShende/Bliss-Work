@@ -285,6 +285,27 @@
         "4": "Fourth",
         "5": "Fifth"
       }
+    },
+    "assign": {
+      "required": "required",
+      "peopleTab": "People ({{count}})",
+      "channelsTab": "Channels ({{count}})",
+      "peopleSearch": "Search people in your organisation…",
+      "channelsSearch": "Search your channels…",
+      "peopleSearchLabel": "Search people in your organisation",
+      "channelsSearchLabel": "Search your channels",
+      "peopleListLabel": "People to assign to",
+      "channelsListLabel": "Channels to assign to",
+      "loading": "Loading…",
+      "peopleLoadingMore": "Loading more people…",
+      "channelsLoadingMore": "Loading more channels…",
+      "peopleEmpty": "No people match your search.",
+      "channelsEmpty": "No channels match your search.",
+      "loadError": "Couldn't load this list.",
+      "retry": "Try again",
+      "locked": "Locked channel",
+      "members_one": "{{count}} member",
+      "members_other": "{{count}} members"
     }
   },
   "exportTasksDialog": {

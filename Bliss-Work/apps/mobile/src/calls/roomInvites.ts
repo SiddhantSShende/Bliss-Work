@@ -1,4 +1,5 @@
-import { EventType, type ServerEvent } from '@taskboard/shared';
+import { EventType, isAdhocCall, type ServerEvent } from '@taskboard/shared';
+import { CONFERENCE_TITLE } from './conferenceCall';
 import type { CallMedia } from './callController';
 
 /**
@@ -30,6 +31,8 @@ export type RoomInviteDecision =
       /** A 1:1 call's row also raises these events on top of the WS ring that
        *  already reached us; the caller waits a moment and checks. */
       directDuplicate: boolean;
+      /** An ad-hoc call we were added to: a call, never worded as a meeting. */
+      adhoc: boolean;
     }
   | { kind: 'dismiss'; callId: string }
   | null;
@@ -49,10 +52,12 @@ export function roomInviteFor(e: ServerEvent, ctx: { me?: string; replayed: bool
       return {
         kind: 'announce',
         callId: e.callId,
-        title: e.title || (e.kind === 'CHANNEL' ? 'Channel call' : 'Meeting'),
+        // An ad-hoc call somebody was added to is a call, not a meeting.
+        title: e.title || (isAdhocCall(e) ? CONFERENCE_TITLE : e.kind === 'CHANNEL' ? 'Channel call' : 'Meeting'),
         media: e.media ?? 'video',
         actorId: e.actorId,
         directDuplicate: e.kind === 'DIRECT',
+        adhoc: isAdhocCall(e),
       };
     }
     case EventType.CallEnded:

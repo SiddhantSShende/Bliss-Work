@@ -3,9 +3,10 @@ import { AlertTriangle, ScrollText } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Avatar, EmptyState, Spinner } from "@taskboard/ui";
-import type { MemberDTO } from "@taskboard/shared";
+import type { AuditEntryDTO, MemberDTO } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
+import { fileContextLabel } from "./activityLabels";
 import { LoadOlderFooter } from "./LoadOlderFooter";
 
 /**
@@ -78,6 +79,7 @@ export function MemberAuditLog({ targetId, members }: { targetId?: string; membe
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                 <span>{new Date(e.at).toLocaleString(i18n.language)}</span>
                 {renderMeta(e.meta)}
+                {fileDetail(e, t)}
               </div>
             </div>
           </div>
@@ -104,5 +106,28 @@ function renderMeta(meta: Record<string, unknown> | null) {
     <span className="rounded-full bg-surface-2 px-2 py-0.5">
       {from != null ? `${fmt(from)} → ${fmt(to)}` : fmt(to)}
     </span>
+  );
+}
+
+/** What a file open/download entry adds under its date: the file's name and where
+ *  it was ("in Chat with Divya Bhamri" / "in #GRC Development"). Entries without
+ *  a recorded chat show just the name — never a placeholder. */
+function fileDetail(entry: AuditEntryDTO, t: TFunction) {
+  if (entry.action !== "file.opened" && entry.action !== "file.downloaded") return null;
+  const meta = entry.meta ?? {};
+  const detail: Record<string, string> = {};
+  for (const [key, value] of Object.entries(meta)) if (typeof value === "string") detail[key] = value;
+  const filename = detail.filename?.trim();
+  const where = fileContextLabel({ action: entry.action, detail }, t);
+  if (!filename && !where) return null;
+  return (
+    <>
+      {filename && (
+        <span className="max-w-[16rem] truncate rounded-full bg-surface-2 px-2 py-0.5 text-fg" title={filename}>
+          {filename}
+        </span>
+      )}
+      {where && <span className="truncate">{where}</span>}
+    </>
   );
 }

@@ -308,6 +308,48 @@ func TestCallNoticeClassifiesEachMeetingEvent(t *testing.T) {
 	}
 }
 
+// Being added to an ad-hoc call (DIRECT, no schedule) is a call notification in call
+// words — never a meeting invitation. Anything with a schedule, or any other kind,
+// keeps the meeting wording it always had.
+func TestCallNoticeWordsAnAdhocRingAsACallNotAMeeting(t *testing.T) {
+	ring := func(kind, scheduledAt, actor string) events.CallLifecycle {
+		return events.CallLifecycle{
+			Type: events.TypeCallRing, CallID: uuid.NewString(), Kind: kind,
+			ScheduledAt: scheduledAt, ActorName: actor,
+		}
+	}
+	cases := []struct {
+		name string
+		ev   events.CallLifecycle
+		kind string
+		text string
+	}{
+		{"added to a conference", ring("DIRECT", "", "Jordan Doe"),
+			events.KindCallAdded, "Jordan Doe added you to a conference call"},
+		{"adder not resolvable", ring("DIRECT", "", ""),
+			events.KindCallAdded, "You were added to a conference call"},
+		{"a titled ad-hoc call is still a call", func() events.CallLifecycle {
+			e := ring("DIRECT", "", "Jordan Doe")
+			e.Title = "Standup"
+			return e
+		}(), events.KindCallAdded, "Jordan Doe added you to a conference call"},
+		{"scheduled direct call keeps meeting wording", ring("DIRECT", "2026-10-06T09:00:00Z", "Jordan Doe"),
+			events.KindMeetingInvite, "Meeting scheduled: Meeting · 2026-10-06T09:00:00Z"},
+		{"a meeting still invites", ring("MEETING", "", "Jordan Doe"),
+			events.KindMeetingInvite, "Meeting invitation: Meeting"},
+		{"a channel call still invites", ring("CHANNEL", "", "Jordan Doe"),
+			events.KindMeetingInvite, "Meeting invitation: Meeting"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			kind, text, linksCall := callNotice(tc.ev)
+			if kind != tc.kind || text != tc.text || !linksCall {
+				t.Errorf("callNotice() = (%q, %q, %v), want (%q, %q, true)", kind, text, linksCall, tc.kind, tc.text)
+			}
+		})
+	}
+}
+
 func TestCallNoticeStaysQuietForEventsThatAreNotNews(t *testing.T) {
 	cases := []events.CallLifecycle{
 		{Type: events.TypeCallEnded, Status: "ENDED"},           // a meeting that took place

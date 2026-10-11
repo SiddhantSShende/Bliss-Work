@@ -13,9 +13,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSession } from "../store/session";
 import { CHANNELS, DIRECTORY, ME } from "../test/meetingFixtures";
 import { setClockTime } from "../test/timePicker";
+import { addPerson, channelsPageOf, directoryPageOf } from "../test/meetingPaging";
 
 const h = vi.hoisted(() => ({
-  api: { scheduleMeeting: vi.fn(), createCallInvite: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: { scheduleMeeting: vi.fn(), createCallInvite: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({
   useRuntime: () => ({ api: h.api, config: { webBaseUrl: "https://app.test" } }),
@@ -60,8 +61,10 @@ const pressed = () =>
     (n) => day(n).getAttribute("aria-pressed") === "true",
   );
 
+/** A title and one person: the minimum a meeting needs (Add is required). */
 async function title(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByPlaceholderText("Enter meeting title"), "Weekly review");
+  await addPerson(user, /Ada Lovelace/);
 }
 
 beforeEach(() => {
@@ -72,8 +75,8 @@ beforeEach(() => {
   h.api.createCallInvite
     .mockReset()
     .mockResolvedValue({ id: "invite-1", callId: "call-1", token: "tok_abc", expiresAt: "2026-09-16T10:00:00.000Z" });
-  h.api.directory.mockReset().mockResolvedValue(DIRECTORY);
-  h.api.channels.mockReset().mockResolvedValue(CHANNELS);
+  h.api.directoryPage.mockReset().mockImplementation(directoryPageOf(DIRECTORY));
+  h.api.channelsPage.mockReset().mockImplementation(channelsPageOf(CHANNELS));
   onClose.mockReset();
   onStarted.mockReset();
 });

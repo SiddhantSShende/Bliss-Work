@@ -187,6 +187,7 @@ function asErrorCode(code: string | undefined): ErrorCode | undefined {
     "not_found",
     "conflict",
     "call_session_active",
+    "call_ended",
     "validation_error",
     "rate_limited",
     "internal_error",
@@ -353,10 +354,12 @@ export class ApiClient {
   // ── auth / org / invite ─────────────────────────────────────────────────────
   /** A fresh CAPTCHA challenge — required on both createOrg and login. Calling
    *  this again (e.g. the form's "refresh" button, or after a failed attempt)
-   *  mints a completely new captchaId/image; the old one is simply abandoned
-   *  (it stays independently single-use and short-lived on the server). */
-  getCaptcha() {
-    return this.req(this.cfg.authBase, "/auth/captcha", {}, CaptchaChallengeDTO);
+   *  mints a completely new captchaId/image. Pass the id being discarded as
+   *  `replaces` and the server invalidates it, so a refresh never leaves two
+   *  answerable challenges (omit it on the first load). */
+  getCaptcha(replaces?: string) {
+    const qs = replaces ? `?replaces=${encodeURIComponent(replaces)}` : "";
+    return this.req(this.cfg.authBase, `/auth/captcha${qs}`, {}, CaptchaChallengeDTO);
   }
   createOrg(body: {
     orgName: string;
@@ -423,6 +426,24 @@ export class ApiClient {
   directory(includeInactive = false) {
     const q = includeInactive ? "?includeInactive=true" : "";
     return this.req(this.cfg.authBase, `/auth/directory${q}`, {}, z.array(UserDTO));
+  }
+  /**
+   * One page of the directory, optionally narrowed by a search.
+   *
+   * For pickers, which must not download the organisation to show a dozen rows.
+   * `q` matches display name, username and email (case-insensitive substring) and
+   * `offset` then counts MATCHES, so a search pages exactly as the whole directory
+   * does. A page shorter than `limit` is the end. Against a server that predates
+   * `q` the parameter is ignored and the page is the unfiltered directory — callers
+   * that show results should also filter what comes back (see lib/matchUser).
+   */
+  directoryPage(opts: { q?: string; limit?: number; offset?: number } = {}) {
+    const q = new URLSearchParams();
+    if (opts.q?.trim()) q.set("q", opts.q.trim());
+    if (opts.limit != null) q.set("limit", String(opts.limit));
+    if (opts.offset != null) q.set("offset", String(opts.offset));
+    const qs = q.toString();
+    return this.req(this.cfg.authBase, `/auth/directory${qs ? `?${qs}` : ""}`, {}, z.array(UserDTO));
   }
 
   // ── active sessions (sign-in sessions, not activity/telemetry ones) ────────
@@ -1855,7 +1876,7 @@ export class ApiClient {
       method: "POST",
       headers: { "idempotency-key": idempotencyKey ?? uuid() },
       body: JSON.stringify(body),
-    }, z.object({ taskId: z.string(), scheduleId: z.string().optional() }));
+    }, z.object({ taskId: z.string(), scheduleId: z.string().nullish() }));
   }
   /**
    * Every row of one of the caller's task lists, walking the server's pages.
@@ -2138,6 +2159,39 @@ export class ApiClient {
   // ── channels (group chat, served by messaging-svc) ──────────────────────────────
   channels() {
     return this.req(this.cfg.messagingBase, "/api/v1/channels", {}, z.array(ChannelDTO));
+  }
+  /**
+   * One page of the channels the caller is a member of, optionally narrowed by a
+   * name search — the picker's read (`channels()` stays the sidebar's whole list).
+   * Ordered by name, so offset paging is stable; a page shorter than `limit` is the
+   * end. Lean rows: no last-message preview or unread count.
+   *
+   * Against a messaging-svc that predates `/channels/mine` (404/405) this falls back
+   * to the whole list, filtered and sliced here, so a client deployed first keeps
+   * working — at the cost the endpoint exists to avoid, until the server catches up.
+   */
+  async channelsPage(opts: { q?: string; limit?: number; offset?: number } = {}) {
+    const q = new URLSearchParams();
+    if (opts.q?.trim()) q.set("q", opts.q.trim());
+    if (opts.limit != null) q.set("limit", String(opts.limit));
+    if (opts.offset != null) q.set("offset", String(opts.offset));
+    const qs = q.toString();
+    try {
+      return await this.req(
+        this.cfg.messagingBase,
+        `/api/v1/channels/mine${qs ? `?${qs}` : ""}`,
+        {},
+        z.array(ChannelDTO),
+      );
+    } catch (e) {
+      if (!(e instanceof ApiError) || (e.status !== 404 && e.status !== 405)) throw e;
+      const needle = (opts.q ?? "").trim().toLowerCase();
+      const all = (await this.channels())
+        .filter((c) => !needle || c.name.toLowerCase().includes(needle))
+        .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id.localeCompare(b.id));
+      const from = opts.offset ?? 0;
+      return all.slice(from, opts.limit != null ? from + opts.limit : undefined);
+    }
   }
   /** One page of the directory of OPEN channels the caller isn't already a
    *  member of. Used by the "Browse channels" view in the Channels sidebar.
@@ -2628,6 +2682,19 @@ export class ApiClient {
       this.cfg.messagingBase,
       "/api/v1/calls/direct",
       { method: "POST", body: JSON.stringify({ peerId, media }) },
+      CallDTO,
+    );
+  }
+
+  /** The multi-select "Call": ONE ad-hoc call to all of these people (two or more),
+   *  every one of them rung. The server applies the same rules as adding people to
+   *  a call — your org, no blocks, MAX_ADHOC_CALL_PARTICIPANTS — and answers 403 /
+   *  409 for a roster it refuses. Not a Meeting: it is never listed under Meetings. */
+  startConferenceCall(peerIds: string[], media: "audio" | "video" = "video") {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/calls/direct",
+      { method: "POST", body: JSON.stringify({ peerIds, media }) },
       CallDTO,
     );
   }

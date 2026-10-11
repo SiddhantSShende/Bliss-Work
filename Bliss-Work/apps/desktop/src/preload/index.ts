@@ -240,8 +240,8 @@ const api = {
    *  (main/meeting-invite-manager.ts) instead of an in-page card — see
    *  PlatformConfig.showMeetingInvitePopup and features/IncomingMeetingNotice,
    *  which calls this and renders nothing itself when it is present. */
-  showMeetingInvitePopup: (callId: string, title: string, organizer: string) =>
-    ipcRenderer.send("meeting-invite:show", { callId, title, organizer }),
+  showMeetingInvitePopup: (callId: string, title: string, organizer: string, adhoc?: boolean) =>
+    ipcRenderer.send("meeting-invite:show", { callId, title, organizer, adhoc: adhoc === true }),
 
   /** Close the popup window for `callId` with no user action — the call
    *  ended, or was answered elsewhere, while it was still showing. See

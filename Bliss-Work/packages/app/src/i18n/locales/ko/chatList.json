@@ -50,7 +50,8 @@
       "message": "내 쪽의 채팅 기록만 삭제돼요. 상대방에게는 그대로 남아 있어요.",
       "confirmLabel": "채팅 삭제"
     },
-    "deleteErrorToast": "채팅을 삭제하지 못했어요"
+    "deleteErrorToast": "채팅을 삭제하지 못했어요",
+    "groupCall": "그룹 통화"
   },
   "channelsList": {
     "title": "채널",

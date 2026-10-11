@@ -19,6 +19,7 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { onMeetingJoinRequest, useMeetingSession, useResumableMeeting } from "../lib/MeetingSession";
 import { closeMeetingTab } from "../lib/callWindow";
+import { isCallOver } from "../lib/meetingView";
 import { useSession } from "../store/session";
 import { CallRoom } from "./CallRoomLazy";
 import { IncomingMeetingNotice } from "./IncomingMeetingNotice";
@@ -39,7 +40,7 @@ export function MeetingHost() {
           // A newer request superseded this one — say nothing, the newer
           // one's own outcome (success or its own toast) is what matters now.
           if (request !== requestNumber) return;
-          if (next.status !== "ENDED" && next.status !== "CANCELLED") {
+          if (!isCallOver(next)) {
             enter(next, undefined, media);
           }
         })
@@ -107,7 +108,7 @@ function RejoinPrompt() {
   });
 
   // A call that has since ended is not something to offer a way back into.
-  if (!callId || dismissed || !call || call.status === "ENDED" || call.status === "CANCELLED") {
+  if (!callId || dismissed || !call || isCallOver(call)) {
     return null;
   }
 

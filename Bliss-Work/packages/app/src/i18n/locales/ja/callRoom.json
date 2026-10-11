@@ -10,6 +10,7 @@
     "screenShareStopped": "画面共有が停止しました",
     "screenShareStoppedDescription": "通話に再接続したため共有が終了しました。発表を続ける場合は、もう一度共有を開始してください。",
     "meetingEnded": "このミーティングは終了しました",
+    "meetingEnded_call": "この通話は終了しました",
     "micBlocked": "マイクがブロックされています",
     "micBlockedHint": "このアプリのマイクの権限を確認してください。",
     "micUnavailable": "マイクを使用できません",
@@ -17,7 +18,8 @@
     "cameraBlocked": "カメラがブロックされています",
     "cameraBlockedHint": "このアプリのカメラの権限を確認してください。",
     "cameraUnavailable": "カメラを使用できません",
-    "cameraUnavailableHint": "カメラが接続されていて、他で使用されていないことを確認してください。"
+    "cameraUnavailableHint": "カメラが接続されていて、他で使用されていないことを確認してください。",
+    "addedSome": "{{total}}人中{{added}}人を追加しました。残りは追加できませんでした"
   },
   "preJoin": {
     "readyToJoinLabel": "参加の準備完了",
@@ -38,7 +40,9 @@
     "cameraOn": "カメラをオンにする",
     "heading": "参加の準備はできましたか?",
     "description": "ミーティングに入る前に、カメラとマイクを確認してください。",
-    "joinButton": "ミーティングに参加"
+    "description_call": "通話に参加する前に、カメラとマイクを確認してください。",
+    "joinButton": "ミーティングに参加",
+    "joinButton_call": "通話に参加"
   },
   "waitingRoom": {
     "canStartHint": "最初の参加者です。開始すると他のメンバーが入室できます。",
@@ -49,16 +53,28 @@
   },
   "joinFailed": {
     "anotherDeviceTitle": "別のデバイスで、すでにこのミーティングに参加しています",
+    "anotherDeviceTitle_call": "別のデバイスで、すでにこの通話に参加しています",
     "anotherDeviceHint": "現在、別のデバイスからこのミーティングに接続しています。",
+    "anotherDeviceHint_call": "現在、別のデバイスからこの通話に接続しています。",
     "switchHere": "このデバイスに切り替える",
     "displacedTitle": "別のデバイスでこのミーティングに参加しました",
+    "displacedTitle_call": "別のデバイスでこの通話に参加しました",
     "displacedHint": "このミーティングは現在、別のデバイスで有効になっています。",
+    "displacedHint_call": "この通話は現在、別のデバイスで有効になっています。",
     "tokenTitle": "ミーティングの認証情報を取得できません",
+    "tokenTitle_call": "通話の認証情報を取得できません",
     "disconnectedTitle": "ミーティングから切断されました",
+    "disconnectedTitle_call": "通話から切断されました",
     "genericTitle": "ミーティングに接続できません",
+    "genericTitle_call": "通話に接続できません",
     "tokenHint": "トークンのリクエストが完了しませんでした。接続を確認して、もう一度お試しください。",
+    "endedTitle": "このミーティングは終了しました",
+    "endedTitle_call": "この通話は終了しました",
+    "endedHint": "すでに終了しているため、参加できません。",
     "disconnectedHint": "ミーティングとの接続が失われ、復旧できませんでした。接続を確認してから、もう一度参加してください。",
+    "disconnectedHint_call": "通話との接続が失われ、復旧できませんでした。接続を確認してから、もう一度参加してください。",
     "genericHint": "ミーティングサーバーへの接続が完了しませんでした。接続を確認して、もう一度お試しください。",
+    "genericHint_call": "通話サーバーへの接続が完了しませんでした。接続を確認して、もう一度お試しください。",
     "leave": "退出",
     "retrying": "再試行中…",
     "retry": "再試行"
@@ -66,6 +82,7 @@
   "room": {
     "defaultTitleChannel": "チャンネル通話",
     "defaultTitleMeeting": "ミーティング",
+    "defaultTitleConference": "会議通話",
     "youFallbackName": "自分",
     "addPeopleDefaultTitle": "メンバーを追加",
     "channelAlreadyInvited": "チャンネルのメンバー全員がすでに招待されています",
@@ -85,7 +102,13 @@
       "recordingSaved": "録画をダウンロードフォルダーに保存しました",
       "recordingUnsupported": "このブラウザーではミーティングを録画できません",
       "recordingStarted": "録画を開始しました。このデバイスに保存されます",
-      "inviteLinkCopied": "招待リンクをコピーしました"
+      "inviteLinkCopied": "招待リンクをコピーしました",
+      "couldNotEndForEveryone": "全員の通話を終了できませんでした"
+    },
+    "endForEveryoneConfirm": {
+      "title": "全員の通話を終了しますか？",
+      "message": "この通話にまだ参加している全員が切断されます。この操作は元に戻せません。",
+      "confirm": "全員の通話を終了"
     }
   },
   "controls": {
@@ -105,6 +128,7 @@
     "searchPlaceholder": "メンバーを検索…",
     "searchAriaLabel": "メンバーを検索",
     "inMeetingCount": "参加中 · {{count}}",
+    "inMeetingCount_call": "通話中 · {{count}}",
     "youSuffix": "(自分)",
     "sharing": "共有中",
     "handUp": "挙手中",
@@ -157,6 +181,17 @@
     "addedToCall": "通話に追加しました",
     "addedPeople": "{{count}}人を追加しました",
     "couldNotAdd": "この通話に誰も追加できませんでした",
-    "groupCallingUnavailable": "このサーバーではグループ通話を利用できない可能性があります。"
+    "groupCallingUnavailable": "このサーバーではグループ通話を利用できない可能性があります。",
+    "addTitle": "この通話にメンバーを追加",
+    "addButton": "追加"
+  },
+  "groupCall": {
+    "title": "グループ通話を開始",
+    "description": "2人以上を選んでください。全員が1つの通話に呼び出されます。",
+    "callButton": "発信",
+    "pickTwo": "2人以上を選んでください",
+    "limit": "1つの通話に最大{{max}}人",
+    "failed": "通話を開始できませんでした",
+    "alreadyInCall": "すでに通話中です"
   }
 }

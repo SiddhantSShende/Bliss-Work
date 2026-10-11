@@ -68,7 +68,8 @@
     "titles": {
       "task": "任务",
       "chat": "聊天",
-      "invite": "会议邀请"
+      "invite": "会议邀请",
+      "call": "来电"
     }
   }
 }

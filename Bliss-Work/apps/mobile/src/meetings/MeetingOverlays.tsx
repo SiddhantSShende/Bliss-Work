@@ -7,12 +7,15 @@ import { useMeetingSkin } from './skin';
 export function LeaveDialog({
   title,
   isHost,
+  adhoc,
   onCancel,
   onLeave,
   onEndForAll,
 }: {
   title: string;
   isHost: boolean;
+  /** An ad-hoc call: worded as a call. Leaving it never ends it for the others. */
+  adhoc?: boolean;
   onCancel: () => void;
   onLeave: () => void;
   onEndForAll: () => void;
@@ -25,7 +28,7 @@ export function LeaveDialog({
         <GlassPanel style={styles.dialog} radius={24}>
           <View style={styles.dialogInner}>
             <Text style={[styles.dialogTitle, { color: skin.ink }]}>
-              Leave Meeting
+              {adhoc ? 'Leave Call' : 'Leave Meeting'}
             </Text>
             <Text
               style={[styles.dialogBody, { color: skin.muted }]}
@@ -40,7 +43,9 @@ export function LeaveDialog({
             {isHost ? (
               <>
                 <Text style={[styles.hostNote, { color: skin.faint }]}>
-                  As the host you can also end the meeting for everyone.
+                  {adhoc
+                    ? 'The call carries on for the others. As the host you can also end it for everyone.'
+                    : 'As the host you can also end the meeting for everyone.'}
                 </Text>
                 <DialogButton
                   label="End for everyone"

@@ -10,6 +10,7 @@
     "screenShareStopped": "屏幕共享已停止",
     "screenShareStoppedDescription": "重新连接通话导致共享中断，如果你仍在演示，请重新开始共享。",
     "meetingEnded": "此会议已结束",
+    "meetingEnded_call": "此通话已结束",
     "micBlocked": "麦克风已被禁用",
     "micBlockedHint": "请检查此应用的麦克风权限。",
     "micUnavailable": "麦克风不可用",
@@ -17,7 +18,8 @@
     "cameraBlocked": "摄像头已被禁用",
     "cameraBlockedHint": "请检查此应用的摄像头权限。",
     "cameraUnavailable": "摄像头不可用",
-    "cameraUnavailableHint": "请检查是否已连接摄像头，且未被其他程序占用。"
+    "cameraUnavailableHint": "请检查是否已连接摄像头，且未被其他程序占用。",
+    "addedSome": "已添加 {{total}} 人中的 {{added}} 人，其余无法添加"
   },
   "preJoin": {
     "readyToJoinLabel": "准备加入",
@@ -38,7 +40,9 @@
     "cameraOn": "开启摄像头",
     "heading": "准备好加入了吗？",
     "description": "进入会议前，请先检查摄像头和麦克风。",
-    "joinButton": "加入会议"
+    "description_call": "加入通话前，请先检查摄像头和麦克风。",
+    "joinButton": "加入会议",
+    "joinButton_call": "加入通话"
   },
   "waitingRoom": {
     "canStartHint": "你是第一个到场的人。开始会议后，其他人才能加入。",
@@ -49,16 +53,28 @@
   },
   "joinFailed": {
     "anotherDeviceTitle": "你已在另一台设备上加入此会议",
+    "anotherDeviceTitle_call": "你已在另一台设备上加入此通话",
     "anotherDeviceHint": "你当前正通过另一台设备连接此会议。",
+    "anotherDeviceHint_call": "你当前正通过另一台设备连接此通话。",
     "switchHere": "切换到此设备",
     "displacedTitle": "你已在另一台设备上加入此会议",
+    "displacedTitle_call": "你已在另一台设备上加入此通话",
     "displacedHint": "此会议现在在另一台设备上进行。",
+    "displacedHint_call": "此通话现在在另一台设备上进行。",
     "tokenTitle": "无法获取会议凭据",
+    "tokenTitle_call": "无法获取通话凭据",
     "disconnectedTitle": "已断开与会议的连接",
+    "disconnectedTitle_call": "已断开与通话的连接",
     "genericTitle": "无法连接会议",
+    "genericTitle_call": "无法连接通话",
     "tokenHint": "凭据请求未成功。请检查网络后重试。",
+    "endedTitle": "此会议已结束",
+    "endedTitle_call": "此通话已结束",
+    "endedHint": "会议已经结束，无法再加入。",
     "disconnectedHint": "与会议的连接已断开且无法恢复。请检查网络后重新加入。",
+    "disconnectedHint_call": "与通话的连接已断开且无法恢复。请检查网络后重新加入。",
     "genericHint": "无法连接会议服务器。请检查网络后重试。",
+    "genericHint_call": "无法连接通话服务器。请检查网络后重试。",
     "leave": "离开",
     "retrying": "正在重试…",
     "retry": "重试"
@@ -66,6 +82,7 @@
   "room": {
     "defaultTitleChannel": "频道通话",
     "defaultTitleMeeting": "会议",
+    "defaultTitleConference": "电话会议",
     "youFallbackName": "你",
     "addPeopleDefaultTitle": "添加成员",
     "channelAlreadyInvited": "频道中的所有人都已受邀",
@@ -85,7 +102,13 @@
       "recordingSaved": "录制内容已保存到下载文件夹",
       "recordingUnsupported": "此浏览器不支持录制会议",
       "recordingStarted": "已开始录制，将保存到此设备",
-      "inviteLinkCopied": "邀请链接已复制"
+      "inviteLinkCopied": "邀请链接已复制",
+      "couldNotEndForEveryone": "无法为所有人结束通话"
+    },
+    "endForEveryoneConfirm": {
+      "title": "要为所有人结束通话吗？",
+      "message": "仍在此通话中的所有人都将断开连接。此操作无法撤销。",
+      "confirm": "为所有人结束"
     }
   },
   "controls": {
@@ -105,6 +128,7 @@
     "searchPlaceholder": "搜索成员…",
     "searchAriaLabel": "搜索成员",
     "inMeetingCount": "会议中 · {{count}}",
+    "inMeetingCount_call": "通话中 · {{count}}",
     "youSuffix": "（你）",
     "sharing": "正在共享",
     "handUp": "已举手",
@@ -157,6 +181,17 @@
     "addedToCall": "已加入通话",
     "addedPeople": "已添加 {{count}} 人",
     "couldNotAdd": "无法将任何人添加到此通话",
-    "groupCallingUnavailable": "此服务器可能不支持群组通话。"
+    "groupCallingUnavailable": "此服务器可能不支持群组通话。",
+    "addTitle": "添加成员到此通话",
+    "addButton": "添加"
+  },
+  "groupCall": {
+    "title": "发起群组通话",
+    "description": "请至少选择两人，所选的所有人将在同一通话中被呼叫。",
+    "callButton": "呼叫",
+    "pickTwo": "请至少选择两人",
+    "limit": "一次通话最多 {{max}} 人",
+    "failed": "无法发起通话",
+    "alreadyInCall": "你已在通话中"
   }
 }

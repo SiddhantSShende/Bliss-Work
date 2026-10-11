@@ -175,7 +175,7 @@ describe("one feed, every kind", () => {
     // Both unknown kinds are listed with their data; a sibling of a known family joins it,
     // a stranger gets the neutral icon.
     expect(screen.getByText("Missed call from Priya")).toBeInTheDocument();
-    expect(categoryOf("Missed call from Priya")).toBe("meeting"); // CALL_ family → meeting
+    expect(categoryOf("Missed call from Priya")).toBe("call"); // CALL_ family → call (not a meeting)
     expect(screen.getByText("Something brand new")).toBeInTheDocument();
     expect(categoryOf("Something brand new")).toBe("other");
     // Everything else is still there, and neither the error nor the empty state appears.

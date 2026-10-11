@@ -189,6 +189,10 @@
       "email": {
         "verified": "メールアドレスを認証しました"
       },
+      "file": {
+        "opened": "ファイルを開きました",
+        "downloaded": "ファイルをダウンロードしました"
+      },
       "member": {
         "role_changed": "役割を変更しました",
         "deactivated": "メンバーを停止しました",
@@ -234,6 +238,10 @@
       "auth": "ログイン",
       "security": "セキュリティ"
     },
+    "fileContext": {
+      "direct": "{{name}}とのチャット内",
+      "channel": "#{{name}}内"
+    },
     "empty": {
       "title": "アクティビティの記録はまだありません",
       "hint": "{{brand}}を使うと、アクティビティがここに表示されます。"
@@ -264,6 +272,10 @@
         }
       },
       "attachment": {
+        "opened": "ファイルを開きました",
+        "downloaded": "ファイルをダウンロードしました"
+      },
+      "file": {
         "opened": "ファイルを開きました",
         "downloaded": "ファイルをダウンロードしました"
       },

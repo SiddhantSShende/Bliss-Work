@@ -10,6 +10,7 @@
     "screenShareStopped": "Partage d'écran arrêté",
     "screenShareStoppedDescription": "La reconnexion à l'appel a mis fin à votre partage — relancez-le si vous présentez toujours.",
     "meetingEnded": "Cette réunion est terminée",
+    "meetingEnded_call": "Cet appel est terminé",
     "micBlocked": "Microphone bloqué",
     "micBlockedHint": "Vérifiez l'autorisation du microphone pour cette application.",
     "micUnavailable": "Microphone indisponible",
@@ -17,7 +18,8 @@
     "cameraBlocked": "Caméra bloquée",
     "cameraBlockedHint": "Vérifiez l'autorisation de la caméra pour cette application.",
     "cameraUnavailable": "Caméra indisponible",
-    "cameraUnavailableHint": "Vérifiez qu'une caméra est connectée et qu'elle n'est pas déjà utilisée."
+    "cameraUnavailableHint": "Vérifiez qu'une caméra est connectée et qu'elle n'est pas déjà utilisée.",
+    "addedSome": "{{added}} sur {{total}} personnes ajoutées ; les autres n'ont pas pu être ajoutées"
   },
   "preJoin": {
     "readyToJoinLabel": "Prêt à rejoindre",
@@ -38,7 +40,9 @@
     "cameraOn": "Activer la caméra",
     "heading": "Prêt à rejoindre ?",
     "description": "Vérifiez votre caméra et votre microphone avant d'entrer dans la réunion.",
-    "joinButton": "Rejoindre la réunion"
+    "description_call": "Vérifiez votre caméra et votre microphone avant de rejoindre l'appel.",
+    "joinButton": "Rejoindre la réunion",
+    "joinButton_call": "Rejoindre l'appel"
   },
   "waitingRoom": {
     "canStartHint": "Vous êtes la première personne arrivée. Démarrez la réunion pour faire entrer les autres.",
@@ -49,16 +53,28 @@
   },
   "joinFailed": {
     "anotherDeviceTitle": "Vous participez déjà à cette réunion sur un autre appareil",
+    "anotherDeviceTitle_call": "Vous participez déjà à cet appel sur un autre appareil",
     "anotherDeviceHint": "Vous êtes actuellement connecté à cette réunion depuis un autre appareil.",
+    "anotherDeviceHint_call": "Vous êtes actuellement connecté à cet appel depuis un autre appareil.",
     "switchHere": "Basculer ici",
     "displacedTitle": "Vous avez rejoint cette réunion sur un autre appareil",
+    "displacedTitle_call": "Vous avez rejoint cet appel sur un autre appareil",
     "displacedHint": "Cette réunion est désormais active sur un autre appareil.",
+    "displacedHint_call": "Cet appel est désormais actif sur un autre appareil.",
     "tokenTitle": "Impossible d'obtenir les identifiants de la réunion",
+    "tokenTitle_call": "Impossible d'obtenir les identifiants de l'appel",
     "disconnectedTitle": "Déconnecté de la réunion",
+    "disconnectedTitle_call": "Déconnecté de l'appel",
     "genericTitle": "Impossible de se connecter à la réunion",
+    "genericTitle_call": "Impossible de se connecter à l'appel",
     "tokenHint": "La demande de jeton a échoué. Vérifiez votre connexion et réessayez.",
+    "endedTitle": "Cette réunion est terminée",
+    "endedTitle_call": "Cet appel est terminé",
+    "endedHint": "Elle est terminée, il n'y a donc plus rien à rejoindre.",
     "disconnectedHint": "La connexion à la réunion a été perdue et n'a pas pu être rétablie. Vérifiez votre connexion, puis rejoignez à nouveau la réunion.",
+    "disconnectedHint_call": "La connexion à l'appel a été perdue et n'a pas pu être rétablie. Vérifiez votre connexion, puis rejoignez à nouveau l'appel.",
     "genericHint": "La connexion au serveur de la réunion a échoué. Vérifiez votre connexion et réessayez.",
+    "genericHint_call": "La connexion au serveur de l'appel a échoué. Vérifiez votre connexion et réessayez.",
     "leave": "Quitter",
     "retrying": "Nouvelle tentative…",
     "retry": "Réessayer"
@@ -66,6 +82,7 @@
   "room": {
     "defaultTitleChannel": "Appel du canal",
     "defaultTitleMeeting": "Réunion",
+    "defaultTitleConference": "Appel en conférence",
     "youFallbackName": "Vous",
     "addPeopleDefaultTitle": "Ajouter des personnes",
     "channelAlreadyInvited": "Tous les membres du canal sont déjà invités",
@@ -87,7 +104,13 @@
       "recordingSaved": "Enregistrement sauvegardé dans vos téléchargements",
       "recordingUnsupported": "Ce navigateur ne peut pas enregistrer les réunions",
       "recordingStarted": "Enregistrement démarré — il sera sauvegardé sur cet appareil",
-      "inviteLinkCopied": "Lien d'invitation copié"
+      "inviteLinkCopied": "Lien d'invitation copié",
+      "couldNotEndForEveryone": "Impossible de mettre fin à l'appel pour tout le monde"
+    },
+    "endForEveryoneConfirm": {
+      "title": "Mettre fin à l'appel pour tout le monde ?",
+      "message": "Toutes les personnes encore présentes dans cet appel seront déconnectées. Cette action est irréversible.",
+      "confirm": "Mettre fin pour tous"
     }
   },
   "controls": {
@@ -107,6 +130,7 @@
     "searchPlaceholder": "Rechercher des membres…",
     "searchAriaLabel": "Rechercher des membres",
     "inMeetingCount": "En réunion · {{count}}",
+    "inMeetingCount_call": "Dans l'appel · {{count}}",
     "youSuffix": " (vous)",
     "sharing": "Partage",
     "handUp": "Main levée",
@@ -159,6 +183,17 @@
     "addedToCall": "Ajouté à l'appel",
     "addedPeople": "{{count}} personnes ajoutées",
     "couldNotAdd": "Impossible d'ajouter qui que ce soit à cet appel",
-    "groupCallingUnavailable": "Les appels de groupe ne sont peut-être pas disponibles sur ce serveur."
+    "groupCallingUnavailable": "Les appels de groupe ne sont peut-être pas disponibles sur ce serveur.",
+    "addTitle": "Ajouter des personnes à cet appel",
+    "addButton": "Ajouter"
+  },
+  "groupCall": {
+    "title": "Démarrer un appel de groupe",
+    "description": "Choisissez au moins deux personnes. Toutes sont appelées dans un seul appel.",
+    "callButton": "Appeler",
+    "pickTwo": "Choisissez au moins deux personnes",
+    "limit": "Jusqu'à {{max}} personnes dans un appel",
+    "failed": "Impossible de démarrer l'appel",
+    "alreadyInCall": "Vous êtes déjà dans un appel"
   }
 }

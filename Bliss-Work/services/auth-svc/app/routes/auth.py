@@ -741,6 +741,7 @@ async def directory(
     includeInactive: bool = False,
     limit: int = MAX_DIRECTORY_PAGE,
     offset: int = 0,
+    q: str = Query(default="", max_length=100),
     principal: Principal = Depends(get_principal),
 ) -> list[UserDTO]:
     """Everyone in the caller's org. Suspended and removed members are excluded
@@ -753,6 +754,10 @@ async def directory(
 
     Paged. `limit` is clamped to MAX_DIRECTORY_PAGE — see the note there for why
     the ceiling is high rather than small.
+
+    `q` (optional) keeps only members whose display name, username or email
+    contains it, case-insensitively; `limit`/`offset` then page the MATCHES. Absent
+    or blank, the endpoint is exactly what it always was.
     """
     show_all = includeInactive and "org_admin" in principal.roles
     async with engine.connect() as conn:
@@ -764,6 +769,7 @@ async def directory(
             include_inactive=show_all,
             limit=min(max(limit, 1), MAX_DIRECTORY_PAGE),
             offset=max(offset, 0),
+            query=q,
         )
 
 

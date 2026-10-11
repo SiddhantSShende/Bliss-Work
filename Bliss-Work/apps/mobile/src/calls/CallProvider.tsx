@@ -14,6 +14,7 @@ import { applySpeaker, startCallAudio, stopCallAudio } from './audio';
 import { parseCallLink } from './callLinks';
 import { joinFromCallLink } from './callLinkJoin';
 import { roomInviteFor } from './roomInvites';
+import { CONFERENCE_TITLE, startConferenceCall as startConference, type ConferenceOutcome } from './conferenceCall';
 import { canUseFullScreenIntent, openFullScreenIntentSettings, releaseLockScreen } from './incomingCallNative';
 import { cancelAllMeetingReminders, onMeetingReminderResponse, setInMeetingCheck, syncMeetingReminders } from './meetingReminders';
 import { MeetingHub } from '../meetings/meetingHub';
@@ -46,6 +47,8 @@ interface CallsContextValue {
   startDirectCall: (peerId: string, peerName: string, media: CallMedia) => void;
   /** Start (or join the live) call in a channel. */
   startChannelCall: (channelId: string, channelName: string, media: CallMedia) => Promise<void>;
+  /** The multi-select Call: ONE ad-hoc call ringing all of `peerIds` (2 or more). */
+  startConferenceCall: (peerIds: readonly string[], media: CallMedia) => Promise<ConferenceOutcome>;
   /** Join a meeting / room call by id. */
   joinMeeting: (callId: string, media?: CallMedia, title?: string) => void;
   /** Open `url` in-app if it is a BlissWork call link. Returns whether it was
@@ -155,7 +158,7 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
       onIncomingDone: (callId) => void dismissIncomingCallNotification(callId),
       onMissed: (name, media) => void showMissedCallNotification(name, media).catch((e) => dbg('notify.failed', { error: String(e) })),
       // The call was widened into a group: the SFU room owns the media now.
-      onEnterRoom: (callId, media) => void roomRef.current?.join(callId, media, 'Group call'),
+      onEnterRoom: (callId, media) => void roomRef.current?.join(callId, media, CONFERENCE_TITLE, { adhoc: true }),
       onRecordChanged: refreshCalls,
       log: dbg,
     });
@@ -320,7 +323,7 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
         room.dismissInvite(d.callId);
         return;
       }
-      const announce = () => room.announce(d.callId, d.title, d.media, nameOf(d.actorId), d.actorId);
+      const announce = () => room.announce(d.callId, d.title, d.media, nameOf(d.actorId), d.actorId, d.adhoc);
       if (d.directDuplicate) {
         // A 1:1 call also creates a call row, which raises these events on
         // top of the WS ring that already reached us. Give that ring a
@@ -481,6 +484,20 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
     [api, direct, room, refreshCalls],
   );
 
+  const startConferenceCall = useCallback(
+    (peerIds: readonly string[], media: CallMedia) =>
+      startConference(
+        {
+          api,
+          busy: () => room.busy || direct.getSnapshot().phase !== 'idle',
+          join: (id, m, title) => void room.join(id, m, title, { adhoc: true }),
+        },
+        peerIds,
+        media,
+      ),
+    [api, direct, room],
+  );
+
   // A ring that ended while the app was away should not leave a stale notice.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => {
@@ -493,8 +510,8 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
   }, [direct]);
 
   const value = useMemo<CallsContextValue>(
-    () => ({ direct, room, startDirectCall, startChannelCall, joinMeeting, openCallLink, meetingHub }),
-    [direct, room, startDirectCall, startChannelCall, joinMeeting, openCallLink, meetingHub],
+    () => ({ direct, room, startDirectCall, startChannelCall, startConferenceCall, joinMeeting, openCallLink, meetingHub }),
+    [direct, room, startDirectCall, startChannelCall, startConferenceCall, joinMeeting, openCallLink, meetingHub],
   );
   return <CallsContext.Provider value={value}>{children}</CallsContext.Provider>;
 }

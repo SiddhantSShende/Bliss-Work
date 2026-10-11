@@ -35,6 +35,11 @@
       "title": "Cette réunion n'est pas disponible",
       "hint": "Elle est peut-être terminée, ou vous ne figurez plus sur sa liste de participants.",
       "close": "Fermer"
+    },
+    "ended": {
+      "title": "Cette réunion est terminée",
+      "hint": "Elle est terminée, il n'y a donc plus rien à rejoindre.",
+      "close": "Fermer"
     }
   },
   "join": {
@@ -119,7 +124,9 @@
     "minimize": "Réduire",
     "minimise": "Réduire",
     "end": "Terminer",
-    "endCall": "Raccrocher"
+    "endCall": "Raccrocher",
+    "endForEveryone": "Pour tous",
+    "endForEveryoneTitle": "Mettre fin à l'appel pour tout le monde"
   },
   "sidePanel": {
     "tabNames": {
@@ -155,7 +162,10 @@
     "joinWithCamera": "Rejoindre avec la caméra activée",
     "voice": "Audio",
     "joinVoiceOnly": "Rejoindre en audio uniquement",
-    "leave": "Quitter"
+    "leave": "Quitter",
+    "conferenceTitle": "Appel en conférence",
+    "addedYou": "{{name}} vous a ajouté à un appel en conférence",
+    "ariaLabelCall": "Appel entrant : {{title}}"
   },
   "scheduledNotice": {
     "untitledMeeting": "Réunion",
@@ -170,6 +180,7 @@
     "reconnecting": "Reconnexion…",
     "connecting": "Connexion…",
     "backToMeeting": "Retour à la réunion",
+    "backToMeeting_call": "Retour à l'appel",
     "nobodySpeaking": "Personne ne parle",
     "mute": "Couper le micro",
     "unmute": "Réactiver le micro",
@@ -178,7 +189,8 @@
     "newChatMessages_one": "{{count}} nouveau message de discussion",
     "newChatMessages_many": "{{count}} de nouveaux messages de discussion",
     "newChatMessages_other": "{{count}} nouveaux messages de discussion",
-    "leaveMeeting": "Quitter la réunion"
+    "leaveMeeting": "Quitter la réunion",
+    "leaveMeeting_call": "Quitter l'appel"
   },
   "sendLinkDialog": {
     "title": "Envoyer un lien d'appel",

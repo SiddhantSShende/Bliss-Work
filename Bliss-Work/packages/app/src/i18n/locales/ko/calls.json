@@ -35,6 +35,11 @@
       "title": "이 미팅을 사용할 수 없어요",
       "hint": "미팅이 종료되었거나 참가자 명단에서 제외되었을 수 있어요.",
       "close": "닫기"
+    },
+    "ended": {
+      "title": "이 회의는 종료되었습니다",
+      "hint": "이미 끝났으므로 참여할 수 없습니다.",
+      "close": "닫기"
     }
   },
   "join": {
@@ -119,7 +124,9 @@
     "minimize": "최소화",
     "minimise": "최소화",
     "end": "종료",
-    "endCall": "통화 종료"
+    "endCall": "통화 종료",
+    "endForEveryone": "전체 종료",
+    "endForEveryoneTitle": "모든 참가자의 통화 종료"
   },
   "sidePanel": {
     "tabNames": {
@@ -155,7 +162,10 @@
     "joinWithCamera": "카메라를 켜고 참여",
     "voice": "음성",
     "joinVoiceOnly": "음성으로만 참여",
-    "leave": "나가기"
+    "leave": "나가기",
+    "conferenceTitle": "컨퍼런스 통화",
+    "addedYou": "{{name}}님이 회원님을 컨퍼런스 통화에 추가했어요",
+    "ariaLabelCall": "수신 통화: {{title}}"
   },
   "scheduledNotice": {
     "untitledMeeting": "미팅",
@@ -170,13 +180,15 @@
     "reconnecting": "다시 연결하는 중…",
     "connecting": "연결하는 중…",
     "backToMeeting": "미팅으로 돌아가기",
+    "backToMeeting_call": "통화로 돌아가기",
     "nobodySpeaking": "말하는 사람이 없어요",
     "mute": "음소거",
     "unmute": "음소거 해제",
     "turnCameraOff": "카메라 끄기",
     "turnCameraOn": "카메라 켜기",
     "newChatMessages_other": "새 채팅 메시지 {{count}}개",
-    "leaveMeeting": "미팅 나가기"
+    "leaveMeeting": "미팅 나가기",
+    "leaveMeeting_call": "통화 나가기"
   },
   "sendLinkDialog": {
     "title": "통화 링크 보내기",

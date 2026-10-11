@@ -50,6 +50,9 @@ export interface RoomSnapshot {
   phase: RoomPhase;
   callId?: string;
   title?: string;
+  /** An ad-hoc call (a 1:1 that grew into a conference): worded as a call, never
+   *  as a meeting, and not part of the Meetings lifecycle. */
+  adhoc?: boolean;
   /** Who is ringing us, for an invite. */
   inviter?: string;
   /** The inviter's user id, when the event carried one (lets the ring screen show their photo). */
@@ -145,6 +148,7 @@ const IDLE: RoomSnapshot = {
   phase: 'idle',
   callId: undefined,
   title: undefined,
+  adhoc: undefined,
   inviter: undefined,
   inviterId: undefined,
   connectedAt: undefined,
@@ -237,12 +241,12 @@ export class RoomController {
   }
 
   // ── invites ──────────────────────────────────────────────────────────────
-  announce(callId: string, title: string, media: CallMedia, inviter?: string, inviterId?: string): void {
+  announce(callId: string, title: string, media: CallMedia, inviter?: string, inviterId?: string, adhoc?: boolean): void {
     if (this.seen.has(callId) || this.snap.phase !== 'idle') return;
     this.seen.add(callId);
     this.log('room.invite', { callId });
     if (this.lingerTimer) clearTimeout(this.lingerTimer);
-    this.replace({ ...IDLE, phase: 'ringing', callId, title, inviter, inviterId, media, camOn: media === 'video' });
+    this.replace({ ...IDLE, phase: 'ringing', callId, title, adhoc, inviter, inviterId, media, camOn: media === 'video' });
     this.d.onRinging?.({ callId, title, inviter, inviterId, media });
     this.ringTimer = setTimeout(() => {
       if (this.snap.phase === 'ringing' && this.snap.callId === callId) {
@@ -272,7 +276,12 @@ export class RoomController {
   /** Enter a call: from accepting an invite, a Join button, or a link.
    *  `startMuted` joins with microphone AND camera off (nothing is published until
    *  the user turns them on) — for a link, which the user did not choose to open. */
-  async join(callId: string, media: CallMedia = 'video', title?: string, opts?: { startMuted?: boolean }): Promise<void> {
+  async join(
+    callId: string,
+    media: CallMedia = 'video',
+    title?: string,
+    opts?: { startMuted?: boolean; adhoc?: boolean },
+  ): Promise<void> {
     if (this.busy) return;
     if (this.ringTimer) clearTimeout(this.ringTimer);
     if (this.lingerTimer) clearTimeout(this.lingerTimer);
@@ -286,6 +295,8 @@ export class RoomController {
       phase: 'joining',
       callId,
       title: title ?? this.snap.title,
+      // Kept from the ring that is being answered, which is where it was learnt.
+      adhoc: opts?.adhoc ?? (this.snap.callId === callId ? this.snap.adhoc : undefined),
       media,
       micOn: !this.startMuted,
       camOn: media === 'video' && !this.startMuted,
@@ -513,6 +524,7 @@ export class RoomController {
       reason,
       callId,
       title: this.snap.title,
+      adhoc: this.snap.adhoc,
       media: this.snap.media,
     });
     if (phase === 'ended') {
@@ -544,10 +556,10 @@ export class RoomController {
   }
 
   retry(): void {
-    const { callId, media, title, phase } = this.snap;
+    const { callId, media, title, adhoc, phase } = this.snap;
     if (phase !== 'failed' || !callId) return;
     this.replace({ ...IDLE });
-    void this.join(callId, media, title, { startMuted: this.startMuted });
+    void this.join(callId, media, title, { startMuted: this.startMuted, adhoc });
   }
 
   /** Add member to a live room call (web useCallRoom `addPeople`): one request

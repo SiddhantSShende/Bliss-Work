@@ -29,6 +29,10 @@ const ACTIONS: Record<string, string> = {
   "mail.attachment.downloaded": "Downloaded a mail attachment",
   "attachment.opened": "Opened a file",
   "attachment.downloaded": "Downloaded a file",
+  // The Security view's own record of the same two acts — derived server-side
+  // from the two above (telemetry-svc ingest.security_mirror_of).
+  "file.opened": "Opened a file",
+  "file.downloaded": "Downloaded a file",
   "channel.message.sent": "Posted in a channel",
   "conversation.ignored": "Ignored a conversation",
   "user.blocked": "Blocked someone",
@@ -83,6 +87,42 @@ export function actionLabel(entry: TimelineEntry, t?: TFunction): string {
     return `${verb} ${surface}`;
   }
   return verb;
+}
+
+/** The actions whose subtitle is a file name — the chat file open/download, its
+ *  Security-view twin, and a mail attachment's download. */
+export function isFileAction(action: string): boolean {
+  return (
+    action === "mail.attachment.downloaded" ||
+    action === "attachment.opened" ||
+    action === "attachment.downloaded" ||
+    action === "file.opened" ||
+    action === "file.downloaded"
+  );
+}
+
+/**
+ * Where a file was opened or downloaded, as the words shown under its name:
+ * "in Chat with Divya Bhamri" or "in #GRC Development". Null — so nothing is
+ * drawn — for every row that has no usable context: anything that is not a chat
+ * or channel file action, a row recorded before the context was captured, or one
+ * whose kind this client does not know. Never an id, never a placeholder.
+ *
+ * Takes only `action` and `detail` so the Security tab's audit entries (whose
+ * `meta` carries the same keys) are worded by the very same function.
+ */
+export function fileContextLabel(entry: Pick<TimelineEntry, "action" | "detail">, t?: TFunction): string | null {
+  if (!isFileAction(entry.action) || entry.action === "mail.attachment.downloaded") return null;
+  const kind = entry.detail?.contextKind;
+  const name = entry.detail?.contextName?.trim();
+  if (!name) return null;
+  if (kind === "direct") {
+    return t ? t("members:timeline.fileContext.direct", { name }) : `in Chat with ${name}`;
+  }
+  if (kind === "channel") {
+    return t ? t("members:timeline.fileContext.channel", { name }) : `in #${name}`;
+  }
+  return null;
 }
 
 export function surfaceLabel(surface: string | null, t?: TFunction): string | null {

@@ -20,6 +20,12 @@ import { meetingJoinUrl } from "../lib/meetingDeepLink";
  * moves to the room at the same moment. That is why a failure here has to be
  * reported rather than swallowed — `onAdd` rejecting means nobody was added and
  * the call is still the call it was.
+ *
+ * Two shapes. An AD-HOC call (a 1:1 that is growing into a conference — `adhoc`,
+ * or the 1:1 overlay, which has no `callId`) adds people to the call itself: the
+ * server rings each of them and they join the same call. There is no link and
+ * no "meeting" in it; a link is something only a Meeting can have. Anything else
+ * with a `callId` is a meeting, whose way of bringing people in is the link.
  */
 export function AddPeopleDialog({
   open,
@@ -27,6 +33,7 @@ export function AddPeopleDialog({
   exclude,
   onAdd,
   callId,
+  adhoc,
 }: {
   open: boolean;
   onClose: () => void;
@@ -34,6 +41,8 @@ export function AddPeopleDialog({
   exclude: Set<string>;
   onAdd: (userIds: string[]) => Promise<void>;
   callId?: string;
+  /** The call is ad-hoc: add people to it directly, never by link. */
+  adhoc?: boolean;
 }) {
   const { t } = useTranslation("callRoom");
   const { api, config } = useRuntime();
@@ -43,9 +52,11 @@ export function AddPeopleDialog({
 
   const canSendOrganization = me?.roles.some((role) => role === "org_admin") ?? false;
 
+  const addDirectly = adhoc || !callId;
+
   const sendLink = (ids: string[]) => {
     setBusy(true);
-    const deliver = callId
+    const deliver = !addDirectly && callId
       ? api.createCallInvite(callId).then(async ({ token }) => {
           const link = meetingJoinUrl(config.webBaseUrl, token);
           await onAdd(ids);
@@ -94,6 +105,20 @@ export function AddPeopleDialog({
       onClose();
     }
   };
+
+  if (addDirectly) {
+    return (
+      <Modal open={open} onClose={busy ? () => {} : onClose} title={t("addPeopleDialog.addTitle")}>
+        <MemberPicker
+          exclude={exclude}
+          busy={busy}
+          onConfirm={sendLink}
+          confirmLabel={t("addPeopleDialog.addButton")}
+          onCancel={onClose}
+        />
+      </Modal>
+    );
+  }
 
   return (
     <>

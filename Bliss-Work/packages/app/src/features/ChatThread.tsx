@@ -38,6 +38,8 @@ export interface ThreadMessage {
     | "channel_renamed"
     | "channel_created"
     | "channel_member_added"
+    | "channel_member_removed"
+    | "channel_member_left"
     | "channel_forward_notice";
   /** Sender-side delivery state. Set only on the caller's own messages. */
   status?: MessageDTO["status"];
@@ -544,7 +546,13 @@ export function ChatThread({
               );
             }
 
-            if (m.kind === "channel_renamed" || m.kind === "channel_created" || m.kind === "channel_member_added") {
+            if (
+              m.kind === "channel_renamed" ||
+              m.kind === "channel_created" ||
+              m.kind === "channel_member_added" ||
+              m.kind === "channel_member_removed" ||
+              m.kind === "channel_member_left"
+            ) {
               return (
                 <div key={m.id}>
                   {dayChip}
@@ -703,7 +711,7 @@ export function ChatThread({
                           className={(emojiOnly
                             ? `whitespace-pre-wrap break-words text-4xl leading-none ${m.pending ? "opacity-60" : ""}`
                             : `whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${mine
-                              ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
+                              ? "rounded-br-md bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
                               : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
                               } ${m.pending ? "opacity-60" : ""}`) + (selecting ? " pointer-events-none select-none" : "")}
                         >

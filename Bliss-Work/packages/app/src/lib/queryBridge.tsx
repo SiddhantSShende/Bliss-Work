@@ -15,6 +15,7 @@ import {
   type UserDTO,
   type WsEventMeta,
   actionsFor,
+  isAdhocCall,
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { useActiveThread } from "./activeThread";
@@ -59,7 +60,9 @@ import { decrementUnreadCount } from "./unreadNotificationCount";
  *  same fallback CallRoom.tsx uses once you're actually in the room, so the
  *  incoming-meeting popup (announceIncomingMeeting) never shows a blank or
  *  undefined title. */
-function meetingTitle(e: { title?: string; kind: "DIRECT" | "CHANNEL" | "MEETING" }): string {
+function meetingTitle(e: { title?: string; scheduledAt?: string; kind: "DIRECT" | "CHANNEL" | "MEETING" }): string {
+  // An ad-hoc call is a call, not a meeting — see isAdhocCall.
+  if (isAdhocCall(e)) return e.title || i18n.t("calls:incomingNotice.conferenceTitle");
   return (
     e.title ||
     (e.kind === "CHANNEL" ? i18n.t("meetings:view.scope.channelCall") : i18n.t("meetings:detail.kindLabel.meeting"))
@@ -284,7 +287,10 @@ function handleCallEvent(e: CallLifecycle, ctx: EventHandlerContext) {
       // no-op if nothing is currently showing this callId — see
       // onIncomingMeetingDismissed. Not gated on `live`: a popup somehow
       // still open across a reconnect is exactly the case worth clearing.
-      if (e.type === EventType.CallEnded || e.type === EventType.CallParticipantAdded) {
+      // Not for an ad-hoc call's participant_added: it goes to the whole room
+      // right behind the ring for the person just added, so it would take the
+      // newcomer's own incoming-call card down the moment it appeared.
+      if (e.type === EventType.CallEnded || (e.type === EventType.CallParticipantAdded && !isAdhocCall(e))) {
         dismissIncomingMeeting(e.callId);
       }
       break;
@@ -330,7 +336,11 @@ function handleCallEvent(e: CallLifecycle, ctx: EventHandlerContext) {
         // With somewhere to go: this is how someone pulled into a call in
         // progress gets there, and "you were added to a call" with no way
         // to join it is a dead end.
-        announceIncomingMeeting(e.callId, meetingTitle(e));
+        announceIncomingMeeting(
+          e.callId,
+          meetingTitle(e),
+          isAdhocCall(e) ? { actorName: e.actorName } : undefined,
+        );
       }
       break;
     }

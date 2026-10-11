@@ -11,4 +11,6 @@ rollup = pytest.importorskip(
 
 def test_rollup_statements_have_no_bind_parameters_in_comments():
     assert set(rollup._SESSION_ROLLUP._bindparams) == {"day"}
-    assert set(rollup._EVENT_ROLLUP._bindparams) == {"day"}
+    # "mirror" is the one extra value rollup_day supplies: the derived file-security
+    # actions (ingest.SECURITY_MIRROR_ACTIONS), excluded so a file act counts once.
+    assert set(rollup._EVENT_ROLLUP._bindparams) == {"day", "mirror"}

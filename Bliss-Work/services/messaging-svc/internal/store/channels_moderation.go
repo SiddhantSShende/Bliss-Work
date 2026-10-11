@@ -74,6 +74,9 @@ func (s *Store) KickChannelMember(
 			channelID, orgID, targetID); err != nil {
 			return err
 		}
+		if err := s.appendMembershipNoticeTx(ctx, tx, orgID, channelID, callerID, targetID); err != nil {
+			return err
+		}
 		if err := emitChannelEvent(
 			ctx, tx, events.TypeChannelMemberRemoved, orgID, channelID, targetID, callerID,
 		); err != nil {
@@ -213,6 +216,10 @@ func (s *Store) BlockFromChannel(
 				`INSERT INTO channel_member_history (channel_id, org_id, user_id, reason)
 				 VALUES ($1, $2, $3, 'kicked')`,
 				channelID, orgID, targetID); err != nil {
+				return err
+			}
+			// Blocking a member removes them: same notice as a plain kick.
+			if err := s.appendMembershipNoticeTx(ctx, tx, orgID, channelID, callerID, targetID); err != nil {
 				return err
 			}
 		}

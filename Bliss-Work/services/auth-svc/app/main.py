@@ -30,6 +30,7 @@ from .routes import auth as auth_routes
 from .routes import captcha as captcha_routes
 from .routes import email_verify as email_verify_routes
 from .routes import internal as internal_routes
+from .routes import internal_file_audit as internal_file_audit_routes
 from .routes import invites as invite_routes
 from .routes import jwks as jwks_routes
 from .routes import members as member_routes
@@ -165,3 +166,4 @@ app.include_router(mfa_totp_routes.router)
 app.include_router(mfa_challenge_routes.router)
 app.include_router(sessions_routes.router)
 app.include_router(internal_routes.router)
+app.include_router(internal_file_audit_routes.router)

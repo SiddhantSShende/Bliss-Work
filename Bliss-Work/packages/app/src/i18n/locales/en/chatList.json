@@ -53,7 +53,8 @@
       "message": "This will delete this chat history for you. The other person will keep their copy.",
       "confirmLabel": "Delete chat"
     },
-    "deleteErrorToast": "Couldn't delete this chat"
+    "deleteErrorToast": "Couldn't delete this chat",
+    "groupCall": "Group call"
   },
   "channelsList": {
     "title": "Channels",

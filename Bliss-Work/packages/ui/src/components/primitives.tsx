@@ -113,7 +113,7 @@ export function Avatar({
     <div className={cn("relative shrink-0", className)}>
       <div
         className={cn(
-          "flex items-center justify-center rounded-full bg-gradient-to-br from-brand-from to-brand-to font-semibold text-accent-fg shadow-[0_2px_10px_-2px_var(--color-accent)] ring-2 ring-surface",
+          "flex items-center justify-center rounded-full bg-gradient-to-br from-brand-from via-brand-mid to-brand-to font-semibold text-accent-fg shadow-[0_2px_10px_-2px_var(--color-accent)] ring-2 ring-surface",
           showImage && "overflow-hidden",
           avatarSizes[size],
         )}
@@ -146,14 +146,17 @@ export function Avatar({
   );
 }
 
+/** `tone="soft"` is the accent-tinted resting state (the header's Get App and
+ *  Invite); the geometry, focus ring and tooltip behaviour are the same either way. */
 export const IconButton = forwardRef<
   HTMLButtonElement,
-  React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }
->(({ className, active, ...props }, ref) => (
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean; tone?: "plain" | "soft" }
+>(({ className, active, tone = "plain", ...props }, ref) => (
   <button
     ref={ref}
     className={cn(
       "relative inline-flex h-9 w-9 items-center justify-center rounded-xl text-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+      tone === "soft" && "bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent hover:brightness-[0.97] active:scale-95",
       active && "bg-accent-soft text-accent",
       className,
     )}
@@ -238,7 +241,7 @@ export function EmptyState({
       )}
     >
       {icon && (
-        <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-[0_10px_30px_-8px_var(--color-accent)]">
+        <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg shadow-[0_10px_30px_-8px_var(--color-accent)]">
           <div className="absolute inset-0 -z-10 rounded-2xl bg-accent/30 blur-xl" />
           {icon}
         </div>

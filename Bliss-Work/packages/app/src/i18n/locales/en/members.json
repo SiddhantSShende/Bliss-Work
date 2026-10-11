@@ -184,6 +184,10 @@
         "reset_completed": "completed a password reset"
       },
       "email": { "verified": "verified their email" },
+      "file": {
+        "opened": "opened a file",
+        "downloaded": "downloaded a file"
+      },
       "member": {
         "role_changed": "changed a role",
         "deactivated": "suspended a member",
@@ -229,6 +233,10 @@
       "auth": "Sign-ins",
       "security": "Security"
     },
+    "fileContext": {
+      "direct": "in Chat with {{name}}",
+      "channel": "in #{{name}}"
+    },
     "empty": {
       "title": "No activity recorded yet",
       "hint": "Activity appears here as they use {{brand}}."
@@ -251,6 +259,7 @@
       "message": { "sent": "Sent a message" },
       "mail": { "attachment": { "downloaded": "Downloaded a mail attachment" } },
       "attachment": { "opened": "Opened a file", "downloaded": "Downloaded a file" },
+      "file": { "opened": "Opened a file", "downloaded": "Downloaded a file" },
       "channel": { "message": { "sent": "Posted in a channel" } },
       "conversation": { "ignored": "Ignored a conversation" },
       "user": { "blocked": "Blocked someone", "unblocked": "Unblocked someone" },

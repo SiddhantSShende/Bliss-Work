@@ -48,6 +48,10 @@ class Principal:
     # services' Principal; telemetry is available to every org and gates on
     # roles alone.
     plan: str = "free"
+    # The auth session (refresh-token family) this token was minted for — the
+    # `sid` claim. Lets a file-access audit row point at the same session the
+    # member's Sessions tab lists. Absent on tokens minted without it.
+    session_id: str | None = None
 
 
 _jwks_cache = JwksCache(
@@ -143,6 +147,7 @@ async def verify_bearer(authorization: str | None) -> Principal:
         roles=[str(r) for r in roles],
         username=str(claims.get("username", "")),
         plan=str(claims.get("plan", "free") or "free"),
+        session_id=str(claims["sid"]) if claims.get("sid") else None,
     )
 
 

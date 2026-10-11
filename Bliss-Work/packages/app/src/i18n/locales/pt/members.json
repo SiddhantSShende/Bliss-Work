@@ -191,6 +191,10 @@
       "email": {
         "verified": "verificou o próprio e-mail"
       },
+      "file": {
+        "opened": "abriu um arquivo",
+        "downloaded": "baixou um arquivo"
+      },
       "member": {
         "role_changed": "alterou uma função",
         "deactivated": "suspendeu um membro",
@@ -236,6 +240,10 @@
       "auth": "Logins",
       "security": "Segurança"
     },
+    "fileContext": {
+      "direct": "no chat com {{name}}",
+      "channel": "em #{{name}}"
+    },
     "empty": {
       "title": "Nenhuma atividade registrada ainda",
       "hint": "A atividade aparece aqui conforme a pessoa usa o {{brand}}."
@@ -266,6 +274,10 @@
         }
       },
       "attachment": {
+        "opened": "Abriu um arquivo",
+        "downloaded": "Baixou um arquivo"
+      },
+      "file": {
         "opened": "Abriu um arquivo",
         "downloaded": "Baixou um arquivo"
       },

@@ -146,7 +146,8 @@
       "startInPast": "Start time cannot be in the past.",
       "endRequired": "End date and time are required.",
       "endBeforeStart": "End time must be later than the start time.",
-      "peopleUnavailable": "Some of the members or channels you picked are no longer available."
+      "peopleUnavailable": "Some of the members or channels you picked are no longer available.",
+      "audienceRequired": "Add at least one person or channel."
     },
     "cancel": "Cancel",
     "scheduleMeeting": "Schedule Meeting",
@@ -267,7 +268,14 @@
     "detailsTitle": "Meeting Details",
     "membersDescription": "Add people to this meeting",
     "membersEmptyHint": "Invite people to your meeting",
-    "channelsDescription": "Add channels to this meeting"
+    "channelsDescription": "Add channels to this meeting",
+    "add": {
+      "label": "Add",
+      "people": "People",
+      "channels": "Channels",
+      "loadingMore": "Loading more…",
+      "loadError": "Couldn't load the next page."
+    }
   },
   "schedule": {
     "error": "Couldn't schedule that call",

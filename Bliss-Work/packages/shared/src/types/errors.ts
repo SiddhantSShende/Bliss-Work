@@ -19,6 +19,7 @@ export type ErrorCode =
   | "not_found"
   | "conflict"
   | "call_session_active"
+  | "call_ended"
   | "validation_error"
   | "rate_limited"
   | "internal_error"

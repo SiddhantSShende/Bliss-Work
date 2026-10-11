@@ -26,16 +26,16 @@ export interface LocaleInfo {
 
 export const LOCALES = [
   { code: "en", englishName: "English", nativeName: "English", dir: "ltr", ready: true },
-  { code: "es", englishName: "Spanish", nativeName: "Español", dir: "ltr", ready: false },
-  { code: "fr", englishName: "French", nativeName: "Français", dir: "ltr", ready: false },
-  { code: "de", englishName: "German", nativeName: "Deutsch", dir: "ltr", ready: false },
-  { code: "hi", englishName: "Hindi", nativeName: "हिन्दी", dir: "ltr", ready: false },
+  { code: "es", englishName: "Spanish", nativeName: "Español", dir: "ltr", ready: true },
+  { code: "fr", englishName: "French", nativeName: "Français", dir: "ltr", ready: true },
+  { code: "de", englishName: "German", nativeName: "Deutsch", dir: "ltr", ready: true },
+  { code: "hi", englishName: "Hindi", nativeName: "हिन्दी", dir: "ltr", ready: true },
   // Brazilian Portuguese wording.
-  { code: "pt", englishName: "Portuguese", nativeName: "Português", dir: "ltr", ready: false },
-  { code: "ja", englishName: "Japanese", nativeName: "日本語", dir: "ltr", ready: false },
+  { code: "pt", englishName: "Portuguese", nativeName: "Português", dir: "ltr", ready: true },
+  { code: "ja", englishName: "Japanese", nativeName: "日本語", dir: "ltr", ready: true },
   // Simplified Chinese. Traditional (zh-TW / zh-HK) is a separate future locale.
-  { code: "zh", englishName: "Chinese (Simplified)", nativeName: "简体中文", dir: "ltr", ready: false },
-  { code: "ko", englishName: "Korean", nativeName: "한국어", dir: "ltr", ready: false },
+  { code: "zh", englishName: "Chinese (Simplified)", nativeName: "简体中文", dir: "ltr", ready: true },
+  { code: "ko", englishName: "Korean", nativeName: "한국어", dir: "ltr", ready: true },
 ] as const satisfies readonly LocaleInfo[];
 
 export type Locale = (typeof LOCALES)[number]["code"];

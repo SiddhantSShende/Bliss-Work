@@ -277,6 +277,26 @@
         "4": "第四个",
         "5": "第五个"
       }
+    },
+    "assign": {
+      "required": "必填",
+      "peopleTab": "成员（{{count}}）",
+      "channelsTab": "频道（{{count}}）",
+      "peopleSearch": "搜索组织中的成员…",
+      "channelsSearch": "搜索你的频道…",
+      "peopleSearchLabel": "搜索组织中的成员",
+      "channelsSearchLabel": "搜索你的频道",
+      "peopleListLabel": "要分配的成员",
+      "channelsListLabel": "要分配的频道",
+      "loading": "加载中…",
+      "peopleLoadingMore": "正在加载更多成员…",
+      "channelsLoadingMore": "正在加载更多频道…",
+      "peopleEmpty": "没有符合搜索条件的成员。",
+      "channelsEmpty": "没有符合搜索条件的频道。",
+      "loadError": "无法加载此列表。",
+      "retry": "重试",
+      "locked": "已锁定的频道",
+      "members_other": "{{count}} 名成员"
     }
   },
   "exportTasksDialog": {

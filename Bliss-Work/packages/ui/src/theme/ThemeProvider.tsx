@@ -1,9 +1,8 @@
 import { createContext, useContext, useLayoutEffect, useState } from "react";
-import { type ThemeId, isThemeId, themeClasses, darkCounterpart, defaultThemeFor, ALL_THEME_CLASSES } from "./themes";
+import { type ThemeId, isThemeId, darkCounterpart, defaultThemeFor } from "./themes";
+import { applyTheme } from "./applyTheme";
 import {
-  CUSTOM_THEME_CLASS,
   CUSTOM_THEME_KEY,
-  customThemeStyle,
   isCustomColors,
   isCustomThemeActive,
   persistCustomTheme,
@@ -135,30 +134,12 @@ export function ThemeProvider({
   }, [authenticated]);
 
   useLayoutEffect(() => {
-    const root = document.documentElement;
     const useDefault = !authenticated || forceDefault;
-    const effective = useDefault ? defaultThemeFor(false) : theme;
-    root.classList.remove(...ALL_THEME_CLASSES);
-    root.classList.add(...themeClasses(effective));
-    root.classList.remove(CUSTOM_THEME_CLASS);
-    for (const property of [
-      "--color-accent",
-      "--color-accent-strong",
-      "--color-accent-fg",
-      "--color-accent-soft",
-      "--color-brand-from",
-      "--color-brand-mid",
-      "--color-brand-to",
-      "--color-brand-gradient",
-    ]) {
-      root.style.removeProperty(property);
-    }
-    if (!useDefault && customThemeActive && customTheme) {
-      root.classList.add(CUSTOM_THEME_CLASS);
-      for (const [property, value] of Object.entries(customThemeStyle(customTheme))) {
-        root.style.setProperty(property, value);
-      }
-    }
+    applyTheme(
+      document.documentElement,
+      useDefault ? defaultThemeFor(false) : theme,
+      !useDefault && customThemeActive ? customTheme : null,
+    );
   }, [authenticated, customTheme, customThemeActive, forceDefault, theme]);
 
   const setTheme = (next: ThemeId) => {

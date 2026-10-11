@@ -409,6 +409,9 @@ func (s *Store) LeaveChannel(ctx context.Context, orgID, channelID, callerID str
 		if err != nil {
 			return err
 		}
+		if err := s.appendMembershipNoticeTx(ctx, tx, orgID, channelID, callerID, callerID); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	})
 }

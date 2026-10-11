@@ -189,6 +189,10 @@
       "email": {
         "verified": "验证了邮箱"
       },
+      "file": {
+        "opened": "打开了文件",
+        "downloaded": "下载了文件"
+      },
       "member": {
         "role_changed": "更改了角色",
         "deactivated": "停用了成员",
@@ -234,6 +238,10 @@
       "auth": "登录",
       "security": "安全"
     },
+    "fileContext": {
+      "direct": "在与{{name}}的聊天中",
+      "channel": "在 #{{name}} 中"
+    },
     "empty": {
       "title": "暂无活动记录",
       "hint": "对方使用 {{brand}} 后，活动会显示在这里。"
@@ -264,6 +272,10 @@
         }
       },
       "attachment": {
+        "opened": "打开了文件",
+        "downloaded": "下载了文件"
+      },
+      "file": {
         "opened": "打开了文件",
         "downloaded": "下载了文件"
       },

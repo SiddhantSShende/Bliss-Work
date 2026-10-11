@@ -45,10 +45,23 @@ export function meetingSearch(bucket: MeetingBucket): string {
   return bucket === DEFAULT_BUCKET ? "" : `?view=${bucket}`;
 }
 
+/** Is this call over, as the SERVER reports it? Its status says so, or it
+ *  carries an `endedAt`. The server derives both from the call's own lifecycle
+ *  (a call past its scheduled end reads ENDED even before the sweeper moves the
+ *  row), so this deliberately does NOT compare `endsAt` with the local clock: a
+ *  client whose clock runs ahead would otherwise bar people from a meeting that
+ *  is genuinely under way. A call that ends while a page is open is picked up by
+ *  revalidating (see useLapseRevalidation), not by guessing here. */
+export function isCallOver(call: Pick<CallDTO, "status" | "endedAt">): boolean {
+  return call.status === "ENDED" || call.status === "CANCELLED" || !!call.endedAt;
+}
+
 /** Which bucket a call belongs in. The server's status is the authority — a
  *  scheduled time that has passed does NOT make a meeting live, because
- *  somebody still has to open it. */
+ *  somebody still has to open it. A call the server reports as over is never
+ *  live or upcoming, whatever its status field otherwise says. */
 export function bucketFor(call: CallDTO): MeetingBucket {
+  if (isCallOver(call)) return "past";
   if (call.status === "LIVE") return "live";
   if (call.status === "SCHEDULED") return "upcoming";
   return "past";

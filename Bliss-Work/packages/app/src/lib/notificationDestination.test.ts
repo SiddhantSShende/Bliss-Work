@@ -98,6 +98,7 @@ describe("notificationCategory", () => {
     ["MEETING_UPDATED", "meeting"],
     ["MEETING_STARTED", "meeting"],
     ["MEETING_CANCELLED", "meeting"],
+    ["CALL_ADDED", "call"], // being added to an ad-hoc call: a call, not a meeting
   ] as const)("%s is a %s notification", (kind, category) => {
     expect(notificationCategory(kind)).toBe(category);
   });
@@ -108,9 +109,17 @@ describe("notificationCategory", () => {
 
   it("puts a sibling a newer server adds into its family, and anything else in 'other'", () => {
     expect(notificationCategory("TASK_REOPENED")).toBe("task");
-    expect(notificationCategory("CALL_MISSED")).toBe("meeting");
+    expect(notificationCategory("CALL_MISSED")).toBe("call");
     expect(notificationCategory("MEETING_CANCELLED")).toBe("meeting");
     expect(notificationCategory("BILLING_ALERT")).toBe("other");
+  });
+});
+
+describe("being added to an ad-hoc call", () => {
+  it("leads nowhere in Meetings — a call is not a meeting, so it has no page there", () => {
+    const n = { kind: "CALL_ADDED", callId: A };
+    expect(notificationDestination(n)).toBe("/app");
+    expect(notificationRoute(n)).toBeNull();
   });
 });
 

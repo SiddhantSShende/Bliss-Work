@@ -218,12 +218,14 @@ async def _summary_for(
 
     today = _today()
     live = await _today_live(db, org_id, user_id, today) if start <= today <= end else None
+    apps = await _top_apps(db, org_id, user_id, start, end)
 
-    return _summary_from_rollup(user_id, start, end, rows, live)
+    return _summary_from_rollup(user_id, start, end, rows, live, apps=apps)
 
 
 def _summary_from_rollup(
     user_id: str, start: date, end: date, rows, live: DayBucket | None,
+    *, apps: list[NamedCount] | None = None,
 ) -> SummaryDTO:
     """Builds a member's SummaryDTO from already-fetched activity_daily rows
     plus an already-fetched `live` (today's) bucket.
@@ -267,8 +269,41 @@ def _summary_from_rollup(
         days=days,
         bySurface=_named(by_surface),
         byAction=_named(by_action),
+        topApps=apps or [],
         hourly=hourly,
     )
+
+
+async def _top_apps(db, org_id: str, user_id: str, start: date, end: date) -> list[NamedCount]:
+    """The member's most-used desktop applications over [start, end].
+
+    Straight from the `app.focus` spans the desktop beacons (the same rows the
+    Outside Activity timeline lists), so the two views can never disagree. Spans,
+    not a rollup: the nightly job keeps no per-application totals, and a range is
+    bounded by raw retention (90 days) here. `target_id` is the executable name,
+    held in the clear so this GROUP BY is possible; grouped case-insensitively so
+    `EXCEL.EXE` and `excel.exe` are one application. BlissWork's own window is
+    in-app time and is left out (see settings.in_app_executables).
+    """
+    day_start, _ = _day_bounds(start)
+    _, day_end = _day_bounds(end)
+    rows = (
+        await db.execute(
+            text(
+                "SELECT lower(target_id) k, MAX(target_id) label, "
+                "COALESCE(SUM(duration_ms), 0) ms, COUNT(*) n "
+                "FROM activity_events "
+                "WHERE org_id = :org AND user_id = :uid "
+                "AND occurred_at >= :s AND occurred_at < :e "
+                "AND action = 'app.focus' AND target_kind = 'app' AND target_id IS NOT NULL "
+                "AND lower(target_id) <> ALL(CAST(:in_app AS text[])) "
+                "GROUP BY lower(target_id) ORDER BY ms DESC, k LIMIT 10"
+            ),
+            {"org": org_id, "uid": user_id, "s": day_start, "e": day_end,
+             "in_app": settings.in_app_executable_names},
+        )
+    ).all()
+    return [NamedCount(key=r.k, label=r.label, valueMs=int(r.ms or 0), count=int(r.n or 0)) for r in rows]
 
 
 async def _daily_rows_by_user(

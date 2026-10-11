@@ -41,6 +41,7 @@ describe('which call events ring a phone', () => {
       media: 'video',
       actorId: OTHER,
       directDuplicate: false,
+      adhoc: false,
     });
   });
 
@@ -69,6 +70,40 @@ describe('which call events ring a phone', () => {
   it('never rings for replayed catch-up or for our own action', () => {
     expect(roomInviteFor(evt('call.scheduled'), { me: ME, replayed: true })).toBeNull();
     expect(roomInviteFor(evt('call.scheduled', { actorId: ME }), live)).toBeNull();
+  });
+});
+
+describe('being added to an ad-hoc call (a 1:1 that grew into a conference)', () => {
+  const adhoc = (over: Record<string, unknown> = {}) =>
+    evt('call.ring', { kind: 'DIRECT', channelId: undefined, title: undefined, scheduledAt: undefined, ...over });
+
+  it('rings as a CALL, not a meeting: titled as a conference call and flagged ad-hoc', () => {
+    expect(roomInviteFor(adhoc(), live)).toEqual({
+      kind: 'announce',
+      callId: CALL,
+      title: 'Conference call',
+      media: 'video',
+      actorId: OTHER,
+      directDuplicate: true,
+      adhoc: true,
+    });
+  });
+
+  it('a titled ad-hoc call keeps its title and is still ad-hoc', () => {
+    expect(roomInviteFor(adhoc({ title: 'Quick sync' }), live)).toMatchObject({ title: 'Quick sync', adhoc: true });
+  });
+
+  it('a DIRECT call that was scheduled, a meeting and a channel call are none of them ad-hoc', () => {
+    expect(roomInviteFor(adhoc({ scheduledAt: '2026-01-02T10:00:00.000Z' }), live)).toMatchObject({ adhoc: false });
+    expect(roomInviteFor(evt('call.ring', { kind: 'MEETING', title: undefined }), live)).toMatchObject({
+      adhoc: false,
+      title: 'Meeting',
+    });
+    expect(roomInviteFor(evt('call.ring', { kind: 'CHANNEL' }), live)).toMatchObject({ adhoc: false, title: 'general' });
+  });
+
+  it('is not cancelled by the participant_added that follows the ring to the whole room', () => {
+    expect(roomInviteFor(evt('call.participant_added', { kind: 'DIRECT', actorId: OTHER }), live)).toBeNull();
   });
 });
 

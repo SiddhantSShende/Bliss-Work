@@ -289,6 +289,31 @@ describe("useCallRoom — session handoff", () => {
     expect(h.api.leaveCall).not.toHaveBeenCalled();
   });
 
+  it("reports an ended meeting as ended — not as a credentials failure — and does not retry", async () => {
+    const roomCount = FakeRoomClass.instances.length;
+    h.api.callToken.mockReset().mockRejectedValue(
+      new ApiError(409, "this call has already ended", { code: "call_ended" }),
+    );
+    const view = renderHook(() => useCallRoom("call-1"));
+
+    await act(async () => view.result.current.join());
+
+    expect(view.result.current.status).toBe("failed");
+    expect(view.result.current.failStage).toBe("ended");
+    expect(h.api.callToken).toHaveBeenCalledTimes(1);
+    expect(FakeRoomClass.instances).toHaveLength(roomCount);
+  });
+
+  it("keeps a genuine 403 on the credentials-failure path", async () => {
+    h.api.callToken.mockReset().mockRejectedValue(new ApiError(403, "forbidden"));
+    const view = renderHook(() => useCallRoom("call-1"));
+
+    await act(async () => view.result.current.join());
+
+    expect(view.result.current.status).toBe("failed");
+    expect(view.result.current.failStage).toBe("token");
+  });
+
   it("marks duplicate-identity disconnects as displacement without leaving the new session", async () => {
     h.api.leaveCall.mockClear();
     const { result, fakeRoom } = await joinedRoom();

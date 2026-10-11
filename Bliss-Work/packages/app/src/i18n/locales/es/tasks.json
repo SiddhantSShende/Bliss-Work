@@ -293,6 +293,28 @@
         "4": "Cuarto",
         "5": "Quinto"
       }
+    },
+    "assign": {
+      "required": "obligatorio",
+      "peopleTab": "Personas ({{count}})",
+      "channelsTab": "Canales ({{count}})",
+      "peopleSearch": "Buscar personas en tu organización…",
+      "channelsSearch": "Buscar en tus canales…",
+      "peopleSearchLabel": "Buscar personas en tu organización",
+      "channelsSearchLabel": "Buscar en tus canales",
+      "peopleListLabel": "Personas a las que asignar",
+      "channelsListLabel": "Canales a los que asignar",
+      "loading": "Cargando…",
+      "peopleLoadingMore": "Cargando más personas…",
+      "channelsLoadingMore": "Cargando más canales…",
+      "peopleEmpty": "Ninguna persona coincide con tu búsqueda.",
+      "channelsEmpty": "Ningún canal coincide con tu búsqueda.",
+      "loadError": "No se pudo cargar esta lista.",
+      "retry": "Reintentar",
+      "locked": "Canal bloqueado",
+      "members_one": "{{count}} miembro",
+      "members_many": "{{count}} de miembros",
+      "members_other": "{{count}} miembros"
     }
   },
   "exportTasksDialog": {

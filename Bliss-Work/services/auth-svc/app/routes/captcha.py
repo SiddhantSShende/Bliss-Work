@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import base64
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Query, Response
 
 from ..schemas import CaptchaChallengeDTO
 from . import captcha_service
@@ -20,8 +20,13 @@ router = APIRouter(prefix="/auth", tags=["captcha"])
 
 
 @router.get("/captcha", response_model=CaptchaChallengeDTO)
-async def get_captcha(response: Response) -> CaptchaChallengeDTO:
-    captcha_id, png, ttl = await captcha_service.generate_challenge()
+async def get_captcha(
+    response: Response,
+    # The id of the challenge a refresh is replacing; it is invalidated so only
+    # the new one can be answered. Omitted on the first load.
+    replaces: str | None = Query(default=None, max_length=64),
+) -> CaptchaChallengeDTO:
+    captcha_id, png, ttl = await captcha_service.generate_challenge(replaces)
     # Never cache a one-time challenge — the same hygiene the outbox-events
     # pull endpoint applies to its own secret-adjacent response.
     response.headers["Cache-Control"] = "no-store"

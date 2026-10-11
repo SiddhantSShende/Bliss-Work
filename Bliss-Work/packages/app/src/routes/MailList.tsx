@@ -261,7 +261,7 @@ export function MailList() {
             <Link
               to={{ pathname: "/app/mail/compose", search }}
               title={t("list.newMail.title")}
-              className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-gradient-to-br from-brand-from to-brand-to px-2.5 text-xs font-semibold text-accent-fg shadow-[0_6px_20px_-6px_var(--color-accent)] transition-all hover:brightness-105 active:scale-[0.98]"
+              className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-gradient-to-br from-brand-from via-brand-mid to-brand-to px-2.5 text-xs font-semibold text-accent-fg shadow-[0_6px_20px_-6px_var(--color-accent)] transition-all hover:brightness-105 active:scale-[0.98]"
             >
               <PenSquare size={14} /> {t("list.newMail.label")}
             </Link>

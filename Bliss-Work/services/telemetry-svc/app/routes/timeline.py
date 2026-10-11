@@ -12,7 +12,7 @@ from ..config import settings
 from crypto import CryptoError, cryptor
 from ..cursor import decode_cursor, encode_cursor
 from ..db import session, set_org_context
-from ..ingest import NON_EVENT_ACTIONS
+from ..ingest import NON_EVENT_ACTIONS, SECURITY_MIRROR_ACTIONS
 from ..logging_setup import log
 from ..schemas import (
     MemberActivityDTO,
@@ -157,9 +157,20 @@ async def timeline(
                        AND (CAST(:cur_at AS timestamptz) IS NULL
                             OR (occurred_at, id) < (CAST(:cur_at AS timestamptz), CAST(:cur_id AS uuid)))
                        AND (CAST(:category AS text) IS NULL OR category = :category)
+                       -- The security record of a file open/download is the same
+                       -- act as the engagement row already in this list, so only
+                       -- the Security view shows it; everywhere else it would read
+                       -- as every file opened twice.
+                       AND (NOT (action = ANY(CAST(:mirror AS text[])))
+                            OR CAST(:category AS text) = 'security')
                        AND (NOT CAST(:outside AS boolean)
                             OR category = 'app'
                             OR action = ANY(CAST(:outside_actions AS text[])))
+                       -- BlissWork's own window is reported as an app too, but
+                       -- time in it is in-app activity, not outside.
+                       AND NOT (CAST(:outside AS boolean)
+                                AND action = 'app.focus'
+                                AND lower(COALESCE(target_id, '')) = ANY(CAST(:in_app AS text[])))
                      ORDER BY occurred_at DESC, id DESC
                      LIMIT :lim
                     """
@@ -170,8 +181,10 @@ async def timeline(
                     "cur_id": before[1] if before else None,
                     "category": category, "lim": limit + 1,
                     "outside": outside, "outside_actions": sorted(OUTSIDE_ACTIONS),
+                    "in_app": settings.in_app_executable_names,
                     "floor": _visible_floor(),
                     "hidden": sorted(NON_EVENT_ACTIONS),
+                    "mirror": sorted(SECURITY_MIRROR_ACTIONS),
                 },
             )
         ).all()

@@ -11,6 +11,8 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+import uuid
+
 import uuid6
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -34,6 +36,55 @@ from .logging_setup import log
 # desktop builds and cached browser bundles keep sending heartbeats for as long
 # as they are installed, and this is the one place no producer can bypass.
 NON_EVENT_ACTIONS = frozenset({"heartbeat"})
+
+
+# ── The security record of a file being opened or downloaded ─────────────────
+#
+# A chat or channel file open/download is reported by the client as an
+# ENGAGEMENT event (`attachment.opened` / `attachment.downloaded`), which is what
+# the activity timeline and analytics read. The Security view needs the same act
+# as a record of its own, so the SERVER derives one at ingest — a separate row,
+# category 'security', same actor, time, session (so the IP / device / platform
+# the session already records), target and detail (file name, chat or channel).
+#
+# Derived here rather than sent by the client for three reasons: it is exactly
+# one per act (a client that "forgets" the second event, or sends it twice,
+# cannot make the two records disagree); a retry is a no-op for both rows (the
+# derived id is a function of the base id, so the same claim table dedupes it);
+# and the client is not allowed to submit these actions at all (see
+# `SECURITY_MIRROR_ACTIONS` in routes/ingest.py), so a row carrying one was
+# necessarily produced from a real attachment.opened/downloaded report.
+FILE_SECURITY_ACTIONS: dict[str, str] = {
+    "attachment.opened": "file.opened",
+    "attachment.downloaded": "file.downloaded",
+}
+SECURITY_MIRROR_ACTIONS = frozenset(FILE_SECURITY_ACTIONS.values())
+# Any fixed value works; it only has to be stable across processes and releases,
+# because retries of a base event must always derive the SAME mirror id.
+_MIRROR_NAMESPACE = uuid.UUID("6f1f5a0e-3b1c-4c52-9a55-5f1f0a7c1b01")
+
+
+def security_mirror_of(row: "ActivityRow") -> "ActivityRow | None":
+    """The security row for a file-activity row, or None for any other row."""
+    action = FILE_SECURITY_ACTIONS.get(row.action)
+    if action is None:
+        return None
+    return ActivityRow(
+        org_id=row.org_id,
+        user_id=row.user_id,
+        session_id=row.session_id,
+        occurred_at=row.occurred_at,
+        source=row.source,
+        category="security",
+        action=action,
+        surface=row.surface,
+        target_kind=row.target_kind,
+        target_id=row.target_id,
+        detail=dict(row.detail),
+        client_event_id=(
+            str(uuid.uuid5(_MIRROR_NAMESPACE, row.client_event_id)) if row.client_event_id else None
+        ),
+    )
 
 
 @dataclass
