@@ -9,10 +9,11 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 
 /**
- * "Reassign" on a Completed card of the allocator's My Tasks board: the task is
- * handed back to the people who completed it. No picker — the server restores
- * exactly those assignments (task-svc `POST /tasks/{id}/reassign`), and enforces
- * that the caller is the allocator and that the task really is completed.
+ * "Reassign" on a Completed, Left, or Ignored card of the allocator's My Tasks
+ * board: the task is handed back to the people who had it. No picker — the
+ * server restores exactly those assignments (task-svc `POST /tasks/{id}/reassign`),
+ * and enforces that the caller is the allocator and that the task is actually
+ * eligible (see `isReassignableTask`).
  */
 export function ReassignTaskButton({ taskId, className = "mt-3 self-start" }: { taskId: string; className?: string }) {
   const { t } = useTranslation("tasks");
@@ -23,8 +24,10 @@ export function ReassignTaskButton({ taskId, className = "mt-3 self-start" }: { 
   const inFlight = useRef(false);
   const reassign = useMutation({
     mutationFn: () => api.reassignTask(taskId),
-    onSuccess: ({ reassignedUserIds }) =>
-      toast.success(t("myTasksBoard.reassign.done", { count: reassignedUserIds.length })),
+    onSuccess: ({ reassignedUserIds, projectChannelSyncFailed }) => {
+      toast.success(t("myTasksBoard.reassign.done", { count: reassignedUserIds.length }));
+      if (projectChannelSyncFailed) toast.error(t("projects.syncFailed"));
+    },
     onError: (err) =>
       toast.error(t("myTasksBoard.reassign.failed"), { description: err instanceof ApiError ? err.message : String(err) }),
     onSettled: () => {

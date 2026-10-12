@@ -191,8 +191,13 @@ _NEW_TASK_HTML = _env.from_string(
               {{ title }}
             </h2>
             {% if description %}
-            <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#444;">
+            <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#444;white-space:pre-wrap;overflow-wrap:anywhere;">
               {{ description }}
+            </p>
+            {% endif %}
+            {% if assigned_at %}
+            <p style="margin:0 0 16px 0;font-size:13px;line-height:1.6;color:#666;">
+              Assigned {{ assigned_at }}
             </p>
             {% endif %}
           </td></tr>
@@ -223,6 +228,9 @@ _NEW_TASK_TEXT = _text_env.from_string(
 Title: {{ title }}
 {% if description %}
 {{ description }}
+{% endif %}
+{% if assigned_at %}
+Assigned: {{ assigned_at }}
 {% endif %}
 Open in BlissWork: {{ link }}
 
@@ -257,6 +265,7 @@ def render_new_task_email(
     description: str,
     link: str,
     channel_name: str | None = None,
+    assigned_at: str = "",
 ) -> tuple[str, str]:
     """Render the offline-relay 'you got a new task' email.
 
@@ -279,6 +288,7 @@ def render_new_task_email(
         "description": description,
         "link": link,
         "footer_note": footer_note,
+        "assigned_at": assigned_at,
     }
     return _NEW_TASK_TEXT.render(**ctx), _NEW_TASK_HTML.render(**ctx)
 

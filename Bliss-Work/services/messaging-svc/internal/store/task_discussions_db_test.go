@@ -8,6 +8,7 @@ package store
 import (
 	"context"
 	"math"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -87,6 +88,57 @@ func TestOpenTaskDiscussionChannelIsIdempotent(t *testing.T) {
 	}
 	if first.Kind != TaskDiscussionKindChannel {
 		t.Errorf("kind = %q, want CHANNEL", first.Kind)
+	}
+}
+
+// TestOpenTaskDiscussionDMConcurrentOpensConverge fires several concurrent
+// "Chat" clicks (not just two sequential ones, unlike the idempotency test
+// above) for the same task+peer and asserts they all converge on exactly one
+// discussion row — the race the partial unique index in
+// 0035_task_discussions.sql exists to resolve via ON CONFLICT DO NOTHING.
+func TestOpenTaskDiscussionDMConcurrentOpensConverge(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+
+	orgID := uuid.Must(uuid.NewV7()).String()
+	allocator := uuid.Must(uuid.NewV7()).String()
+	assignee := uuid.Must(uuid.NewV7()).String()
+	taskID := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, allocator, "priya", "Priya Nair")
+	seedUser(t, s, orgID, assignee, "sam", "Sam Okafor")
+
+	const concurrency = 8
+	results := make([]TaskDiscussionDTO, concurrency)
+	errs := make([]error, concurrency)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i], errs[i] = s.OpenTaskDiscussion(ctx, orgID, allocator, taskID, &assignee, nil)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent open %d: %v", i, err)
+		}
+	}
+	firstID := results[0].ID
+	for i, r := range results {
+		if r.ID != firstID {
+			t.Errorf("concurrent open %d returned ID %q, want %q (all should converge on one row)", i, r.ID, firstID)
+		}
+	}
+
+	var count int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM task_discussions WHERE task_id = $1`, taskID).Scan(&count); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("task_discussions has %d rows for this task, want exactly 1", count)
 	}
 }
 

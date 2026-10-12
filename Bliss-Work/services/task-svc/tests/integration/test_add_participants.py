@@ -24,6 +24,12 @@ def _id() -> str:
     return str(uuid.uuid4())
 
 
+class _ChannelsTable(dict):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: dict[str, str] = {}
+
+
 def _as(user_id: str):
     def _principal():
         from app.auth import Principal
@@ -48,13 +54,13 @@ def channels(monkeypatch):
 
     from app.routes import participants, tasks_write
 
-    table: dict[str, list[str] | str] = {}
+    table = _ChannelsTable()
 
     async def _resolve(channel_id: str, org_id: str, caller_id: str) -> tuple[list[str], str]:
         answer = table[channel_id]
         if answer == "dead":
             raise HTTPException(status_code=404, detail="channel not found")
-        return list(answer), ""
+        return list(answer), table.names.get(channel_id, "")
 
     # create path and participants each bound the name at import.
     monkeypatch.setattr(tasks_write, "_resolve_channel_members", _resolve)
@@ -80,6 +86,21 @@ async def _task_channels(task_id: str) -> list[str]:
     return sorted(str(r.channel_id) for r in rows)
 
 
+def _payload(row) -> dict:
+    import json
+
+    return json.loads(row.payload) if isinstance(row.payload, str) else row.payload
+
+
+async def _assigned_event_by_assignee(task_id: str, assignee_id: str) -> dict:
+    rows = await _q("SELECT payload FROM outbox WHERE kafka_key = :t", t=task_id)
+    for row in rows:
+        payload = _payload(row)
+        if payload["assigneeId"] == assignee_id:
+            return payload
+    raise AssertionError(f"no task.assigned event for {assignee_id}")
+
+
 async def _new_task(*assignees: str) -> str:
     async with await _client() as c:
         r = await c.post("/api/v1/tasks", json={"title": "Review report", "assigneeIds": list(assignees)})
@@ -96,6 +117,7 @@ async def test_adds_a_channels_members_and_attaches_the_channel(db_app, seed_mem
     a, b, m1, m2, ch = _id(), _id(), _id(), _id(), _id()
     await seed_members(ORG, a, b)
     channels[ch] = [m1, m2]
+    channels.names[ch] = "Engineering"
     task_id = await _new_task(a)
 
     r = await _add(task_id, userIds=[b], channelIds=[ch])
@@ -105,6 +127,11 @@ async def test_adds_a_channels_members_and_attaches_the_channel(db_app, seed_mem
     assert r.json()["addedChannelIds"] == [ch]
     assert await _assignees(task_id) == sorted([a, b, m1, m2])
     assert await _task_channels(task_id) == [ch]
+    channel_event = await _assigned_event_by_assignee(task_id, m1)
+    assert channel_event["channelId"] == ch
+    assert channel_event["channelName"] == "Engineering"
+    named_event = await _assigned_event_by_assignee(task_id, b)
+    assert "channelId" not in named_event
 
 
 async def test_channel_only_overlapping_existing_participant_is_added_once(db_app, seed_members, channels):

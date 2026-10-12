@@ -4,7 +4,8 @@
     "notConfigured": "Group calling is not enabled on this server",
     "couldNotJoin": "Couldn't join the call",
     "couldNotStart": "Couldn't start the call",
-    "couldNotShareScreen": "Couldn't share your screen"
+    "couldNotShareScreen": "Couldn't share your screen",
+    "someoneElseSharing": "Someone else is already sharing their screen"
   },
   "notify": {
     "screenShareStopped": "Screen sharing stopped",

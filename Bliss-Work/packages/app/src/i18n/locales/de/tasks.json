@@ -24,6 +24,18 @@
       "DAYS_other": "Tage"
     }
   },
+  "projects": {
+    "section": "Projekte",
+    "empty": "Noch keine Projekte",
+    "createdTasks": "Von dir erstellt",
+    "assignedTasks": "Dir zugewiesen",
+    "noTasks": "Noch keine Aufgaben in diesem Projekt",
+    "channel": "Projektkanal",
+    "openChannel": "Projektkanal öffnen",
+    "lookupFailed": "Die Projektsuche ist fehlgeschlagen. Versuche es erneut oder erstelle die Aufgabe trotzdem.",
+    "unavailable": "Dieses Projekt wurde nicht gefunden oder du hast keinen Zugriff.",
+    "syncFailed": "Die Aufgabe wurde gespeichert, aber die Projektkanal-Mitgliedschaft konnte nicht aktualisiert werden."
+  },
   "tasksList": {
     "header": "Aufgaben",
     "categories": {
@@ -185,8 +197,8 @@
   "createTaskDialog": {
     "title": "Neue Aufgabe",
     "fields": {
-      "title": "Titel",
-      "titlePlaceholder": "Was ist zu tun?",
+      "title": "Projektname",
+      "titlePlaceholder": "Wie soll das Projekt heißen?",
       "description": "Beschreibung",
       "descriptionPlaceholder": "Details hinzufügen…",
       "assignTo": "Zuweisen an",
@@ -396,6 +408,21 @@
       "IGNORED": "Ignoriert",
       "LEFT": "Verlassen"
     }
+  },
+  "analyticsHub": {
+    "title": "Analysen",
+    "hint": "Wähle einen Kanal aus, um die Aufgabenanalysen anzuzeigen.",
+    "channelsTitle": "Kanäle",
+    "emptyChannels": {
+      "title": "Noch keine Kanäle",
+      "hint": "Tritt einem Kanal bei oder erstelle einen, um hier dessen Analysen zu sehen."
+    },
+    "noSelection": {
+      "title": "Kanal auswählen",
+      "hint": "Wähle links einen Kanal aus, um dessen Analysen anzuzeigen."
+    },
+    "taskHint": "Du suchst die Analysen einer bestimmten Aufgabe? Öffne sie über Mail.",
+    "openMail": "Mail öffnen"
   },
   "analytics": {
     "loading": "Analysen werden geladen…",

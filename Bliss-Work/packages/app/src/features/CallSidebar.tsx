@@ -53,6 +53,8 @@ export function CallSidebar({
   onToggleCam,
   sharing,
   onToggleShare,
+  shareDisabled,
+  shareDisabledTitle,
   handRaised,
   canRaiseHand,
   onToggleHand,
@@ -89,6 +91,17 @@ export function CallSidebar({
   onToggleCam: () => void;
   sharing: boolean;
   onToggleShare: () => void;
+  /** Someone else is already sharing, or this participant's own start/stop
+   *  request is still in flight — see useCallRoom's someoneElseSharing and
+   *  sharingPending. Never the only thing stopping a second share: the
+   *  backend's unique-share-per-call constraint is the actual enforcement,
+   *  this just avoids sending a participant through the OS picker only to
+   *  have the request rejected. */
+  shareDisabled?: boolean;
+  /** Shown as the button's title/tooltip while shareDisabled is true for the
+   *  "someone else is sharing" reason specifically (not the pending-request
+   *  one, which is transient and needs no explanation). */
+  shareDisabledTitle?: string;
   handRaised: boolean;
   /** False before the room has given us an identity to raise a hand as. */
   canRaiseHand: boolean;
@@ -147,7 +160,14 @@ export function CallSidebar({
           active={!camOn}
           activeClassName="text-danger ring-1 ring-danger/50"
         />
-        <SidebarButton icon={<ScreenShare size={20} />} label={t("sidebar.share")} onClick={onToggleShare} active={sharing} />
+        <SidebarButton
+          icon={<ScreenShare size={20} />}
+          label={t("sidebar.share")}
+          onClick={onToggleShare}
+          active={sharing}
+          disabled={shareDisabled}
+          title={shareDisabled ? shareDisabledTitle : undefined}
+        />
         <SidebarButton
           icon={<Hand size={20} />}
           label={t("sidebar.raise")}

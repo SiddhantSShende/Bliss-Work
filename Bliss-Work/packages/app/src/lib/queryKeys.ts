@@ -10,6 +10,9 @@ export const qk = {
   sent: ["tasks", "sent"] as const,
   sticky: ["tasks", "sticky"] as const,
   assigned: ["tasks", "assigned"] as const,
+  projects: ["projects"] as const,
+  projectByName: (name: string) => ["projects", "byName", name] as const,
+  project: (projectId: string) => ["projects", projectId] as const,
   /** Inputs for the "Available" bucket (open-task counts + admin-hidden set).
    *  POLLED, not pushed — see the note in useAvailability. */
   availability: ["tasks", "availability"] as const,

@@ -21,6 +21,18 @@
       "DAYS_other": "天"
     }
   },
+  "projects": {
+    "section": "项目",
+    "empty": "暂无项目",
+    "createdTasks": "由你创建",
+    "assignedTasks": "分配给你",
+    "noTasks": "此项目暂无任务",
+    "channel": "项目频道",
+    "openChannel": "打开项目频道",
+    "lookupFailed": "项目查找失败。请重试，或继续创建任务。",
+    "unavailable": "未找到此项目，或你无权访问。",
+    "syncFailed": "任务已保存，但无法更新项目频道成员。"
+  },
   "tasksList": {
     "header": "任务",
     "categories": {
@@ -179,8 +191,8 @@
   "createTaskDialog": {
     "title": "新建任务",
     "fields": {
-      "title": "标题",
-      "titlePlaceholder": "需要做什么？",
+      "title": "项目名称",
+      "titlePlaceholder": "输入项目名称",
       "description": "描述",
       "descriptionPlaceholder": "添加详情…",
       "assignTo": "分配给",
@@ -384,6 +396,21 @@
       "IGNORED": "已忽略",
       "LEFT": "已退出"
     }
+  },
+  "analyticsHub": {
+    "title": "分析",
+    "hint": "选择一个频道以查看其任务分析。",
+    "channelsTitle": "频道",
+    "emptyChannels": {
+      "title": "暂无频道",
+      "hint": "加入或创建一个频道，即可在此查看其分析。"
+    },
+    "noSelection": {
+      "title": "选择频道",
+      "hint": "选择左侧的频道以查看其分析。"
+    },
+    "taskHint": "想查看某个任务的分析？请从 Mail 中打开该任务。",
+    "openMail": "打开 Mail"
   },
   "analytics": {
     "loading": "正在加载分析数据…",

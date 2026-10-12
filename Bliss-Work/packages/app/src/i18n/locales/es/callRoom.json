@@ -4,7 +4,8 @@
     "notConfigured": "Las llamadas grupales no están habilitadas en este servidor",
     "couldNotJoin": "No se pudo unir a la llamada",
     "couldNotStart": "No se pudo iniciar la llamada",
-    "couldNotShareScreen": "No se pudo compartir tu pantalla"
+    "couldNotShareScreen": "No se pudo compartir tu pantalla",
+    "someoneElseSharing": "Otra persona ya está compartiendo su pantalla"
   },
   "notify": {
     "screenShareStopped": "Se detuvo el uso compartido de pantalla",

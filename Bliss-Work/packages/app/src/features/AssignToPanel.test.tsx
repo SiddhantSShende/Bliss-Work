@@ -8,7 +8,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import type { ChannelDTO, UserDTO } from "@taskboard/shared";
+import type { ChannelDTO, ProjectDTO, UserDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { ME } from "../test/meetingFixtures";
 import { makeChannels, makeUsers, pagedChannels, pagedDirectory, scrollToEnd, stubScrollGeometry } from "../test/pagedPickerApi";
@@ -24,13 +24,16 @@ let restoreGeometry: () => void;
 let onPeople: Mock<(u: UserDTO) => void>;
 let onChannels: Mock<(c: ChannelDTO) => void>;
 
-function Harness() {
+function Harness({ initialTab = "people", project }: { initialTab?: "people" | "channels"; project?: ProjectDTO }) {
   const [people, setPeople] = useState<Set<string>>(new Set());
-  const [channels, setChannels] = useState<Set<string>>(new Set());
+  const [channels, setChannels] = useState<Set<string>>(() => new Set(project ? [project.channelId] : []));
   return (
     <AssignToPanel
       people={people}
       channels={channels}
+      project={project}
+      lockedChannelId={project?.channelId}
+      initialTab={initialTab}
       onTogglePerson={(u: UserDTO) => {
         onPeople(u);
         setPeople((s) => { const n = new Set(s); if (!n.delete(u.id)) n.add(u.id); return n; });
@@ -43,9 +46,9 @@ function Harness() {
   );
 }
 
-function mount() {
+function mount(initialTab: "people" | "channels" = "people", project?: ProjectDTO) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={qc}><Harness /></QueryClientProvider>);
+  render(<QueryClientProvider client={qc}><Harness initialTab={initialTab} project={project} /></QueryClientProvider>);
   return userEvent.setup();
 }
 
@@ -66,6 +69,15 @@ beforeEach(() => {
 afterEach(() => restoreGeometry());
 
 describe("opening", () => {
+  it("puts Channels before People and opens the channel list first in the task dialog", async () => {
+    mount("channels");
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveAccessibleName(/^Channels/);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[1]).toHaveAccessibleName(/^People/);
+    await waitFor(() => expect(rows(channelsBox())).toHaveLength(PAGE));
+  });
+
   it("shows People selected, both counts at 0, and the search directly under the tabs", async () => {
     mount();
     expect(screen.getByRole("tab", { name: /People \(0\)/ })).toHaveAttribute("aria-selected", "true");
@@ -74,6 +86,22 @@ describe("opening", () => {
     const search = screen.getByRole("searchbox", { name: "Search people in your organisation" });
     expect(screen.getByRole("tablist").compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await waitFor(() => expect(rows(peopleBox())).toHaveLength(PAGE));
+  });
+
+  it("shows an existing project channel as selected and locked without treating it as an allocation target", async () => {
+    const project: ProjectDTO = {
+      id: "00000000-0000-4000-8000-000000000001",
+      name: "Ship the report",
+      channelId: "00000000-0000-4000-8000-000000000002",
+    };
+    mount("channels", project);
+    await waitFor(() => expect(rows(channelsBox())).toHaveLength(PAGE + 1));
+    const row = within(channelsBox()).getByText("#Ship the report").closest("li");
+    expect(row).toBeInTheDocument();
+    expect(row).toHaveTextContent("Project channel");
+    expect(within(row!).getByRole("checkbox")).toBeChecked();
+    expect(within(row!).getByRole("checkbox")).toBeDisabled();
+    expect(onChannels).not.toHaveBeenCalled();
   });
 
   it("loads ONE page of a 100-person organisation, not all of it", async () => {

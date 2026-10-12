@@ -82,3 +82,21 @@ describe("the participant limit", () => {
     expect(Number(server)).toBe(MAX_ADHOC_CALL_PARTICIPANTS);
   });
 });
+
+describe("the /calls/direct wire contract", () => {
+  // A backend built before `peerIds` was added silently drops the unknown
+  // JSON field (Go's decoder ignores keys it doesn't recognize) and falls
+  // through to the single-peer branch with `peerId` empty, which fails
+  // validUUID("") and returns 400 "invalid peerId" — exactly the production
+  // symptom of a frontend shipped ahead of its backend. This guards against
+  // that field ever being dropped from the request struct again.
+  it("startDirectCall's request struct still decodes peerIds", () => {
+    const src = readFileSync(
+      fileURLToPath(new URL("../../../../services/messaging-svc/internal/api/calls.go", import.meta.url)),
+      "utf8",
+    );
+    const reqStruct = /type directCallReq struct \{[^}]*\}/.exec(src)?.[0];
+    expect(reqStruct).toBeDefined();
+    expect(reqStruct).toMatch(/PeerIDs\s+\[\]string\s+`json:"peerIds"`/);
+  });
+});

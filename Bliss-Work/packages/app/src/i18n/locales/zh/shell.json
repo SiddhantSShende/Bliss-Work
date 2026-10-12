@@ -19,6 +19,7 @@
     "channelMembers_other": "{{count}} 位成员"
   },
   "nav": {
+    "analytics": "分析",
     "mail": "邮件",
     "meetings": "会议",
     "chats": "聊天",

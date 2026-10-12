@@ -180,6 +180,11 @@ export function useCallRoom(callId: string | null, adhoc = false) {
   const [micOn, setMicOn] = useState(false);
   const [camOn, setCamOn] = useState(false);
   const [sharing, setSharing] = useState(false);
+  /** A share start/stop request is in flight — the button must be disabled
+   *  for this whole window, not just for the instantaneous `sharing` flip,
+   *  or a second click before the first request resolves can fire
+   *  `setScreenShareEnabled` twice or race a start against a stop. */
+  const [sharingPending, setSharingPending] = useState(false);
   /** When this participant's own media connected, for the in-call timer. */
   const [connectedAt, setConnectedAt] = useState<number | undefined>(undefined);
   /** Whether THIS user could start the call they are waiting for. Answered by
@@ -904,37 +909,69 @@ export function useCallRoom(callId: string | null, adhoc = false) {
    * what a participant arriving mid-share is told instead of having to infer it
    * from whichever track turns up first. Publishing without recording would
    * work today and be invisible tomorrow.
+   *
+   * The backend is the one that actually enforces "only one share per call" —
+   * see messaging-svc's StartScreenShare — so a start here can be rejected
+   * even after LiveKit has already begun publishing the track (most commonly:
+   * another participant started first, the two races being close enough that
+   * local disabling below did not catch it). When that happens the LiveKit
+   * publish is rolled back rather than left live with the server having
+   * refused to record it — a share nobody else is told about, that this
+   * client alone believes is on.
    */
   const toggleShare = useCallback(async () => {
     const room = roomRef.current;
-    if (!room || !callId) return;
-    if (sharing) {
-      await room.localParticipant.setScreenShareEnabled(false);
-      setSharing(false);
-      await api.stopScreenShare(callId).catch(() => {});
-      sync(room);
-      return;
-    }
-    let pub;
+    if (!room || !callId || sharingPending) return;
+    setSharingPending(true);
     try {
-      pub = await room.localParticipant.setScreenShareEnabled(true);
-    } catch (e) {
-      // Dismissing the picker is a normal thing to do, and not an error.
-      if (!isGetUserMediaDenied(e)) {
-        toast.error(tr("errors.couldNotShareScreen"));
+      if (sharing) {
+        await room.localParticipant.setScreenShareEnabled(false);
+        setSharing(false);
+        try {
+          await api.stopScreenShare(callId);
+        } catch {
+          // Stopping is idempotent server-side (duplicate/late stops are not
+          // an error) — a failed network call here cannot leave the server
+          // thinking this client is still sharing in a way that matters,
+          // since the LiveKit track is already torn down either way.
+        }
+        sync(room);
+        return;
       }
-      return;
+      let pub;
+      try {
+        pub = await room.localParticipant.setScreenShareEnabled(true);
+      } catch (e) {
+        // Dismissing the picker is a normal thing to do, and not an error.
+        if (!isGetUserMediaDenied(e)) {
+          toast.error(tr("errors.couldNotShareScreen"));
+        }
+        return;
+      }
+      if (!pub) return;
+      const settings = pub.track?.mediaStreamTrack.getSettings() as
+        | (MediaTrackSettings & { displaySurface?: string })
+        | undefined;
+      try {
+        // The API takes the browser's own spelling of what was picked, so
+        // this can be forwarded as it came.
+        await api.startScreenShare(callId, (settings?.displaySurface ?? "monitor") as "monitor");
+      } catch (e) {
+        await room.localParticipant.setScreenShareEnabled(false).catch(() => {});
+        sync(room);
+        toast.error(
+          e instanceof ApiError && e.code === "share_active"
+            ? tr("errors.someoneElseSharing")
+            : tr("errors.couldNotShareScreen"),
+        );
+        return;
+      }
+      setSharing(true);
+      sync(room);
+    } finally {
+      setSharingPending(false);
     }
-    if (!pub) return;
-    setSharing(true);
-    sync(room);
-    const settings = pub.track?.mediaStreamTrack.getSettings() as
-      | (MediaTrackSettings & { displaySurface?: string })
-      | undefined;
-    // The API takes the browser's own spelling of what was picked, so this can
-    // be forwarded as it came.
-    await api.startScreenShare(callId, (settings?.displaySurface ?? "monitor") as "monitor").catch(() => {});
-  }, [api, callId, sharing, sync, tr]);
+  }, [api, callId, sharing, sharingPending, sync, tr]);
 
   /**
    * Say something to the room — everyone, or named participants.
@@ -1017,6 +1054,19 @@ export function useCallRoom(callId: string | null, adhoc = false) {
     micOn,
     camOn,
     sharing,
+    sharingPending,
+    /** Someone OTHER than this participant is currently sharing. The Share
+     *  Screen control uses this to disable itself — not as the enforcement
+     *  (the backend's unique-share-per-call constraint is; see toggleShare's
+     *  doc comment), but so a participant is not sent through the picker
+     *  only to have the request rejected. Derived from the same per-tile
+     *  `sharing` flag `sync()` already computes from LiveKit's own track
+     *  state for every participant (local and remote) on every relevant room
+     *  event — connect, reconnect, and every subscribe/unsubscribe/mute — so
+     *  it stays correct through state sync and reconnects without a second,
+     *  independently-updated notion of "who is sharing" to drift out of
+     *  sync with the tiles themselves. */
+    someoneElseSharing: participants.some((p) => p.sharing && !p.isLocal),
     connectedAt,
     canStart,
     ended,

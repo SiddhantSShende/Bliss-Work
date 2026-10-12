@@ -20,7 +20,7 @@ async def list_schedules(principal: Principal = PrincipalDep) -> list[ScheduledT
         rows = (
             await db.execute(
                 text(
-                    "SELECT s.id, s.org_id, s.title_enc, s.description_enc, s.channel_id, s.channel_ids, s.kind, s.scheduled_for, "
+                    "SELECT s.id, s.org_id, s.title_enc, s.description_enc, s.project_id, s.channel_id, s.channel_ids, s.kind, s.scheduled_for, "
                     "s.start_at, s.next_run_at, s.frequency, s.frequency_interval, s.weekdays, s.monthly_rule, "
                     "s.monthly_day, s.monthly_ordinal, s.monthly_weekday, s.end_condition, s.end_at, "
                     "s.occurrence_limit, s.occurrence_count, s.assignee_ids, "
@@ -46,6 +46,7 @@ async def list_schedules(principal: Principal = PrincipalDep) -> list[ScheduledT
                     scheduleId=str(row.id),
                     title=await cryptor().decrypt(db, str(row.org_id), row.title_enc) or "",
                     description=await cryptor().decrypt(db, str(row.org_id), row.description_enc) or "",
+                    projectId=str(row.project_id) if row.project_id is not None else None,
                     # `channelId` is the first channel, kept for existing readers.
                     channelIds=channel_ids,
                     channelId=channel_ids[0] if channel_ids else None,

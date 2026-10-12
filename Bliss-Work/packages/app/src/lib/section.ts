@@ -18,6 +18,7 @@ export type Surface =
   | "invite"
   | "profile"
   | "settings"
+  | "analytics"
   | "meetings"
   | "org";
 
@@ -31,6 +32,7 @@ const UTILITY: Surface[] = [
   "invite",
   "profile",
   "settings",
+  "analytics",
   "meetings",
   "org",
 ];
@@ -51,6 +53,7 @@ export function listSectionOf(pathname: string): ListSection | null {
  */
 export function railSectionOf(pathname: string): string | null {
   if (pathname.startsWith("/app/settings")) return "settings";
+  if (pathname.startsWith("/app/analytics")) return "analytics";
   if (pathname.startsWith("/app/meetings")) return "meetings";
   if (pathname.startsWith("/app/org")) return "org";
   return listSectionOf(pathname);

@@ -35,6 +35,8 @@ import { DisconnectReason, Room, RoomEvent, Track } from "livekit-client";
 import { ApiError } from "@taskboard/shared";
 import { useCallRoom } from "./useCallRoom";
 
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+
 const h = vi.hoisted(() => ({
   api: {
     callToken: vi.fn(),
@@ -471,6 +473,121 @@ describe("useCallRoom — screen-share liveness", () => {
     act(() => fakeRoom.fire(RoomEvent.ParticipantDisconnected));
 
     expect(result.current.participants.some((x) => x.identity === "peer")).toBe(false);
+  });
+
+  it("someoneElseSharing tracks a remote participant's live share and clears once it ends", async () => {
+    const { result, fakeRoom } = await joinedRoom();
+    expect(result.current.someoneElseSharing).toBe(false);
+
+    const peer = addRemote(fakeRoom, "peer");
+    peer.pubs.set(Track.Source.ScreenShare, livePublication());
+    act(() => fakeRoom.fire(RoomEvent.ParticipantConnected));
+    expect(result.current.someoneElseSharing).toBe(true);
+
+    peer.pubs.delete(Track.Source.ScreenShare);
+    act(() => fakeRoom.fire(RoomEvent.TrackUnpublished));
+    expect(result.current.someoneElseSharing).toBe(false);
+  });
+
+  it("someoneElseSharing stays false for this participant's OWN share", async () => {
+    const { result } = await joinedRoom();
+    await act(async () => {
+      await result.current.toggleShare();
+    });
+    expect(result.current.sharing).toBe(true);
+    expect(result.current.someoneElseSharing).toBe(false);
+  });
+});
+
+describe("useCallRoom — screen-share start/stop against the backend", () => {
+  it("starts normally and reports sharing=true when the backend accepts", async () => {
+    const { result } = await joinedRoom();
+    h.api.startScreenShare.mockClear();
+
+    await act(async () => {
+      await result.current.toggleShare();
+    });
+
+    expect(result.current.sharing).toBe(true);
+    expect(result.current.sharingPending).toBe(false);
+    expect(h.api.startScreenShare).toHaveBeenCalledWith("call-1", "monitor");
+  });
+
+  it("rolls back the LiveKit publish and leaves sharing false when the backend rejects the start because someone else is already sharing", async () => {
+    const { result, fakeRoom } = await joinedRoom();
+    h.api.startScreenShare.mockRejectedValueOnce(
+      new ApiError(409, "another participant is already sharing their screen", { code: "share_active" }),
+    );
+
+    await act(async () => {
+      await result.current.toggleShare();
+    });
+
+    expect(result.current.sharing).toBe(false);
+    expect(result.current.sharingPending).toBe(false);
+    // The LiveKit publish itself — not just the local `sharing` flag — must
+    // be torn down too, or this client would go on broadcasting video the
+    // backend never agreed to and nobody else was told about.
+    expect(fakeRoom.localParticipant.isScreenShareEnabled).toBe(false);
+  });
+
+  it("still rolls back cleanly on a rejection that is not the share_active case", async () => {
+    const { result, fakeRoom } = await joinedRoom();
+    h.api.startScreenShare.mockRejectedValueOnce(new Error("network blip"));
+
+    await act(async () => {
+      await result.current.toggleShare();
+    });
+
+    expect(result.current.sharing).toBe(false);
+    expect(fakeRoom.localParticipant.isScreenShareEnabled).toBe(false);
+  });
+
+  it("ignores a second toggleShare call while the first is still waiting on the backend", async () => {
+    h.api.startScreenShare.mockClear();
+    const { result } = await joinedRoom();
+    let finishStart!: () => void;
+    h.api.startScreenShare.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { finishStart = resolve; }),
+    );
+
+    let first!: Promise<void>;
+    act(() => {
+      first = result.current.toggleShare();
+    });
+    expect(result.current.sharingPending).toBe(true);
+
+    // A click landing in this window — the exact double-click/race this
+    // guard exists for — must not fire a second setScreenShareEnabled or a
+    // second API call.
+    await act(async () => {
+      await result.current.toggleShare();
+    });
+    expect(h.api.startScreenShare).toHaveBeenCalledTimes(1);
+
+    finishStart();
+    await act(async () => first);
+    expect(result.current.sharing).toBe(true);
+    expect(result.current.sharingPending).toBe(false);
+  });
+
+  it("stopping clears local state even when the backend's stop call itself fails", async () => {
+    const { result } = await joinedRoom();
+    await act(async () => {
+      await result.current.toggleShare(); // start
+    });
+    expect(result.current.sharing).toBe(true);
+
+    h.api.stopScreenShare.mockRejectedValueOnce(new Error("network blip"));
+    await act(async () => {
+      await result.current.toggleShare(); // stop
+    });
+
+    // Stopping is idempotent server-side now (see StopScreenShare) — a failed
+    // call here must not leave the UI claiming to still be sharing when the
+    // LiveKit track is already gone.
+    expect(result.current.sharing).toBe(false);
+    expect(result.current.sharingPending).toBe(false);
   });
 });
 

@@ -826,6 +826,7 @@ export const StickyTaskDTO = z.object({
   orgId: z.string().uuid(),
   title: z.string(),
   description: z.string(),
+  projectId: z.string().uuid().nullable().optional(),
   channelId: z.string().nullable().optional(),
   senderId: z.string().uuid(),
   senderUsername: z.string(),
@@ -855,6 +856,7 @@ export const SentTaskDTO = z.object({
   title: z.string(),
   description: z.string(),
   createdAt: z.string(),
+  projectId: z.string().uuid().nullable().optional(),
   deadlineAt: z.string().nullable().optional(),
   assignees: z.array(
     z.object({
@@ -876,10 +878,18 @@ export const SentTaskDTO = z.object({
 });
 export type SentTaskDTO = z.infer<typeof SentTaskDTO>;
 
+export const ProjectDTO = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  channelId: z.string().uuid(),
+});
+export type ProjectDTO = z.infer<typeof ProjectDTO>;
+
 export const ScheduledTaskDTO = z.object({
   scheduleId: z.string().uuid(),
   title: z.string(),
   description: z.string(),
+  projectId: z.string().uuid().nullable().optional(),
   /** The first channel only; `channelIds` is the full list. */
   channelId: z.string().nullable().optional(),
   channelIds: z.array(z.string()).default([]),

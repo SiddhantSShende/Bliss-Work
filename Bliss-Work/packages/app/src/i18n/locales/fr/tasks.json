@@ -27,6 +27,18 @@
       "DAYS_other": "jours"
     }
   },
+  "projects": {
+    "section": "Projets",
+    "empty": "Aucun projet pour le moment",
+    "createdTasks": "Créées par vous",
+    "assignedTasks": "Qui vous sont attribuées",
+    "noTasks": "Aucune tâche dans ce projet pour le moment",
+    "channel": "Canal du projet",
+    "openChannel": "Ouvrir le canal du projet",
+    "lookupFailed": "La recherche du projet a échoué. Réessayez ou continuez la création de la tâche.",
+    "unavailable": "Ce projet est introuvable ou vous n’y avez pas accès.",
+    "syncFailed": "La tâche a été enregistrée, mais l’appartenance au canal du projet n’a pas pu être mise à jour."
+  },
   "tasksList": {
     "header": "Tâches",
     "categories": {
@@ -191,8 +203,8 @@
   "createTaskDialog": {
     "title": "Nouvelle tâche",
     "fields": {
-      "title": "Titre",
-      "titlePlaceholder": "Que faut-il faire ?",
+      "title": "Nom du projet",
+      "titlePlaceholder": "Quel est le nom du projet ?",
       "description": "Description",
       "descriptionPlaceholder": "Ajoutez des détails…",
       "assignTo": "Attribuer à",
@@ -408,6 +420,21 @@
       "IGNORED": "Ignorée",
       "LEFT": "Abandonnée"
     }
+  },
+  "analyticsHub": {
+    "title": "Analyses",
+    "hint": "Sélectionnez un canal pour consulter les analyses de ses tâches.",
+    "channelsTitle": "Canaux",
+    "emptyChannels": {
+      "title": "Aucun canal pour le moment",
+      "hint": "Rejoignez ou créez un canal pour consulter ses analyses ici."
+    },
+    "noSelection": {
+      "title": "Sélectionnez un canal",
+      "hint": "Choisissez un canal à gauche pour consulter ses analyses."
+    },
+    "taskHint": "Vous cherchez les analyses d’une tâche précise ? Ouvrez-la depuis Mail.",
+    "openMail": "Ouvrir Mail"
   },
   "analytics": {
     "loading": "Chargement des statistiques…",

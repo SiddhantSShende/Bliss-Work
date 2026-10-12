@@ -21,6 +21,7 @@
     "channelMembers_other": "{{count}} membres"
   },
   "nav": {
+    "analytics": "Analyses",
     "mail": "Courrier",
     "meetings": "Réunions",
     "chats": "Discussions",

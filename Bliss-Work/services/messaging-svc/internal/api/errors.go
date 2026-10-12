@@ -34,6 +34,7 @@ const (
 	CodeConflict           ErrorCode = "conflict"
 	CodeCallSessionActive  ErrorCode = "call_session_active"
 	CodeCallEnded          ErrorCode = "call_ended"
+	CodeShareActive        ErrorCode = "share_active"
 	CodeValidationError    ErrorCode = "validation_error"
 	CodeRateLimited        ErrorCode = "rate_limited"
 	CodePayloadTooLarge    ErrorCode = "payload_too_large"
@@ -171,8 +172,13 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		// allowed in this call", which is the opposite of what is true of
 		// someone sitting in its waiting room.
 		return http.StatusConflict, CodeConflict, "this call has not started yet"
-	case errors.Is(err, store.ErrNotSharing):
-		return http.StatusConflict, CodeConflict, "no screen share is in progress"
+	case errors.Is(err, store.ErrShareAlreadyActive):
+		// Its own code, not the generic "conflict": the client needs to tell
+		// "someone else is presenting" apart from every other 409 — recording
+		// the error, rolling back the local publish and showing a specific
+		// message, rather than treating it the same as e.g. a call that has
+		// not started — without matching on the message text.
+		return http.StatusConflict, CodeShareActive, "another participant is already sharing their screen"
 	case errors.Is(err, store.ErrShareSourceInvalid):
 		return http.StatusBadRequest, CodeValidationError,
 			"source must be screen, window or tab"

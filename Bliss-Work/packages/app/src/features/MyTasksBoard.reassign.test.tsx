@@ -1,10 +1,10 @@
 /**
- * "Reassign" on a Completed card of the allocator's My Tasks board: it appears only
- * where the whole task is completed, hands the task back to the same people through
- * one API call with no picker, cannot be double-submitted, reports a refusal, and
- * leaves the board showing the task as work again once the server has reopened it.
- * (Which people are restored, the status reset and the history are task-svc's, and
- * are covered by its integration tests.)
+ * "Reassign" on a Completed, Left, or Ignored card of the allocator's My Tasks
+ * board: it appears only where the whole task is eligible, hands the task back to
+ * the same people through one API call with no picker, cannot be double-submitted,
+ * reports a refusal, and leaves the board showing the task as work again once the
+ * server has reopened it. (Which people are restored, the status reset and the
+ * history are task-svc's, and are covered by its integration tests.)
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -14,7 +14,7 @@ import { ApiError, type SentTaskDTO } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useSession } from "../store/session";
 import { expandAllDetails } from "../test/expandDetails";
-import { isCompletedTask } from "../lib/sentTaskFilter";
+import { isReassignableTask } from "../lib/sentTaskFilter";
 
 const api = {
   tasksSent: vi.fn(async () => [] as SentTaskDTO[]),
@@ -65,37 +65,46 @@ beforeEach(() => {
   api.reassignTask.mockResolvedValue({ taskId: "t", reassignedUserIds: ["u-alice"] });
 });
 
-describe("isCompletedTask", () => {
+describe("isReassignableTask", () => {
   const rows = (...s: string[]) => ({ assignees: s.map((status) => ({ status })) }) as unknown as SentTaskDTO;
-  it("needs a completed row and nobody still on the task", () => {
-    expect(isCompletedTask(rows("COMPLETED"))).toBe(true);
-    expect(isCompletedTask(rows("COMPLETED", "COMPLETED"))).toBe(true);
-    expect(isCompletedTask(rows("COMPLETED", "LEFT", "IGNORED", "MISSED"))).toBe(true);
-    expect(isCompletedTask(rows("COMPLETED", "SENT"))).toBe(false);
-    expect(isCompletedTask(rows("COMPLETED", "ACKNOWLEDGED"))).toBe(false);
-    expect(isCompletedTask(rows("SENT"))).toBe(false);
-    expect(isCompletedTask(rows("LEFT", "IGNORED"))).toBe(false);
-    expect(isCompletedTask(rows())).toBe(false);
+  it("needs a completed row, or every row sharing one LEFT/IGNORED outcome, and nobody still active", () => {
+    expect(isReassignableTask(rows("COMPLETED"))).toBe(true);
+    expect(isReassignableTask(rows("COMPLETED", "COMPLETED"))).toBe(true);
+    expect(isReassignableTask(rows("COMPLETED", "LEFT", "IGNORED", "MISSED"))).toBe(true);
+    expect(isReassignableTask(rows("COMPLETED", "SENT"))).toBe(false);
+    expect(isReassignableTask(rows("COMPLETED", "ACKNOWLEDGED"))).toBe(false);
+    expect(isReassignableTask(rows("SENT"))).toBe(false);
+    expect(isReassignableTask(rows("LEFT"))).toBe(true);
+    expect(isReassignableTask(rows("LEFT", "LEFT"))).toBe(true);
+    expect(isReassignableTask(rows("IGNORED"))).toBe(true);
+    expect(isReassignableTask(rows("IGNORED", "IGNORED"))).toBe(true);
+    expect(isReassignableTask(rows("LEFT", "IGNORED"))).toBe(false);
+    expect(isReassignableTask(rows("MISSED"))).toBe(false);
+    expect(isReassignableTask(rows())).toBe(false);
   });
 });
 
 describe("where Reassign appears", () => {
-  it("is on completed tasks only; every other state is left alone", async () => {
+  it("is on completed, wholly-left, and wholly-ignored tasks; every other state is left alone", async () => {
     api.tasksSent.mockResolvedValue([
       task("done", "Finished", [{ id: "alice", status: "COMPLETED" }]),
       task("sent", "Just sent", [{ id: "alice", status: "SENT" }]),
       task("acked", "In progress", [{ id: "alice", status: "ACKNOWLEDGED" }]),
       task("left", "Walked away", [{ id: "alice", status: "LEFT" }]),
+      task("ignored", "Passed over", [{ id: "alice", status: "IGNORED" }]),
       task("missed", "Too late", [{ id: "alice", status: "MISSED" }]),
       task("part", "Half done", [{ id: "alice", status: "COMPLETED" }, { id: "bob", status: "ACKNOWLEDGED" }]),
+      task("split", "Split outcome", [{ id: "alice", status: "LEFT" }, { id: "bob", status: "IGNORED" }]),
     ]);
     renderBoard();
     await screen.findByText("Finished");
     await userEvent.click(screen.getByRole("button", { name: "Load more" }));
-    await screen.findByText("Half done");
+    await screen.findByText("Split outcome");
 
-    expect(reassignIn("Finished")).toBeInTheDocument();
-    for (const title of ["Just sent", "In progress", "Walked away", "Too late", "Half done"]) {
+    for (const title of ["Finished", "Walked away", "Passed over"]) {
+      expect(reassignIn(title), title).toBeInTheDocument();
+    }
+    for (const title of ["Just sent", "In progress", "Too late", "Half done", "Split outcome"]) {
       expect(reassignIn(title), title).not.toBeInTheDocument();
     }
   });

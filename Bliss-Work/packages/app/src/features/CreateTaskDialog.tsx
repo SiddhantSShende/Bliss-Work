@@ -15,7 +15,7 @@
  * aren't in are intentionally excluded — the assigner has to join first.
  */
 import { useEffect, useId, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { CalendarClock, Repeat, Zap, type LucideIcon } from "lucide-react";
 import { Button, Input, Textarea } from "@taskboard/ui";
@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import type { ChannelDTO, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { dayLabel, timeLabel } from "../lib/meetingTime";
 import { localDateTimeWithOffset } from "../lib/taskDates";
 import { localDay } from "../lib/dateRange";
@@ -55,7 +56,7 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
 }
 
 /** A picked channel: just what the summary line and the success toast say about it. */
-type ChannelPick = { name: string; memberCount: number };
+type ChannelPick = { name: string; memberCount: number; projectLocked?: boolean };
 
 export function CreateTaskDialog({
   open,
@@ -89,13 +90,21 @@ export function CreateTaskDialog({
   const [endDate, setEndDate] = useState("");
   const [occurrenceCount, setOccurrenceCount] = useState("1");
   const [deadline, setDeadline] = useState<DeadlineForm>(emptyDeadline);
+  const projectLookupName = useDebouncedValue(title.trim(), 250);
+  const projectLookup = useQuery({
+    queryKey: qk.projectByName(projectLookupName),
+    queryFn: () => api.projectByName(projectLookupName),
+    enabled: open && projectLookupName.length > 0,
+    staleTime: 30_000,
+  });
+  const projectChannelId = projectLookup.data?.channelId;
 
   // "Schedule for later"'s small allocation summary — who, and the real
   // combined start moment (same localDateTimeWithOffset the request itself
   // is built from, so the summary can never say something the request doesn't).
   const summaryTargets = [
     ...(selectedPeople.size > 0 ? [t("createTaskDialog.allocation.peopleCount", { count: selectedPeople.size })] : []),
-    ...[...selectedChannels.values()].map((c) => `#${c.name}`),
+    ...[...selectedChannels.values()].filter((c) => !c.projectLocked).map((c) => `#${c.name}`),
   ];
   const summaryWho = summaryTargets.length > 0 ? summaryTargets.join(", ") : t("createTaskDialog.allocation.noTargetYet");
   const summaryStartIso = localDateTimeWithOffset(scheduledDate, scheduledTime);
@@ -127,6 +136,20 @@ export function CreateTaskDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  useEffect(() => {
+    setSelectedChannels((current) => {
+      const next = new Map([...current].filter(([, channel]) => !channel.projectLocked));
+      if (open && projectLookup.data) {
+        next.set(projectLookup.data.channelId, {
+          name: projectLookup.data.name,
+          memberCount: 0,
+          projectLocked: true,
+        });
+      }
+      return next;
+    });
+  }, [open, projectLookup.data]);
+
   // A deadline is optional: with none, the request is exactly what it always was.
   const { deadlineAt, recurrenceDeadline } = deadlineRequest(deadline, allocation);
 
@@ -146,7 +169,13 @@ export function CreateTaskDialog({
         description,
         allocation,
         ...(selectedPeople.size > 0 ? { assigneeIds: [...selectedPeople] } : {}),
-        ...(selectedChannels.size > 0 ? { channelIds: [...selectedChannels.keys()] } : {}),
+        ...(selectedChannels.size > 0
+          ? {
+              channelIds: [...selectedChannels].filter(
+                ([id, channel]) => !channel.projectLocked || id === projectChannelId,
+              ).map(([id]) => id),
+            }
+          : {}),
         ...(allocation === "SCHEDULED" ? { scheduledFor: localDateTimeWithOffset(scheduledDate, scheduledTime)! } : {}),
         ...(allocation === "RECURRING" ? { recurrence: recurrencePayload() } : {}),
         ...(deadlineAt ? { deadlineAt } : {}),
@@ -154,8 +183,8 @@ export function CreateTaskDialog({
     onSuccess: () => {
       // Only a lone channel gets the channel-specific toast: with people (or other
       // channels) alongside it, "sent to #general — 12 members" would undercount.
-      const lone =
-        selectedPeople.size === 0 && selectedChannels.size === 1 ? [...selectedChannels.values()][0] : undefined;
+      const assignmentChannels = [...selectedChannels.values()].filter((channel) => !channel.projectLocked);
+      const lone = selectedPeople.size === 0 && assignmentChannels.length === 1 ? assignmentChannels[0] : undefined;
       toast.success(
         lone
           ? t("createTaskDialog.toasts.sentToChannel", {
@@ -169,6 +198,8 @@ export function CreateTaskDialog({
             : t("createTaskDialog.toasts.scheduled"),
       );
       qc.invalidateQueries({ queryKey: qk.sent });
+      qc.invalidateQueries({ queryKey: qk.projects });
+      qc.invalidateQueries({ queryKey: qk.projectByName(title.trim()) });
       // Self-assignment also makes the new task appear in Allocated to me.
       // Keep this mutation-owned cache fresh even if the deduplicated task
       // event arrives before the active view has subscribed to it.
@@ -190,18 +221,21 @@ export function CreateTaskDialog({
   });
 
   const togglePerson = (user: UserDTO) => setSelectedPeople((s) => toggled(s, user.id));
-  const toggleChannel = (channel: ChannelDTO) =>
+  const toggleChannel = (channel: ChannelDTO) => {
+    if (channel.id === projectChannelId) return;
     setSelectedChannels((s) => {
       const next = new Map(s);
       if (!next.delete(channel.id)) next.set(channel.id, { name: channel.name, memberCount: channel.memberCount });
       return next;
     });
+  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inFlight.current) return;
     if (!title.trim()) return toast.error(t("createTaskDialog.errors.needTitle"));
-    if (selectedPeople.size === 0 && selectedChannels.size === 0)
+    const assignmentChannelCount = [...selectedChannels.values()].filter((channel) => !channel.projectLocked).length;
+    if (selectedPeople.size === 0 && assignmentChannelCount === 0)
       return toast.error(t("createTaskDialog.errors.needAssignee"));
     if (allocation === "SCHEDULED") {
       const at = localDateTimeWithOffset(scheduledDate, scheduledTime);
@@ -275,6 +309,14 @@ export function CreateTaskDialog({
               maxLength={200}
               placeholder={t("createTaskDialog.fields.titlePlaceholder")}
             />
+            {projectLookup.isError && (
+              <div role="alert" className="flex items-center justify-between gap-2 text-xs text-danger">
+                <span>{t("projects.lookupFailed")}</span>
+                <button type="button" className="font-semibold hover:underline" onClick={() => void projectLookup.refetch()}>
+                  {t("createTaskDialog.assign.retry")}
+                </button>
+              </div>
+            )}
           </Field>
           <Field label={t("createTaskDialog.fields.description")}>
             <Textarea
@@ -409,6 +451,8 @@ export function CreateTaskDialog({
           <AssignToPanel
             people={selectedPeople}
             channels={new Set(selectedChannels.keys())}
+            project={projectLookup.data}
+            lockedChannelId={projectChannelId}
             onTogglePerson={togglePerson}
             onToggleChannel={toggleChannel}
           />

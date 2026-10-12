@@ -28,7 +28,7 @@ import { useMySentTasks } from "./useMySentTasks";
 
 const VISIBLE_BATCH_SIZE = 4;
 
-export function MyTasksBoard() {
+export function MyTasksBoard({ projectId }: { projectId?: string } = {}) {
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const qc = useQueryClient();
@@ -40,7 +40,10 @@ export function MyTasksBoard() {
   const [reviewTarget, setReviewTarget] = useState<{ taskId: string; assignee: SentAssignee } | null>(null);
   const membership = useMutation({
     mutationFn: ({ taskId, targets }: { taskId: string; targets: ParticipantTargets }) => api.addTaskParticipants(taskId, targets),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.sent }),
+    onSuccess: (result) => {
+      void qc.invalidateQueries({ queryKey: qk.sent });
+      if (result.projectChannelSyncFailed) toast.error(t("projects.syncFailed"));
+    },
     onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
   });
   const withdrawal = useMutation({
@@ -49,23 +52,35 @@ export function MyTasksBoard() {
     onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
   });
 
-  const people = useMemo(() => personOptions(tasks), [tasks]);
+  const boardTasks = useMemo(
+    () => projectId ? tasks.filter((task) => task.projectId === projectId) : tasks,
+    [projectId, tasks],
+  );
+  const people = useMemo(() => personOptions(boardTasks), [boardTasks]);
   // Cards also draw task.participants, who need not be assignees.
   const labelIds = useMemo(
-    () => [...new Set([...people.map((p) => p.id), ...tasks.flatMap((task) => task.participants?.map((p) => p.userId) ?? [])])],
-    [people, tasks],
+    () => [...new Set([...people.map((p) => p.id), ...boardTasks.flatMap((task) => task.participants?.map((p) => p.userId) ?? [])])],
+    [people, boardTasks],
   );
   const { nameOf, avatarUrlOf } = useUserLabels(labelIds);
   const channelList = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
   const { members: channelMembers, retry: retryChannel } = useChannelMemberIds(filter.channelIds);
-  const visible = useMemo(() => filterSentTasks(tasks, filter, channelMembers), [tasks, filter, channelMembers]);
-  const visibleSchedules = filter.statuses.has("SCHEDULED") ? schedules.data ?? [] : [];
+  const visible = useMemo(
+    () => filterSentTasks(boardTasks, projectId ? NO_SENT_FILTER : filter, channelMembers),
+    [boardTasks, filter, projectId, channelMembers],
+  );
+  const visibleSchedules = useMemo(() => {
+    const rows = schedules.data ?? [];
+    return projectId
+      ? rows.filter((schedule) => schedule.projectId === projectId)
+      : filter.statuses.has("SCHEDULED") ? rows : [];
+  }, [filter.statuses, projectId, schedules.data]);
   const visibleTasks = useMemo(() => visible.slice(0, visibleCount), [visible, visibleCount]);
-  const marks = useMemo(() => markedDays(tasks, filter, channelMembers), [tasks, filter, channelMembers]);
+  const marks = useMemo(() => markedDays(boardTasks, filter, channelMembers), [boardTasks, filter, channelMembers]);
 
   useEffect(() => {
     setVisibleCount(VISIBLE_BATCH_SIZE);
-  }, [filter]);
+  }, [filter, projectId]);
 
   const loadMore = async () => {
     const nextCount = visibleCount + VISIBLE_BATCH_SIZE;
@@ -91,18 +106,18 @@ export function MyTasksBoard() {
         <Spinner /> {t("myTasksBoard.loading")}
       </div>
     );
-  if (tasks.length === 0 && schedules.isPending)
+  if (boardTasks.length === 0 && schedules.isPending)
     return (
       <div className="flex items-center gap-2 p-4 text-sm text-muted">
         <Spinner /> {t("myTasksBoard.loading")}
       </div>
     );
-  if (tasks.length === 0 && schedules.data && schedules.data.length === 0)
+  if (boardTasks.length === 0 && schedules.data && visibleSchedules.length === 0 && !sent.hasNextPage)
     return (
       <EmptyState
         icon={<ListTodo size={24} />}
-        title={t("myTasksBoard.empty.title")}
-        hint={t("myTasksBoard.empty.hint")}
+        title={projectId ? t("projects.noTasks") : t("myTasksBoard.empty.title")}
+        hint={projectId ? undefined : t("myTasksBoard.empty.hint")}
       />
     );
 
@@ -111,6 +126,7 @@ export function MyTasksBoard() {
       <div className="flex flex-col gap-4">
         {/* Filters and calendar share a row, and the calendar stretches to the
             filters' height. The cards below start under BOTH, never beside either. */}
+        {!projectId && (
         <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
           <MyTasksFilters filter={filter} onChange={setFilter} people={people} nameOf={nameOf} avatarUrlOf={avatarUrlOf} channels={channelList.data} channelMembers={channelMembers} onRetryChannel={retryChannel} />
           <GlassCard className="flex min-w-0 flex-col p-4">
@@ -121,12 +137,13 @@ export function MyTasksBoard() {
             />
           </GlassCard>
         </div>
+        )}
 
-        {visible.length === 0 && visibleSchedules.length === 0 ? (
+        {visible.length === 0 && visibleSchedules.length === 0 && !sent.hasNextPage ? (
           <EmptyState
             icon={<ListTodo size={24} />}
-            title={t("myTasksBoard.noMatch.title")}
-            hint={sent.hasNextPage ? t("myTasksBoard.noMatch.hint") : undefined}
+            title={projectId ? t("projects.noTasks") : t("myTasksBoard.noMatch.title")}
+            hint={!projectId && sent.hasNextPage ? t("myTasksBoard.noMatch.hint") : undefined}
           />
         ) : (
           <div className="flex flex-col gap-3">

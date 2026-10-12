@@ -176,6 +176,8 @@ export function CallRoom({
     micOn,
     camOn,
     sharing,
+    sharingPending,
+    someoneElseSharing,
     connectedAt,
     toggleMic,
     toggleCam,
@@ -1213,6 +1215,8 @@ export function CallRoom({
           onToggleCam={() => void toggleCam()}
           sharing={sharing}
           onToggleShare={() => void toggleShare()}
+          shareDisabled={sharingPending || (!sharing && someoneElseSharing)}
+          shareDisabledTitle={someoneElseSharing ? t("errors.someoneElseSharing") : undefined}
           handRaised={handRaised}
           canRaiseHand={!!identity}
           onToggleHand={toggleHand}

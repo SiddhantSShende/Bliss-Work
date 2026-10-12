@@ -264,6 +264,7 @@ class ScheduledTaskDTO(BaseModel):
     scheduleId: str
     title: str
     description: str
+    projectId: str | None = None
     # First channel only, kept for existing readers; `channelIds` is the full list.
     channelId: str | None = None
     channelIds: list[str] = []
@@ -334,6 +335,7 @@ class StickyTaskDTO(BaseModel):
     orgId: str
     title: str
     description: str
+    projectId: str | None = None
     senderId: str
     senderUsername: str
     # The allocator's real name. `senderUsername` is the email local-part
@@ -385,9 +387,16 @@ class SentTaskDTO(BaseModel):
     title: str
     description: str
     createdAt: str
+    projectId: str | None = None
     deadlineAt: str | None = None
     assignees: list[SentAssignee]
     participants: list[dict]
+
+
+class ProjectDTO(BaseModel):
+    id: str
+    name: str
+    channelId: str
 
 
 class TransitionResponse(BaseModel):

@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, MessageSquarePlus, Star } from "lucide-react";
 import { Avatar, Badge, Button, GlassCard, IconButton } from "@taskboard/ui";
-import { isCompletedTask, type SentAssignee, type SentTaskMatch } from "../lib/sentTaskFilter";
+import { isReassignableTask, type SentAssignee, type SentTaskMatch } from "../lib/sentTaskFilter";
 import { summarizeSentTask, type SentTaskSummaryKind } from "../lib/sentTaskSummary";
 import type { ParticipantTargets } from "./AddParticipantsPicker";
 import { ReassignTaskButton } from "./ReassignTaskButton";
@@ -46,7 +46,7 @@ function firstAssignedAt(assignees: readonly SentAssignee[]): string | null {
  * Everything per-person (participants with Add / Withdraw, each assignee's
  * timeline and review) sits in a Details panel under the band, so every card is
  * the same short height until it is opened. Reassign stays in the band: it is
- * the one action a finished task is for.
+ * the one action a finished, left, or ignored task is for.
  */
 export function MyTaskCard({
   match: { task, assignees },
@@ -102,9 +102,9 @@ export function MyTaskCard({
               <span className="text-xs text-muted">{t("myTasksBoard.summary.doneOf", { done: summary.done, total: summary.total })}</span>
             )}
             {/* Judged on the task's own rows, not the filtered `assignees`. */}
-            {isCompletedTask(task) && <ReassignTaskButton taskId={task.taskId} className="ml-auto h-7" />}
+            {isReassignableTask(task) && <ReassignTaskButton taskId={task.taskId} className="ml-auto h-7" />}
             <IconButton
-              className={`h-7 w-7 ${isCompletedTask(task) ? "" : "ml-auto"}`}
+              className={`h-7 w-7 ${isReassignableTask(task) ? "" : "ml-auto"}`}
               title={t("myTasksBoard.details")}
               aria-label={t("myTasksBoard.details")}
               aria-expanded={open}

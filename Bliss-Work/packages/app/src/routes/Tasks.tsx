@@ -21,6 +21,7 @@ import { StickyWidget } from "../features/StickyWidget";
 import { TASK_CARD_GRID } from "../features/taskCardLayout";
 import { TaskPinToggle } from "../features/TaskPinToggle";
 import { useOpenTaskDiscussion } from "../lib/useOpenTaskDiscussion";
+import { useProjects } from "../features/useProjects";
 
 const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> = {
   ACKNOWLEDGE: "acknowledge", COMPLETE: "complete", IGNORE: "ignore", LEAVE: "leave",
@@ -32,6 +33,7 @@ const BUCKET_VIEWS = ["allocated", "available", "mine", "completed", "left", "ig
 export function Tasks() {
   const { t } = useTranslation("tasks");
   const { view = "allocated" } = useParams();
+  const projects = useProjects();
   const [createOpen, setCreateOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [preselect, setPreselect] = useState<UserDTO[]>([]);
@@ -82,6 +84,23 @@ export function Tasks() {
         </div>
       </header>
       <ExportTasksDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+      {projects.data && projects.data.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2 md:hidden">
+          {projects.data.map((project) => (
+            <NavLink
+              key={project.id}
+              to={`/app/tasks/projects/${project.id}`}
+              className={({ isActive }) =>
+                `max-w-52 shrink-0 truncate rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                  isActive ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
+                }`
+              }
+            >
+              {project.name}
+            </NavLink>
+          ))}
+        </div>
+      )}
       <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2 md:hidden">
         {BUCKET_VIEWS.map((bucketView) => (
           <NavLink
@@ -92,6 +111,7 @@ export function Tasks() {
                 isActive ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
               }`
             }
+
           >
             {bucketLabel[bucketView]}
           </NavLink>
@@ -119,7 +139,11 @@ function MyTasksCount() {
   );
 }
 
-function AssignedBucket({ view }: { view: string }) {
+export function ProjectAssignedTasks({ projectId = "" }: { projectId?: string }) {
+  return <AssignedBucket view="project" projectId={projectId} />;
+}
+
+function AssignedBucket({ view, projectId }: { view: string; projectId?: string }) {
   const { t } = useTranslation("tasks");
   const { api, config } = useRuntime();
   const currentUserId = useSession((s) => s.user?.id);
@@ -129,7 +153,7 @@ function AssignedBucket({ view }: { view: string }) {
 
   useEffect(() => {
     setPage(1);
-  }, [view]);
+  }, [view, projectId]);
 
   // Desktop-only: which tasks the user has pinned to the desktop. Source of
   // truth is the Electron main process; absent on web so the button hides.
@@ -147,7 +171,8 @@ function AssignedBucket({ view }: { view: string }) {
   // labelled "left" (to both parties), not "completed".
   const filteredTasks = useMemo(() => {
     const matched = all.filter((t: StickyTaskDTO) =>
-      view === "ignored" ? t.myStatus === "IGNORED"
+      projectId ? t.projectId === projectId
+        : view === "ignored" ? t.myStatus === "IGNORED"
         : view === "left" ? t.myStatus === "LEFT"
           : view === "missed" ? t.myStatus === "MISSED"
             : view === "completed" ? t.myStatus === "COMPLETED"
@@ -162,7 +187,7 @@ function AssignedBucket({ view }: { view: string }) {
     // newest thing in Completed, and ordering by assignedAt would bury it
     // under nine tasks nobody has touched since.
     return [...matched].sort((a, b) => terminalAt(b).localeCompare(terminalAt(a)));
-  }, [all, view]);
+  }, [all, view, projectId]);
   const pageCount = isTerminalView(view)
     ? Math.max(1, Math.ceil(filteredTasks.length / TERMINAL_VIEW_LIMIT))
     : 1;
@@ -293,8 +318,9 @@ function AssignedBucket({ view }: { view: string }) {
   };
   const membership = useMutation({
     mutationFn: ({ taskId, targets }: { taskId: string; targets: ParticipantTargets }) => api.addTaskParticipants(taskId, targets),
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success(t("participants.added"));
+      if (result.projectChannelSyncFailed) toast.error(t("projects.syncFailed"));
       for (const key of [qk.assigned, qk.sticky, qk.inbox, qk.sent]) void qc.invalidateQueries({ queryKey: key });
     },
     onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
@@ -312,8 +338,8 @@ function AssignedBucket({ view }: { view: string }) {
     return (
       <EmptyState
         icon={<ListTodo size={24} />}
-        title={t("tasksPage.empty.title")}
-        hint={view === "missed" ? t("tasksPage.empty.missedHint") : t("tasksPage.empty.hint")}
+        title={projectId ? t("projects.noTasks") : t("tasksPage.empty.title")}
+        hint={projectId ? undefined : view === "missed" ? t("tasksPage.empty.missedHint") : t("tasksPage.empty.hint")}
       />
     );
 

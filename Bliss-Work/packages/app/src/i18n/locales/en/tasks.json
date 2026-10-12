@@ -24,6 +24,18 @@
       "DAYS_other": "days"
     }
   },
+  "projects": {
+    "section": "Projects",
+    "empty": "No projects yet",
+    "createdTasks": "Created by you",
+    "assignedTasks": "Assigned to you",
+    "noTasks": "No tasks for this project yet",
+    "channel": "Project channel",
+    "openChannel": "Open project channel",
+    "lookupFailed": "Project lookup failed. Retry, or continue creating the task.",
+    "unavailable": "This project was not found or you do not have access.",
+    "syncFailed": "The task was saved, but project channel membership could not be updated."
+  },
   "tasksList": {
     "header": "Tasks",
     "categories": {
@@ -185,8 +197,8 @@
   "createTaskDialog": {
     "title": "New task",
     "fields": {
-      "title": "Title",
-      "titlePlaceholder": "What needs doing?",
+      "title": "Project Name",
+      "titlePlaceholder": "Name this project",
       "description": "Description",
       "descriptionPlaceholder": "Add details…",
       "assignTo": "Assign to",
@@ -396,6 +408,21 @@
       "IGNORED": "Ignored",
       "LEFT": "Left"
     }
+  },
+  "analyticsHub": {
+    "title": "Analytics",
+    "hint": "Pick a channel to see its task analytics.",
+    "channelsTitle": "Channels",
+    "emptyChannels": {
+      "title": "No channels yet",
+      "hint": "Join or create a channel to see its analytics here."
+    },
+    "noSelection": {
+      "title": "Select a channel",
+      "hint": "Choose a channel on the left to view its analytics."
+    },
+    "taskHint": "Looking for one task's analytics? Open it from Mail.",
+    "openMail": "Open Mail"
   },
   "analytics": {
     "loading": "Loading analytics…",

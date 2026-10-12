@@ -54,7 +54,7 @@ async def _sticky_list(
         rows = (
             await db.execute(
                 text(
-                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.sender_id, "
+                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.project_id, t.sender_id, "
                     "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
                     "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
                     "       ta.review_enc, ta.review_rating, ta.missed_at, t.deadline_at, "
@@ -109,6 +109,7 @@ async def _sticky_list(
                 orgId=str(r.org_id),
                 title=title or "",
                 description=description or "",
+                projectId=str(r.project_id) if r.project_id is not None else None,
                 senderId=str(r.sender_id),
                 senderUsername=r.sender_username,
                 senderDisplayName=r.sender_display_name,
@@ -167,7 +168,7 @@ async def task_detail(
         row = (
             await db.execute(
                 text(
-                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.sender_id, "
+                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.project_id, t.sender_id, "
                     "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
                     "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
                     "       ta.review_enc, ta.review_rating, ta.missed_at, t.deadline_at, "
@@ -201,6 +202,7 @@ async def task_detail(
             orgId=org,
             title=await cryptor().decrypt(db, org, row.title_enc) or "",
             description=await cryptor().decrypt(db, org, row.description_enc) or "",
+            projectId=str(row.project_id) if row.project_id is not None else None,
             senderId=str(row.sender_id),
             senderUsername=row.sender_username,
             senderDisplayName=row.sender_display_name,
@@ -282,7 +284,8 @@ async def sent(
         rows = (
             await db.execute(
                 text(
-                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.created_at, t.deadline_at, "
+                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.project_id, "
+                    "t.created_at, t.deadline_at, "
                     "       ta.assignee_id, ta.status, "
                     "       ta.assigned_at, ta.acknowledged_at, ta.completed_at, "
                     "       ta.ignored_at, ta.left_at, ta.missed_at, ta.reviewed_at, "
@@ -317,6 +320,7 @@ async def sent(
                     title=await cryptor().decrypt(db, org, r.title_enc) or "",
                     description=await cryptor().decrypt(db, org, r.description_enc) or "",
                     createdAt=iso(r.created_at),
+                    projectId=str(r.project_id) if r.project_id is not None else None,
                     deadlineAt=iso(r.deadline_at),
                     assignees=[],
                     participants=[],

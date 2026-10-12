@@ -554,6 +554,23 @@ messaging-svc queues one `mail.outbound` event per external addressee and
 `email-worker` relays it, using the same `SMTP_*` credentials as the invite and
 notification mail. No extra configuration is needed for it to send.
 
+Task-assignment notices use the same `email-worker` relay and SMTP
+configuration. The task row and `task.assigned` event are committed together
+by task-svc; the worker sends only to the current active member's verified
+address, and follows the existing offline-notification gate. Each recipient
+gets a separate message, so channel members never see one another's addresses.
+Transient recipient-directory failures are retried through the existing Kafka
+retry/DLQ path; resolving the allocator for attribution is best-effort and
+cannot suppress the recipient's message. The worker deduplicates by event and
+recipient in its own database. SMTP and that database cannot participate in
+one transaction, however: if SMTP accepts a message and the worker stops
+before recording it as sent, a Kafka retry can deliver a duplicate.
+Exactly-once external delivery is not guaranteed.
+
+These system-generated notices are not member-composed mail and therefore do
+not create `mail_messages` rows or appear in the Sent folder; that history is
+owned by messaging-svc and covers mail authored through its compose flow.
+
 **Attachments** ride as MIME parts. The bytes are NOT on the Kafka event — the
 broker's default message cap is 1 MB and a mail to five external addresses would
 carry five copies of every file — so the event names them and email-worker

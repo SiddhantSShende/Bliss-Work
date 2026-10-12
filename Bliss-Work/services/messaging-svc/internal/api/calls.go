@@ -897,6 +897,10 @@ func (s *Server) startScreenShare(w http.ResponseWriter, r *http.Request) {
 // sharing" prompt is rendered for the sharer alone — is supported by the events
 // this emits carrying `actorId`, so every other client learns a share started
 // without being handed anything to stop it with.
+//
+// Always 204, even for a duplicate/late stop that closed nothing — see
+// Store.StopScreenShare. Only announce the stop to the room when this call is
+// the one that actually changed something; nobody needs to be told twice.
 func (s *Server) stopScreenShare(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
 	callID := chi.URLParam(r, "id")
@@ -904,11 +908,14 @@ func (s *Server) stopScreenShare(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid call id")
 		return
 	}
-	if err := s.store.StopScreenShare(r.Context(), claims.OrgID, claims.UserID, callID); err != nil {
+	stopped, err := s.store.StopScreenShare(r.Context(), claims.OrgID, claims.UserID, callID)
+	if err != nil {
 		s.mapErrR(w, r, err)
 		return
 	}
-	s.notifyShare(r.Context(), callID, events.TypeCallShareStopped, claims.UserID, "")
+	if stopped {
+		s.notifyShare(r.Context(), callID, events.TypeCallShareStopped, claims.UserID, "")
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

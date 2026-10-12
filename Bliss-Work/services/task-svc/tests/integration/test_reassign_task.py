@@ -219,19 +219,110 @@ async def test_a_task_someone_is_still_working_on_is_not_completed_and_is_refuse
     assert len(await _events(task_id)) == events_before
 
 
-async def test_other_task_states_are_refused_and_untouched(db_app, seed_members):
+async def test_still_active_task_states_are_refused_and_untouched(db_app, seed_members):
     a = _id()
     await seed_members(ORG, a)
-    sent, acked, left = await _new_task(a), await _new_task(a), await _new_task(a)
+    sent, acked = await _new_task(a), await _new_task(a)
     await _act(a, acked, "acknowledge")
-    await _act(a, left, "acknowledge")
-    await _act(a, left, "leave")
 
-    for task_id, status in ((sent, "SENT"), (acked, "ACKNOWLEDGED"), (left, "LEFT")):
+    for task_id, status in ((sent, "SENT"), (acked, "ACKNOWLEDGED")):
         r = await _reassign(task_id)
         assert r.status_code == 409, (status, r.text)
         assert (await _rows(task_id))[a].status == status
         assert len(await _events(task_id, "task.assigned")) == 1
+
+
+async def test_a_wholly_missed_task_has_nothing_to_reassign(db_app, seed_members):
+    a = _id()
+    await seed_members(ORG, a)
+    task_id = await _new_task(a)
+    from app.db import get_engine
+
+    async with get_engine().begin() as conn:
+        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
+        await conn.execute(
+            text("UPDATE task_assignees SET status = 'MISSED', missed_at = now() WHERE task_id = :t AND assignee_id = :u"),
+            {"t": task_id, "u": a},
+        )
+
+    r = await _reassign(task_id)
+
+    assert r.status_code == 409, r.text
+    assert "nothing to reassign" in r.json()["error"]["message"]
+    assert (await _rows(task_id))[a].status == "MISSED"
+
+
+async def test_a_task_split_between_left_and_ignored_with_nobody_completed_has_nothing_to_reassign(db_app, seed_members):
+    left, ignored = _id(), _id()
+    await seed_members(ORG, left, ignored)
+    task_id = await _new_task(left, ignored)
+    await _act(left, task_id, "acknowledge")
+    assert (await _act(left, task_id, "leave")).status_code == 200
+    assert (await _act(ignored, task_id, "ignore")).status_code == 200
+    before = await _rows(task_id)
+
+    r = await _reassign(task_id)
+
+    assert r.status_code == 409, r.text
+    after = await _rows(task_id)
+    assert {u: x.status for u, x in after.items()} == {u: x.status for u, x in before.items()}
+
+
+async def test_a_wholly_left_task_is_reassigned_back_to_the_same_people(db_app, seed_members):
+    a, b = _id(), _id()
+    await seed_members(ORG, a, b)
+    task_id = await _new_task(a, b)
+    for u in (a, b):
+        await _act(u, task_id, "acknowledge")
+        assert (await _act(u, task_id, "leave")).status_code == 200
+    before = await _rows(task_id)
+
+    r = await _reassign(task_id)
+
+    assert r.status_code == 200, r.text
+    assert sorted(r.json()["reassignedUserIds"]) == sorted([a, b])
+    after = await _rows(task_id)
+    for u in (a, b):
+        assert after[u].status == "SENT"
+        assert after[u].status_version == before[u].status_version + 1
+        assert after[u].assigned_at > before[u].assigned_at
+    # No row added, none removed, none duplicated.
+    assert sorted(after) == sorted([a, b])
+
+
+async def test_a_wholly_ignored_task_is_reassigned_back_to_the_same_person(db_app, seed_members):
+    a = _id()
+    await seed_members(ORG, a)
+    task_id = await _new_task(a)
+    assert (await _act(a, task_id, "ignore")).status_code == 200
+    before = (await _rows(task_id))[a]
+
+    r = await _reassign(task_id)
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {"taskId": task_id, "reassignedUserIds": [a]}
+    after = (await _rows(task_id))[a]
+    assert after.status == "SENT"
+    assert after.status_version == before.status_version + 1
+    assert after.assigned_at > before.assigned_at
+
+
+async def test_a_reassigned_left_task_is_actionable_again(db_app, seed_members):
+    a = _id()
+    await seed_members(ORG, a)
+    task_id = await _new_task(a)
+    await _act(a, task_id, "acknowledge")
+    assert (await _act(a, task_id, "leave")).status_code == 200
+
+    await _reassign(task_id)
+    async with await _as(a) as c:
+        inbox = (await c.get("/api/v1/tasks/inbox")).json()
+
+    mine = next(t for t in inbox if t["taskId"] == task_id)
+    assert mine["myStatus"] == "SENT" and mine["actions"] == ["ACKNOWLEDGE", "IGNORE"]
+    # It runs the normal lifecycle from here, same as a reassigned Completed task.
+    await _complete(a, task_id)
+    assert (await _rows(task_id))[a].status == "COMPLETED"
 
 
 async def test_reassigning_another_completed_task_leaves_this_one_completed(db_app, seed_members):

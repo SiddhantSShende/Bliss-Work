@@ -10,6 +10,8 @@ from crypto import cryptor
 from .. import events
 from ..auth import Principal, PrincipalDep
 from ..db import session, set_org_context
+from ..logging_setup import log
+from ..projects import sync_assignees_to_project_channel
 from ..schemas import MAX_ASSIGNEES, AddTaskAssigneesRequest
 from .helpers import enqueue_outbox, resolve_username
 from .tasks_write import _insert_task_channels, _resolve_channel_members
@@ -22,9 +24,11 @@ async def _task_context(db, org_id: str, task_id: str):
     row = (
         await db.execute(
             text(
-                "SELECT sender_id, title_enc, description_enc, "
-                "       COALESCE(deadline_at <= now(), false) AS past_deadline "
-                "FROM tasks WHERE id = :tid AND org_id = :org"
+                "SELECT t.sender_id, t.title_enc, t.description_enc, "
+                "       COALESCE(t.deadline_at <= now(), false) AS past_deadline, "
+                "       t.project_id, p.channel_id AS project_channel_id "
+                "FROM tasks t LEFT JOIN projects p ON p.id = t.project_id AND p.org_id = t.org_id "
+                "WHERE t.id = :tid AND t.org_id = :org"
             ),
             {"tid": task_id, "org": org_id},
         )
@@ -67,8 +71,14 @@ async def add_participants(
     # so the client cannot name a recipient list of its own. Done before the
     # transaction opens: it is a network call.
     channel_member_ids: list[str] = []
+    named_ids = {str(uuid.UUID(user_id)) for user_id in body.userIds}
+    channel_origin: dict[str, tuple[str, str]] = {}
     for channel_id in body.channelIds:
-        members, _channel_name = await _resolve_channel_members(channel_id, org_id, me)
+        members, channel_name = await _resolve_channel_members(channel_id, org_id, me)
+        for member_id in members:
+            canonical_id = str(uuid.UUID(member_id))
+            if canonical_id not in named_ids and canonical_id not in channel_origin:
+                channel_origin[canonical_id] = (channel_id, channel_name)
         channel_member_ids.extend(members)
     async with session() as db:
         await set_org_context(db, org_id)
@@ -147,6 +157,7 @@ async def add_participants(
         description = await cryptor().decrypt(db, org_id, task.description_enc) or ""
         added_ids: list[str] = []
         for user_id in add_ids:
+            origin = channel_origin.get(user_id)
             inserted = await db.execute(
                 text(
                     "INSERT INTO task_assignees (task_id, org_id, assignee_id, status, status_version) "
@@ -173,10 +184,30 @@ async def add_participants(
                     title=title,
                     description=description,
                     members=list(dict.fromkeys([str(task.sender_id), *member_ids, *add_ids])),
+                    channel_id=origin[0] if origin else None,
+                    channel_name=origin[1] if origin else None,
                 ),
             )
         await db.commit()
-        return {"addedUserIds": added_ids, "addedChannelIds": body.channelIds}
+        sync_failed = False
+        if task.project_channel_id is not None and added_ids:
+            try:
+                await sync_assignees_to_project_channel(
+                    org_id, str(task.project_channel_id), me, added_ids
+                )
+            except HTTPException as exc:
+                sync_failed = True
+                log.warning(
+                    "task_participant_project_channel_sync_failed",
+                    task_id=task_id,
+                    channel_id=str(task.project_channel_id),
+                    status=exc.status_code,
+                    detail=exc.detail,
+                )
+        response = {"addedUserIds": added_ids, "addedChannelIds": body.channelIds}
+        if sync_failed:
+            response["projectChannelSyncFailed"] = True
+        return response
 
 
 @router.delete("/tasks/{task_id}/assignees/{assignee_id}")

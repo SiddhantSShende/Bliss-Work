@@ -667,7 +667,16 @@ export const MailDelivered = z.object({
   mailId: z.string().uuid(),
   /** Absent for inbound mail — an external sender has no account here. */
   senderId: z.string().uuid().optional(),
-  members: z.array(z.string().uuid()),
+  // Optional, unlike the Go producer's always-present field: ws-gateway's
+  // contract.DeliveryPayload strips `members` from EVERY event (live push and
+  // replay storage alike) as a routing-only field the client doesn't need —
+  // see that function's doc comment. Every other event schema in this file
+  // already marks `members` .optional() for exactly that reason; this one
+  // didn't, so every mail.delivered frame reaching a client failed
+  // ServerEvent.safeParse() and was silently dropped (see WsClient.ts's
+  // "dropped unrecognized frame" warning). No handler reads `e.members` for
+  // this event anyway (see queryBridge.tsx / useWsBridge.ts).
+  members: z.array(z.string().uuid()).optional(),
 });
 
 // ── Presence events (ephemeral; never persisted to the replay outbox) ─────────

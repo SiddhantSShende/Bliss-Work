@@ -67,6 +67,7 @@ import {
   OrgLifecycleDTO,
   OrgMfaSettingsDTO,
   ReviewResponse,
+  ProjectDTO,
   ScheduledTaskDTO,
   SentTaskDTO,
   StickyTaskDTO,
@@ -1841,6 +1842,44 @@ export class ApiClient {
   }
 
   // ── tasks ──────────────────────────────────────────────────────────────────────
+  /** Every project the caller may access, walking the server's bounded pages. */
+  async projects() {
+    const limit = 100;
+    const rows: ProjectDTO[] = [];
+    for (let offset = 0; ; offset += limit) {
+      const page = await this.req(
+        this.cfg.taskBase,
+        `/api/v1/projects?limit=${limit}&offset=${offset}`,
+        {},
+        z.array(ProjectDTO),
+      );
+      rows.push(...page);
+      if (page.length < limit) return rows;
+    }
+  }
+  projectDetail(projectId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/projects/${encodeURIComponent(projectId)}`,
+      {},
+      ProjectDTO,
+    );
+  }
+  /** A miss is expected while the New Task form is being typed. */
+  async projectByName(name: string): Promise<ProjectDTO | null> {
+    const query = new URLSearchParams({ name });
+    try {
+      return await this.req(
+        this.cfg.taskBase,
+        `/api/v1/projects/by-name?${query.toString()}`,
+        {},
+        ProjectDTO,
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+  }
   createTask(body: {
     title: string;
     description: string;
@@ -2027,7 +2066,11 @@ export class ApiClient {
       this.cfg.taskBase,
       `/api/v1/tasks/${taskId}/reassign`,
       { method: "POST" },
-      z.object({ taskId: z.string(), reassignedUserIds: z.array(z.string()) }),
+      z.object({
+        taskId: z.string(),
+        reassignedUserIds: z.array(z.string()),
+        projectChannelSyncFailed: z.boolean().optional(),
+      }),
     );
   }
   /** Tasks I sent, newest first. The server pages by task (default 50, max 100);
@@ -2093,7 +2136,11 @@ export class ApiClient {
         headers: { "idempotency-key": idempotencyKey ?? uuid() },
         body: JSON.stringify({ userIds: targets.userIds ?? [], channelIds: targets.channelIds ?? [] }),
       },
-      z.object({ addedUserIds: z.array(z.string()), addedChannelIds: z.array(z.string()).default([]) }),
+      z.object({
+        addedUserIds: z.array(z.string()),
+        addedChannelIds: z.array(z.string()).default([]),
+        projectChannelSyncFailed: z.boolean().optional(),
+      }),
     );
   }
   withdrawTaskParticipant(taskId: string, userId: string, idempotencyKey?: string) {

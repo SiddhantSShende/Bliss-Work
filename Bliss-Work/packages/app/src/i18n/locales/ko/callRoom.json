@@ -4,7 +4,8 @@
     "notConfigured": "이 서버에서는 그룹 통화가 활성화되어 있지 않아요",
     "couldNotJoin": "통화에 참여하지 못했어요",
     "couldNotStart": "통화를 시작하지 못했어요",
-    "couldNotShareScreen": "화면을 공유하지 못했어요"
+    "couldNotShareScreen": "화면을 공유하지 못했어요",
+    "someoneElseSharing": "다른 참가자가 이미 화면을 공유하고 있어요"
   },
   "notify": {
     "screenShareStopped": "화면 공유가 중지되었어요",

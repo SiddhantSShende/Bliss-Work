@@ -14,7 +14,7 @@ import { makeChannels, makeUsers, pagedChannels, pagedDirectory, stubScrollGeome
 import { setClockTime } from "../test/timePicker";
 
 const h = vi.hoisted(() => ({
-  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn(), projectByName: vi.fn(), directory: vi.fn(), channels: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -42,10 +42,11 @@ function sent() {
 }
 
 async function title(user: ReturnType<typeof userEvent.setup>, text = "Ship the report") {
-  await user.type(screen.getByPlaceholderText("What needs doing?"), text);
+  await user.type(screen.getByPlaceholderText("Name this project"), text);
 }
 
 async function pickAssignee(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  await user.click(tab("People"));
   await user.click(await screen.findByRole("checkbox", { name }));
 }
 
@@ -70,6 +71,7 @@ beforeEach(() => {
   vi.setSystemTime(OPENED_AT);
   useSession.setState({ user: ME });
   h.api.createTask.mockReset().mockResolvedValue({ taskId: "task-1" });
+  h.api.projectByName.mockReset().mockResolvedValue(null);
   h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(DIRECTORY));
   h.api.channelsPage.mockReset().mockImplementation(pagedChannels(CHANNELS));
   h.api.directory.mockReset();
@@ -99,6 +101,14 @@ describe("layout", () => {
     openDialog();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create Task" })).toBeInTheDocument();
+  });
+
+  it("opens the assignment panel on Channels before People", () => {
+    openDialog();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveAccessibleName(/^Channels/);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[1]).toHaveAccessibleName(/^People/);
   });
 
   // jsdom has no layout engine, so the next two pin the STRUCTURE the real-browser
@@ -179,6 +189,26 @@ describe("Now", () => {
     expect(toast.success).toHaveBeenCalledWith("Task sent to #general — 12 members");
   });
 
+  it("looks up an existing project by title and previews its locked channel without allocating to it", async () => {
+    const project = {
+      id: "00000000-0000-4000-8000-000000000001",
+      name: "Ship the report",
+      channelId: "00000000-0000-4000-8000-000000000002",
+    };
+    h.api.projectByName.mockResolvedValue(project);
+    const user = openDialog();
+    await title(user);
+    const preview = await screen.findByText("#Ship the report");
+    expect(preview.closest("li")).toHaveTextContent("Project channel");
+    expect(within(preview.closest("li")!).getByRole("checkbox")).toBeChecked();
+    expect(within(preview.closest("li")!).getByRole("checkbox")).toBeDisabled();
+    expect(h.api.projectByName).toHaveBeenCalledWith("Ship the report");
+
+    await pickAssignee(user, /Ada Lovelace/);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    expect(sent().channelIds).toEqual([project.channelId]);
+  });
+
   it("un-ticking a channel clears the pick", async () => {
     const user = openDialog();
     await pickChannel(user, /general/);
@@ -192,17 +222,17 @@ describe("the Assign to panel in the dialog", () => {
     openDialog();
     const form = document.querySelector("form")!;
     const [left, right] = [...form.children] as HTMLElement[];
-    expect(within(left!).getByPlaceholderText("What needs doing?")).toBeInTheDocument();
+    expect(within(left!).getByPlaceholderText("Name this project")).toBeInTheDocument();
     expect(within(left!).getByRole("radio", { name: /Now/ })).toBeInTheDocument();
     expect(within(left!).getByLabelText("Deadline", { selector: "select" })).toBeInTheDocument();
     expect(within(right!).getByRole("group", { name: /Assign to/ })).toBeInTheDocument();
     expect(within(left!).queryByRole("group", { name: /Assign to/ })).not.toBeInTheDocument();
   });
 
-  it("marks Assign to as required, and opens on People", () => {
+  it("marks Assign to as required, and opens on Channels", () => {
     openDialog();
     expect(screen.getByRole("group", { name: /Assign to/ })).toHaveTextContent("Assign to*");
-    expect(tab("People").getAttribute("aria-selected")).toBe("true");
+    expect(tab("Channels").getAttribute("aria-selected")).toBe("true");
   });
 
   it("has no Add people / Add channels toggles", () => {
@@ -215,6 +245,7 @@ describe("the Assign to panel in the dialog", () => {
     h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(makeUsers(5000)));
     h.api.channelsPage.mockReset().mockImplementation(pagedChannels(makeChannels(800)));
     const user = openDialog();
+    await user.click(tab("People"));
     await screen.findByRole("checkbox", { name: /Person 000/ });
     expect(screen.getAllByRole("checkbox")).toHaveLength(30);
     await user.click(tab("Channels"));
@@ -230,7 +261,8 @@ describe("the Assign to panel in the dialog", () => {
 
   it("keeps the list in a bounded scroll box inside the right column, so the dialog does not grow with the organisation", async () => {
     h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(makeUsers(5000)));
-    openDialog();
+    const user = openDialog();
+    await user.click(tab("People"));
     await screen.findByRole("checkbox", { name: /Person 000/ });
     const box = screen.getByLabelText("People to assign to");
     expect(box).toHaveClass("absolute", "inset-0", "overflow-y-auto"); // takes no height of its own
@@ -267,6 +299,7 @@ describe("People + Channels together", () => {
 
   it("searches people and channels independently, on the server", async () => {
     const user = openDialog();
+    await user.click(tab("People"));
     await screen.findByRole("checkbox", { name: /Ada Lovelace/ });
     await user.type(screen.getByRole("searchbox", { name: "Search people in your organisation" }), "grace");
     await vi.waitFor(() => expect(h.api.directoryPage).toHaveBeenCalledWith(expect.objectContaining({ q: "grace", offset: 0 })));
@@ -289,6 +322,7 @@ describe("People + Channels together", () => {
 
   it("a pick that a later search hides is still sent", async () => {
     const user = openDialog();
+    await user.click(tab("People"));
     await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await user.type(screen.getByRole("searchbox", { name: "Search people in your organisation" }), "grace");

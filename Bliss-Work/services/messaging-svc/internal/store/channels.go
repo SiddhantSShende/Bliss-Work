@@ -242,6 +242,24 @@ func (s *Store) DeleteChannel(ctx context.Context, orgID, channelID, callerID st
 // for every member that was actually new (re-adding an existing member is a
 // no-op and emits nothing).
 func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerID string, claimRoles []string, memberIDs []string) error {
+	return s.addChannelMembers(ctx, orgID, channelID, callerID, claimRoles, memberIDs, true)
+}
+
+// AddChannelMembersInternal adds members on behalf of a trusted internal
+// caller that has already made the authorization decision. The channel and
+// every member remain scoped to orgID, and the normal block/idempotency/event
+// behavior is unchanged.
+func (s *Store) AddChannelMembersInternal(ctx context.Context, orgID, channelID, actorID string, memberIDs []string) error {
+	return s.addChannelMembers(ctx, orgID, channelID, actorID, nil, memberIDs, false)
+}
+
+func (s *Store) addChannelMembers(
+	ctx context.Context,
+	orgID, channelID, callerID string,
+	claimRoles []string,
+	memberIDs []string,
+	requireManager bool,
+) error {
 	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
 		if err != nil {
@@ -254,8 +272,21 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 			return err
 		}
 
-		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
-			return err
+		if requireManager {
+			if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
+				return err
+			}
+		} else {
+			var exists bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM channels WHERE id = $1 AND org_id = $2)`,
+				channelID, orgID,
+			).Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				return ErrForbidden
+			}
 		}
 
 		ids := dedupeMembers("", memberIDs)

@@ -20,6 +20,7 @@
     "channelMembers_other": "{{count}} Mitglieder"
   },
   "nav": {
+    "analytics": "Analysen",
     "mail": "Mail",
     "meetings": "Meetings",
     "chats": "Chats",

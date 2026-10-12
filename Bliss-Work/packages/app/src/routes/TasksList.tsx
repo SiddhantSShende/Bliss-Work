@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Send, Inbox, CheckCircle2, Ban, LogOut, UserCheck, AlarmClockOff } from "lucide-react";
+import { Send, Inbox, CheckCircle2, Ban, LogOut, UserCheck, AlarmClockOff, Folder } from "lucide-react";
 import type { StickyTaskDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -9,6 +9,7 @@ import { useAvailability } from "../lib/useAvailability";
 import { useDeadlineRefetch } from "../lib/useDeadlineRefetch";
 import { useMarkTaskNotificationsRead } from "../lib/useMarkTaskNotificationsRead";
 import { ListHeader, NavIconTile, rowClass } from "../features/ListPane";
+import { useProjects } from "../features/useProjects";
 
 const CATS = [
   { view: "mine", icon: Send },
@@ -25,6 +26,7 @@ export function TasksList() {
   const { api } = useRuntime();
   const { data: assigned = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
   const { data: sent = [] } = useQuery({ queryKey: qk.sent, queryFn: () => api.tasksSent() });
+  const projects = useProjects();
   // Same hook the pane uses, so the badge and the grid can never disagree —
   // TanStack dedupes the underlying queries, so this costs no extra network.
   const { roster } = useAvailability();
@@ -65,6 +67,24 @@ export function TasksList() {
     <>
       <ListHeader title={t("tasksList.header")} />
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
+        {projects.data && projects.data.length > 0 && (
+          <>
+            <div className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted">
+              {t("projects.section")}
+            </div>
+            {projects.data.map((project) => (
+              <NavLink
+                key={project.id}
+                to={`/app/tasks/projects/${project.id}`}
+                className={({ isActive }) => rowClass(isActive)}
+              >
+                <NavIconTile><Folder size={17} /></NavIconTile>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{project.name}</span>
+              </NavLink>
+            ))}
+            <div className="my-2 border-t border-border/60" />
+          </>
+        )}
         {CATS.map((c) => {
           const n = counts[c.view] ?? 0;
           return (

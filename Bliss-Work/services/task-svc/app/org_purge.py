@@ -27,6 +27,8 @@ _TABLES = (
     "task_assignees",
     "task_channels",
     "tasks",
+    "task_schedules",
+    "projects",
     "availability_hidden",
     "user_projection",
     "idempotency_keys",

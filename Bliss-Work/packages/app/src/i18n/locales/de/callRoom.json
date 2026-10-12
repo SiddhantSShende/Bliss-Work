@@ -4,7 +4,8 @@
     "notConfigured": "Gruppenanrufe sind auf diesem Server nicht aktiviert",
     "couldNotJoin": "Dem Anruf konnte nicht beigetreten werden",
     "couldNotStart": "Der Anruf konnte nicht gestartet werden",
-    "couldNotShareScreen": "Ihr Bildschirm konnte nicht geteilt werden"
+    "couldNotShareScreen": "Ihr Bildschirm konnte nicht geteilt werden",
+    "someoneElseSharing": "Jemand anderes teilt bereits seinen Bildschirm"
   },
   "notify": {
     "screenShareStopped": "Bildschirmfreigabe beendet",

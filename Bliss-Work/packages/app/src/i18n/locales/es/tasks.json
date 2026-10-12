@@ -27,6 +27,18 @@
       "DAYS_other": "días"
     }
   },
+  "projects": {
+    "section": "Proyectos",
+    "empty": "Aún no hay proyectos",
+    "createdTasks": "Creadas por ti",
+    "assignedTasks": "Asignadas a ti",
+    "noTasks": "Aún no hay tareas en este proyecto",
+    "channel": "Canal del proyecto",
+    "openChannel": "Abrir canal del proyecto",
+    "lookupFailed": "No se pudo buscar el proyecto. Vuelve a intentarlo o continúa creando la tarea.",
+    "unavailable": "No se encontró este proyecto o no tienes acceso.",
+    "syncFailed": "La tarea se guardó, pero no se pudo actualizar la pertenencia al canal del proyecto."
+  },
   "tasksList": {
     "header": "Tareas",
     "categories": {
@@ -191,8 +203,8 @@
   "createTaskDialog": {
     "title": "Nueva tarea",
     "fields": {
-      "title": "Título",
-      "titlePlaceholder": "¿Qué hay que hacer?",
+      "title": "Nombre del proyecto",
+      "titlePlaceholder": "¿Cómo se llama el proyecto?",
       "description": "Descripción",
       "descriptionPlaceholder": "Agrega detalles…",
       "assignTo": "Asignar a",
@@ -408,6 +420,21 @@
       "IGNORED": "Ignorada",
       "LEFT": "Abandonada"
     }
+  },
+  "analyticsHub": {
+    "title": "Analíticas",
+    "hint": "Selecciona un canal para ver sus analíticas de tareas.",
+    "channelsTitle": "Canales",
+    "emptyChannels": {
+      "title": "Aún no hay canales",
+      "hint": "Únete a un canal o crea uno para ver sus analíticas aquí."
+    },
+    "noSelection": {
+      "title": "Selecciona un canal",
+      "hint": "Elige un canal a la izquierda para ver sus analíticas."
+    },
+    "taskHint": "¿Buscas las analíticas de una tarea específica? Ábrela desde Correo.",
+    "openMail": "Abrir Correo"
   },
   "analytics": {
     "loading": "Cargando analíticas…",

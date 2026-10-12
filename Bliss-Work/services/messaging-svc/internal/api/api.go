@@ -223,6 +223,8 @@ func (s *Server) Router(webOrigin string) http.Handler {
 		// task-svc resolves channel members here when fanning out a channel-
 		// allocated task. Same shared-secret auth as the delivery endpoint.
 		g.Get("/internal/channels/{id}/members", s.internalChannelMembers)
+		g.Post("/internal/channels", s.internalCreateChannel)
+		g.Post("/internal/channels/{id}/members", s.internalAddChannelMembers)
 		// ws-gateway calls this once per call.invite — the actual
 		// authorization boundary for a 1:1 call ring, since the frame is
 		// forwarded independently of CreateDirectCall's (unawaited) history

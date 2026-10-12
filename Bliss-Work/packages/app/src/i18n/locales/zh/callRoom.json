@@ -4,7 +4,8 @@
     "notConfigured": "此服务器未启用群组通话",
     "couldNotJoin": "无法加入通话",
     "couldNotStart": "无法发起通话",
-    "couldNotShareScreen": "无法共享你的屏幕"
+    "couldNotShareScreen": "无法共享你的屏幕",
+    "someoneElseSharing": "其他人已经在共享屏幕"
   },
   "notify": {
     "screenShareStopped": "屏幕共享已停止",

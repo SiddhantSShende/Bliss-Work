@@ -73,6 +73,20 @@ const MemberDetail = lazyRoute(() => import("./routes/MemberDetail"), "MemberDet
 const MyActivity = lazyRoute(() => import("./routes/MyActivity"), "MyActivity");
 const OrgActivity = lazyRoute(() => import("./routes/OrgActivity"), "OrgActivity");
 const Tasks = lazyRoute(() => import("./routes/Tasks"), "Tasks");
+const ProjectWorkspacePage = lazy(async () => {
+  try {
+    const module = await withLoadTimeout(
+      import("./routes/ProjectWorkspace"),
+      ROUTE_CHUNK_TIMEOUT_MS,
+      "Timed out loading ProjectWorkspace",
+    );
+    return { default: module.ProjectWorkspace };
+  } catch (error) {
+    reloadForStaleChunk();
+    throw error;
+  }
+});
+
 const Search = lazyRoute(() => import("./routes/Search"), "Search");
 const InvitePage = lazyRoute(() => import("./routes/InvitePage"), "InvitePage");
 const Profile = lazyRoute(() => import("./routes/Profile"), "Profile");
@@ -80,6 +94,7 @@ const Settings = lazyRoute(() => import("./routes/Settings"), "Settings");
 const MfaSettings = lazyRoute(() => import("./routes/MfaSettings"), "MfaSettings");
 const ActiveSessions = lazyRoute(() => import("./routes/ActiveSessions"), "ActiveSessions");
 const Org = lazyRoute(() => import("./routes/Org"), "Org");
+const Analytics = lazyRoute(() => import("./routes/Analytics"), "Analytics");
 // The Mail layout owns the message column; the routes below it are what shows
 // in the reading pane beside it. Both named exports live in one module, so the
 // two wrappers resolve the same chunk.
@@ -335,6 +350,7 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="members/activity" element={<OrgActivity />} />
                     <Route path="members/:userId" element={<MemberDetail />} />
                     <Route path="tasks" element={<Navigate to="/app/tasks/allocated" replace />} />
+                    <Route path="tasks/projects/:projectId" element={<ProjectWorkspacePage />} />
                     <Route path="tasks/:view" element={<Tasks />} />
                     <Route path="search" element={<Search />} />
                     <Route
@@ -347,6 +363,8 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="settings/security" element={<MfaSettings />} />
                     <Route path="settings/sessions" element={<ActiveSessions />} />
                     <Route path="org" element={<Org />} />
+                    <Route path="analytics" element={<Analytics />} />
+                    <Route path="analytics/:channelId" element={<Analytics />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/app" replace />} />
                 </Routes>

@@ -4,7 +4,8 @@
     "notConfigured": "Les appels de groupe ne sont pas activés sur ce serveur",
     "couldNotJoin": "Impossible de rejoindre l'appel",
     "couldNotStart": "Impossible de démarrer l'appel",
-    "couldNotShareScreen": "Impossible de partager votre écran"
+    "couldNotShareScreen": "Impossible de partager votre écran",
+    "someoneElseSharing": "Une autre personne partage déjà son écran"
   },
   "notify": {
     "screenShareStopped": "Partage d'écran arrêté",

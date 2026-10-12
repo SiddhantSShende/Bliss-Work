@@ -4,7 +4,8 @@
     "notConfigured": "इस सर्वर पर ग्रुप कॉलिंग चालू नहीं है",
     "couldNotJoin": "कॉल से जुड़ा नहीं जा सका",
     "couldNotStart": "कॉल शुरू नहीं हो सकी",
-    "couldNotShareScreen": "आपकी स्क्रीन साझा नहीं हो सकी"
+    "couldNotShareScreen": "आपकी स्क्रीन साझा नहीं हो सकी",
+    "someoneElseSharing": "कोई और व्यक्ति पहले से ही अपनी स्क्रीन साझा कर रहा है"
   },
   "notify": {
     "screenShareStopped": "स्क्रीन शेयरिंग बंद हो गई",

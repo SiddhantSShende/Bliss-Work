@@ -29,7 +29,7 @@ browser web app and an Electron desktop app from one shared codebase.
 | Service | Lang | Port | Responsibility |
 |---|---|---|---|
 | `auth-svc` | Python/FastAPI | 8001 | orgs, users, invites, roles, EdDSA JWT + JWKS, `/directory` |
-| `email-worker` | Python | — | consumes `invite.created` → Mailpit/SES |
+| `email-worker` | Python | — | invite/security mail, offline message/task notices, and outbound mail via the configured provider |
 | `task-svc` | Python/FastAPI | 8002 | tasks + per-assignee state machine, `/tasks/sticky` |
 | `notification-svc` | Go | 8003 | persistent notification inbox |
 | `messaging-svc` | Go | 8004 | conversations, channels, messages, ignore/block, forward-tracking |

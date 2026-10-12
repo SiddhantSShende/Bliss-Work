@@ -19,6 +19,7 @@
     "channelMembers_other": "멤버 {{count}}명"
   },
   "nav": {
+    "analytics": "분석",
     "mail": "메일",
     "meetings": "미팅",
     "chats": "채팅",

@@ -15,7 +15,7 @@ import { pagedChannels, pagedDirectory } from "../test/pagedPickerApi";
 import { setClockTime } from "../test/timePicker";
 
 const h = vi.hoisted(() => ({
-  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn() },
+  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn(), projectByName: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -42,7 +42,8 @@ function sent() {
 }
 
 async function readyToSend(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByPlaceholderText("What needs doing?"), "Ship the report");
+  await user.type(screen.getByPlaceholderText("Name this project"), "Ship the report");
+  await user.click(screen.getByRole("tab", { name: /^People/ }));
   await user.click(await screen.findByRole("checkbox", { name: /Ada Lovelace/ }));
 }
 
@@ -61,6 +62,7 @@ beforeEach(() => {
   vi.setSystemTime(OPENED_AT);
   useSession.setState({ user: ME });
   h.api.createTask.mockReset().mockResolvedValue({ taskId: "task-1" });
+  h.api.projectByName.mockReset().mockResolvedValue(null);
   h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(DIRECTORY));
   h.api.channelsPage.mockReset().mockImplementation(pagedChannels(CHANNELS));
   vi.mocked(toast.error).mockReset();
@@ -238,7 +240,7 @@ describe("a recurring task's deadline rule", () => {
 describe("the rest of the form is untouched", () => {
   it("keeps the title, description, assign-to panel and allocation cards", () => {
     openDialog();
-    expect(screen.getByPlaceholderText("What needs doing?")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Name this project")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /Assign to/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /People/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Channels/ })).toBeInTheDocument();

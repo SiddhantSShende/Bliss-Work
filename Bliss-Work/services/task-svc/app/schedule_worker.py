@@ -20,6 +20,7 @@ from .routes.tasks_write import (
     _insert_task_channels,
     _resolve_channel_members,
 )
+from .projects import sync_assignees_to_project_channel
 from .routes.helpers import resolve_username
 from crypto import cryptor
 
@@ -249,15 +250,19 @@ async def _claim_due_schedule() -> object | None:
         row = (
             await db.execute(
                 text(
-                    "SELECT id, org_id, sender_id, title_enc, description_enc, channel_id, channel_ids, assignee_ids, "
-                    "kind, scheduled_for, start_at, frequency, frequency_interval, weekdays, monthly_rule, "
-                    "monthly_day, monthly_ordinal, monthly_weekday, end_condition, end_at, occurrence_limit, "
-                    "occurrence_count, next_run_at, "
-                    "deadline_at, deadline_kind, deadline_amount, deadline_unit, deadline_time, deadline_tz "
-                    "FROM task_schedules "
-                    "WHERE status = 'ACTIVE' AND next_run_at <= now() "
-                    "AND id <> ALL(CAST(:parked AS uuid[])) "
-                    "ORDER BY next_run_at, id LIMIT 1 FOR UPDATE SKIP LOCKED"
+                    "SELECT s.id, s.org_id, s.sender_id, s.title_enc, s.description_enc, "
+                    "s.channel_id, s.channel_ids, s.assignee_ids, s.project_id, "
+                    "p.channel_id AS project_channel_id, s.kind, s.scheduled_for, s.start_at, "
+                    "s.frequency, s.frequency_interval, s.weekdays, s.monthly_rule, "
+                    "s.monthly_day, s.monthly_ordinal, s.monthly_weekday, s.end_condition, "
+                    "s.end_at, s.occurrence_limit, s.occurrence_count, s.next_run_at, "
+                    "s.deadline_at, s.deadline_kind, s.deadline_amount, s.deadline_unit, "
+                    "s.deadline_time, s.deadline_tz "
+                    "FROM task_schedules s "
+                    "LEFT JOIN projects p ON p.id = s.project_id AND p.org_id = s.org_id "
+                    "WHERE s.status = 'ACTIVE' AND s.next_run_at <= now() "
+                    "AND s.id <> ALL(CAST(:parked AS uuid[])) "
+                    "ORDER BY s.next_run_at, s.id LIMIT 1 FOR UPDATE OF s SKIP LOCKED"
                 ),
                 {"parked": _parked_ids()},
             )
@@ -351,6 +356,11 @@ async def _materialize(db: Any, row: Any) -> object | None:
         log.warning("task_schedule_unassignable", schedule_id=str(row.id))
         _park(row.id)
         return _PARKED
+    project_channel_id = None
+    if row.project_id is not None:
+        if row.project_channel_id is None:
+            raise RuntimeError(f"project {row.project_id} has no channel")
+        project_channel_id = str(row.project_channel_id)
 
     # The concrete deadline of THIS occurrence, resolved against the moment it was
     # due (`run_at`), not the moment a busy or restarted worker got to it. A
@@ -366,8 +376,9 @@ async def _materialize(db: Any, row: Any) -> object | None:
     await db.execute(
         text(
             "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id, schedule_id, "
-            "occurrence_number, deadline_at) "
-            "VALUES (:id, :org, :sender, :title, :description, :channel, :schedule, :occurrence, :deadline)"
+            "occurrence_number, deadline_at, project_id) "
+            "VALUES (:id, :org, :sender, :title, :description, :channel, :schedule, :occurrence, :deadline, "
+            ":project)"
         ),
         {
             "deadline": deadline_at,
@@ -377,9 +388,12 @@ async def _materialize(db: Any, row: Any) -> object | None:
             "title": row.title_enc,
             "description": row.description_enc,
             # Legacy single-channel column (see 012): the first channel.
+            # Only assignment channels go into task_channels / this legacy
+            # mirror. The project channel is linked through project_id.
             "channel": channel_ids[0] if channel_ids else None,
             "schedule": row.id,
             "occurrence": occurrence_number,
+            "project": row.project_id,
         },
     )
     await _insert_task_channels(db, org_id=str(row.org_id), task_id=task_id, channel_ids=channel_ids)
@@ -394,6 +408,15 @@ async def _materialize(db: Any, row: Any) -> object | None:
         description=description,
         channel_origin=channel_origin,
     )
+
+    # Keep the schedule due until project-channel membership is confirmed.
+    # If messaging-svc is unavailable, the caller rolls back this occurrence
+    # and parks the schedule for retry; a successful sync is idempotent if the
+    # database commit subsequently needs to be retried.
+    if project_channel_id is not None:
+        await sync_assignees_to_project_channel(
+            str(row.org_id), project_channel_id, str(row.sender_id), assignee_ids
+        )
 
     if row.kind == "SCHEDULED":
         await db.execute(

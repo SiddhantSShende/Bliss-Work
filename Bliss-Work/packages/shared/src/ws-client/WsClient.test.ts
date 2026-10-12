@@ -275,3 +275,67 @@ describe("WsClient handler isolation", () => {
     client.close();
   });
 });
+
+describe("WsClient mail.delivered", () => {
+  it("accepts a frame with `members` stripped, as ws-gateway's DeliveryPayload always sends it", async () => {
+    // Regression test for the bug where every mail.delivered frame was
+    // dropped: ws-gateway's contract.DeliveryPayload strips the
+    // routing-only `members` field from every event before it reaches a
+    // client (live or replayed), but the MailDelivered schema used to
+    // require that field.
+    const { client } = makeClient();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const seen: unknown[] = [];
+    client.on((e) => seen.push(e));
+    await client.connect();
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "mail.delivered",
+        eventId: "00000000-0000-4000-8000-000000000001",
+        orgId: "00000000-0000-4000-8000-000000000002",
+        occurredAt: "2026-09-30T09:00:00.000Z",
+        mailId: "00000000-0000-4000-8000-000000000003",
+        senderId: "00000000-0000-4000-8000-000000000004",
+        // no `members` key — this is the actual wire shape in production.
+      }),
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(warning).not.toHaveBeenCalled();
+    warning.mockRestore();
+    client.close();
+  });
+
+  it("still drops a mail.delivered frame missing a required field", async () => {
+    const { client } = makeClient();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const seen: unknown[] = [];
+    client.on((e) => seen.push(e));
+    await client.connect();
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "mail.delivered",
+        eventId: "00000000-0000-4000-8000-000000000001",
+        orgId: "00000000-0000-4000-8000-000000000002",
+        occurredAt: "2026-09-30T09:00:00.000Z",
+        senderId: "00000000-0000-4000-8000-000000000004",
+        // mailId is missing — this must still be rejected.
+      }),
+    });
+
+    expect(seen).toHaveLength(0);
+    expect(warning).toHaveBeenCalledWith(
+      "[ws] dropped unrecognized frame",
+      expect.anything(),
+      expect.anything(),
+    );
+    warning.mockRestore();
+    client.close();
+  });
+});

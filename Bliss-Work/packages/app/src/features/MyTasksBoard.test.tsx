@@ -10,7 +10,7 @@ import { CHANNELS, DESIGN, GENERAL } from "../test/meetingFixtures";
 import { expandAllDetails } from "../test/expandDetails";
 
 const api = {
-  tasksSent: vi.fn(async () => [] as SentTaskDTO[]),
+  tasksSent: vi.fn(async (_params?: { limit?: number; offset?: number; includeIgnored?: boolean }) => [] as SentTaskDTO[]),
   directory: vi.fn(async () => []),
   taskSchedules: vi.fn(async () => [] as ScheduledTaskDTO[]),
   channels: vi.fn(async () => CHANNELS as ChannelDTO[]),
@@ -118,6 +118,40 @@ describe("MyTasksBoard data", () => {
     await screen.findByText("Ship the release");
 
     expect(api.tasksSent).toHaveBeenCalledWith(expect.objectContaining({ offset: 0, includeIgnored: true }));
+  });
+
+  it("does not show a project empty state while later task pages may contain its tasks", async () => {
+    const projectId = "project-1";
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      ...sentTasks[0],
+      taskId: `other-${index}`,
+      title: `Other project task ${index}`,
+      projectId: "another-project",
+    })) as unknown as SentTaskDTO[];
+    const laterTask = {
+      ...sentTasks[0],
+      taskId: "project-task",
+      title: "Task on a later page",
+      projectId,
+    } as unknown as SentTaskDTO;
+    api.tasksSent.mockImplementation(async ({ offset = 0 } = {}) =>
+      offset === 0 ? firstPage : [laterTask],
+    );
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MyTasksBoard projectId={projectId} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Load more" })).toBeInTheDocument();
+    expect(screen.queryByText("No tasks for this project yet")).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("Task on a later page")).toBeInTheDocument();
+    expect(api.tasksSent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 100, includeIgnored: true }),
+    );
   });
 });
 

@@ -21,6 +21,18 @@
       "DAYS_other": "日"
     }
   },
+  "projects": {
+    "section": "プロジェクト",
+    "empty": "プロジェクトはまだありません",
+    "createdTasks": "自分が作成",
+    "assignedTasks": "自分に割り当て",
+    "noTasks": "このプロジェクトにはまだタスクがありません",
+    "channel": "プロジェクトチャンネル",
+    "openChannel": "プロジェクトチャンネルを開く",
+    "lookupFailed": "プロジェクトを検索できませんでした。再試行するか、タスクの作成を続けてください。",
+    "unavailable": "プロジェクトが見つからないか、アクセス権がありません。",
+    "syncFailed": "タスクは保存されましたが、プロジェクトチャンネルのメンバーを更新できませんでした。"
+  },
   "tasksList": {
     "header": "タスク",
     "categories": {
@@ -179,8 +191,8 @@
   "createTaskDialog": {
     "title": "新規タスク",
     "fields": {
-      "title": "タイトル",
-      "titlePlaceholder": "何をする必要がありますか?",
+      "title": "プロジェクト名",
+      "titlePlaceholder": "プロジェクト名を入力",
       "description": "説明",
       "descriptionPlaceholder": "詳細を追加…",
       "assignTo": "割り当て先",
@@ -384,6 +396,21 @@
       "IGNORED": "無視",
       "LEFT": "辞退"
     }
+  },
+  "analyticsHub": {
+    "title": "分析",
+    "hint": "チャンネルを選択して、タスクの分析を表示します。",
+    "channelsTitle": "チャンネル",
+    "emptyChannels": {
+      "title": "チャンネルがありません",
+      "hint": "ここで分析を表示するには、チャンネルに参加するか、新しく作成してください。"
+    },
+    "noSelection": {
+      "title": "チャンネルを選択",
+      "hint": "左側からチャンネルを選択して、分析を表示してください。"
+    },
+    "taskHint": "特定のタスクの分析を確認しますか？Mail からタスクを開いてください。",
+    "openMail": "Mail を開く"
   },
   "analytics": {
     "loading": "分析を読み込み中…",

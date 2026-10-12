@@ -122,16 +122,20 @@ export function markedDays(
 }
 
 /**
- * A sent task is Completed as a whole when somebody completed it and nobody is still
- * on it — the same rule task-svc applies to `POST /tasks/{id}/reassign`, which is
- * what makes a card eligible for "Reassign". LEFT / IGNORED / MISSED rows do not
- * count either way. Judged on ALL of the task's rows, never a filtered subset.
+ * A sent task is eligible for "Reassign" — the same rule task-svc applies to
+ * `POST /tasks/{id}/reassign` — when nobody is still active on it, AND either
+ * somebody completed it (a mix of completed with LEFT/IGNORED/MISSED still
+ * qualifies: only the completed rows come back) OR every assignee shares the
+ * same LEFT or IGNORED outcome (the whole task is handed back to all of them).
+ * MISSED alone, or any other mix, has nothing to reassign. Judged on ALL of the
+ * task's rows, never a filtered subset.
  */
-export function isCompletedTask(task: Pick<SentTaskDTO, "assignees">): boolean {
-  return (
-    task.assignees.some((a) => a.status === "COMPLETED") &&
-    !task.assignees.some((a) => a.status === "SENT" || a.status === "ACKNOWLEDGED")
-  );
+export function isReassignableTask(task: Pick<SentTaskDTO, "assignees">): boolean {
+  const { assignees } = task;
+  if (assignees.some((a) => a.status === "SENT" || a.status === "ACKNOWLEDGED")) return false;
+  if (assignees.some((a) => a.status === "COMPLETED")) return true;
+  const first = assignees[0]?.status;
+  return assignees.length > 0 && assignees.every((a) => a.status === first) && (first === "LEFT" || first === "IGNORED");
 }
 
 export interface PersonOption {

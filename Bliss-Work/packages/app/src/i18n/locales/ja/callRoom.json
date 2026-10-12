@@ -4,7 +4,8 @@
     "notConfigured": "このサーバーではグループ通話が有効になっていません",
     "couldNotJoin": "通話に参加できませんでした",
     "couldNotStart": "通話を開始できませんでした",
-    "couldNotShareScreen": "画面を共有できませんでした"
+    "couldNotShareScreen": "画面を共有できませんでした",
+    "someoneElseSharing": "他の参加者が既に画面を共有しています"
   },
   "notify": {
     "screenShareStopped": "画面共有が停止しました",

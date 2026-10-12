@@ -28,9 +28,9 @@
     "unreadAriaLabel": "{{folder}}, {{count}} unread",
     "box": {
       "inbox": "Inbox",
-      "sent": "Sent Items",
+      "sent": "Sent",
       "drafts": "Drafts",
-      "deleted": "Deleted Items",
+      "deleted": "Deleted",
       "favorites": "Favorites"
     }
   },

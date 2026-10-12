@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 
 import pytest
 import pytest_asyncio
@@ -130,6 +131,7 @@ async def db_app(database_url):
             "task_assignees",
             "tasks",  # cascades to task_channels
             "task_schedules",
+            "projects",
             "idempotency_keys",
             "org_keys",
             "user_projection",
@@ -138,6 +140,32 @@ async def db_app(database_url):
 
     yield
     await dispose_engine()
+
+
+@pytest.fixture(autouse=True)
+def project_messaging(monkeypatch):
+    """Keep task-svc integration tests local while exercising project DB flows.
+
+    messaging-svc has its own real-Postgres HTTP integration tests. Here only
+    the service boundary is replaced so RLS, project locking, and task writes
+    still run against the actual task database.
+    """
+    from app import projects
+    from app import schedule_worker
+    from app.routes import participants, reassign, tasks_write
+
+    async def create_channel(org_id: str, creator_id: str, name: str) -> str:
+        del creator_id
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"project-channel:{org_id}:{name.casefold()}"))
+
+    async def sync_members(org_id: str, channel_id: str, actor_id: str, assignee_ids: list[str]) -> None:
+        del org_id, channel_id, actor_id, assignee_ids
+
+    monkeypatch.setattr(projects, "_create_project_channel", create_channel)
+    monkeypatch.setattr(tasks_write, "sync_assignees_to_project_channel", sync_members)
+    monkeypatch.setattr(participants, "sync_assignees_to_project_channel", sync_members)
+    monkeypatch.setattr(reassign, "sync_assignees_to_project_channel", sync_members)
+    monkeypatch.setattr(schedule_worker, "sync_assignees_to_project_channel", sync_members)
 
 
 @pytest_asyncio.fixture

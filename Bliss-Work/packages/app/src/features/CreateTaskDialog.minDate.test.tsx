@@ -12,7 +12,7 @@ import { CHANNELS, DIRECTORY, ME } from "../test/meetingFixtures";
 import { pagedChannels, pagedDirectory } from "../test/pagedPickerApi";
 
 const h = vi.hoisted(() => ({
-  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn() },
+  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn(), projectByName: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -29,6 +29,7 @@ beforeEach(() => {
   useSession.setState({ user: ME });
   h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(DIRECTORY));
   h.api.channelsPage.mockReset().mockImplementation(pagedChannels(CHANNELS));
+  h.api.projectByName.mockReset().mockResolvedValue(null);
 });
 afterEach(() => {
   vi.useRealTimers();

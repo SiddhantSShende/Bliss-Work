@@ -120,6 +120,19 @@ def _dlq_reason(error: str) -> str:
     return redact_email_addresses(error)[:_DLQ_REASON_MAX]
 
 
+def _assignment_timestamp(value: object) -> str:
+    """Format an event timestamp for the task email, or omit malformed values."""
+    if not isinstance(value, str):
+        return ""
+    try:
+        occurred_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if occurred_at.tzinfo is None:
+        return ""
+    return occurred_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
 # How one mail left the deployment. Persisted in mail_transport — see the
 # migration and _decide_transport for why the copies of one mail have to agree.
 TRANSPORT_PROVIDER = "provider"
@@ -147,6 +160,10 @@ NO_RELAY_TYPES = {
 # Limit how much message body lands inside a single email — keep things
 # scannable and avoid SMTP body-length issues at the destination.
 PREVIEW_LEN = 200
+
+# Match task-svc's validated description bound so task emails include the full
+# assignment context without letting malformed events create unbounded mail.
+TASK_DESCRIPTION_LEN = 10_000
 
 # A task title becomes part of the Subject header; oversized headers get
 # rejected by some SMTP servers, so cap it before building the subject.
@@ -507,6 +524,13 @@ class RelayConsumer:
             try:
                 await self._send_for_event(event, recipient_id, etype)
             except CircuitOpenError as exc:
+                if etype == TASK_ASSIGNED:
+                    return await self._retry_or_dlq(
+                        str(event_id),
+                        str(recipient_id),
+                        event,
+                        str(exc),
+                    )
                 # auth-svc is known-bad (breaker open): SKIP this email rather
                 # than blocking the consumer on the lookup. Mark sent so a
                 # later replay doesn't retry — the in-app inbox remains
@@ -1155,10 +1179,19 @@ class RelayConsumer:
         assert self._presence is not None
         return not await self._presence.is_online(recipient_id)
 
-    async def _lookup_user(self, user_id: str, request_id: str | None = None) -> dict | None:
+    async def _lookup_user(
+        self,
+        user_id: str,
+        request_id: str | None = None,
+        *,
+        retry_transient: bool = False,
+    ) -> dict | None:
         """Resolve a user's e-mail/username from auth-svc's internal API.
 
         Returns the parsed UserDTO dict, or None on miss/non-transient error.
+        A task-assignment recipient lookup sets ``retry_transient`` so an
+        exhausted transient failure reaches Kafka's retry/DLQ path rather than
+        being mistaken for an ineligible recipient.
         The relay only fires for OFFLINE recipients (already off the hot path),
         so a synchronous service-to-service lookup here is fine — and it keeps
         email-worker free of any cross-service database access (strict
@@ -1203,7 +1236,10 @@ class RelayConsumer:
                 on_retry=_on_retry,
             )
         except httpx.HTTPError as exc:
-            # Exhausted retries on a transient failure — treat as a miss.
+            if retry_transient:
+                raise
+            # Other relay notices are best-effort: an in-app copy remains
+            # authoritative if auth-svc is unavailable.
             _log.warning("relay_user_lookup_failed", user=user_id, error=str(exc))
             return None
 
@@ -1219,9 +1255,20 @@ class RelayConsumer:
         # via its internal API — email-worker never reads another service's DB.
         # Propagate the event id as X-Request-Id (best-effort correlation).
         request_id = event.get("eventId")
-        recipient = await self._lookup_user(recipient_id, request_id=request_id)
+        event_org_id = event.get("orgId")
+        recipient = await self._lookup_user(
+            recipient_id,
+            request_id=request_id,
+            retry_transient=etype == TASK_ASSIGNED,
+        )
         if not recipient or not recipient.get("email"):
             _log.info("relay_skipped_no_email", recipient=recipient_id, type=etype)
+            return
+        if not isinstance(event_org_id, str) or recipient.get("orgId") != event_org_id:
+            _log.warning("relay_skipped_org_mismatch", recipient=recipient_id, type=etype)
+            return
+        if recipient.get("emailVerified") is not True:
+            _log.info("relay_skipped_unverified_email", recipient=recipient_id, type=etype)
             return
         to_addr = str(recipient["email"])
         # Invalid recipients are rejected by SMTP and would retry forever; log
@@ -1244,15 +1291,28 @@ class RelayConsumer:
         reply_to = ""
         sid = event.get("senderId")
         if sid:
-            sender = await self._lookup_user(sid, request_id=request_id)
-            if sender:
+            try:
+                sender = await self._lookup_user(sid, request_id=request_id)
+            except CircuitOpenError as exc:
+                _log.warning(
+                    "relay_sender_lookup_skipped",
+                    event_id=request_id,
+                    sender=sid,
+                    error=str(exc),
+                )
+                sender = None
+            if sender and sender.get("orgId") == event_org_id:
                 sender_username = sender.get("username") or ""
                 sender_email = sender.get("email")
-                if sender_email and is_valid_email(str(sender_email)):
+                if (
+                    sender.get("emailVerified") is True
+                    and sender_email
+                    and is_valid_email(str(sender_email))
+                ):
                     reply_to = str(sender_email)
 
-        link = f"{self._settings.web_origin.rstrip('/')}/app/inbox"
         if etype == MESSAGE_CREATED:
+            link = f"{self._settings.web_origin.rstrip('/')}/app/inbox"
             body = (event.get("body") or "")[:PREVIEW_LEN]
             subject = f"{sender_username or 'A teammate'} sent you a message"
             text, html = render_new_message_email(
@@ -1261,10 +1321,11 @@ class RelayConsumer:
                 link=link,
             )
         else:  # TASK_ASSIGNED
-            # Cap the title (lands in the Subject header) and description (body)
-            # so oversized headers/bodies don't get rejected by SMTP.
+            # Cap the title (lands in the Subject header) and keep the full
+            # validated task description (up to task-svc's schema bound).
             title = (event.get("title", "") or "Untitled task")[:TITLE_LEN]
-            desc = (event.get("description", "") or "")[:PREVIEW_LEN]
+            raw_description = event.get("description", "")
+            desc = raw_description[:TASK_DESCRIPTION_LEN] if isinstance(raw_description, str) else ""
             channel_name = (event.get("channelName") or "")[:TITLE_LEN] or None
             who = sender_username or "A teammate"
             subject = (
@@ -1276,8 +1337,9 @@ class RelayConsumer:
                 sender_username=who,
                 title=title,
                 description=desc,
-                link=link,
+                link=f"{self._settings.web_origin.rstrip('/')}/app/tasks/allocated",
                 channel_name=channel_name,
+                assigned_at=_assignment_timestamp(event.get("occurredAt")),
             )
         # Let a send failure propagate — the caller (_handle) counts consecutive
         # failures and routes poison messages to the DLQ; transient failures

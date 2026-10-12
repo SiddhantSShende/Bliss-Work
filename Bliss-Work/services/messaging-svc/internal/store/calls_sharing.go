@@ -71,8 +71,13 @@ var ErrShareSourceInvalid = errors.New("screen share source must be screen, wind
 // ErrCallEnded: one means "not yet", the other means "never again".
 var ErrCallNotStarted = errors.New("call has not started yet")
 
-// ErrNotSharing is returned when someone stops a share they were not running.
-var ErrNotSharing = errors.New("no screen share is in progress")
+// ErrShareAlreadyActive is returned when someone tries to start sharing while
+// another participant's share is already live in the same call. Exactly one
+// share may be live per call — see idx_call_screenshares_live_per_call
+// (0037_call_screenshare_one_per_call.sql) — and this is that invariant's
+// error, not a generic conflict, so the client can tell "someone else is
+// presenting" apart from every other 409 without matching on the message.
+var ErrShareAlreadyActive = errors.New("another participant is already sharing their screen")
 
 // NormalizeShareSource maps what a client sends to what the column accepts.
 //
@@ -130,11 +135,25 @@ func requireLiveParticipantTx(
 
 // StartScreenShare records that the caller has begun sharing.
 //
-// Re-declaring an existing share updates its source rather than failing, and
-// keeps the original id and start time — a client that re-sends because a
-// response was lost, or because the user swapped which window is being shared,
-// is describing the SAME share session and should not produce a second one. The
-// partial unique index makes that the only outcome available.
+// Re-declaring the CALLER'S OWN existing share updates its source rather than
+// failing, and keeps the original id and start time — a client that re-sends
+// because a response was lost, or because the user swapped which window is
+// being shared, is describing the SAME share session and should not produce a
+// second one.
+//
+// At most one share may be live per call. The INSERT below targets
+// idx_call_screenshares_live_per_call (0037_call_screenshare_one_per_call.sql),
+// a partial unique index on call_id alone, so a second participant trying to
+// start while another's share is live hits that conflict — and the `DO UPDATE
+// ... WHERE` clause only actually performs the update (and so only returns a
+// row) when the live row's user_id is the SAME caller re-declaring. A
+// different user's attempt satisfies the ON CONFLICT target, skips the
+// update because the WHERE is false, and returns no row, which this maps to
+// ErrShareAlreadyActive. This is what makes the check atomic across
+// concurrent requests: Postgres resolves the conflict and evaluates that
+// WHERE clause under the row's own lock, so two simultaneous starts cannot
+// both see "no live share yet" — exactly one INSERT wins, the other gets the
+// zero-rows outcome.
 func (s *Store) StartScreenShare(
 	ctx context.Context, orgID, userID, callID, source string,
 ) (*CallShareDTO, error) {
@@ -158,14 +177,19 @@ func (s *Store) StartScreenShare(
 		)
 		// org_id is the CALL's, not the sharer's — see the column note in
 		// 0016. It is what lets ending the call close a guest's share.
-		if err := tx.QueryRow(ctx, `
+		err = tx.QueryRow(ctx, `
 			INSERT INTO call_screenshares (id, call_id, user_id, org_id, source)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (call_id, user_id) WHERE stopped_at IS NULL
+			ON CONFLICT (call_id) WHERE stopped_at IS NULL
 			DO UPDATE SET source = EXCLUDED.source
+			WHERE call_screenshares.user_id = EXCLUDED.user_id
 			RETURNING id, source, started_at`,
 			uuid.Must(uuid.NewV7()).String(), callID, userID, c.orgID, src).
-			Scan(&id, &stored, &startedAt); err != nil {
+			Scan(&id, &stored, &startedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrShareAlreadyActive
+		}
+		if err != nil {
 			return err
 		}
 		out = &CallShareDTO{
@@ -183,16 +207,23 @@ func (s *Store) StartScreenShare(
 	return out, nil
 }
 
-// StopScreenShare ends the CALLER'S OWN share.
+// StopScreenShare ends the CALLER'S OWN share, if one is live.
 //
 // Note the signature: there is no target user. That is the enforcement of "the
 // stop-sharing control is the sharer's alone" — not a check that could be
 // forgotten, but an argument that does not exist.
 //
-// Returns ErrNotSharing when there was nothing to stop, so the handler can skip
-// telling the room about a share that was already over.
-func (s *Store) StopScreenShare(ctx context.Context, orgID, userID, callID string) error {
-	return s.withCaller(ctx, orgID, userID, func(tx pgx.Tx) error {
+// Stopping is idempotent and never errors on "nothing to stop": a duplicate
+// stop, a stop that lost a race with leave/end/the SFU-disconnect webhook
+// closing the same row, or a stop for a share that never existed all ask for
+// the same end state — this user not sharing — which already holds. Treating
+// that as a conflict (as this used to, returning ErrNotSharing/409) is what
+// produced the spurious 409s a retried or merely-late stop call would hit.
+// The returned bool reports whether THIS call is the one that actually closed
+// a row, so the handler can skip re-announcing a stop nothing changed.
+func (s *Store) StopScreenShare(ctx context.Context, orgID, userID, callID string) (bool, error) {
+	var stopped bool
+	err := s.withCaller(ctx, orgID, userID, func(tx pgx.Tx) error {
 		// No status check. A share must be stoppable even once the call has
 		// ended or the caller has been removed from the channel — refusing
 		// would strand a row marked live forever, and stopping is the safe
@@ -203,11 +234,10 @@ func (s *Store) StopScreenShare(ctx context.Context, orgID, userID, callID strin
 		if err != nil {
 			return err
 		}
-		if ct.RowsAffected() == 0 {
-			return ErrNotSharing
-		}
+		stopped = ct.RowsAffected() > 0
 		return nil
 	})
+	return stopped, err
 }
 
 // stopSharesTx closes live shares inside an existing transaction: one person's

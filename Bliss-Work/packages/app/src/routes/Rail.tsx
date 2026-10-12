@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
+  BarChart3,
   Mail,
   Calendar,
   MessageSquare,
@@ -19,6 +20,7 @@ import { usePopupDismiss } from "../lib/usePopupDismiss";
 // below — so this stays a plain module-level constant that doesn't need a
 // hook to build.
 const ITEMS = [
+  { key: "analytics", icon: BarChart3, to: "/app/analytics" },
   { key: "mail", icon: Mail, to: "/app/mail" },
   { key: "meetings", icon: Calendar, to: "/app/meetings" },
   { key: "chats", icon: MessageSquare, to: "/app/chats" },

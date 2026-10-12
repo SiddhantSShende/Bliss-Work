@@ -18,6 +18,7 @@ from ..config import settings
 from crypto import cryptor
 from ..db import session, set_org_context
 from ..logging_setup import log
+from ..projects import resolve_or_create_project, sync_assignees_to_project_channel
 from ..schemas import CreateTaskRequest, CreateTaskResponse, MAX_ASSIGNEES
 from .helpers import enqueue_outbox, resolve_username
 
@@ -247,6 +248,7 @@ async def _insert_schedule(
     db: AsyncSession,
     *,
     schedule_id: str,
+    project_id: str,
     org_id: str,
     sender_id: str,
     title_enc: bytes,
@@ -264,13 +266,13 @@ async def _insert_schedule(
         text(
             "INSERT INTO task_schedules ("
             "id, org_id, sender_id, title_enc, description_enc, channel_id, channel_ids, assignee_ids, "
-            "kind, scheduled_for, start_at, frequency, frequency_interval, weekdays, "
+            "project_id, kind, scheduled_for, start_at, frequency, frequency_interval, weekdays, "
             "monthly_rule, monthly_day, monthly_ordinal, monthly_weekday, end_condition, "
             "end_at, occurrence_limit, next_run_at, "
             "deadline_at, deadline_kind, deadline_amount, deadline_unit, deadline_time, deadline_tz"
             ") VALUES ("
             ":id, :org, :sender, :title, :description, :channel, CAST(:channels AS uuid[]), "
-            "CAST(:assignees AS uuid[]), "
+            "CAST(:assignees AS uuid[]), :project_id, "
             ":kind, :scheduled, :start, :frequency, :interval, :weekdays, :monthly_rule, "
             ":monthly_day, :monthly_ordinal, :monthly_weekday, :end_condition, :end_at, "
             ":occurrence_limit, :next_run, "
@@ -283,6 +285,7 @@ async def _insert_schedule(
             "sender": sender_id,
             "title": title_enc,
             "description": description_enc,
+            "project_id": project_id,
             # channel_id is the legacy single-channel column (see 012): the first one.
             "channel": channel_ids[0] if channel_ids else None,
             "channels": channel_ids,
@@ -335,7 +338,14 @@ async def create_task(
     channel_ids = body.target_channel_ids()
     if not named_ids and not channel_ids:
         raise HTTPException(status_code=400, detail="at least one assignee required")
-    assignee_ids, channel_origin = await _resolve_recipients(named_ids, channel_ids, org_id, sender_id)
+    project = await resolve_or_create_project(org_id, sender_id, body.title)
+    # The project channel is attached to the task but is not an assignment
+    # target: its existing members may have been assigned to other project
+    # tasks and must not be added to this task implicitly.
+    recipient_channel_ids = [channel_id for channel_id in channel_ids if channel_id != project.channel_id]
+    assignee_ids, channel_origin = await _resolve_recipients(
+        named_ids, recipient_channel_ids, org_id, sender_id
+    )
     if not assignee_ids:
         # Only channels, and they are all empty.
         raise HTTPException(status_code=400, detail="at least one assignee required")
@@ -422,7 +432,7 @@ async def create_task(
         # The Kafka event below still carries plaintext (the relay + messaging
         # projection need it) — we keep the plaintext in-memory and only store
         # ciphertext.
-        title_enc = await cryptor().encrypt(db, org_id, body.title)
+        title_enc = await cryptor().encrypt(db, org_id, project.name)
         desc_enc = await cryptor().encrypt(db, org_id, body.description or "")
 
         if body.allocation != "NOW":
@@ -437,8 +447,9 @@ async def create_task(
                 sender_id=sender_id,
                 title_enc=title_enc,
                 description_enc=desc_enc,
-                channel_ids=channel_ids,
+                channel_ids=recipient_channel_ids,
                 assignee_ids=named_ids,
+                project_id=project.project_id,
                 body=body,
             )
             await db.commit()
@@ -447,8 +458,9 @@ async def create_task(
 
         await db.execute(
             text(
-                "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id, deadline_at) "
-                "VALUES (:id, :org, :sender, :title_enc, :desc_enc, :ch, :deadline)"
+                "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id, "
+                "deadline_at, project_id) "
+                "VALUES (:id, :org, :sender, :title_enc, :desc_enc, :ch, :deadline, :project)"
             ),
             {
                 "deadline": body.deadlineAt,
@@ -457,11 +469,19 @@ async def create_task(
                 "sender": sender_id,
                 "title_enc": title_enc,
                 "desc_enc": desc_enc,
-                # Legacy single-channel column (see 012): the first channel.
-                "ch": channel_ids[0] if channel_ids else None,
+                # Legacy single-channel column (see 012) mirrors only an actual
+                # assignment channel; the project channel is linked by project_id.
+                "ch": recipient_channel_ids[0] if recipient_channel_ids else None,
+                "project": project.project_id,
             },
         )
-        await _insert_task_channels(db, org_id=org_id, task_id=task_id, channel_ids=channel_ids)
+        # task_channels represents assignment targets. Its member-joined
+        # consumer fans new channel members into every active task, so the
+        # project channel belongs only in projects.channel_id, not this table.
+        channels_to_attach = recipient_channel_ids
+        await _insert_task_channels(
+            db, org_id=org_id, task_id=task_id, channel_ids=channels_to_attach
+        )
 
         await _insert_task_assignees(
             db,
@@ -470,17 +490,21 @@ async def create_task(
             assignee_ids=assignee_ids,
             sender_id=sender_id,
             sender_username=sender_username,
-            title=body.title,
+            title=project.name,
             description=body.description or "",
             channel_origin=channel_origin,
         )
 
+        if body.allocation == "NOW":
+            await sync_assignees_to_project_channel(
+                org_id, project.channel_id, sender_id, assignee_ids
+            )
         await db.commit()
         log.info(
             "task_created",
             task_id=task_id,
             assignees=len(assignee_ids),
-            channel_ids=channel_ids,
+            channel_ids=channels_to_attach,
         )
         return CreateTaskResponse(taskId=task_id)
 

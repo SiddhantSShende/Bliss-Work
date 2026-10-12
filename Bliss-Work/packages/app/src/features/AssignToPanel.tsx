@@ -2,7 +2,7 @@ import { useId, useRef, useState } from "react";
 import { Hash, Lock, Search, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@taskboard/ui";
-import type { ChannelDTO, UserDTO } from "@taskboard/shared";
+import type { ChannelDTO, ProjectDTO, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { matchUser } from "../lib/matchUser";
@@ -32,16 +32,22 @@ export function AssignToPanel({
   channels,
   onTogglePerson,
   onToggleChannel,
+  project,
+  lockedChannelId,
+  initialTab = "channels",
 }: {
   people: ReadonlySet<string>;
   channels: ReadonlySet<string>;
+  project?: ProjectDTO | null;
   onTogglePerson: (user: UserDTO) => void;
   onToggleChannel: (channel: ChannelDTO) => void;
+  initialTab?: Tab;
+  lockedChannelId?: string;
 }) {
   const { t } = useTranslation("tasks");
-  const [tab, setTab] = useState<Tab>("people");
+  const [tab, setTab] = useState<Tab>(initialTab);
   // The channels list is not requested until the tab has been opened once.
-  const [channelsOpened, setChannelsOpened] = useState(false);
+  const [channelsOpened, setChannelsOpened] = useState(initialTab === "channels");
   const [queries, setQueries] = useState<Record<Tab, string>>({ people: "", channels: "" });
   const headingId = useId();
   const baseId = useId();
@@ -52,8 +58,8 @@ export function AssignToPanel({
     if (next === "channels") setChannelsOpened(true);
   };
   const tabs: { id: Tab; icon: React.ReactNode; count: number }[] = [
-    { id: "people", icon: <User size={16} aria-hidden />, count: people.size },
     { id: "channels", icon: <Hash size={16} aria-hidden />, count: channels.size },
+    { id: "people", icon: <User size={16} aria-hidden />, count: people.size },
   ];
 
   return (
@@ -100,14 +106,20 @@ export function AssignToPanel({
         />
       </div>
 
+      {channelsOpened && (
+        <div role="tabpanel" id={`${baseId}-panel-channels`} aria-labelledby={`${baseId}-tab-channels`} hidden={tab !== "channels"} className="flex min-h-0 flex-1 flex-col">
+          <ChannelList
+            query={queries.channels}
+            selected={channels}
+            onToggle={onToggleChannel}
+            project={project}
+            lockedChannelId={lockedChannelId}
+          />
+        </div>
+      )}
       <div role="tabpanel" id={`${baseId}-panel-people`} aria-labelledby={`${baseId}-tab-people`} hidden={tab !== "people"} className="flex min-h-0 flex-1 flex-col">
         <PeopleList query={queries.people} selected={people} onToggle={onTogglePerson} />
       </div>
-      {channelsOpened && (
-        <div role="tabpanel" id={`${baseId}-panel-channels`} aria-labelledby={`${baseId}-tab-channels`} hidden={tab !== "channels"} className="flex min-h-0 flex-1 flex-col">
-          <ChannelList query={queries.channels} selected={channels} onToggle={onToggleChannel} />
-        </div>
-      )}
     </div>
   );
 }
@@ -157,7 +169,19 @@ function PeopleList({ query, selected, onToggle }: { query: string; selected: Re
   );
 }
 
-function ChannelList({ query, selected, onToggle }: { query: string; selected: ReadonlySet<string>; onToggle: (c: ChannelDTO) => void }) {
+function ChannelList({
+  query,
+  selected,
+  onToggle,
+  project,
+  lockedChannelId,
+}: {
+  query: string;
+  selected: ReadonlySet<string>;
+  onToggle: (c: ChannelDTO) => void;
+  project?: ProjectDTO | null;
+  lockedChannelId?: string;
+}) {
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const list = usePagedPicker<ChannelDTO>({
@@ -174,7 +198,27 @@ function ChannelList({ query, selected, onToggle }: { query: string; selected: R
       {...pagedState(list)}
       copy={listCopy(t, "channels")}
     >
-      {list.items.map((c) => (
+      {project && lockedChannelId === project.channelId && (
+        <li>
+          <label className="flex items-center gap-3 rounded-lg bg-accent-soft px-2.5 py-1.5 text-accent">
+            <input
+              type="checkbox"
+              checked={selected.has(project.channelId)}
+              disabled
+              readOnly
+              aria-label={`#${project.name} — ${t("projects.channel")}`}
+              className="h-4 w-4 shrink-0 accent-[var(--color-accent)]"
+            />
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10">
+              <Hash size={16} aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">#{project.name}</span>
+            <span className="shrink-0 text-xs">{t("projects.channel")}</span>
+            <Lock size={13} aria-label={t("createTaskDialog.assign.locked")} className="shrink-0" />
+          </label>
+        </li>
+      )}
+      {list.items.filter((channel) => channel.id !== lockedChannelId).map((c) => (
         <Row key={c.id} checked={selected.has(c.id)} onToggle={() => onToggle(c)}>
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
             <Hash size={16} aria-hidden />
