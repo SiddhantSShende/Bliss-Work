@@ -720,7 +720,13 @@ prod:
 web-dev:
 	npm run web
 
+# A plain `npm run build` runs in production mode, which apps/web/vite.config.ts
+# refuses without the VITE_*_BASE/VITE_WS_URL service URLs — the web-builder
+# compose service gets those from `env_file: .env.prod`, but this target runs
+# directly on the host, so source BOTH env files into this shell first (same
+# precedence as PROD_COMPOSE: .env then .env.prod, so .env.prod wins).
 web-build:
+	set -a; test -f .env && . ./.env; test -f .env.prod && . ./.env.prod; set +a
 	npm run build -w @taskboard/web
 
 # Rebuilds the web bundle from the working tree and PUBLISHES it to the live
