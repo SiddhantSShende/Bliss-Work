@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { expiredAllowlistEntries } from "../audit-gate-policy.mjs";
+import { inlineOrgIsolationTable, remediatesInlinePolicy } from "../check-migrations-policy.mjs";
 
 const scripts = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(scripts, "..");
@@ -162,4 +163,42 @@ test("Jenkins requires HTTPS and completes a credential-free TLS preflight befor
   const tlsCheck = jenkinsfile.indexOf('https://${REGISTRY}/v2/');
   const login = jenkinsfile.indexOf('docker login "${REGISTRY}"');
   assert.ok(tlsCheck >= 0 && login > tlsCheck);
+});
+
+test("a historical inline org_isolation copy stops failing only once a later migration corrects its exact table, never by name alone", () => {
+  const inlineBody = "CREATE POLICY org_isolation ON beacon_batches\n  USING (org_id = x);";
+  const table = inlineOrgIsolationTable(inlineBody);
+  assert.equal(table, "beacon_batches");
+
+  // The real fix: a later migration calling apply_org_isolation() for THAT table.
+  assert.equal(remediatesInlinePolicy("SELECT apply_org_isolation('beacon_batches');", table), true);
+  assert.equal(
+    remediatesInlinePolicy("SELECT apply_org_isolation('beacon_batches', 'org_id');", table),
+    true,
+  );
+
+  // Not remediated by: nothing later, or a later call for a DIFFERENT table —
+  // a new, uncorrected violation must still fail.
+  assert.equal(remediatesInlinePolicy("-- no later call at all", table), false);
+  assert.equal(remediatesInlinePolicy("SELECT apply_org_isolation('other_table');", table), false);
+
+  // A templated/EXECUTE-format CREATE POLICY (table is a runtime variable, as
+  // in messaging-svc's 0029_call_transcript.sql) has no static table name to
+  // check remediation for, so it is left for the plain substring check —
+  // never silently treated as remediated.
+  assert.equal(inlineOrgIsolationTable("CREATE POLICY org_isolation ON %I"), null);
+
+  // check-migrations.mjs must actually wire this policy in, not just import it.
+  const checker = readFileSync(join(scripts, "check-migrations.mjs"), "utf8");
+  assert.match(checker, /names\.slice\(i \+ 1\)\.some\(\(later\) => remediatesInlinePolicy/);
+
+  // The real services/telemetry-svc tree: 0009 inlines a policy on
+  // beacon_batches that nothing remediated until 0011 was added; the checker
+  // must now pass end to end, not just in the unit-tested pure function.
+  const result = spawnSync("node", [join(scripts, "check-migrations.mjs")], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.doesNotMatch(result.stdout, /0009_beacon_batch_idempotency/);
 });

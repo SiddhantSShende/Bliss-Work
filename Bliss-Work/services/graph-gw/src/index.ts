@@ -8,7 +8,7 @@
 import { loadConfig } from "./config.js";
 import { createLogger } from "./logging.js";
 import { Metrics } from "./metrics.js";
-import { routeMetricPath } from "./routeLabels.js";
+import { matchAdminRoute, routeMetricPath } from "./routeLabels.js";
 import { startTracing } from "./tracing.js";
 
 const cfg = loadConfig();
@@ -34,15 +34,16 @@ let draining = false;
 let inFlight = 0;
 
 const server = createServer((req, res) => {
-  const path = routeMetricPath(req.url ?? "/");
+  const url = req.url ?? "/";
+  const route = matchAdminRoute(url);
 
-  if (path === "/healthz") return respond(res, 200, { status: "ok" });
-  if (path === "/readyz") {
+  if (route === "/healthz") return respond(res, 200, { status: "ok" });
+  if (route === "/readyz") {
     return draining
       ? respond(res, 503, { status: "draining" })
       : respond(res, 200, { status: "ok" });
   }
-  if (path === "/metrics") {
+  if (route === "/metrics") {
     void metrics
       .render()
       .then((body) => {
@@ -53,6 +54,7 @@ const server = createServer((req, res) => {
     return;
   }
 
+  const path = routeMetricPath(url);
   inFlight += 1;
   const stopTimer = metrics.httpDuration.startTimer({ method: req.method ?? "GET", path });
   res.on("close", () => {

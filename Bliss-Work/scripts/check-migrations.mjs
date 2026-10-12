@@ -20,7 +20,11 @@
  *      pg_policies guard, so their policy can silently never be created.
  *      0026_org_isolation.sql gives that block one definition —
  *      apply_org_isolation(table) — and this check keeps the eighth copy from
- *      being written.
+ *      being written. A historical copy that already shipped is let through
+ *      without a by-name exemption once a LATER migration in the same
+ *      directory calls apply_org_isolation() for that same table — a real,
+ *      checked corrective migration, not a waiver (see checkInlineRls below
+ *      and check-migrations-policy.mjs). A new, uncorrected copy still fails.
  *
  *   3. A file copied wholesale. Cheap to detect, so it is checked too.
  *
@@ -28,8 +32,9 @@
  * runners key their schema_migrations ledger on FILENAME + checksum, so a
  * rename re-runs the file under a new name and strands the old one, and an edit
  * never reaches a database that already applied the old text. The existing
- * collisions are therefore grandfathered BY NAME below, and the lists are
- * closed — they exist to make the next one fail, not to be appended to.
+ * duplicate-version collisions (kind 1) are therefore grandfathered BY NAME
+ * below, and that list is closed — it exists to make the next one fail, not
+ * to be appended to. Kind 2 does not use a by-name list at all — see above.
  *
  * Cross-SERVICE duplication is deliberately NOT flagged. auth-svc,
  * integrations-svc, task-svc, messaging-svc and notification-svc each carry a
@@ -44,6 +49,7 @@ import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inlineOrgIsolationTable, remediatesInlinePolicy } from "./check-migrations-policy.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -61,6 +67,17 @@ const GRANDFATHERED_VERSIONS = {
   "services/messaging-svc/migrations": {
     "0014": "0014_forward_link.sql + 0014_message_features.sql",
     "0022": "0022_channel_message_actions.sql + 0022_repair_channel_owners.sql",
+    // Both landed 2026-08-31 and have been running in prod since image
+    // 4b12e80 (2026-09-11) — confirmed via `git merge-base --is-ancestor` for
+    // both commits against 4b12e80, the image every prod messaging-svc
+    // replica is still on. Renaming either now would strand it under its old
+    // filename in every environment that already applied it (ledger is keyed
+    // on filename, not version) while the new filename re-runs from scratch —
+    // worse than the collision. Safe to leave: the two touch disjoint objects
+    // (an index on call_recordings vs. the call_chat_messages/call_notes
+    // tables), both are fully idempotent, and filename-sort order between
+    // them carries no dependency either way.
+    "0029": "0029_call_recordings_one_active_per_call.sql + 0029_call_transcript.sql",
   },
   "services/task-svc/migrations": {
     "003": "003_column_encryption.sql + 003_rls.sql",
@@ -180,7 +197,14 @@ function checkDir(dir) {
 
 /**
  * The org_isolation block has one definition per database now. Anything that
- * inlines it instead of calling apply_org_isolation() is the next copy.
+ * inlines it instead of calling apply_org_isolation() is the next copy —
+ * UNLESS a LATER migration in the same directory already calls
+ * apply_org_isolation() for that exact table. That is what lets a historical
+ * violation (one that already shipped, so it can never be edited — see the
+ * header) stop failing once it has a real corrective migration, without
+ * exempting it by name: a brand-new inline copy that nothing ever corrects
+ * still has no later apply_org_isolation() call for its table, and is still
+ * rejected. See check-migrations-policy.mjs.
  *
  * Applied only to services that actually DEFINE the helper — a service without
  * it in its own database cannot call it, and telling somebody to use a function
@@ -195,17 +219,26 @@ function checkInlineRls(dir) {
   const helper = names.find((n) => HELPER_DEFINITION.test(bodies.get(n)));
   if (!helper) return;
 
-  for (const name of names) {
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i];
     const path = `${rel}/${name}`;
     if (name === helper || GRANDFATHERED_INLINE_RLS.has(path)) continue;
-    if (/CREATE\s+POLICY\s+org_isolation/i.test(bodies.get(name))) {
-      fail(
-        `${path}\n    inlines the org_isolation policy block.\n` +
-          `    Call SELECT apply_org_isolation('<table>'); instead — one definition,\n` +
-          `    in ${rel}/${helper}. Copying it by hand is how two of the earlier\n` +
-          `    copies lost their schemaname guard.`,
-      );
-    }
+
+    const body = bodies.get(name);
+    if (!/CREATE\s+POLICY\s+org_isolation/i.test(body)) continue;
+
+    const table = inlineOrgIsolationTable(body);
+    const remediated =
+      table !== null &&
+      names.slice(i + 1).some((later) => remediatesInlinePolicy(bodies.get(later), table));
+    if (remediated) continue;
+
+    fail(
+      `${path}\n    inlines the org_isolation policy block.\n` +
+        `    Call SELECT apply_org_isolation('<table>'); instead — one definition,\n` +
+        `    in ${rel}/${helper}. Copying it by hand is how two of the earlier\n` +
+        `    copies lost their schemaname guard.`,
+    );
   }
 }
 

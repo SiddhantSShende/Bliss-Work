@@ -1,0 +1,35 @@
+-- 0011_beacon_batches_org_isolation_guard.sql — give beacon_batches the
+-- canonical org_isolation policy instead of its own hand-copied one.
+--
+-- 0009_beacon_batch_idempotency.sql inlined the ENABLE/FORCE/CREATE POLICY
+-- block instead of calling apply_org_isolation() (defined two migrations
+-- earlier, in 0004_org_isolation.sql, specifically so nothing after it needs
+-- to inline this again) and, in copying it by hand, dropped the
+-- `schemaname = current_schema()` guard from the pg_policies existence check
+-- — the exact mistake 0004's own comment warns about: an unqualified check is
+-- satisfied by a same-named policy in ANY schema, so on a database with more
+-- than one schema the real policy can silently never get created, and the
+-- table then reads as empty (ENABLE + FORCE fails closed) rather than leaking
+-- anything. This repo runs a single schema per database today, so the policy
+-- 0009 created is schema-correct and byte-for-byte identical to what
+-- apply_org_isolation() would write — but the weaker guard is still the wrong
+-- pattern to leave on disk, which is why scripts/check-migrations.mjs fails
+-- the build on it (0009 is not in its closed GRANDFATHERED_INLINE_RLS list;
+-- that list is historical-only and does not cover migrations written after
+-- apply_org_isolation() already existed).
+--
+-- 0009 itself is NOT edited: it already ran in every environment that has
+-- booted since 2026-09, and the ledger is keyed on filename + checksum —
+-- editing it would only change what happens on a FUTURE first boot, never
+-- reach an environment that already applied the old text, and (per
+-- run_migrations' re-run-on-checksum-change behaviour) would re-execute the
+-- file's CREATE TABLE/INDEX statements too, which is unnecessary churn for
+-- what is really a one-line policy-guard fix. A new migration is the correct,
+-- append-only way to replace this table's policy with the canonical one on
+-- every database, old and new alike.
+--
+-- apply_org_isolation() re-attaches ENABLE/FORCE (already set, idempotent)
+-- and recreates the policy only if a schema-qualified lookup doesn't find it
+-- — so this is a genuine no-op where 0009's policy already exists correctly,
+-- and a real fix on any database where the unqualified check let it slip.
+SELECT apply_org_isolation('beacon_batches');
