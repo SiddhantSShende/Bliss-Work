@@ -156,7 +156,10 @@
       "viaChannel": "Sélectionné via un canal",
       "channelFailed": "Impossible de charger les membres de {{name}} ; aucune tâche n'est donc affichée.",
       "channelRetry": "Réessayer",
-      "clear": "Effacer les filtres"
+      "clear": "Effacer les filtres",
+      "peopleChannelsTabs": "Personnes et canaux",
+      "peopleListLabel": "Personnes pour filtrer",
+      "channelsListLabel": "Canaux pour filtrer"
     },
     "details": "Détails",
     "summary": {

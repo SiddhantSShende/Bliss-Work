@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from datetime import datetime
 
 from aiokafka import AIOKafkaConsumer
 from opentelemetry import trace
@@ -363,6 +364,7 @@ class TaskSvcConsumer:
         display_name = _clean_str(event.get("displayName", ""))
         if not (event_id and org_id and user_id and occurred_at):
             return
+        occurred_at = datetime.fromisoformat(str(occurred_at).replace("Z", "+00:00"))
 
         async with session() as db:
             # Cross-org background worker: the user_projection upsert writes an
@@ -415,6 +417,7 @@ class TaskSvcConsumer:
         occurred_at = event.get("occurredAt")
         if not (event_id and org_id and user_id and occurred_at):
             return
+        occurred_at = datetime.fromisoformat(str(occurred_at).replace("Z", "+00:00"))
 
         async with session() as db:
             # Same cross-org background-worker reasoning as _handle_user_created.

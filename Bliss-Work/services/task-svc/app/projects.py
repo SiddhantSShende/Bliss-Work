@@ -57,6 +57,10 @@ async def _create_project_channel(org_id: str, creator_id: str, name: str) -> st
             "project_channel_create_failed",
             org_id=org_id,
             status=response.status_code,
+            # A 404 here means messaging-svc has no POST /internal/channels
+            # route at all (deployed-image version skew), not a normal
+            # business-logic rejection — the body distinguishes the two.
+            response_body=response.text[:500],
         )
         raise HTTPException(status_code=502, detail="project channel could not be created; retry task creation")
 

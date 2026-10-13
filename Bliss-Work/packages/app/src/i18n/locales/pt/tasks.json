@@ -156,7 +156,10 @@
       "viaChannel": "Selecionado por meio de um canal",
       "channelFailed": "Não foi possível carregar os membros de {{name}}, por isso nenhuma tarefa é exibida.",
       "channelRetry": "Tentar novamente",
-      "clear": "Limpar filtros"
+      "clear": "Limpar filtros",
+      "peopleChannelsTabs": "Pessoas e canais",
+      "peopleListLabel": "Pessoas para filtrar",
+      "channelsListLabel": "Canais para filtrar"
     },
     "details": "Detalhes",
     "summary": {

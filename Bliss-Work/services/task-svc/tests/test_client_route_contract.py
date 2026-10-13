@@ -54,6 +54,15 @@ def _client_task_calls() -> list[tuple[str, str]]:
 _http = TestClient(app, raise_server_exceptions=False)
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _isolate_dependency_overrides():
+    previous = app.dependency_overrides.copy()
+    app.dependency_overrides.clear()
+    yield
+    app.dependency_overrides.clear()
+    app.dependency_overrides.update(previous)
+
+
 def _reaches_a_route(method: str, path: str) -> bool:
     return _http.request(method, path).status_code != 404
 
@@ -109,8 +118,12 @@ def test_the_edge_strips_exactly_the_prefix_the_clients_base_url_carries(caddyfi
     assert block.group(1) == prefix
     assert "upstream task-svc 8002" in block.group(2)
 
-    for method, path in {("GET", "/api/v1/tasks/schedules"), ("POST", "/api/v1/tasks/{p}/reassign")}:
-        sent = prefix + path  # what the console shows: /api/tasks/api/v1/tasks/…
+    for method, path in {
+        ("GET", "/api/v1/tasks/schedules"),
+        ("GET", "/api/v1/projects?limit=100&offset=0"),
+        ("POST", "/api/v1/tasks/{p}/reassign"),
+    }:
+        sent = prefix + path  # what the console shows: /api/tasks/api/v1/…
         assert sent.startswith(prefix + "/api/v1/")  # the doubled "api" is intended
         arrives = sent[len(prefix):]  # what task-svc receives after the strip
         assert _reaches_a_route(method, _concrete(arrives)), f"{method} {sent} → {arrives}"

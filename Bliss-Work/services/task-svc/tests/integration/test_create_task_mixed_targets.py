@@ -84,7 +84,8 @@ async def _q(sql: str, **params) -> list:
 
     async with get_engine().begin() as conn:
         await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
-        return (await conn.execute(text(sql), params)).all()
+        result = await conn.execute(text(sql), params)
+        return result.all() if result.returns_rows else []
 
 
 async def _task_count() -> int:
@@ -370,7 +371,7 @@ async def test_idempotent_replay_of_a_mixed_create_is_the_same_task(db_app, seed
     assert await _task_channels(r1.json()["taskId"]) == [c]
 
 
-async def test_idempotency_key_is_scoped_to_sender(db_app, seed_members):
+async def test_legacy_idempotency_primary_key_rejects_other_sender(db_app, seed_members):
     from app.auth import Principal
 
     assignee = _id()
@@ -398,9 +399,41 @@ async def test_idempotency_key_is_scoped_to_sender(db_app, seed_members):
             headers={"Idempotency-Key": "shared-key"},
         )
 
-    assert response_a.status_code == response_b.status_code == 201
-    assert response_a.json()["taskId"] != response_b.json()["taskId"]
-    assert await _task_count() == 2
+    assert response_a.status_code == 201
+    assert response_b.status_code == 409
+    assert await _task_count() == 1
+
+
+async def test_legacy_version_idempotency_write_is_safe_during_rollback_window(
+    db_app, seed_members
+):
+    assignee = _id()
+    await seed_members(ORG, assignee)
+    body = {"title": "Legacy write", "assigneeIds": [assignee]}
+    async with await _client() as client:
+        created = await client.post("/api/v1/tasks", json=body)
+    assert created.status_code == 201, created.text
+    task_id = created.json()["taskId"]
+
+    await _q(
+        "INSERT INTO idempotency_keys (org_id, key, task_id) "
+        "VALUES (:org, :key, :task_id)",
+        org=ORG,
+        key="legacy-version-key",
+        task_id=task_id,
+    )
+
+    async with await _client() as client:
+        replay = await client.post(
+            "/api/v1/tasks",
+            json=body,
+            headers={"Idempotency-Key": "legacy-version-key"},
+        )
+
+    assert replay.status_code == 409
+    assert "compatibility window" in replay.json()["error"]["message"]
+    assert "taskId" not in replay.json()
+    assert await _task_count() == 1
 
 
 async def test_idempotency_key_rejects_different_request_body(db_app, seed_members):

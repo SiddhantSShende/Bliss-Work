@@ -87,6 +87,26 @@ interpolated directly into livekit's `LIVEKIT_KEYS` in `docker-compose.prod.yml`
 and exist only in `.env.prod` — with `.env` alone that resolves to `": "` and
 LiveKit authenticates nobody.
 
+### Task-service schema compatibility and image-marker reconciliation
+
+task-svc applies its migrations in one transaction before it starts serving.
+Migration 014 adds nullable idempotency metadata, removes only orphaned
+idempotency keys older than the documented one-day retry window, and preserves
+the legacy `(org_id, key)` primary key so the previous application image can
+still write during the rollback window. A newer schema contract that removes
+that primary key must be a later release after every rollback image supports it.
+If startup rejects a non-expired orphan key, restore its task or get explicit
+approval for a narrowly scoped cleanup; do not clear the idempotency table.
+
+Before relying on `.deploy/last-good` for rollback, compare it with the image
+tags and immutable IDs of every running production service. The marker is
+written only after the full deploy passes health and smoke checks; a targeted
+Compose rollout or manual rollback does not reconcile it. If the marker and
+running image set differ, stop before `make prod-rollback` or another automatic
+deploy: record the live service/image mapping, confirm a complete healthy image
+set that can serve as the rollback target, and reconcile the marker only through
+an explicitly approved release operation.
+
 ### The clean-tree guard, and why it exists
 
 `/home/ubuntu/BlissWork/Bliss-Work` is simultaneously your working copy **and**

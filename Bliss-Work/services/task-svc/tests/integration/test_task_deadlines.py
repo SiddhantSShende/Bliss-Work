@@ -462,8 +462,11 @@ async def test_recurring_relative_deadline_is_resolved_per_occurrence(db_app, se
         assert (await _q("SELECT deadline_at FROM tasks WHERE id = :t", t=task_id))[0].deadline_at == at + timedelta(hours=6)
 
 
-async def test_recurring_fixed_time_deadline_is_that_time_on_each_occurrence_date(db_app, seed_members):
+async def test_recurring_fixed_time_deadline_is_that_time_on_each_occurrence_date(
+    db_app, seed_members, monkeypatch
+):
     from app.schedule_worker import _claim_due_schedule
+    from app import schedule_worker
 
     a = _id()
     await seed_members(ORG, a)
@@ -483,8 +486,19 @@ async def test_recurring_fixed_time_deadline_is_that_time_on_each_occurrence_dat
     # Two consecutive occurrences straddling the 8 March 2026 spring-forward. The
     # series steps in UTC (unchanged), so the second occurrence is 11:00 local; the
     # deadline must still be 17:00 local on each occurrence's own date.
+    class FrozenDateTime(datetime):
+        current = datetime(2026, 3, 7, 15, 1, tzinfo=UTC)
+
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return cls.current.replace(tzinfo=None)
+            return cls.current.astimezone(tz)
+
+    monkeypatch.setattr(schedule_worker, "datetime", FrozenDateTime)
     got = []
     for occurrence in (datetime(2026, 3, 7, 15, 0, tzinfo=UTC), datetime(2026, 3, 8, 15, 0, tzinfo=UTC)):
+        FrozenDateTime.current = occurrence + timedelta(minutes=1)
         await _x(
             "UPDATE task_schedules SET start_at = :s, next_run_at = :n WHERE id = :i",
             s=datetime(2026, 3, 7, 15, 0, tzinfo=UTC), n=occurrence, i=schedule_id,

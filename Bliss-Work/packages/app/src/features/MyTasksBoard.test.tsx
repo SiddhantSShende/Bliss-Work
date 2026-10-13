@@ -2,18 +2,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ChannelDTO, ScheduledTaskDTO, SentTaskDTO } from "@taskboard/shared";
+import { UserDTO, type ChannelDTO, type ScheduledTaskDTO, type SentTaskDTO } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useSession } from "../store/session";
 import { trackUnhandledRejections } from "../test/unhandledRejections";
 import { CHANNELS, DESIGN, GENERAL } from "../test/meetingFixtures";
+import { pagedChannels, pagedDirectory, stubScrollGeometry } from "../test/pagedPickerApi";
 import { expandAllDetails } from "../test/expandDetails";
+
+// A plain object, not UserDTO.parse(id): these ids match the fixture's non-UUID
+// SentTaskDTO.assigneeId values below, so the filter's id-based matching lines up.
+const person = (id: string, username: string): UserDTO =>
+  ({
+    id, orgId: "00000000-0000-4000-8000-000000000999", orgName: "Acme", username, displayName: username,
+    email: `${username}@acme.test`, roles: ["member"], avatarUrl: null, mfaEnrolled: false,
+    orgRequireMfaForAdmins: false, orgMfaGracePeriodEndsAt: null, themePrefs: null,
+  }) as UserDTO;
+const ALICE = person("u-alice", "alice");
+const BOB = person("u-bob", "bob");
+const CAROL = person("u-carol", "carol");
 
 const api = {
   tasksSent: vi.fn(async (_params?: { limit?: number; offset?: number; includeIgnored?: boolean }) => [] as SentTaskDTO[]),
   directory: vi.fn(async () => []),
+  directoryPage: vi.fn(pagedDirectory([ALICE, BOB, CAROL])),
   taskSchedules: vi.fn(async () => [] as ScheduledTaskDTO[]),
   channels: vi.fn(async () => CHANNELS as ChannelDTO[]),
+  channelsPage: vi.fn(pagedChannels(CHANNELS as ChannelDTO[])),
   channelMembers: vi.fn(async (_channelId: string) => [] as string[]),
   addTaskParticipants: vi.fn(async (_taskId: string, targets: { userIds?: string[]; channelIds?: string[] }) => ({
     addedUserIds: targets.userIds ?? [],
@@ -76,11 +91,20 @@ const titles = () => ["Ship the release", "Write the docs", "Fix the flaky test"
 const dayButton = (day: number) =>
   screen.getByRole("button", { name: new Date(2026, 8, day).toLocaleDateString(undefined, { dateStyle: "full" }) });
 
+let restoreGeometry: () => void;
+const channelsBox = () => screen.findByLabelText("Channels to filter by");
+const openChannelsTab = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole("tab", { name: /^Channels/ }));
+const openPeopleTab = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole("tab", { name: /^People/ }));
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"], now: NOW });
+  restoreGeometry = stubScrollGeometry();
   api.tasksSent.mockResolvedValue(sentTasks);
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  restoreGeometry();
+});
 
 describe("MyTasksBoard loading", () => {
   it("shows a loading state, not the empty state, while the first page is on its way", async () => {
@@ -165,7 +189,7 @@ describe("MyTasksBoard filters", () => {
     await user.click(screen.getByRole("button", { name: "completed" }));
     expect(titles()).toEqual(["Ship the release", "Write the docs"]);
 
-    await user.click(screen.getByRole("checkbox", { name: /alice$/ }));
+    await user.click(await screen.findByRole("checkbox", { name: /alice$/ }));
     expect(titles()).toEqual(["Ship the release"]);
 
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
@@ -178,23 +202,25 @@ describe("MyTasksBoard filters", () => {
     api.channelMembers.mockImplementation(async (id: string) => (id === GENERAL.id ? ["u-alice"] : ["u-alice", "u-carol"]));
     renderBoard();
     await screen.findByText("Ship the release");
-    const channelList = screen.getByRole("list", { name: "Channels" });
+    await openChannelsTab(user);
+    const channelList = await channelsBox();
 
-    await user.click(within(channelList).getByRole("checkbox", { name: "general" }));
+    await user.click(within(channelList).getByRole("checkbox", { name: /^general/ }));
     await waitFor(() => expect(titles()).toEqual(["Ship the release", "Fix the flaky test"]));
-    // alice shows as ticked because of the channel, but only as a derived tick: no chip,
+    // alice shows as ticked because of the channel, but only as a derived tick,
     // nothing in the explicit selection.
-    expect(screen.getByRole("checkbox", { name: /alice$/ })).toBeChecked();
+    await openPeopleTab(user);
+    expect(await screen.findByRole("checkbox", { name: /alice$/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /alice$/ })).toHaveAccessibleDescription("Selected through a channel");
-    expect(screen.queryByRole("list", { name: "Selected people" })).not.toBeInTheDocument();
 
-    await user.click(within(channelList).getByRole("checkbox", { name: "design" }));
+    await openChannelsTab(user);
+    await user.click(within(channelList).getByRole("checkbox", { name: /^design/ }));
     await waitFor(() => expect(titles()).toHaveLength(3));
 
     // design out: carol goes with it, alice stays because general still contributes her.
-    await user.click(within(channelList).getByRole("checkbox", { name: "design" }));
+    await user.click(within(channelList).getByRole("checkbox", { name: /^design/ }));
     await waitFor(() => expect(titles()).toEqual(["Ship the release", "Fix the flaky test"]));
-    await user.click(within(channelList).getByRole("checkbox", { name: "general" }));
+    await user.click(within(channelList).getByRole("checkbox", { name: /^general/ }));
     await waitFor(() => expect(titles()).toHaveLength(3));
     expect(api.channelMembers).toHaveBeenCalledWith(GENERAL.id);
     expect(api.channelMembers).toHaveBeenCalledWith(DESIGN.id);
@@ -208,14 +234,17 @@ describe("MyTasksBoard filters", () => {
     await screen.findByText("Ship the release");
     expect(titles()).toHaveLength(3);
 
-    await user.click(within(screen.getByRole("list", { name: "Channels" })).getByRole("checkbox", { name: "general" }));
+    await openChannelsTab(user);
+    const channelList = await channelsBox();
+    await user.click(within(channelList).getByRole("checkbox", { name: /^general/ }));
     await waitFor(() => expect(api.channelMembers).toHaveBeenCalledWith(GENERAL.id));
     expect(titles()).toEqual([]);
 
     arrive(["u-carol"]);
     await waitFor(() => expect(titles()).toEqual(["Write the docs"]));
     // carol shows as ticked in the People list because of the channel.
-    expect(screen.getByRole("checkbox", { name: /carol$/ })).toBeChecked();
+    await openPeopleTab(user);
+    expect(await screen.findByRole("checkbox", { name: /carol$/ })).toBeChecked();
   });
 
   it("no explicit people + a selected channel whose member request fails must not silently show the unfiltered list", async () => {
@@ -225,7 +254,9 @@ describe("MyTasksBoard filters", () => {
     await screen.findByText("Ship the release");
     expect(titles()).toHaveLength(3);
 
-    const general = within(screen.getByRole("list", { name: "Channels" })).getByRole("checkbox", { name: "general" });
+    await openChannelsTab(user);
+    const channelList = await channelsBox();
+    const general = within(channelList).getByRole("checkbox", { name: /^general/ });
     await user.click(general);
 
     // The channel is still ticked, so it still filters: no tasks, and the panel says why.

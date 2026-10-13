@@ -71,7 +71,7 @@ async def _reassign(task_id: str, user_id: str = SENDER, org: str = ORG) -> http
 
 async def _rows(task_id: str) -> dict[str, object]:
     rows = await _q(
-        "SELECT assignee_id, status, status_version, assigned_at, acknowledged_at, completed_at, "
+        "SELECT assignee_id, status, status_version, assigned_at, acknowledged_at, completed_at, left_at, "
         "       review_rating, reviewed_at FROM task_assignees WHERE task_id = :t",
         t=task_id,
     )
@@ -323,6 +323,39 @@ async def test_a_reassigned_left_task_is_actionable_again(db_app, seed_members):
     # It runs the normal lifecycle from here, same as a reassigned Completed task.
     await _complete(a, task_id)
     assert (await _rows(task_id))[a].status == "COMPLETED"
+
+
+async def test_a_task_can_be_left_and_reassigned_through_a_second_full_cycle(db_app, seed_members):
+    """Assignment history across *two* reassignments: the row the second reopen
+    acts on already carries a version bump and timestamps from the first one."""
+    a = _id()
+    await seed_members(ORG, a)
+    task_id = await _new_task(a)
+    await _act(a, task_id, "acknowledge")
+    assert (await _act(a, task_id, "leave")).status_code == 200
+    first_leave = (await _rows(task_id))[a].left_at
+
+    first = await _reassign(task_id)
+    assert first.status_code == 200, first.text
+    after_first = (await _rows(task_id))[a]
+    assert after_first.status == "SENT"
+
+    await _act(a, task_id, "acknowledge")
+    assert (await _act(a, task_id, "leave")).status_code == 200
+    before_second = (await _rows(task_id))[a]
+    assert before_second.left_at is not None and before_second.left_at > first_leave
+
+    second = await _reassign(task_id)
+
+    assert second.status_code == 200, second.text
+    assert second.json()["reassignedUserIds"] == [a]
+    after_second = (await _rows(task_id))[a]
+    assert after_second.status == "SENT"
+    assert after_second.status_version == before_second.status_version + 1
+    assert after_second.status_version > after_first.status_version
+    assert after_second.acknowledged_at is None and after_second.completed_at is None
+    # Two full reopen cycles -> two task.assigned events for this assignee, beyond the original send.
+    assert len(await _events(task_id, "task.assigned")) == 3
 
 
 async def test_reassigning_another_completed_task_leaves_this_one_completed(db_app, seed_members):

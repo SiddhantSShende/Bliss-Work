@@ -28,6 +28,7 @@ uuid="018f0000-0000-7000-8000-0000000000a1"
 # ones. Edge paths, so each service's mount (/api/tasks, /api/auth) is part of the line.
 # auth-svc is FastAPI too (auth per route): GET /auth/me is its long-standing control.
 routes=(
+  "GET  /api/tasks/api/v1/projects?limit=100&offset=0"
   "GET  /api/tasks/api/v1/tasks/availability"
   "GET  /api/tasks/api/v1/tasks/schedules"
   "POST /api/tasks/api/v1/tasks/${uuid}/reassign"

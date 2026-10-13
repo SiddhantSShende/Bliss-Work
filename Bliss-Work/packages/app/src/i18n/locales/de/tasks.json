@@ -151,7 +151,10 @@
       "viaChannel": "Über einen Kanal ausgewählt",
       "channelFailed": "Die Mitglieder von {{name}} konnten nicht geladen werden, daher werden keine Aufgaben angezeigt.",
       "channelRetry": "Erneut versuchen",
-      "clear": "Filter zurücksetzen"
+      "clear": "Filter zurücksetzen",
+      "peopleChannelsTabs": "Personen und Kanäle",
+      "peopleListLabel": "Personen zum Filtern",
+      "channelsListLabel": "Kanäle zum Filtern"
     },
     "details": "Details",
     "summary": {

@@ -151,7 +151,10 @@
       "viaChannel": "चैनल के ज़रिए चुना गया",
       "channelFailed": "{{name}} के सदस्य लोड नहीं हो सके, इसलिए कोई टास्क नहीं दिख रहा।",
       "channelRetry": "फिर कोशिश करें",
-      "clear": "फ़िल्टर हटाएँ"
+      "clear": "फ़िल्टर हटाएँ",
+      "peopleChannelsTabs": "लोग और चैनल",
+      "peopleListLabel": "फ़िल्टर करने के लिए लोग",
+      "channelsListLabel": "फ़िल्टर करने के लिए चैनल"
     },
     "details": "विवरण",
     "summary": {

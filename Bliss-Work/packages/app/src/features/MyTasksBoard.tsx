@@ -128,7 +128,7 @@ export function MyTasksBoard({ projectId }: { projectId?: string } = {}) {
             filters' height. The cards below start under BOTH, never beside either. */}
         {!projectId && (
         <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-          <MyTasksFilters filter={filter} onChange={setFilter} people={people} nameOf={nameOf} avatarUrlOf={avatarUrlOf} channels={channelList.data} channelMembers={channelMembers} onRetryChannel={retryChannel} />
+          <MyTasksFilters filter={filter} onChange={setFilter} channels={channelList.data} channelMembers={channelMembers} onRetryChannel={retryChannel} />
           <GlassCard className="flex min-w-0 flex-col p-4">
             <MiniTaskCalendar
               markedDays={marks}

@@ -39,7 +39,8 @@ async def _q(sql: str, **params) -> list:
 
     async with get_engine().begin() as conn:
         await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
-        return (await conn.execute(text(sql), params)).all()
+        result = await conn.execute(text(sql), params)
+        return result.all() if result.returns_rows else []
 
 
 async def _create(title: str, assignee_id: str, *, org_id: str = ORG) -> httpx.Response:

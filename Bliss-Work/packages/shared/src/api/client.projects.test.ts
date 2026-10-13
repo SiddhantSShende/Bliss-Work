@@ -27,6 +27,20 @@ describe("project API", () => {
     ]);
   });
 
+  it("constructs the production projects URL from the task service base", async () => {
+    const fetchStub = vi.fn(async (_url: string) => json([]));
+    vi.stubGlobal("fetch", fetchStub);
+    const api = new ApiClient({
+      taskBase: "https://communication.rnrtechs.com/api/tasks",
+      getToken: async () => "tok",
+    } as never);
+
+    await expect(api.projects()).resolves.toEqual([]);
+    expect(fetchStub.mock.calls[0]?.[0]).toBe(
+      "https://communication.rnrtechs.com/api/tasks/api/v1/projects?limit=100&offset=0",
+    );
+  });
+
   it("reads one project by id", async () => {
     const expected = project(8);
     const fetchStub = vi.fn(async (_url: string) => json(expected));

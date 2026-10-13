@@ -415,6 +415,26 @@ async def create_task(
                         status_code=409,
                         detail="idempotency key was already used for a different request",
                     )
+                legacy_collision = (
+                    await db.execute(
+                        text(
+                            "SELECT 1 FROM idempotency_keys "
+                            "WHERE org_id = :org AND key = :key"
+                        ),
+                        {"org": org_id, "key": idempotency_key},
+                    )
+                ).first()
+                if legacy_collision:
+                    # During the rollback window, old app versions may create
+                    # rows without sender/fingerprint metadata. Do not return a
+                    # task through that unbound key; ask the caller for a new one.
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "idempotency key is unavailable during the "
+                            "compatibility window; retry with a new key"
+                        ),
+                    )
                 raise
 
         sender_username = await resolve_username(db, org_id, sender_id) or principal.username

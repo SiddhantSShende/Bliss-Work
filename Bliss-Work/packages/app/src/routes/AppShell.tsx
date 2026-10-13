@@ -27,21 +27,41 @@ import { MailFolders } from "./MailFolders";
 import { mergeNotificationFeeds } from "../lib/notificationPages";
 import { useNotificationPages } from "../lib/useCursorPagination";
 
-/** Sections whose list pane holds conversation/person rows rather than
- *  navigation labels — see the width comment on the <aside> below. */
-const ROW_LIST_SECTIONS = new Set<string>(["chats", "channels", "members"]);
+/** Sections whose list pane holds short navigation labels (Tasks categories,
+ *  Mail folders) rather than conversation/person rows — see the width
+ *  comment on the <aside> below. Mail and Tasks share one width so the two
+ *  panes line up exactly. */
+const NAV_LIST_SECTIONS = new Set<string>(["mail", "tasks"]);
+
+/** Sections whose rows carry an avatar, a name, a timestamp, a preview, an
+ *  unread badge and a ⋮ menu, and so need more room than a nav label — but
+ *  not as much as Members, whose rows are plain avatar + name. Chats and
+ *  Channels share one width so the two panes line up exactly. */
+const WIDE_ROW_LIST_SECTIONS = new Set<string>(["chats", "channels"]);
 
 /** Width of the secondary-navigation pane. Literal classes so Tailwind can see
  *  them. `md` is the tablet range, `lg` from 1024px up; the main pane (flex-1)
  *  takes the rest. Below md the pane is full width and these do not apply.
  *  Desktop (Electron) keeps `PANE_WIDTHS.desktop`; the web app uses `web`, which
- *  is exactly 75% of it at every breakpoint (420 → 315, 280 → 210, 208 → 156).
- *  `rows` = Chats/Channels/Members (avatar rows); `nav` = Tasks/Mail labels.
- *  Mail is half of the lg width: five short folder labels, so the rest was dead
- *  space. */
+ *  is exactly 75% of it at every breakpoint. `rows` = Members (avatar rows);
+ *  `rowsWide` = Chats/Channels; `nav` = Tasks/Mail labels. */
 const PANE_WIDTHS = {
-  desktop: { mdRows: "md:w-[280px]", mdNav: "md:w-[208px]", lg: "lg:w-[420px]", lgMail: "lg:w-[210px]" },
-  web: { mdRows: "md:w-[210px]", mdNav: "md:w-[156px]", lg: "lg:w-[315px]", lgMail: "lg:w-[157.5px]" },
+  desktop: {
+    mdRows: "md:w-[280px]",
+    mdRowsWide: "md:w-[296px]",
+    mdNav: "md:w-[208px]",
+    lg: "lg:w-[420px]",
+    lgRowsWide: "lg:w-[436px]",
+    lgNav: "lg:w-[300px]",
+  },
+  web: {
+    mdRows: "md:w-[210px]",
+    mdRowsWide: "md:w-[222px]",
+    mdNav: "md:w-[156px]",
+    lg: "lg:w-[315px]",
+    lgRowsWide: "lg:w-[327px]",
+    lgNav: "lg:w-[225px]",
+  },
 } as const;
 
 export function AppShell() {
@@ -140,14 +160,25 @@ export function AppShell() {
         {section && (
           <aside
             // Pure navigation panes (Tasks categories, Mail folders) are short
-            // labels + a count. Chats/Channels/Members rows carry an avatar, a
-            // name, a timestamp, a preview, an unread badge and a ⋮ menu, so
-            // those get a wider pane. Both are md+ only; below md the pane is
-            // full width, and from lg up every section but Mail shares one
-            // width. Sizes: PANE_WIDTHS.
+            // labels + a count, and share one width. Chats/Channels rows carry
+            // an avatar, a name, a timestamp, a preview, an unread badge and a
+            // ⋮ menu, so they get a wider pane, also shared between the two.
+            // Members rows are plainer (no preview/badge) and keep their own
+            // width. All md+ only; below md the pane is full width. Sizes:
+            // PANE_WIDTHS.
             className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 ${
-              ROW_LIST_SECTIONS.has(section) ? paneWidths.mdRows : paneWidths.mdNav
-            } ${section === "mail" ? paneWidths.lgMail : paneWidths.lg} ${showListOnMobile ? "flex" : "hidden"} md:flex`}
+              NAV_LIST_SECTIONS.has(section)
+                ? paneWidths.mdNav
+                : WIDE_ROW_LIST_SECTIONS.has(section)
+                  ? paneWidths.mdRowsWide
+                  : paneWidths.mdRows
+            } ${
+              NAV_LIST_SECTIONS.has(section)
+                ? paneWidths.lgNav
+                : WIDE_ROW_LIST_SECTIONS.has(section)
+                  ? paneWidths.lgRowsWide
+                  : paneWidths.lg
+            } ${showListOnMobile ? "flex" : "hidden"} md:flex`}
           >
             {section === "mail" && <MailFolders />}
             {section === "chats" && <ChatsList />}

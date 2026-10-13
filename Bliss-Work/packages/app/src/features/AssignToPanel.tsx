@@ -124,7 +124,7 @@ export function AssignToPanel({
   );
 }
 
-function listCopy(t: (k: string) => string, kind: "people" | "channels") {
+export function listCopy(t: (k: string) => string, kind: "people" | "channels") {
   return {
     loading: t("createTaskDialog.assign.loading"),
     loadingMore: t(`createTaskDialog.assign.${kind}LoadingMore`),
@@ -232,7 +232,7 @@ function ChannelList({
   );
 }
 
-function pagedState(list: {
+export function pagedState(list: {
   isLoading: boolean;
   isRefreshing: boolean;
   isLoadingMore: boolean;
@@ -253,17 +253,41 @@ function pagedState(list: {
 }
 
 /** One selectable row. A label around a real checkbox: the whole row is the click
- *  target, and keyboard and screen-reader behaviour come with the control. */
-function Row({ checked, onToggle, children }: { checked: boolean; onToggle: () => void; children: React.ReactNode }) {
+ *  target, and keyboard and screen-reader behaviour come with the control.
+ *
+ *  `via`, when given, marks a row that is checked only as a side effect of some
+ *  other selection (e.g. the My Tasks filter's channel-derived people) — same
+ *  tick, a softer fill, and named as such through `title` and the checkbox's
+ *  accessible description. */
+export function Row({
+  checked,
+  via,
+  onToggle,
+  children,
+}: {
+  checked: boolean;
+  via?: string;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const noteId = useId();
   return (
     <li>
       <label
+        title={via}
         className={`flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-1.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/40 ${
-          checked ? "bg-accent-soft" : "hover:bg-surface-2"
+          checked ? (via ? "bg-accent-soft/60" : "bg-accent-soft") : "hover:bg-surface-2"
         }`}
       >
         {children}
-        <input type="checkbox" checked={checked} onChange={onToggle} className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-accent)]" />
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          aria-describedby={via ? noteId : undefined}
+          className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-accent)]"
+        />
+        {via && <span id={noteId} hidden>{via}</span>}
       </label>
     </li>
   );

@@ -151,7 +151,10 @@
       "viaChannel": "Selected through a channel",
       "channelFailed": "Couldn't load the members of {{name}}, so no tasks are shown.",
       "channelRetry": "Retry",
-      "clear": "Clear filters"
+      "clear": "Clear filters",
+      "peopleChannelsTabs": "People and channels",
+      "peopleListLabel": "People to filter by",
+      "channelsListLabel": "Channels to filter by"
     },
     "details": "Details",
     "summary": {

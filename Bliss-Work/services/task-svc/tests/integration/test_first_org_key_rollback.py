@@ -1,13 +1,9 @@
-"""An org's first data key must not outlive the transaction that created it.
+"""A failed task write must not invalidate its already-created project key.
 
-The DEK is created lazily, inside the write transaction of the org's first
-encryption. It used to be cached process-wide the moment it was generated —
-before that transaction committed. If the transaction then rolled back, the
-`org_keys` row vanished but the cache kept the key, so every later write in the
-next few minutes was encrypted under a key that existed nowhere in the database:
-no row was ever inserted for it. Once the cache expired (or the pod restarted, or
-another pod served the read) that ciphertext could not be decrypted, and the tasks
-were gone for good.
+Project resolution now encrypts and commits the project name before the task
+transaction starts. A later task rollback must leave that committed key usable;
+otherwise the persisted project ciphertext (and subsequent tasks) would become
+undecryptable.
 
 Needs a real Postgres: it is the rollback that matters.
 """
@@ -41,13 +37,14 @@ async def _org_key_rows() -> int:
         return (await conn.execute(text("SELECT count(*) FROM org_keys WHERE org_id = :o"), {"o": ORG})).scalar()
 
 
-async def test_a_rolled_back_first_write_leaves_no_phantom_key_behind(db_app, seed_members, monkeypatch):
+async def test_failed_task_write_preserves_committed_project_key(db_app, seed_members, monkeypatch):
     from app.routes import tasks_write
     from crypto import cryptor
 
     await seed_members(ORG, SENDER)
 
-    # The org's first create_task encrypts (creating the key), then fails before it commits.
+    # Project-name encryption commits its key before the task transaction. The
+    # task then fails after encrypting its own fields but before commit.
     real_insert = tasks_write._insert_task_assignees
     failures = {"left": 1}
 
@@ -62,14 +59,15 @@ async def test_a_rolled_back_first_write_leaves_no_phantom_key_behind(db_app, se
     async with await _client() as c:
         with pytest.raises(RuntimeError):
             await c.post("/api/v1/tasks", json={"title": "lost with the first attempt", "assigneeIds": [SENDER]})
-        assert await _org_key_rows() == 0, "the failed transaction must have rolled its key back"
+        assert await _org_key_rows() == 1, "the committed project key must survive the failed task transaction"
 
-        # A retry within the cache TTL: this is the write that got encrypted under the phantom key.
+        # A retry within the cache TTL must use the committed project key.
         r = await c.post("/api/v1/tasks", json={"title": "the retry", "assigneeIds": [SENDER]})
         assert r.status_code == 201, r.text
-        assert await _org_key_rows() == 1, "the key this task was encrypted under must be in the database"
+        assert await _org_key_rows() == 1
 
-        # The cache expiring, or another pod serving the read: the key now has to come from the database.
+        # The cache expiring, or another pod serving the read, must still be able
+        # to decrypt project and task data from the database key.
         crypt = cryptor()
         crypt._current.clear()
         crypt._dek_cache.clear()
