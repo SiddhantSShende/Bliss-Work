@@ -305,6 +305,7 @@ def _settings() -> types.SimpleNamespace:
         messaging_internal_base="http://messaging-svc:8004",
         messaging_internal_token="test-token",
         mail_attachment_budget_bytes=10 * MB,
+        relay_max_concurrency=4,
     )
 
 
@@ -428,24 +429,32 @@ async def test_unknown_size_attachments_share_the_remaining_budget(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_known_size_attachment_cannot_spend_past_what_an_earlier_unknown_one_left(monkeypatch):
-    # Regression: the known-size branch of fetch() built its ceiling purely
-    # from the attachment's OWN declared size (+ slack), never checking it
-    # against what was actually left of the per-mail budget. within_budget
-    # only ever compares a declared size against the budget in isolation,
-    # before anything is fetched — so an unknown-size attachment that
-    # genuinely consumes most of the budget, followed by a declared-size
-    # attachment that "fit" by itself, let the mail's true total sail past
-    # the budget the two were supposed to share. This exercises the real
-    # fetch() (not the stubbed one _consumer() installs), so the ceiling
-    # bug actually gets a chance to manifest.
-    first_body = b"x" * (8 * MB)   # unknown size: consumes 8 of the 10 MB budget
-    second_body = b"y" * (5 * MB)  # declared 5 MB: "fits" the budget on its own
+async def test_an_unknown_size_attachment_cannot_spend_past_what_the_known_batch_left(monkeypatch):
+    # Regression: the unknown-size branch of fetch() built its ceiling from
+    # the per-mail budget alone, never checking what the known-size batch
+    # (fetched first — see _collect_attachments's own comment on why known-
+    # size attachments go first and concurrently, unknown-size ones after and
+    # sequentially) had ACTUALLY consumed of it. within_budget only ever
+    # compares declared sizes against the budget in isolation, before
+    # anything is fetched — so a known-size attachment that "fits" on paper,
+    # followed by an unknown-size one sized against the ORIGINAL budget
+    # instead of what the known batch actually spent, let the mail's true
+    # total sail past the budget the two were supposed to share. This
+    # exercises the real fetch() (not the stubbed one _consumer() installs),
+    # so the ceiling bug actually gets a chance to manifest.
+    known_body = b"y" * (5 * MB)     # declared 5 MB, fetched first: spends 5 of the 10 MB budget
+    unknown_body = b"x" * (8 * MB)   # unknown size: only ~5 MB is left for it
+    # fetch_attachment validates attachment.id as a UUID (internal_ids.
+    # uuid_path_segment) before building the request path, so the fake ids
+    # here have to be real UUIDs rather than the readable "known"/"unknown"
+    # this test used before that validation existed.
+    known_id = "11111111-1111-1111-1111-111111111111"
+    unknown_id = "22222222-2222-2222-2222-222222222222"
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/first"):
-            return httpx.Response(200, content=first_body)
-        return httpx.Response(200, content=second_body)
+        if request.url.path.endswith(f"/{known_id}"):
+            return httpx.Response(200, content=known_body)
+        return httpx.Response(200, content=unknown_body)
 
     settings = _settings()
     settings.mail_attachment_budget_bytes = 10 * MB
@@ -464,16 +473,17 @@ async def test_a_known_size_attachment_cannot_spend_past_what_an_earlier_unknown
     c._mark_sent = _mark_sent  # noqa: SLF001
 
     await c._handle(_event([  # noqa: SLF001
-        {"id": "first", "filename": "a.pdf"},  # no sizeBytes -> unknown
-        {"id": "second", "filename": "b.pdf", "sizeBytes": 5 * MB},
+        {"id": unknown_id, "filename": "a.pdf"},  # no sizeBytes -> unknown
+        {"id": known_id, "filename": "b.pdf", "sizeBytes": 5 * MB},
     ]))
 
     sent = mailer.sends[0]
-    # Only 2 MB was left after "first" spent 8 of the 10 MB budget, so
-    # "second" (declared 5 MB) must be skipped like any other over-budget
-    # file, not silently attached on top of what "first" already spent.
-    assert [a[0] for a in sent["attachments"]] == ["a.pdf"]
-    assert "b.pdf" in sent["text_body"]
+    # Only ~5 MB was left after the known-size batch actually spent 5 of the
+    # 10 MB budget, so the unknown-size file (8 MB on the wire) must be
+    # skipped like any other over-budget file, not silently attached on top
+    # of what the known batch already spent.
+    assert [a[0] for a in sent["attachments"]] == ["b.pdf"]
+    assert "a.pdf" in sent["text_body"]
 
 
 @pytest.mark.asyncio
