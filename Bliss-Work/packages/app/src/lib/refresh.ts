@@ -98,11 +98,28 @@ useSession.subscribe((s) => {
   if (s.status === "authed") sessionDead = false;
 });
 
+// Bumped on every session-store mutation (sign-in, sign-out, a sibling tab's
+// broadcast adoption) — see its one use below. Zustand's subscribe fires on
+// every set() regardless of whether the values actually changed, which is
+// exactly what we want: ANY intervening mutation invalidates a refresh that
+// started before it.
+let epoch = 0;
+useSession.subscribe(() => {
+  epoch += 1;
+});
+
 async function performRefresh(
   authBase: string,
   persist?: (token: string | null) => void,
   getRefreshToken?: () => Promise<string | null>,
 ): Promise<SessionDTO | null> {
+  // Captured before anything that can yield to other code (the lock wait, the
+  // fetch). If the user signs out — or signs in as someone else — while this
+  // refresh is in flight, `epoch` moves and the stale result below is
+  // discarded instead of resurrecting a session the user just left, or
+  // clobbering the one they just started. See the check after the fetch.
+  const startEpoch = epoch;
+
   // #3: a sibling tab just refreshed and broadcast its session while we were
   // queued on the lock — adopt it rather than rotating the cookie a second time.
   const recent = getRecentSession();
@@ -196,6 +213,13 @@ async function performRefresh(
     const parsed = SessionDTO.safeParse(await res.json());
     if (!parsed.success) return null;
     const s = parsed.data;
+    // The session store moved while this request was on the wire (sign-out,
+    // or a sign-in as someone else) — this result is for a session that no
+    // longer applies. Answer null rather than writing it in: a caller in the
+    // middle of signing out must not watch the UI flip back to signed-in a
+    // moment later, and a caller mid-login must not have their new session
+    // overwritten by a rotation that started before it.
+    if (epoch !== startEpoch) return null;
     useSession.getState().setSession({ user: s.user, accessToken: s.accessToken, expiresIn: s.expiresIn });
     persist?.(s.accessToken);
     // Tell sibling tabs so they adopt this session instead of rotating again.
