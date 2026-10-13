@@ -158,6 +158,14 @@ class RecurrenceSpec(BaseModel):
 # validated as UUIDs so a malformed id is a clean 422 at the edge rather than a
 # deeper failure when it reaches a SQL binding or the messaging-svc fan-out.
 class CreateTaskRequest(BaseModel):
+    # The task's own identity — what every task list, card, chat header,
+    # notification and export shows as its heading. Kept separate from `title`
+    # below, which (despite the name) is actually the PROJECT this task is
+    # filed under: it is looked up/created via resolve_or_create_project and
+    # never stored as the task's title. Renaming `title` would ripple through
+    # every existing caller and test that already treats it as the project
+    # name, so it is left as-is and the real task title is this new field.
+    taskTitle: str = Field(min_length=1, max_length=200)
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=10_000)
     assigneeIds: list[str] = Field(default_factory=list, max_length=MAX_ASSIGNEES)
@@ -185,6 +193,18 @@ class CreateTaskRequest(BaseModel):
         if value is not None and value.tzinfo is None:
             raise ValueError("datetimes must include a timezone")
         return value
+
+    @field_validator("taskTitle")
+    @classmethod
+    def _task_title_is_not_blank(cls, value: str) -> str:
+        # min_length=1 alone would accept a whitespace-only string (len > 0 but
+        # nothing to show as the task's heading), so trim here and reject what
+        # that leaves empty — the client is expected to trim too, but the
+        # server is the boundary that actually enforces it.
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("taskTitle must not be empty or whitespace-only")
+        return trimmed
 
     @model_validator(mode="after")
     def _validate_allocation(self) -> "CreateTaskRequest":
@@ -393,10 +413,18 @@ class SentTaskDTO(BaseModel):
     participants: list[dict]
 
 
+ProjectStatus = Literal["ACTIVE", "COMPLETED"]
+
+
 class ProjectDTO(BaseModel):
     id: str
     name: str
     channelId: str
+    status: ProjectStatus
+    # Caller is this project's creator or an org_admin → the client renders
+    # the Complete Project button. The server re-checks regardless (see
+    # routes/projects_write.py) — this only decides what to OFFER.
+    canComplete: bool
 
 
 class TransitionResponse(BaseModel):
@@ -558,3 +586,43 @@ class ChannelAnalyticsDTO(BaseModel):
     statusBreakdown: StatusBreakdownDTO
     completion: CompletionMetricsDTO
     workload: list[AssigneeWorkloadDTO]
+
+
+class ProjectTaskAssigneeDTO(BaseModel):
+    assigneeId: str
+    assigneeUsername: str
+    status: AssigneeStatus
+    assignedAt: str | None = None
+
+
+# Per-task status in a project's breakdown list — the same completed/abandoned/
+# remaining rule the completion metrics above are built from (see the module
+# docstring), surfaced per task instead of only in aggregate.
+ProjectTaskStatus = Literal["COMPLETED", "ABANDONED", "IN_PROGRESS"]
+
+
+class ProjectTaskSummaryDTO(BaseModel):
+    taskId: str
+    title: str
+    senderId: str
+    senderUsername: str
+    createdAt: str
+    deadlineAt: str | None = None
+    # True once at least one assignee row on this task is MISSED — the same
+    # outcome deadlines.py's sweep already owns, never re-derived from
+    # deadlineAt client-side.
+    overdue: bool
+    taskStatus: ProjectTaskStatus
+    assignees: list[ProjectTaskAssigneeDTO]
+
+
+class ProjectAnalyticsDTO(BaseModel):
+    projectId: str
+    statusBreakdown: StatusBreakdownDTO
+    completion: CompletionMetricsDTO
+    workload: list[AssigneeWorkloadDTO]
+    overdueUniqueTasks: int
+    tasks: list[ProjectTaskSummaryDTO]
+    tasksOffset: int
+    tasksLimit: int
+    tasksTotal: int

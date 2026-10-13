@@ -58,11 +58,21 @@ async def test_failed_task_write_preserves_committed_project_key(db_app, seed_me
 
     async with await _client() as c:
         with pytest.raises(RuntimeError):
-            await c.post("/api/v1/tasks", json={"title": "lost with the first attempt", "assigneeIds": [SENDER]})
+            await c.post(
+                "/api/v1/tasks",
+                json={
+                    "taskTitle": "lost with the first attempt",
+                    "title": "lost with the first attempt",
+                    "assigneeIds": [SENDER],
+                },
+            )
         assert await _org_key_rows() == 1, "the committed project key must survive the failed task transaction"
 
         # A retry within the cache TTL must use the committed project key.
-        r = await c.post("/api/v1/tasks", json={"title": "the retry", "assigneeIds": [SENDER]})
+        r = await c.post(
+            "/api/v1/tasks",
+            json={"taskTitle": "the retry", "title": "the retry", "assigneeIds": [SENDER]},
+        )
         assert r.status_code == 201, r.text
         assert await _org_key_rows() == 1
 

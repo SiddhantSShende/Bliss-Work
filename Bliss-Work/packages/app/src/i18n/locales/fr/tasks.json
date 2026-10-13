@@ -37,7 +37,19 @@
     "openChannel": "Ouvrir le canal du projet",
     "lookupFailed": "La recherche du projet a échoué. Réessayez ou continuez la création de la tâche.",
     "unavailable": "Ce projet est introuvable ou vous n’y avez pas accès.",
-    "syncFailed": "La tâche a été enregistrée, mais l’appartenance au canal du projet n’a pas pu être mise à jour."
+    "syncFailed": "La tâche a été enregistrée, mais l’appartenance au canal du projet n’a pas pu être mise à jour.",
+    "completeProject": {
+      "button": "Terminer le projet",
+      "confirmDialog": {
+        "title": "Terminer ce projet ?",
+        "message": "Toutes les tâches de ce projet sont terminées. Marquer le projet comme terminé masque cette action, et le projet ne pourra plus être rouvert.",
+        "confirmLabel": "Terminer le projet"
+      },
+      "toasts": {
+        "success": "Projet marqué comme terminé.",
+        "failed": "Impossible de terminer le projet."
+      }
+    }
   },
   "tasksList": {
     "header": "Tâches",
@@ -465,6 +477,28 @@
       "abandonedTasks": "Tâches abandonnées",
       "remainingTasks": "Tâches restantes",
       "workloadHeading": "Charge de travail par personne"
+    },
+    "project": {
+      "title": "Tableau de bord du projet",
+      "emptyTitle": "Aucune tâche pour le moment",
+      "emptyHint": "Les tâches créées ou assignées dans ce projet apparaîtront ici.",
+      "retry": "Réessayer",
+      "totalTasks": "Tâches au total",
+      "completedTasks": "Tâches terminées",
+      "overdueTasks": "Tâches en retard",
+      "remainingTasks": "Tâches restantes",
+      "workloadHeading": "Charge de travail par personne",
+      "breakdownHeading": "Tâches",
+      "loadMore": "Charger plus",
+      "overdueBadge": "En retard",
+      "taskStatus": {
+        "COMPLETED": "Terminée",
+        "IN_PROGRESS": "En cours",
+        "ABANDONED": "Abandonnée"
+      },
+      "sentBy": "Envoyée par {{name}}",
+      "createdOn": "Créée le {{date}}",
+      "deadlineOn": "Échéance le {{date}}"
     },
     "completion": {
       "assignmentRate": "Taux d'achèvement des attributions",

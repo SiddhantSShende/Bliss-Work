@@ -62,14 +62,30 @@ export function CreateTaskDialog({
   open,
   onClose,
   preselect = [],
+  prefillTaskTitle,
+  prefillDescription,
+  onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   preselect?: UserDTO[];
+  /** Seeds the task title field when the dialog opens — "Create task" from a
+   *  self-chat note. Omitted (every existing call site), the field opens
+   *  blank exactly as it always has. Only applied on open, same as
+   *  `preselect` below: editing it after is a prop update, not a reset. */
+  prefillTaskTitle?: string;
+  /** Seeds the description field alongside `prefillTaskTitle` above. */
+  prefillDescription?: string;
+  /** Fires once, after the task is actually created, with its id — so a
+   *  caller that opened this dialog FOR something (a message, a note) can
+   *  link back to the real task it created. Omitted, nothing extra happens;
+   *  the dialog's own success toast + close still do. */
+  onCreated?: (taskId: string) => void;
 }) {
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const qc = useQueryClient();
+  const [taskTitle, setTaskTitle] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
@@ -116,6 +132,12 @@ export function CreateTaskDialog({
 
   useEffect(() => {
     if (open) {
+      // Only touched when a caller actually asks for a prefill — every
+      // existing call site that doesn't pass one keeps today's behavior
+      // (whatever was left in these fields from before, cleared only on a
+      // successful create below).
+      if (prefillTaskTitle !== undefined) setTaskTitle(prefillTaskTitle);
+      if (prefillDescription !== undefined) setDescription(prefillDescription);
       setSelectedPeople(new Set(preselect.map((u) => u.id)));
       setSelectedChannels(new Map());
       setAllocation("NOW");
@@ -165,6 +187,7 @@ export function CreateTaskDialog({
     // task, so a member who joins one later is added to it.
     mutationFn: () =>
       api.createTask({
+        taskTitle: taskTitle.trim(),
         title,
         description,
         allocation,
@@ -180,7 +203,8 @@ export function CreateTaskDialog({
         ...(allocation === "RECURRING" ? { recurrence: recurrencePayload() } : {}),
         ...(deadlineAt ? { deadlineAt } : {}),
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      onCreated?.(data.taskId);
       // Only a lone channel gets the channel-specific toast: with people (or other
       // channels) alongside it, "sent to #general — 12 members" would undercount.
       const assignmentChannels = [...selectedChannels.values()].filter((channel) => !channel.projectLocked);
@@ -208,6 +232,7 @@ export function CreateTaskDialog({
       // New SENT rows change the "n pending, unacked" hints in the Available
       // bucket (allocating doesn't make anyone unavailable, but it does queue).
       qc.invalidateQueries({ queryKey: qk.availability });
+      setTaskTitle("");
       setTitle("");
       setDescription("");
       setSelectedPeople(new Set());
@@ -233,7 +258,16 @@ export function CreateTaskDialog({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inFlight.current) return;
+    if (!taskTitle.trim()) return toast.error(t("createTaskDialog.errors.needTaskTitle"));
     if (!title.trim()) return toast.error(t("createTaskDialog.errors.needTitle"));
+    // The locked project channel never counts here: task-svc deliberately
+    // excludes a task's own project channel from recipient resolution (its
+    // membership mirrors whoever has EVER been assigned under this project
+    // title, across unrelated tasks, so treating it as a pick would silently
+    // fan a new task out to people who have nothing to do with it) and 400s
+    // "at least one assignee required" on a request that carries only that
+    // channel. Matching that here client-side avoids a submit that can only
+    // ever fail server-side.
     const assignmentChannelCount = [...selectedChannels.values()].filter((channel) => !channel.projectLocked).length;
     if (selectedPeople.size === 0 && assignmentChannelCount === 0)
       return toast.error(t("createTaskDialog.errors.needAssignee"));
@@ -301,6 +335,15 @@ export function CreateTaskDialog({
         {/* LEFT: what the task is and when it is allocated — the selected allocation
             mode decides which of start / repeat / deadline appear. */}
         <div className="flex min-w-0 flex-col gap-3.5">
+          <Field label={t("createTaskDialog.fields.taskTitle")}>
+            <Input
+              value={taskTitle}
+              onChange={(e) => setTaskTitle(e.target.value)}
+              required
+              maxLength={200}
+              placeholder={t("createTaskDialog.fields.taskTitlePlaceholder")}
+            />
+          </Field>
           <Field label={t("createTaskDialog.fields.title")}>
             <Input
               value={title}

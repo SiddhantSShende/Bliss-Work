@@ -31,7 +31,19 @@
     "openChannel": "プロジェクトチャンネルを開く",
     "lookupFailed": "プロジェクトを検索できませんでした。再試行するか、タスクの作成を続けてください。",
     "unavailable": "プロジェクトが見つからないか、アクセス権がありません。",
-    "syncFailed": "タスクは保存されましたが、プロジェクトチャンネルのメンバーを更新できませんでした。"
+    "syncFailed": "タスクは保存されましたが、プロジェクトチャンネルのメンバーを更新できませんでした。",
+    "completeProject": {
+      "button": "プロジェクトを完了",
+      "confirmDialog": {
+        "title": "このプロジェクトを完了しますか？",
+        "message": "このプロジェクトのすべてのタスクが完了しています。完了にすると、この操作は表示されなくなり、プロジェクトを再度開くことはできません。",
+        "confirmLabel": "プロジェクトを完了"
+      },
+      "toasts": {
+        "success": "プロジェクトを完了としてマークしました。",
+        "failed": "プロジェクトを完了できませんでした。"
+      }
+    }
   },
   "tasksList": {
     "header": "タスク",
@@ -441,6 +453,28 @@
       "abandonedTasks": "放棄されたタスク",
       "remainingTasks": "残りのタスク",
       "workloadHeading": "担当者別の作業量"
+    },
+    "project": {
+      "title": "プロジェクトダッシュボード",
+      "emptyTitle": "まだタスクがありません",
+      "emptyHint": "このプロジェクトで作成または割り当てられたタスクがここに表示されます。",
+      "retry": "再試行",
+      "totalTasks": "タスク総数",
+      "completedTasks": "完了したタスク",
+      "overdueTasks": "期限超過のタスク",
+      "remainingTasks": "残りのタスク",
+      "workloadHeading": "担当者別の作業量",
+      "breakdownHeading": "タスク",
+      "loadMore": "もっと読み込む",
+      "overdueBadge": "期限超過",
+      "taskStatus": {
+        "COMPLETED": "完了",
+        "IN_PROGRESS": "進行中",
+        "ABANDONED": "放棄"
+      },
+      "sentBy": "{{name}} が送信",
+      "createdOn": "{{date}} に作成",
+      "deadlineOn": "{{date}} が期限"
     },
     "completion": {
       "assignmentRate": "割り当て完了率",

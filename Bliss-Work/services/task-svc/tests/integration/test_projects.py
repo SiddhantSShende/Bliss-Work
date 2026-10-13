@@ -46,7 +46,8 @@ async def _q(sql: str, **params) -> list:
 async def _create(title: str, assignee_id: str, *, org_id: str = ORG) -> httpx.Response:
     async with await _client(org_id=org_id) as client:
         return await client.post(
-            "/api/v1/tasks", json={"title": title, "assigneeIds": [assignee_id]}
+            "/api/v1/tasks",
+            json={"taskTitle": title, "title": title, "assigneeIds": [assignee_id]},
         )
 
 
@@ -110,7 +111,13 @@ async def test_create_and_reuse_project_channel_without_assigning_its_existing_m
     async with lookup as client:
         response = await client.get("/api/v1/projects/by-name", params={"name": " QUARTERLY planning "})
     assert response.status_code == 200, response.text
-    assert response.json() == {"id": project_id, "name": "Quarterly Planning", "channelId": channel_id}
+    assert response.json() == {
+        "id": project_id,
+        "name": "Quarterly Planning",
+        "channelId": channel_id,
+        "status": "ACTIVE",
+        "canComplete": True,
+    }
 
 
 async def test_concurrent_same_name_creation_claims_one_project_and_channel(
@@ -257,6 +264,7 @@ async def test_scheduled_occurrence_inherits_project_without_channel_assignment_
         scheduled = await client.post(
             "/api/v1/tasks",
             json={
+                "taskTitle": "Recurring project",
                 "title": "Recurring project",
                 "assigneeIds": [assignee],
                 "allocation": "SCHEDULED",
@@ -312,6 +320,7 @@ async def test_scheduled_project_sync_failure_rolls_back_and_retries(
         response = await client.post(
             "/api/v1/tasks",
             json={
+                "taskTitle": "Retry project membership",
                 "title": "Retry project membership",
                 "assigneeIds": [assignee],
                 "allocation": "SCHEDULED",

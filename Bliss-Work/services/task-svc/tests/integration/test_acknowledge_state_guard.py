@@ -53,7 +53,9 @@ async def _assignee_status(task_id: str, assignee_id: str) -> str:
 async def test_acknowledge_after_complete_is_a_conflict_not_a_fake_success(db_app, seed_members):
     await seed_members(ORG, SENDER)
     async with await _client() as c:
-        r = await c.post("/api/v1/tasks", json={"title": "one shot", "assigneeIds": [SENDER]})
+        r = await c.post(
+            "/api/v1/tasks", json={"taskTitle": "one shot", "title": "one shot", "assigneeIds": [SENDER]}
+        )
         assert r.status_code == 201, r.text
         task_id = r.json()["taskId"]
 
@@ -76,7 +78,9 @@ async def test_acknowledge_after_complete_is_a_conflict_not_a_fake_success(db_ap
 async def test_acknowledge_twice_in_a_row_is_still_idempotent(db_app, seed_members):
     await seed_members(ORG, SENDER)
     async with await _client() as c:
-        r = await c.post("/api/v1/tasks", json={"title": "double ack", "assigneeIds": [SENDER]})
+        r = await c.post(
+            "/api/v1/tasks", json={"taskTitle": "double ack", "title": "double ack", "assigneeIds": [SENDER]}
+        )
         assert r.status_code == 201, r.text
         task_id = r.json()["taskId"]
 

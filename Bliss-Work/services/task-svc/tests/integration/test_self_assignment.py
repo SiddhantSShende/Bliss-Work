@@ -63,7 +63,7 @@ async def test_self_assignment_is_accepted_and_persists(db_app, seed_members):
     async with await _client() as c:
         r = await c.post(
             "/api/v1/tasks",
-            json={"title": "Follow up with myself", "assigneeIds": [SENDER]},
+            json={"taskTitle": "Follow up with myself", "title": "Follow up with myself", "assigneeIds": [SENDER]},
         )
         assert r.status_code == 201, r.text
         task_id = r.json()["taskId"]
@@ -79,7 +79,7 @@ async def test_self_assigned_task_can_be_acknowledged(db_app, seed_members):
     async with await _client() as c:
         r = await c.post(
             "/api/v1/tasks",
-            json={"title": "Remember to do this", "assigneeIds": [SENDER]},
+            json={"taskTitle": "Remember to do this", "title": "Remember to do this", "assigneeIds": [SENDER]},
         )
         assert r.status_code == 201, r.text
         task_id = r.json()["taskId"]

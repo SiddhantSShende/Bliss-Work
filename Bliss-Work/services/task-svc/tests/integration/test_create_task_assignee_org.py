@@ -38,7 +38,10 @@ async def _client() -> httpx.AsyncClient:
 
 async def _create(assignees: list[str]) -> httpx.Response:
     async with await _client() as c:
-        return await c.post("/api/v1/tasks", json={"title": "Please look at this", "assigneeIds": assignees})
+        return await c.post(
+            "/api/v1/tasks",
+            json={"taskTitle": "Please look at this", "title": "Please look at this", "assigneeIds": assignees},
+        )
 
 
 async def _written_for(user_id: str) -> tuple[int, int]:

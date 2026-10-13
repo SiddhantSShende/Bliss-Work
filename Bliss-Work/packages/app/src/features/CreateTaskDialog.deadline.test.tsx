@@ -42,6 +42,7 @@ function sent() {
 }
 
 async function readyToSend(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByPlaceholderText("Enter task title"), "Ship the report");
   await user.type(screen.getByPlaceholderText("Name this project"), "Ship the report");
   await user.click(screen.getByRole("tab", { name: /^People/ }));
   await user.click(await screen.findByRole("checkbox", { name: /Ada Lovelace/ }));
@@ -79,7 +80,7 @@ describe("no deadline", () => {
     const body = sent();
     expect(body).not.toHaveProperty("deadlineAt");
     expect(body.recurrence).toBeUndefined();
-    expect(Object.keys(body).sort()).toEqual(["allocation", "assigneeIds", "description", "title"]);
+    expect(Object.keys(body).sort()).toEqual(["allocation", "assigneeIds", "description", "taskTitle", "title"]);
   });
 
   it("a recurring task without one sends a recurrence with no `deadline`", async () => {

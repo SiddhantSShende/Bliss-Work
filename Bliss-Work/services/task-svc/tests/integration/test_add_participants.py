@@ -103,7 +103,10 @@ async def _assigned_event_by_assignee(task_id: str, assignee_id: str) -> dict:
 
 async def _new_task(*assignees: str) -> str:
     async with await _client() as c:
-        r = await c.post("/api/v1/tasks", json={"title": "Review report", "assigneeIds": list(assignees)})
+        r = await c.post(
+            "/api/v1/tasks",
+            json={"taskTitle": "Review report", "title": "Review report", "assigneeIds": list(assignees)},
+        )
     assert r.status_code == 201, r.text
     return r.json()["taskId"]
 

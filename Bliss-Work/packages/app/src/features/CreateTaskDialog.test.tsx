@@ -41,7 +41,15 @@ function sent() {
   return h.api.createTask.mock.calls[0]![0] as Record<string, any>;
 }
 
+/** Fills both mandatory text fields: the new Task Title and the existing
+ *  Project Name, with the SAME text — every test below cares only about the
+ *  rest of the form (assignees, schedule, recurrence), and sending the same
+ *  string through both keeps every existing `body.title` assertion valid
+ *  (task-svc's `title` key is still, confusingly, the project name — see
+ *  schemas.py). The dedicated "Task Title" describe block below is what
+ *  actually proves the two fields are independent. */
 async function title(user: ReturnType<typeof userEvent.setup>, text = "Ship the report") {
+  await user.type(screen.getByPlaceholderText("Enter task title"), text);
   await user.type(screen.getByPlaceholderText("Name this project"), text);
 }
 
@@ -209,11 +217,96 @@ describe("Now", () => {
     expect(sent().channelIds).toEqual([project.channelId]);
   });
 
+  it("refuses to submit on the locked project channel alone — task-svc never treats it as a recipient", async () => {
+    // task-svc's /api/v1/tasks strips a task's own project channel out of
+    // recipient resolution before checking for "at least one assignee"
+    // (tasks_write.py: "its existing members may have been assigned to
+    // other project tasks and must not be added to this task implicitly"),
+    // so a request carrying only that channel 400s regardless. Verified
+    // live against a real task-svc + messaging-svc dev stack: the client
+    // refusing it here, instead of letting the request round-trip and fail
+    // server-side, is the correct behavior to preserve.
+    const project = {
+      id: "00000000-0000-4000-8000-000000000001",
+      name: "test",
+      channelId: "00000000-0000-4000-8000-000000000002",
+    };
+    h.api.projectByName.mockResolvedValue(project);
+    const user = openDialog();
+    await title(user, "test");
+    const preview = await screen.findByText("#test");
+    expect(within(preview.closest("li")!).getByRole("checkbox")).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    expect(toast.error).toHaveBeenCalledWith("Pick at least one assignee");
+    expect(h.api.createTask).not.toHaveBeenCalled();
+  });
+
   it("un-ticking a channel clears the pick", async () => {
     const user = openDialog();
     await pickChannel(user, /general/);
     await user.click(screen.getByRole("checkbox", { name: /general/ }));
     expect(tab("Channels", 0)).toBeInTheDocument();
+  });
+});
+
+describe("Task Title", () => {
+  it("is a field of its own, above Project Name, sent separately in the payload", async () => {
+    const user = openDialog();
+    await user.type(screen.getByPlaceholderText("Enter task title"), "Fix the login bug");
+    await user.type(screen.getByPlaceholderText("Name this project"), "Website Redesign");
+    await pickAssignee(user, /Ada Lovelace/);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    const body = sent();
+    expect(body.taskTitle).toBe("Fix the login bug");
+    expect(body.title).toBe("Website Redesign");
+  });
+
+  it("refuses to submit with no task title, even with a project name and an assignee picked", async () => {
+    const user = openDialog();
+    await user.type(screen.getByPlaceholderText("Name this project"), "Website Redesign");
+    await pickAssignee(user, /Ada Lovelace/);
+    // The field's own `required` attribute would otherwise block a real click
+    // on Create Task via native constraint validation before React ever sees
+    // the submit — firing the form's submit event directly is how the rest of
+    // this file already reaches the JS-level checks (see "duplicate submission").
+    fireEvent.submit(document.querySelector("form")!);
+
+    expect(toast.error).toHaveBeenCalledWith("Give the task a title");
+    expect(h.api.createTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses to submit on a whitespace-only task title", async () => {
+    const user = openDialog();
+    await user.type(screen.getByPlaceholderText("Enter task title"), "   ");
+    await user.type(screen.getByPlaceholderText("Name this project"), "Website Redesign");
+    await pickAssignee(user, /Ada Lovelace/);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    expect(toast.error).toHaveBeenCalledWith("Give the task a title");
+    expect(h.api.createTask).not.toHaveBeenCalled();
+  });
+
+  it("trims the task title before sending it", async () => {
+    const user = openDialog();
+    await user.type(screen.getByPlaceholderText("Enter task title"), "  Fix the login bug  ");
+    await user.type(screen.getByPlaceholderText("Name this project"), "Website Redesign");
+    await pickAssignee(user, /Ada Lovelace/);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    expect(sent().taskTitle).toBe("Fix the login bug");
+  });
+
+  it("refuses to submit with no project name, even with a task title and an assignee picked", async () => {
+    const user = openDialog();
+    await user.type(screen.getByPlaceholderText("Enter task title"), "Fix the login bug");
+    await pickAssignee(user, /Ada Lovelace/);
+    fireEvent.submit(document.querySelector("form")!);
+
+    expect(toast.error).toHaveBeenCalledWith("Give the task a project name");
+    expect(h.api.createTask).not.toHaveBeenCalled();
   });
 });
 

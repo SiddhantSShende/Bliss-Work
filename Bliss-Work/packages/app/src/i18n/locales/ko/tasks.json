@@ -31,7 +31,19 @@
     "openChannel": "프로젝트 채널 열기",
     "lookupFailed": "프로젝트를 찾지 못했습니다. 다시 시도하거나 작업 생성을 계속하세요.",
     "unavailable": "프로젝트를 찾을 수 없거나 접근 권한이 없습니다.",
-    "syncFailed": "작업은 저장했지만 프로젝트 채널 멤버십을 업데이트하지 못했습니다."
+    "syncFailed": "작업은 저장했지만 프로젝트 채널 멤버십을 업데이트하지 못했습니다.",
+    "completeProject": {
+      "button": "프로젝트 완료",
+      "confirmDialog": {
+        "title": "이 프로젝트를 완료하시겠습니까?",
+        "message": "이 프로젝트의 모든 작업이 완료되었습니다. 완료로 표시하면 이 작업이 숨겨지고, 프로젝트를 다시 열 수 없습니다.",
+        "confirmLabel": "프로젝트 완료"
+      },
+      "toasts": {
+        "success": "프로젝트가 완료로 표시되었습니다.",
+        "failed": "프로젝트를 완료할 수 없습니다."
+      }
+    }
   },
   "tasksList": {
     "header": "태스크",
@@ -441,6 +453,28 @@
       "abandonedTasks": "포기된 작업",
       "remainingTasks": "남은 작업",
       "workloadHeading": "담당자별 업무량"
+    },
+    "project": {
+      "title": "프로젝트 대시보드",
+      "emptyTitle": "아직 작업이 없습니다",
+      "emptyHint": "이 프로젝트에서 생성되거나 할당된 작업이 여기에 표시됩니다.",
+      "retry": "다시 시도",
+      "totalTasks": "전체 작업 수",
+      "completedTasks": "완료된 작업",
+      "overdueTasks": "기한 초과 작업",
+      "remainingTasks": "남은 작업",
+      "workloadHeading": "담당자별 업무량",
+      "breakdownHeading": "작업",
+      "loadMore": "더 보기",
+      "overdueBadge": "기한 초과",
+      "taskStatus": {
+        "COMPLETED": "완료",
+        "IN_PROGRESS": "진행 중",
+        "ABANDONED": "포기됨"
+      },
+      "sentBy": "{{name}} 보냄",
+      "createdOn": "{{date}}에 생성됨",
+      "deadlineOn": "{{date}}까지"
     },
     "completion": {
       "assignmentRate": "할당 완료율",

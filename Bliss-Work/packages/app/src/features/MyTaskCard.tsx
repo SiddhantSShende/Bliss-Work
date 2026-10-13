@@ -1,12 +1,13 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, MessageSquarePlus, Star } from "lucide-react";
+import { ChevronDown, MessageSquarePlus, Star, UserMinus } from "lucide-react";
 import { Avatar, Badge, Button, GlassCard, IconButton } from "@taskboard/ui";
+import type { TaskParticipantDTO } from "@taskboard/shared";
 import { isReassignableTask, type SentAssignee, type SentTaskMatch } from "../lib/sentTaskFilter";
 import { summarizeSentTask, type SentTaskSummaryKind } from "../lib/sentTaskSummary";
 import type { ParticipantTargets } from "./AddParticipantsPicker";
 import { ReassignTaskButton } from "./ReassignTaskButton";
-import { TaskParticipants } from "./TaskParticipants";
+import { isActive, TaskParticipantAdd } from "./TaskParticipants";
 import { TaskTimes } from "./TaskTimes";
 
 /** People drawn in the avatar stack before the rest fold into "+N". */
@@ -67,6 +68,7 @@ export function MyTaskCard({
 }) {
   const { t } = useTranslation("tasks");
   const [open, setOpen] = useState(false);
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const panelId = useId();
   const summary = summarizeSentTask(assignees);
   const tone = SUMMARY_TONE[summary.kind];
@@ -76,13 +78,35 @@ export function MyTaskCard({
   const named = participants.map((p) => ({ id: p.userId, name: nameOf(p.userId, p.username) }));
   const names = named.map((p) => p.name);
   const extra = named.length - AVATAR_LIMIT;
+  // The allocator viewing their own sent task always qualifies (allocatorId
+  // is always currentUserId below), so Add/Withdraw are gated only on there
+  // being an open assignment to act on — same rule TaskParticipants applies.
+  const hasOpenAssignment = participants.some(isActive);
+  const removable = (participant: TaskParticipantDTO) => participant.userId !== currentUserId && isActive(participant);
+  // Fire-and-forget from onClick: the caller's mutation already reports its own
+  // failure (the onError toast), so a rejection here would otherwise be unhandled.
+  const withdraw = async (userId: string) => {
+    setWithdrawingId(userId);
+    try {
+      await onWithdraw(task.taskId, userId);
+    } catch {
+      // Reported by the caller; the row re-enables below so it can be retried.
+    } finally {
+      setWithdrawingId(null);
+    }
+  };
 
   return (
     <GlassCard data-testid="task-card" className="relative min-w-0 overflow-hidden">
       <span aria-hidden className={`absolute inset-y-0 left-0 w-1 ${ACCENT_BAR[tone]}`} />
       <div className="grid items-center gap-x-6 gap-y-3 py-3 pl-5 pr-4 md:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_10rem_minmax(14rem,18rem)]">
         <div className="min-w-0">
-          <div className="line-clamp-1 break-words font-semibold text-fg">{task.title}</div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="min-w-0 flex-1 line-clamp-1 break-words font-semibold text-fg">{task.title}</div>
+            {hasOpenAssignment && (
+              <TaskParticipantAdd participants={participants} onAdd={(targets) => onAdd(task.taskId, targets)} prominent />
+            )}
+          </div>
           {task.description && <p className="mt-0.5 line-clamp-2 min-w-0 break-words text-sm text-muted">{task.description}</p>}
         </div>
 
@@ -120,57 +144,104 @@ export function MyTaskCard({
       </div>
 
       {open && (
-        <div id={panelId} className="grid gap-x-6 gap-y-4 border-t border-border/50 py-3 pl-5 pr-4 lg:grid-cols-2">
-          <div className="min-w-0">
-            <TaskParticipants
-              participants={participants}
-              currentUserId={currentUserId}
-              allocatorId={currentUserId}
-              layout="list"
-              className=""
-              onAdd={(targets) => onAdd(task.taskId, targets)}
-              onWithdraw={(userId) => onWithdraw(task.taskId, userId)}
-            />
-          </div>
-          <div className="flex min-w-0 flex-col divide-y divide-border/50">
-            {assignees.map((a) => (
-              <AssigneeTimeline key={a.assigneeId} assignee={a} onReview={() => onReview(a)} />
+        <div id={panelId} className="border-t border-border/50 py-3 pl-5 pr-4">
+          <ul className="flex min-w-0 flex-col divide-y divide-border/50">
+            {participants.map((participant) => (
+              <ParticipantRow
+                key={participant.userId}
+                participant={participant}
+                assignee={assignees.find((a) => a.assigneeId === participant.userId)}
+                name={nameOf(participant.userId, participant.username)}
+                avatarUrl={avatarUrlOf(participant.userId)}
+                removable={removable(participant)}
+                busy={withdrawingId === participant.userId}
+                onWithdraw={() => void withdraw(participant.userId)}
+                onReview={onReview}
+              />
             ))}
-          </div>
+          </ul>
         </div>
       )}
     </GlassCard>
   );
 }
 
-/** One assignee's status + full timeline + the review the allocator left. */
-function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; onReview: () => void }) {
+/**
+ * One participant per row: avatar, name, their live status, the full
+ * milestone timeline and review the allocator left (when this participant
+ * has a matching assignee record), and Withdraw where permitted. Replaces the
+ * old side-by-side participants/timeline columns, which listed the same
+ * person twice.
+ */
+function ParticipantRow({
+  participant,
+  assignee,
+  name,
+  avatarUrl,
+  removable,
+  busy,
+  onWithdraw,
+  onReview,
+}: {
+  participant: TaskParticipantDTO;
+  assignee?: SentAssignee;
+  name: string;
+  avatarUrl?: string | null;
+  removable: boolean;
+  busy: boolean;
+  onWithdraw: () => void;
+  onReview: (assignee: SentAssignee) => void;
+}) {
   const { t, i18n } = useTranslation("tasks");
-  const milestones = [
-    { label: t("myTasksBoard.milestones.allocated"), at: a.assignedAt },
-    { label: t("myTasksBoard.milestones.acknowledged"), at: a.acknowledgedAt },
-    { label: t("myTasksBoard.milestones.ignored"), at: a.ignoredAt },
-    { label: t("myTasksBoard.milestones.completed"), at: a.completedAt },
-    { label: t("myTasksBoard.milestones.left"), at: a.leftAt },
-    { label: t("myTasksBoard.milestones.missed"), at: a.missedAt },
-    { label: t("myTasksBoard.milestones.reviewed"), at: a.reviewedAt },
-  ].filter((m) => m.at);
+  const status = assignee?.status ?? participant.status;
+  const milestones = assignee
+    ? [
+        { label: t("myTasksBoard.milestones.allocated"), at: assignee.assignedAt },
+        { label: t("myTasksBoard.milestones.acknowledged"), at: assignee.acknowledgedAt },
+        { label: t("myTasksBoard.milestones.ignored"), at: assignee.ignoredAt },
+        { label: t("myTasksBoard.milestones.completed"), at: assignee.completedAt },
+        { label: t("myTasksBoard.milestones.left"), at: assignee.leftAt },
+        { label: t("myTasksBoard.milestones.missed"), at: assignee.missedAt },
+        { label: t("myTasksBoard.milestones.reviewed"), at: assignee.reviewedAt },
+      ].filter((m) => m.at)
+    : [];
 
   return (
-    <div className="py-2 first:pt-0 last:pb-0">
+    <li className="flex min-w-0 flex-col gap-1.5 py-2 first:pt-0 last:pb-0">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
-        <span className="inline-flex min-w-[min(8rem,100%)] items-center gap-2 text-sm font-medium text-fg">
-          <span className="min-w-0 truncate">{a.assigneeUsername}</span>
-          <Badge tone={statusTone(a.status)}>{a.status.toLowerCase()}</Badge>
+        <span className="inline-flex min-w-[min(10rem,100%)] max-w-full flex-1 items-center gap-2 text-sm font-medium text-fg">
+          <Avatar name={name} src={avatarUrl} size="sm" />
+          <span className="min-w-0 truncate">{name}</span>
+          <Badge tone={statusTone(status)} className="min-w-0 max-w-full">
+            <span className="truncate">{status.toLowerCase()}</span>
+          </Badge>
         </span>
-        {a.status === "COMPLETED" && (
-          <Button variant="ghost" size="sm" className="max-w-full" onClick={onReview}>
-            <MessageSquarePlus size={14} /> {a.review ? t("myTasksBoard.review.edit") : t("myTasksBoard.review.write")}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {assignee && assignee.status === "COMPLETED" && (
+            <Button variant="ghost" size="sm" className="max-w-full" onClick={() => onReview(assignee)}>
+              <MessageSquarePlus size={14} /> {assignee.review ? t("myTasksBoard.review.edit") : t("myTasksBoard.review.write")}
+            </Button>
+          )}
+          {removable && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="max-w-full text-danger"
+              aria-label={t("participants.withdrawUser", { name })}
+              disabled={busy}
+              onClick={onWithdraw}
+            >
+              {/* Visible text is just "Withdraw" (per-row identity already comes from the
+                  avatar + name to its left); the aria-label keeps each row distinguishable
+                  for a screen reader tabbing straight to the button. */}
+              <UserMinus size={14} className="shrink-0" />
+              <span className="min-w-0 truncate">{t("participants.withdraw")}</span>
+            </Button>
+          )}
+        </div>
       </div>
       {milestones.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
           {milestones.map((m) => (
             <span key={m.label}>
               <span className="text-fg/70">{m.label}</span> {fmtTs(m.at, i18n.language)}
@@ -178,18 +249,18 @@ function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; o
           ))}
         </div>
       )}
-      {a.review && (
-        <div className="mt-2 rounded-lg bg-surface-2/60 p-2.5 text-sm">
-          {a.reviewRating != null && (
+      {assignee?.review && (
+        <div className="rounded-lg bg-surface-2/60 p-2.5 text-sm">
+          {assignee.reviewRating != null && (
             <div className="mb-1 flex items-center gap-0.5">
               {[1, 2, 3, 4, 5].map((n) => (
-                <Star key={n} size={14} className={n <= a.reviewRating! ? "fill-amber-400 text-amber-400" : "text-muted/40"} />
+                <Star key={n} size={14} className={n <= assignee.reviewRating! ? "fill-amber-400 text-amber-400" : "text-muted/40"} />
               ))}
             </div>
           )}
-          <p className="whitespace-pre-wrap text-muted">{a.review}</p>
+          <p className="whitespace-pre-wrap text-muted">{assignee.review}</p>
         </div>
       )}
-    </div>
+    </li>
   );
 }

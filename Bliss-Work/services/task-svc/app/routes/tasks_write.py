@@ -452,7 +452,7 @@ async def create_task(
         # The Kafka event below still carries plaintext (the relay + messaging
         # projection need it) — we keep the plaintext in-memory and only store
         # ciphertext.
-        title_enc = await cryptor().encrypt(db, org_id, project.name)
+        title_enc = await cryptor().encrypt(db, org_id, body.taskTitle)
         desc_enc = await cryptor().encrypt(db, org_id, body.description or "")
 
         if body.allocation != "NOW":
@@ -510,7 +510,7 @@ async def create_task(
             assignee_ids=assignee_ids,
             sender_id=sender_id,
             sender_username=sender_username,
-            title=project.name,
+            title=body.taskTitle,
             description=body.description or "",
             channel_origin=channel_origin,
         )

@@ -43,7 +43,7 @@ vi.mock("../features/AddParticipantsPicker", () => ({
   ),
 }));
 
-import { Tasks } from "./Tasks";
+import { ProjectAssignedTasks, Tasks } from "./Tasks";
 
 const person = (userId: string, username: string, status: AssigneeStatus) => ({ userId, username, status }) as TaskParticipantDTO;
 
@@ -86,6 +86,18 @@ function mount(view = "allocated") {
 }
 
 const card = (title: string) => screen.getByText(title).closest("[data-task-card]") as HTMLElement;
+
+function mountProject(projectId: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <ProjectAssignedTasks projectId={projectId} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  return client;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -201,10 +213,10 @@ describe("Allocated to me — Add member only, no participants block", () => {
     const body = card("Review the deck").firstElementChild as HTMLElement;
     expect(body.className).toContain("14rem");
     const side = body.lastElementChild as HTMLElement;
-    expect(within(side).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Chat", "Add member"]);
+    expect(within(side).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Chat", "Share to Notes to Self", "Add member"]);
 
     const sent = card("Write the report").firstElementChild!.lastElementChild as HTMLElement;
-    expect(within(sent).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Acknowledge", "Ignore", "Chat", "Add member"]);
+    expect(within(sent).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Acknowledge", "Ignore", "Chat", "Share to Notes to Self", "Add member"]);
     // Full width, so it reads as part of the action area rather than a stray link.
     expect(within(side).getByRole("button", { name: "Add member" })).toHaveClass("w-full");
   });
@@ -275,5 +287,62 @@ describe("Other task views keep their participants", () => {
     await screen.findByText("Old job");
 
     expect((card("Old job").firstElementChild as HTMLElement).className).not.toContain("14rem");
+  });
+});
+
+describe("Project page — Assigned to you keeps participants, loses only Withdraw", () => {
+  const PROJECT = "bbbbbbbb-0000-4000-8000-000000000001";
+
+  beforeEach(() => {
+    server = [
+      task(A, "Write the report", "SENT", { projectId: PROJECT }),
+      // The viewer allocated this one AND is an open assignee on it, so both the
+      // allocator's "Withdraw piyush" and the viewer's own "Withdraw" would show
+      // elsewhere — neither should show here.
+      task(C, "Plan the offsite", "ACKNOWLEDGED", {
+        senderId: ME,
+        projectId: PROJECT,
+        participants: [person(ME, "me", "ACKNOWLEDGED"), person(PIYUSH, "piyush", "SENT")],
+      }),
+    ];
+  });
+
+  it("shows participants, their status and Add member, but no Withdraw button at all", async () => {
+    mountProject(PROJECT);
+    await screen.findByText("Write the report");
+
+    for (const title of ["Write the report", "Plan the offsite"]) {
+      const c = within(card(title));
+      expect(c.getByText(/participants/i)).toBeInTheDocument();
+      expect(c.getByText("piyush")).toBeInTheDocument();
+      expect(c.getByRole("button", { name: "Add member" })).toBeInTheDocument();
+      expect(c.queryByRole("button", { name: /withdraw/i })).toBeNull();
+    }
+    expect(screen.queryByRole("button", { name: /withdraw/i })).toBeNull();
+  });
+
+  it("Leave still works on the viewer's own acknowledged row", async () => {
+    mountProject(PROJECT);
+    await screen.findByText("Plan the offsite");
+
+    fireEvent.click(within(card("Plan the offsite")).getByRole("button", { name: "Leave" }));
+
+    await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledExactlyOnceWith(C, "leave"));
+    expect(mocks.api.withdrawTaskParticipant).not.toHaveBeenCalled();
+  });
+
+  it("Add member still works", async () => {
+    mountProject(PROJECT);
+    await screen.findByText("Write the report");
+
+    fireEvent.click(within(card("Write the report")).getByRole("button", { name: "Add member" }));
+    fireEvent.click(await screen.findByRole("button", { name: "confirm picker" }));
+
+    await waitFor(() =>
+      expect(mocks.api.addTaskParticipants).toHaveBeenCalledExactlyOnceWith(A, {
+        userIds: ["55555555-5555-4555-8555-555555555555"],
+        channelIds: [],
+      }),
+    );
   });
 });

@@ -6,6 +6,7 @@ from . import (
     availability,
     participants,
     projects_read,
+    projects_write,
     reassign,
     reviews,
     schedules,
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/api/v1")
 router.include_router(tasks_write.router)
 router.include_router(participants.router)
 router.include_router(projects_read.router)
+router.include_router(projects_write.router)
 router.include_router(reassign.router)
 router.include_router(tasks_read.router)
 router.include_router(transitions.router)

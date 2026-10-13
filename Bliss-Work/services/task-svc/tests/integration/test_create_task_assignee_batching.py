@@ -108,7 +108,12 @@ async def test_multi_assignee_create_batches_all_rows(db_app, seed_members):
     async with await _client() as c:
         r = await c.post(
             "/api/v1/tasks",
-            json={"title": "Ship it", "description": "batched fan-out", "assigneeIds": assignees},
+            json={
+                "taskTitle": "Ship it",
+                "title": "Ship it",
+                "description": "batched fan-out",
+                "assigneeIds": assignees,
+            },
         )
         assert r.status_code == 201, r.text
         task_id = r.json()["taskId"]
@@ -138,7 +143,7 @@ async def test_idempotency_key_replay_returns_same_task_without_duplicating_rows
     claim-then-insert race handling this batching change must not disturb."""
     assignees = [str(uuid.uuid4()) for _ in range(2)]
     await seed_members(ORG, *assignees)
-    body = {"title": "Ship it twice?", "assigneeIds": assignees}
+    body = {"taskTitle": "Ship it twice?", "title": "Ship it twice?", "assigneeIds": assignees}
     headers = {"Idempotency-Key": "replay-key-1"}
 
     async with await _client() as c:
@@ -176,7 +181,10 @@ async def test_channel_assignee_list_over_cap_is_rejected(db_app, monkeypatch):
     monkeypatch.setattr(tasks_write, "_resolve_channel_members", _fake_resolve)
 
     async with await _client() as c:
-        r = await c.post("/api/v1/tasks", json={"title": "Company all-hands", "channelId": CHANNEL})
+        r = await c.post(
+            "/api/v1/tasks",
+            json={"taskTitle": "Company all-hands", "title": "Company all-hands", "channelId": CHANNEL},
+        )
         assert r.status_code == 400, r.text
         assert "too many assignees" in r.json()["error"]["message"]
 
@@ -197,7 +205,10 @@ async def test_channel_assignee_list_at_cap_is_accepted(db_app, monkeypatch):
     monkeypatch.setattr(tasks_write, "_resolve_channel_members", _fake_resolve)
 
     async with await _client() as c:
-        r = await c.post("/api/v1/tasks", json={"title": "Company all-hands", "channelId": CHANNEL})
+        r = await c.post(
+            "/api/v1/tasks",
+            json={"taskTitle": "Company all-hands", "title": "Company all-hands", "channelId": CHANNEL},
+        )
         assert r.status_code == 201, r.text
         task_id = r.json()["taskId"]
 

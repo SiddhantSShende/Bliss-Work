@@ -89,7 +89,7 @@ describe("My Tasks workspace", () => {
 });
 
 describe("My Tasks card", () => {
-  it("holds the task, its people and its standing in one band, with the controls hidden until Details", async () => {
+  it("holds the task, its people and its standing in one band, with per-person controls hidden until Details", async () => {
     renderBoard();
     await screen.findByText("Open task");
     const card = cardOf("Open task");
@@ -98,10 +98,11 @@ describe("My Tasks card", () => {
     expect(within(card).getByRole("img", { name: "alice" })).toBeInTheDocument(); // the avatar stack
     expect(within(card).getByText("pending")).toBeInTheDocument(); // the status badge
     expect(within(card).getByTestId("task-times")).toBeInTheDocument(); // assigned
-    expect(within(card).queryByRole("button", { name: "Add member" })).not.toBeInTheDocument();
+    // Add member lives in the header, next to the title, so it needs no Details expansion.
+    expect(within(card).getByRole("button", { name: "Add member" })).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /Withdraw/ })).not.toBeInTheDocument();
 
     await userEvent.setup().click(within(card).getByRole("button", { name: "Details", expanded: false }));
-    expect(within(card).getByRole("button", { name: "Add member" })).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: /Withdraw/ })).toBeInTheDocument();
   });
 

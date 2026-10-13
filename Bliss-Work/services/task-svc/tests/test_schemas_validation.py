@@ -4,6 +4,7 @@ These bounds are the edge defence against unbounded-input DoS / storage abuse an
 malformed-id failures reaching the SQL layer or the messaging-svc fan-out, so the
 contract is load-bearing:
 
+  * taskTitle       -> 1..200 chars (empty, whitespace-only, or over-long rejected)
   * title           -> 1..200 chars (empty or over-long rejected)
   * description     -> 0..10_000 chars (over-long rejected)
   * assigneeIds     -> <=500 items, every item a valid UUID
@@ -33,7 +34,8 @@ _UID2 = str(uuid.uuid4())
 
 
 def test_minimal_valid_request() -> None:
-    req = CreateTaskRequest(title="Ship it", assigneeIds=[_UID])
+    req = CreateTaskRequest(taskTitle="Ship it", title="Ship it", assigneeIds=[_UID])
+    assert req.taskTitle == "Ship it"
     assert req.title == "Ship it"
     assert req.description == ""
     assert req.assigneeIds == [_UID]
@@ -41,9 +43,16 @@ def test_minimal_valid_request() -> None:
 
 
 def test_valid_with_channel_and_description() -> None:
-    req = CreateTaskRequest(title="x", description="d" * 10_000, channelId=_UID)
+    req = CreateTaskRequest(taskTitle="x", title="x", description="d" * 10_000, channelId=_UID)
     assert req.channelId == _UID
     assert len(req.description) == 10_000
+
+
+def test_task_title_is_trimmed_and_blank_is_rejected() -> None:
+    req = CreateTaskRequest(taskTitle="  Ship it  ", title="x", assigneeIds=[_UID])
+    assert req.taskTitle == "Ship it"
+    with pytest.raises(ValidationError):
+        CreateTaskRequest(taskTitle="   ", title="x", assigneeIds=[_UID])
 
 
 @pytest.mark.parametrize(
@@ -57,26 +66,34 @@ def test_valid_with_channel_and_description() -> None:
         {"title": "ok", "assigneeIds": [_UID, ""]},  # empty-string assignee
         {"title": "ok", "channelId": "nope"},  # non-UUID channel
         {"title": "ok", "channelId": "12345"},  # numeric-but-not-UUID channel
+        {"title": "ok", "taskTitle": ""},  # taskTitle below min_length
+        {"title": "ok", "taskTitle": "x" * 201},  # taskTitle above max_length
+        {"title": "ok", "taskTitle": "   "},  # taskTitle whitespace-only
     ],
 )
 def test_invalid_requests_rejected(kwargs: dict) -> None:
+    kwargs = {"taskTitle": "ok", **kwargs}
     with pytest.raises(ValidationError):
         CreateTaskRequest(**kwargs)
 
 
 def test_boundary_values_accepted() -> None:
     # Exactly at the limits is valid (off-by-one guard).
-    CreateTaskRequest(title="t" * 200, description="d" * 10_000, assigneeIds=[_UID] * 500)
+    CreateTaskRequest(
+        taskTitle="t" * 200, title="t" * 200, description="d" * 10_000, assigneeIds=[_UID] * 500
+    )
 
 
 def test_multiple_valid_uuid_assignees() -> None:
-    req = CreateTaskRequest(title="t", assigneeIds=[_UID, _UID2])
+    req = CreateTaskRequest(taskTitle="t", title="t", assigneeIds=[_UID, _UID2])
     assert req.assigneeIds == [_UID, _UID2]
 
 
 def test_scheduled_request_requires_a_future_timezone_aware_time() -> None:
     when = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
-    req = CreateTaskRequest(title="later", assigneeIds=[_UID], allocation="SCHEDULED", scheduledFor=when)
+    req = CreateTaskRequest(
+        taskTitle="later", title="later", assigneeIds=[_UID], allocation="SCHEDULED", scheduledFor=when
+    )
     assert req.allocation == "SCHEDULED"
     assert req.scheduledFor is not None and req.scheduledFor.tzinfo is not None
 
@@ -84,6 +101,7 @@ def test_scheduled_request_requires_a_future_timezone_aware_time() -> None:
 def test_weekly_recurrence_requires_weekdays() -> None:
     with pytest.raises(ValidationError):
         CreateTaskRequest(
+            taskTitle="weekly",
             title="weekly",
             assigneeIds=[_UID],
             allocation="RECURRING",
@@ -98,6 +116,7 @@ def test_weekly_recurrence_requires_weekdays() -> None:
 def test_monthly_recurrence_requires_a_rule() -> None:
     with pytest.raises(ValidationError):
         CreateTaskRequest(
+            taskTitle="monthly",
             title="monthly",
             assigneeIds=[_UID],
             allocation="RECURRING",
@@ -113,6 +132,7 @@ def test_recurrence_end_conditions_require_matching_values() -> None:
     start = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
     with pytest.raises(ValidationError):
         CreateTaskRequest(
+            taskTitle="daily",
             title="daily",
             assigneeIds=[_UID],
             allocation="RECURRING",

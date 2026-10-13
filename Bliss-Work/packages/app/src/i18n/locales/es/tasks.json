@@ -37,7 +37,19 @@
     "openChannel": "Abrir canal del proyecto",
     "lookupFailed": "No se pudo buscar el proyecto. Vuelve a intentarlo o continúa creando la tarea.",
     "unavailable": "No se encontró este proyecto o no tienes acceso.",
-    "syncFailed": "La tarea se guardó, pero no se pudo actualizar la pertenencia al canal del proyecto."
+    "syncFailed": "La tarea se guardó, pero no se pudo actualizar la pertenencia al canal del proyecto.",
+    "completeProject": {
+      "button": "Completar proyecto",
+      "confirmDialog": {
+        "title": "¿Completar este proyecto?",
+        "message": "Todas las tareas de este proyecto están completas. Marcarlo como completado oculta esta acción, y el proyecto ya no podrá reabrirse.",
+        "confirmLabel": "Completar proyecto"
+      },
+      "toasts": {
+        "success": "Proyecto marcado como completado.",
+        "failed": "No se pudo completar el proyecto."
+      }
+    }
   },
   "tasksList": {
     "header": "Tareas",
@@ -465,6 +477,28 @@
       "abandonedTasks": "Tareas abandonadas",
       "remainingTasks": "Tareas restantes",
       "workloadHeading": "Carga de trabajo por persona"
+    },
+    "project": {
+      "title": "Panel del proyecto",
+      "emptyTitle": "Aún no hay tareas",
+      "emptyHint": "Las tareas creadas o asignadas en este proyecto aparecerán aquí.",
+      "retry": "Reintentar",
+      "totalTasks": "Tareas totales",
+      "completedTasks": "Tareas completadas",
+      "overdueTasks": "Tareas vencidas",
+      "remainingTasks": "Tareas restantes",
+      "workloadHeading": "Carga de trabajo por persona",
+      "breakdownHeading": "Tareas",
+      "loadMore": "Cargar más",
+      "overdueBadge": "Vencida",
+      "taskStatus": {
+        "COMPLETED": "Completada",
+        "IN_PROGRESS": "En curso",
+        "ABANDONED": "Abandonada"
+      },
+      "sentBy": "Enviada por {{name}}",
+      "createdOn": "Creada el {{date}}",
+      "deadlineOn": "Vence el {{date}}"
     },
     "completion": {
       "assignmentRate": "Tasa de finalización de asignaciones",

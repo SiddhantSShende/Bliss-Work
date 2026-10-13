@@ -26,6 +26,16 @@ export const qk = {
    *  refetched on normal TanStack staleness/refocus like any other snapshot. */
   taskAnalytics: (taskId: string) => ["tasks", "analytics", taskId] as const,
   channelAnalytics: (channelId: string) => ["tasks", "channelAnalytics", channelId] as const,
+  /** Paginated (see useInfiniteQuery in ProjectAnalyticsPanel) — one key per
+   *  project, not per page; TanStack keeps every fetched page under it. */
+  projectAnalytics: (projectId: string) => ["tasks", "projectAnalytics", projectId] as const,
+  /** Whole-project completion check for the "Complete Project" button — the
+   *  same completion aggregate ProjectAnalyticsPanel's dashboard renders, but
+   *  fetched by a plain useQuery under its OWN key: that panel reads the
+   *  identical endpoint through useInfiniteQuery on `projectAnalytics` above,
+   *  and TanStack does not support a plain and an infinite query sharing one
+   *  cache entry's shape. */
+  projectCompletion: (projectId: string) => ["tasks", "projectCompletion", projectId] as const,
   /** Calls the caller is expected at, including cross-org meetings. */
   calls: ["calls"] as const,
   call: (id: string) => ["calls", id] as const,

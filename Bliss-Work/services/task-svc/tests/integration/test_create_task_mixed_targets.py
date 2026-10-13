@@ -124,7 +124,9 @@ async def _assigned_event_by_assignee(task_id: str, assignee_id: str) -> dict:
 
 async def _create(**body) -> httpx.Response:
     async with await _client() as c:
-        return await c.post("/api/v1/tasks", json={"title": "Review report", **body})
+        return await c.post(
+            "/api/v1/tasks", json={"taskTitle": "Review report", "title": "Review report", **body}
+        )
 
 
 # 1 ──────────────────────────────────────────────────────────────────────────
@@ -361,7 +363,7 @@ async def test_idempotent_replay_of_a_mixed_create_is_the_same_task(db_app, seed
     a, c, m = _id(), _id(), _id()
     await seed_members(ORG, a)
     channels[c] = [m]
-    body = {"title": "Once", "assigneeIds": [a], "channelIds": [c]}
+    body = {"taskTitle": "Once", "title": "Once", "assigneeIds": [a], "channelIds": [c]}
     async with await _client() as cl:
         r1 = await cl.post("/api/v1/tasks", json=body, headers={"Idempotency-Key": "mixed-1"})
         r2 = await cl.post("/api/v1/tasks", json=body, headers={"Idempotency-Key": "mixed-1"})
@@ -376,7 +378,7 @@ async def test_legacy_idempotency_primary_key_rejects_other_sender(db_app, seed_
 
     assignee = _id()
     await seed_members(ORG, assignee)
-    body = {"title": "Actor-owned", "assigneeIds": [assignee]}
+    body = {"taskTitle": "Actor-owned", "title": "Actor-owned", "assigneeIds": [assignee]}
 
     def principal_b():
         return Principal(
@@ -409,7 +411,7 @@ async def test_legacy_version_idempotency_write_is_safe_during_rollback_window(
 ):
     assignee = _id()
     await seed_members(ORG, assignee)
-    body = {"title": "Legacy write", "assigneeIds": [assignee]}
+    body = {"taskTitle": "Legacy write", "title": "Legacy write", "assigneeIds": [assignee]}
     async with await _client() as client:
         created = await client.post("/api/v1/tasks", json=body)
     assert created.status_code == 201, created.text
@@ -442,12 +444,12 @@ async def test_idempotency_key_rejects_different_request_body(db_app, seed_membe
     async with await _client() as client:
         first = await client.post(
             "/api/v1/tasks",
-            json={"title": "Original", "assigneeIds": [assignee]},
+            json={"taskTitle": "Original", "title": "Original", "assigneeIds": [assignee]},
             headers={"Idempotency-Key": "body-bound-key"},
         )
         replay = await client.post(
             "/api/v1/tasks",
-            json={"title": "Different", "assigneeIds": [assignee]},
+            json={"taskTitle": "Different", "title": "Different", "assigneeIds": [assignee]},
             headers={"Idempotency-Key": "body-bound-key"},
         )
 

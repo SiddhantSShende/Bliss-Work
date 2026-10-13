@@ -31,7 +31,19 @@
     "openChannel": "打开项目频道",
     "lookupFailed": "项目查找失败。请重试，或继续创建任务。",
     "unavailable": "未找到此项目，或你无权访问。",
-    "syncFailed": "任务已保存，但无法更新项目频道成员。"
+    "syncFailed": "任务已保存，但无法更新项目频道成员。",
+    "completeProject": {
+      "button": "完成项目",
+      "confirmDialog": {
+        "title": "完成此项目？",
+        "message": "此项目的所有任务均已完成。标记为已完成后，此操作将被隐藏，项目将无法重新打开。",
+        "confirmLabel": "完成项目"
+      },
+      "toasts": {
+        "success": "项目已标记为完成。",
+        "failed": "无法完成项目。"
+      }
+    }
   },
   "tasksList": {
     "header": "任务",
@@ -441,6 +453,28 @@
       "abandonedTasks": "已放弃任务",
       "remainingTasks": "剩余任务",
       "workloadHeading": "各成员工作量"
+    },
+    "project": {
+      "title": "项目看板",
+      "emptyTitle": "暂无任务",
+      "emptyHint": "在此项目中创建或分配的任务将显示在这里。",
+      "retry": "重试",
+      "totalTasks": "任务总数",
+      "completedTasks": "已完成任务",
+      "overdueTasks": "逾期任务",
+      "remainingTasks": "剩余任务",
+      "workloadHeading": "各成员工作量",
+      "breakdownHeading": "任务",
+      "loadMore": "加载更多",
+      "overdueBadge": "逾期",
+      "taskStatus": {
+        "COMPLETED": "已完成",
+        "IN_PROGRESS": "进行中",
+        "ABANDONED": "已放弃"
+      },
+      "sentBy": "由 {{name}} 发送",
+      "createdOn": "创建于 {{date}}",
+      "deadlineOn": "截止于 {{date}}"
     },
     "completion": {
       "assignmentRate": "分配完成率",

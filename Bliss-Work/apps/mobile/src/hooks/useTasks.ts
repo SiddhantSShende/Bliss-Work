@@ -42,13 +42,17 @@ export function useTaskAction() {
 
 /** Assign a new task to one or more people — same `api.createTask` web's
  *  CreateTaskDialog uses in its "People" mode (channel-mode assignment isn't
- *  part of this screen's spec). */
+ *  part of this screen's spec). This screen has no separate project-name
+ *  field, so the one title it collects is sent as both the task's own title
+ *  and the project name — exactly what task-svc already did with this single
+ *  string before `taskTitle` existed, so the project this quick task lands
+ *  under is unchanged. */
 export function useCreateTask() {
   const { api } = useRuntime();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ title, description, assigneeIds }: { title: string; description: string; assigneeIds: string[] }) =>
-      api.createTask({ title, description, assigneeIds }),
+      api.createTask({ taskTitle: title, title, description, assigneeIds }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.tasksSent });
     },

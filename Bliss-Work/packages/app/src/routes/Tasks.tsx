@@ -213,6 +213,16 @@ function AssignedBucket({ view, projectId }: { view: string; projectId?: string 
   );
   const { openDiscussion, busy: chatBusy } = useOpenTaskDiscussion();
 
+  // "Share to Notes to Self" — posts a reference to the task (resolved and
+  // rendered as a card by ChatThread via taskId) into the caller's own
+  // self-chat. No server-side confirmation needed beyond the toast: nothing
+  // destructive happens, and the card is immediately visible from there.
+  const shareToSelfChat = useMutation({
+    mutationFn: (taskId: string) => api.shareTaskToSelfChat(taskId, t("card.shareToSelfChatBody", { ns: "stickies" })),
+    onSuccess: () => toast.success(t("toasts.sharedToSelfChat", { ns: "stickies" })),
+    onError: () => toast.error(t("toasts.shareToSelfChatFailed", { ns: "stickies" })),
+  });
+
   const act = useMutation({
     mutationFn: ({ taskId, action }: { taskId: string; action: TaskAction }) =>
       api.taskAction(taskId, verb[action]),
@@ -304,6 +314,13 @@ function AssignedBucket({ view, projectId }: { view: string; projectId?: string 
       // My own transition moves me into/out of the Available roster — refresh it
       // here rather than waiting for the WS echo.
       void qc.invalidateQueries({ queryKey: qk.availability });
+      // Acting from a project's "Assigned to you" section can be the exact
+      // thing that makes the Complete Project button eligible — refresh its
+      // whole-project completion check without waiting for a remount.
+      if (projectId) {
+        void qc.invalidateQueries({ queryKey: qk.projectAnalytics(projectId) });
+        void qc.invalidateQueries({ queryKey: qk.projectCompletion(projectId) });
+      }
     },
   });
   // Withdraw from your own assignment is the Ignore / Leave mutation above, not a
@@ -374,13 +391,21 @@ function AssignedBucket({ view, projectId }: { view: string; projectId?: string 
                 landscape
                 // Allocated to me is the viewer's own work: no participants block there.
                 hideParticipants={view === "allocated"}
-                onWithdrawSelf={(action) => withdrawSelf(task.taskId, action)}
+                // The project page's "Assigned to you" section keeps the participants
+                // block (names, statuses, Add member) but drops both Withdraw controls —
+                // leaving/removing yourself still works via the Leave button in the
+                // action row below, which is unaffected by this.
+                onWithdrawSelf={view === "project" ? undefined : (action) => withdrawSelf(task.taskId, action)}
                 // The top-right corner is the user's shared Pin / Unpin — only for
                 // a task that can still float. Ignore and Leave stay in the
                 // button row.
                 headerPin={canPinTask(task.myStatus) ? <TaskPinToggle taskId={task.taskId} /> : undefined}
                 onAddParticipants={(targets) => membership.mutateAsync({ taskId: task.taskId, targets }).then(() => undefined)}
-                onWithdrawParticipant={(userId) => withdrawal.mutateAsync({ taskId: task.taskId, userId }).then(() => undefined)}
+                onWithdrawParticipant={
+                  view === "project"
+                    ? undefined
+                    : (userId) => withdrawal.mutateAsync({ taskId: task.taskId, userId }).then(() => undefined)
+                }
                 onChat={() =>
                   openDiscussion(
                     task.channelId
@@ -390,6 +415,8 @@ function AssignedBucket({ view, projectId }: { view: string; projectId?: string 
                 }
                 chatBusy={chatBusy}
                 chatUnreadCount={unreadByTask.get(task.taskId)}
+                onShareToSelfChat={() => shareToSelfChat.mutate(task.taskId)}
+                shareBusy={shareToSelfChat.isPending && shareToSelfChat.variables === task.taskId}
               />
             </motion.div>
           );

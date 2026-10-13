@@ -34,7 +34,19 @@
     "openChannel": "Projektkanal öffnen",
     "lookupFailed": "Die Projektsuche ist fehlgeschlagen. Versuche es erneut oder erstelle die Aufgabe trotzdem.",
     "unavailable": "Dieses Projekt wurde nicht gefunden oder du hast keinen Zugriff.",
-    "syncFailed": "Die Aufgabe wurde gespeichert, aber die Projektkanal-Mitgliedschaft konnte nicht aktualisiert werden."
+    "syncFailed": "Die Aufgabe wurde gespeichert, aber die Projektkanal-Mitgliedschaft konnte nicht aktualisiert werden.",
+    "completeProject": {
+      "button": "Projekt abschließen",
+      "confirmDialog": {
+        "title": "Dieses Projekt abschließen?",
+        "message": "Alle Aufgaben in diesem Projekt sind abgeschlossen. Wenn du das Projekt als abgeschlossen markierst, wird diese Aktion ausgeblendet, und das Projekt kann nicht mehr geöffnet werden.",
+        "confirmLabel": "Projekt abschließen"
+      },
+      "toasts": {
+        "success": "Projekt als abgeschlossen markiert.",
+        "failed": "Das Projekt konnte nicht abgeschlossen werden."
+      }
+    }
   },
   "tasksList": {
     "header": "Aufgaben",
@@ -453,6 +465,28 @@
       "abandonedTasks": "Aufgegebene Aufgaben",
       "remainingTasks": "Verbleibende Aufgaben",
       "workloadHeading": "Arbeitslast pro Person"
+    },
+    "project": {
+      "title": "Projekt-Dashboard",
+      "emptyTitle": "Noch keine Aufgaben",
+      "emptyHint": "Aufgaben, die in diesem Projekt erstellt oder zugewiesen werden, erscheinen hier.",
+      "retry": "Erneut versuchen",
+      "totalTasks": "Aufgaben insgesamt",
+      "completedTasks": "Abgeschlossene Aufgaben",
+      "overdueTasks": "Überfällige Aufgaben",
+      "remainingTasks": "Verbleibende Aufgaben",
+      "workloadHeading": "Arbeitslast pro Person",
+      "breakdownHeading": "Aufgaben",
+      "loadMore": "Mehr laden",
+      "overdueBadge": "Überfällig",
+      "taskStatus": {
+        "COMPLETED": "Abgeschlossen",
+        "IN_PROGRESS": "In Bearbeitung",
+        "ABANDONED": "Aufgegeben"
+      },
+      "sentBy": "Gesendet von {{name}}",
+      "createdOn": "Erstellt am {{date}}",
+      "deadlineOn": "Fällig am {{date}}"
     },
     "completion": {
       "assignmentRate": "Zuweisungsabschlussrate",

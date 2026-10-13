@@ -137,9 +137,9 @@ def _future(**delta) -> datetime:
 
 
 def test_no_deadline_is_valid_everywhere() -> None:
-    assert CreateTaskRequest(title="t", assigneeIds=[_UID]).deadlineAt is None
+    assert CreateTaskRequest(taskTitle="t", title="t", assigneeIds=[_UID]).deadlineAt is None
     req = CreateTaskRequest(
-        title="t", assigneeIds=[_UID], allocation="RECURRING",
+        taskTitle="t", title="t", assigneeIds=[_UID], allocation="RECURRING",
         recurrence={"startAt": _future(days=1), "frequency": "DAILY"},
     )
     assert req.recurrence.deadline is None
@@ -147,25 +147,25 @@ def test_no_deadline_is_valid_everywhere() -> None:
 
 def test_an_absolute_deadline_on_an_instant_task() -> None:
     deadline = _future(hours=2)
-    assert CreateTaskRequest(title="t", assigneeIds=[_UID], deadlineAt=deadline).deadlineAt == deadline
+    assert CreateTaskRequest(taskTitle="t", title="t", assigneeIds=[_UID], deadlineAt=deadline).deadlineAt == deadline
 
 
 def test_a_deadline_in_the_past_is_refused() -> None:
     with pytest.raises(ValidationError):
-        CreateTaskRequest(title="t", assigneeIds=[_UID], deadlineAt=_future(minutes=-1))
+        CreateTaskRequest(taskTitle="t", title="t", assigneeIds=[_UID], deadlineAt=_future(minutes=-1))
 
 
 def test_a_deadline_must_include_a_timezone() -> None:
     with pytest.raises(ValidationError):
-        CreateTaskRequest(title="t", assigneeIds=[_UID], deadlineAt=datetime.now() + timedelta(days=1))
+        CreateTaskRequest(taskTitle="t", title="t", assigneeIds=[_UID], deadlineAt=datetime.now() + timedelta(days=1))
 
 
 def test_a_scheduled_deadline_must_be_after_the_scheduled_time() -> None:
     when = _future(days=2)
     with pytest.raises(ValidationError):
-        CreateTaskRequest(title="t", assigneeIds=[_UID], allocation="SCHEDULED", scheduledFor=when, deadlineAt=when)
+        CreateTaskRequest(taskTitle="t", title="t", assigneeIds=[_UID], allocation="SCHEDULED", scheduledFor=when, deadlineAt=when)
     ok = CreateTaskRequest(
-        title="t", assigneeIds=[_UID], allocation="SCHEDULED", scheduledFor=when, deadlineAt=when + timedelta(hours=1)
+        taskTitle="t", title="t", assigneeIds=[_UID], allocation="SCHEDULED", scheduledFor=when, deadlineAt=when + timedelta(hours=1)
     )
     assert ok.deadlineAt == when + timedelta(hours=1)
 
@@ -173,7 +173,7 @@ def test_a_scheduled_deadline_must_be_after_the_scheduled_time() -> None:
 def test_a_recurring_task_cannot_take_an_absolute_deadline() -> None:
     with pytest.raises(ValidationError):
         CreateTaskRequest(
-            title="t", assigneeIds=[_UID], allocation="RECURRING", deadlineAt=_future(days=3),
+            taskTitle="t", title="t", assigneeIds=[_UID], allocation="RECURRING", deadlineAt=_future(days=3),
             recurrence={"startAt": _future(days=1), "frequency": "DAILY"},
         )
 

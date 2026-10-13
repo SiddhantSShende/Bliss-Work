@@ -37,7 +37,19 @@
     "openChannel": "Abrir canal do projeto",
     "lookupFailed": "Não foi possível buscar o projeto. Tente novamente ou continue criando a tarefa.",
     "unavailable": "Este projeto não foi encontrado ou você não tem acesso.",
-    "syncFailed": "A tarefa foi salva, mas não foi possível atualizar a participação no canal do projeto."
+    "syncFailed": "A tarefa foi salva, mas não foi possível atualizar a participação no canal do projeto.",
+    "completeProject": {
+      "button": "Concluir projeto",
+      "confirmDialog": {
+        "title": "Concluir este projeto?",
+        "message": "Todas as tarefas deste projeto estão concluídas. Marcar como concluído oculta esta ação, e o projeto não poderá mais ser reaberto.",
+        "confirmLabel": "Concluir projeto"
+      },
+      "toasts": {
+        "success": "Projeto marcado como concluído.",
+        "failed": "Não foi possível concluir o projeto."
+      }
+    }
   },
   "tasksList": {
     "header": "Tarefas",
@@ -465,6 +477,28 @@
       "abandonedTasks": "Tarefas abandonadas",
       "remainingTasks": "Tarefas restantes",
       "workloadHeading": "Carga de trabalho por pessoa"
+    },
+    "project": {
+      "title": "Painel do projeto",
+      "emptyTitle": "Ainda não há tarefas",
+      "emptyHint": "As tarefas criadas ou atribuídas neste projeto aparecerão aqui.",
+      "retry": "Tentar novamente",
+      "totalTasks": "Total de tarefas",
+      "completedTasks": "Tarefas concluídas",
+      "overdueTasks": "Tarefas atrasadas",
+      "remainingTasks": "Tarefas restantes",
+      "workloadHeading": "Carga de trabalho por pessoa",
+      "breakdownHeading": "Tarefas",
+      "loadMore": "Carregar mais",
+      "overdueBadge": "Atrasada",
+      "taskStatus": {
+        "COMPLETED": "Concluída",
+        "IN_PROGRESS": "Em andamento",
+        "ABANDONED": "Abandonada"
+      },
+      "sentBy": "Enviada por {{name}}",
+      "createdOn": "Criada em {{date}}",
+      "deadlineOn": "Vence em {{date}}"
     },
     "completion": {
       "assignmentRate": "Taxa de conclusão de atribuições",

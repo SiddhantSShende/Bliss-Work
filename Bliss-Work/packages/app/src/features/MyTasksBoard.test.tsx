@@ -327,7 +327,8 @@ describe("MyTasksBoard participants", () => {
     // and t1/t2 have no open assignment to add to.
     const withdraw = screen.getAllByRole("button", { name: /^Withdraw / });
     expect(withdraw.map((b) => b.getAttribute("aria-label"))).toEqual(["Withdraw alice"]);
-    expect(withdraw[0]).toHaveTextContent("Withdraw");
+    // The visible label is just "Withdraw" — the name is reserved for the aria-label above.
+    expect(withdraw[0]).toHaveTextContent(/^Withdraw$/);
     expect(screen.getAllByRole("button", { name: "Add member" })).toHaveLength(1);
   });
 

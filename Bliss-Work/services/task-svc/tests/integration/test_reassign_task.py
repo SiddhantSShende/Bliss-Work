@@ -47,7 +47,13 @@ async def _new_task(*assignees: str, **extra) -> str:
     async with await _as(SENDER) as c:
         r = await c.post(
             "/api/v1/tasks",
-            json={"title": "Review report", "description": "Q3 numbers", "assigneeIds": list(assignees), **extra},
+            json={
+                "taskTitle": "Review report",
+                "title": "Review report",
+                "description": "Q3 numbers",
+                "assigneeIds": list(assignees),
+                **extra,
+            },
         )
     assert r.status_code == 201, r.text
     return r.json()["taskId"]

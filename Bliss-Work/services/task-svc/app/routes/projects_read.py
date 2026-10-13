@@ -37,9 +37,19 @@ _AUTHORIZED_PROJECT = (
 )
 
 
-async def _project_dto(db, org_id: str, row) -> ProjectDTO:
+def _can_complete(row, me: str, roles: list[str]) -> bool:
+    return str(row.created_by) == me or "org_admin" in roles
+
+
+async def _project_dto(db, org_id: str, row, me: str, roles: list[str]) -> ProjectDTO:
     name = await cryptor().decrypt(db, org_id, row.name_enc)
-    return ProjectDTO(id=str(row.id), name=name or "", channelId=str(row.channel_id))
+    return ProjectDTO(
+        id=str(row.id),
+        name=name or "",
+        channelId=str(row.channel_id),
+        status=row.status,
+        canComplete=_can_complete(row, me, roles),
+    )
 
 
 @router.get("/projects/by-name", response_model=ProjectDTO)
@@ -56,7 +66,7 @@ async def project_by_name(
         row = (
             await db.execute(
                 text(
-                    "SELECT p.id, p.name_enc, p.channel_id FROM projects p "
+                    "SELECT p.id, p.name_enc, p.channel_id, p.created_by, p.status FROM projects p "
                     "WHERE p.org_id = :org AND p.name_hash = :name_hash "
                     "AND p.channel_id IS NOT NULL AND " + _AUTHORIZED_PROJECT
                 ),
@@ -65,7 +75,7 @@ async def project_by_name(
         ).first()
         if row is None:
             raise HTTPException(status_code=404, detail="project not found")
-        return await _project_dto(db, principal.org_id, row)
+        return await _project_dto(db, principal.org_id, row, principal.user_id, principal.roles)
 
 
 @router.get("/projects", response_model=list[ProjectDTO])
@@ -79,7 +89,7 @@ async def projects(
         rows = (
             await db.execute(
                 text(
-                    "SELECT p.id, p.name_enc, p.channel_id FROM projects p "
+                    "SELECT p.id, p.name_enc, p.channel_id, p.created_by, p.status FROM projects p "
                     "WHERE p.org_id = :org AND p.channel_id IS NOT NULL AND "
                     + _AUTHORIZED_PROJECT
                     + " ORDER BY p.created_at DESC, p.id DESC LIMIT :limit OFFSET :offset"
@@ -100,7 +110,13 @@ async def projects(
         cryptor().decrypt_batch_cached, principal.org_id, ciphertexts
     )
     return [
-        ProjectDTO(id=str(row.id), name=name or "", channelId=str(row.channel_id))
+        ProjectDTO(
+            id=str(row.id),
+            name=name or "",
+            channelId=str(row.channel_id),
+            status=row.status,
+            canComplete=_can_complete(row, principal.user_id, principal.roles),
+        )
         for row, name in zip(rows, names, strict=True)
     ]
 
@@ -119,7 +135,7 @@ async def project_detail(
         row = (
             await db.execute(
                 text(
-                    "SELECT p.id, p.name_enc, p.channel_id FROM projects p "
+                    "SELECT p.id, p.name_enc, p.channel_id, p.created_by, p.status FROM projects p "
                     "WHERE p.id = :id AND p.org_id = :org "
                     "AND p.channel_id IS NOT NULL AND " + _AUTHORIZED_PROJECT
                 ),
@@ -128,4 +144,4 @@ async def project_detail(
         ).first()
         if row is None:
             raise HTTPException(status_code=404, detail="project not found")
-        return await _project_dto(db, principal.org_id, row)
+        return await _project_dto(db, principal.org_id, row, principal.user_id, principal.roles)

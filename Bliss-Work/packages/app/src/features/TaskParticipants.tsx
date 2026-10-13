@@ -8,7 +8,7 @@ import { AddParticipantsPicker, type ParticipantTargets } from "./AddParticipant
 
 /** Only an open assignment can be extended or withdrawn; COMPLETED, LEFT and
  *  IGNORED are history. The server enforces the same rule (participants.py). */
-const isActive = (participant: TaskParticipantDTO) => participant.status === "SENT" || participant.status === "ACKNOWLEDGED";
+export const isActive = (participant: TaskParticipantDTO) => participant.status === "SENT" || participant.status === "ACKNOWLEDGED";
 
 export function TaskParticipants({
   participants,

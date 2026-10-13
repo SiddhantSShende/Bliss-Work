@@ -34,7 +34,19 @@
     "openChannel": "Open project channel",
     "lookupFailed": "Project lookup failed. Retry, or continue creating the task.",
     "unavailable": "This project was not found or you do not have access.",
-    "syncFailed": "The task was saved, but project channel membership could not be updated."
+    "syncFailed": "The task was saved, but project channel membership could not be updated.",
+    "completeProject": {
+      "button": "Complete Project",
+      "confirmDialog": {
+        "title": "Complete this project?",
+        "message": "Every task in this project is complete. Marking it complete hides this action, and the project can no longer be reopened.",
+        "confirmLabel": "Complete Project"
+      },
+      "toasts": {
+        "success": "Project marked as completed.",
+        "failed": "Could not complete the project."
+      }
+    }
   },
   "tasksList": {
     "header": "Tasks",
@@ -200,6 +212,8 @@
   "createTaskDialog": {
     "title": "New task",
     "fields": {
+      "taskTitle": "Task Title",
+      "taskTitlePlaceholder": "Enter task title",
       "title": "Project Name",
       "titlePlaceholder": "Name this project",
       "description": "Description",
@@ -239,7 +253,8 @@
       "time": "Deadline time"
     },
     "errors": {
-      "needTitle": "Give the task a title",
+      "needTaskTitle": "Give the task a title",
+      "needTitle": "Give the task a project name",
       "needAssignee": "Pick at least one assignee",
       "invalidSchedule": "Choose a future date and time",
       "invalidStart": "Choose a future recurring start",
@@ -453,6 +468,28 @@
       "abandonedTasks": "Abandoned tasks",
       "remainingTasks": "Remaining tasks",
       "workloadHeading": "Per-assignee workload"
+    },
+    "project": {
+      "title": "Project dashboard",
+      "emptyTitle": "No tasks yet",
+      "emptyHint": "Tasks created or assigned under this project will show up here.",
+      "retry": "Retry",
+      "totalTasks": "Total tasks",
+      "completedTasks": "Completed tasks",
+      "overdueTasks": "Overdue tasks",
+      "remainingTasks": "Remaining tasks",
+      "workloadHeading": "Per-assignee workload",
+      "breakdownHeading": "Tasks",
+      "loadMore": "Load more",
+      "overdueBadge": "Overdue",
+      "taskStatus": {
+        "COMPLETED": "Completed",
+        "IN_PROGRESS": "In progress",
+        "ABANDONED": "Abandoned"
+      },
+      "sentBy": "Sent by {{name}}",
+      "createdOn": "Created {{date}}",
+      "deadlineOn": "Due {{date}}"
     },
     "completion": {
       "assignmentRate": "Assignment completion",

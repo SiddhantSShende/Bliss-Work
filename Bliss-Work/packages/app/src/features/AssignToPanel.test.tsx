@@ -93,6 +93,8 @@ describe("opening", () => {
       id: "00000000-0000-4000-8000-000000000001",
       name: "Ship the report",
       channelId: "00000000-0000-4000-8000-000000000002",
+      status: "ACTIVE",
+      canComplete: false,
     };
     mount("channels", project);
     await waitFor(() => expect(rows(channelsBox())).toHaveLength(PAGE + 1));
