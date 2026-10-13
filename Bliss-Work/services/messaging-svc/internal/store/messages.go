@@ -32,6 +32,10 @@ type SendOptions struct {
 	// AttachmentID is required when Kind is MessageKindAttachmentOpened or
 	// MessageKindAttachmentDownloaded — see attachmentForActivity.
 	AttachmentID string
+	// TaskID tags the message as part of a task's DM discussion (see
+	// store.SendTaskDiscussionMessage / task_discussions.go) — "" for an
+	// ordinary message.
+	TaskID string
 }
 
 func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, body, clientMsgID string, opts SendOptions) (*SendResult, error) {
@@ -98,7 +102,7 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 
 		// Top-level send → new thread, this message is the root.
 		res, err := s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "",
-			appendOpts{kind: opts.Kind, origin: opts.Origin, replyToID: opts.ReplyToID, attachmentID: opts.AttachmentID})
+			appendOpts{kind: opts.Kind, origin: opts.Origin, replyToID: opts.ReplyToID, attachmentID: opts.AttachmentID, taskID: opts.TaskID})
 		if err != nil {
 			return err
 		}
@@ -170,7 +174,30 @@ func (s *Store) IsBlockedPair(ctx context.Context, orgID, userA, userB string) (
 // thread context at all, so every chat message except a brand-new conversation's
 // first goes through here with no parent).
 func (s *Store) Reply(ctx context.Context, orgID, senderID, convID, body, clientMsgID, replyToID string) (*SendResult, error) {
-	return s.replyImpl(ctx, orgID, senderID, convID, "", "", body, clientMsgID, replyToID, true, "", "")
+	return s.replyImpl(ctx, orgID, senderID, convID, "", "", body, clientMsgID, replyToID, true, "", "", "")
+}
+
+// ShareTaskToSelfChat appends a task-reference message to the caller's own
+// Notes-to-Self conversation (opening it first if this is its first use),
+// tagged with taskID the same way a task-discussion message is — see
+// appendOpts.taskID. ChatThread's existing task-reference rendering picks it
+// up unchanged.
+//
+// This is NOT a task discussion (internal/store/task_discussions.go): it is
+// one ordinary message, in the caller's OWN conversation, that happens to
+// carry a taskID. Nothing here checks the caller's access to taskID —
+// messaging-svc does not own tasks, and task-svc's own authorization is what
+// decides whether the viewer can resolve and open it later (see
+// lib/useTaskTitles on the frontend). Sharing a reference the caller cannot
+// themselves see later is already impossible: this endpoint only ever
+// shares into the CALLER'S own self-chat, so the sharer and the viewer are
+// the same person and the same authorization check applies to both.
+func (s *Store) ShareTaskToSelfChat(ctx context.Context, orgID, callerID, taskID, body, clientMsgID string) (*SendResult, error) {
+	convID, err := s.OpenSelfChat(ctx, orgID, callerID)
+	if err != nil {
+		return nil, err
+	}
+	return s.replyImpl(ctx, orgID, callerID, convID, "", "", body, clientMsgID, "", true, "", "", taskID)
 }
 
 // ReplyAttachmentActivity appends a MessageKindAttachmentOpened/Downloaded
@@ -188,7 +215,7 @@ func (s *Store) Reply(ctx context.Context, orgID, senderID, convID, body, client
 // for these two kinds from the attachment row itself (attachmentForActivity),
 // so there is nothing for a caller to supply.
 func (s *Store) ReplyAttachmentActivity(ctx context.Context, orgID, senderID, convID, kind, attachmentID, clientMsgID string) (*SendResult, error) {
-	return s.replyImpl(ctx, orgID, senderID, convID, "", "", "", clientMsgID, "", true, kind, attachmentID)
+	return s.replyImpl(ctx, orgID, senderID, convID, "", "", "", clientMsgID, "", true, kind, attachmentID, "")
 }
 
 // ReplyToThread appends a message under a specific parent (Phase 3 /threads
@@ -215,7 +242,31 @@ func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, pa
 	if err != nil {
 		return nil, err
 	}
-	return s.replyImpl(ctx, orgID, senderID, convID, threadID, parentMessageID, body, clientMsgID, replyToID, false, "", "")
+	return s.replyImpl(ctx, orgID, senderID, convID, threadID, parentMessageID, body, clientMsgID, replyToID, false, "", "", "")
+}
+
+// replyToThreadForTask is ReplyToThread plus a taskID tag, for
+// SendTaskDiscussionMessage's continuation branch (a DM task discussion past
+// its first message). Not exported: duplicating ReplyToThread's small
+// thread→conversation lookup here, rather than adding a taskID parameter to
+// the public ReplyToThread, keeps that function's signature — and its other
+// callers — untouched. Mirrors SendChannelTaskMessage's own reasoning for
+// being a sibling of SendChannelMessage rather than a parameter on it.
+func (s *Store) replyToThreadForTask(ctx context.Context, orgID, senderID, threadID, body, clientMsgID, replyToID, taskID string) (*SendResult, error) {
+	var convID string
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		serr := tx.QueryRow(ctx,
+			`SELECT conversation_id FROM threads WHERE id = $1 AND org_id = $2`,
+			threadID, orgID).Scan(&convID)
+		if errors.Is(serr, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		return serr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.replyImpl(ctx, orgID, senderID, convID, threadID, "", body, clientMsgID, replyToID, false, "", "", taskID)
 }
 
 // replyImpl is Reply's and ReplyToThread's shared body. mostRecentThreadFallback
@@ -232,7 +283,9 @@ func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, pa
 //
 // kind/attachmentID are ReplyAttachmentActivity's only — "" for Reply and
 // ReplyToThread, which pass an ordinary text message through untouched.
-func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, knownThreadID, parentMessageID, body, clientMsgID, replyToID string, mostRecentThreadFallback bool, kind, attachmentID string) (*SendResult, error) {
+//
+// taskID is replyToThreadForTask's only — "" for Reply and ReplyToThread.
+func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, knownThreadID, parentMessageID, body, clientMsgID, replyToID string, mostRecentThreadFallback bool, kind, attachmentID, taskID string) (*SendResult, error) {
 	var out *SendResult
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
@@ -311,7 +364,7 @@ func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, knownThr
 		}
 
 		res, err := s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, threadIDHint,
-			appendOpts{replyToID: replyToID, kind: kind, attachmentID: attachmentID})
+			appendOpts{replyToID: replyToID, kind: kind, attachmentID: attachmentID, taskID: taskID})
 		if err != nil {
 			return err
 		}
@@ -353,6 +406,9 @@ type appendOpts struct {
 	// attachmentID is required when kind is MessageKindAttachmentOpened or
 	// MessageKindAttachmentDownloaded — see attachmentForActivity.
 	attachmentID string
+	// taskID tags the row as part of a task's DM discussion — "" for an
+	// ordinary message. See store.SendTaskDiscussionMessage.
+	taskID string
 }
 
 // kindArg is the messages.kind value to insert — 'text' unless a system kind
@@ -573,15 +629,19 @@ func (s *Store) appendMessageTx(
 	if opts.forwardPlatform != "" {
 		forwardPlatformArg = &opts.forwardPlatform
 	}
+	var taskIDArg *string
+	if opts.taskID != "" {
+		taskIDArg = &opts.taskID
+	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO messages
 		   (id, org_id, conversation_id, seq, sender_id, body, body_enc, client_msg_id,
 		    thread_id, parent_message_id, is_thread_root, server_acked_at,
-		    kind, reply_to_id, is_forward, forwarded_from_message_id, forward_platform)
-		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14, $15)`,
+		    kind, reply_to_id, is_forward, forwarded_from_message_id, forward_platform, task_id)
+		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14, $15, $16)`,
 		msgID, orgID, convID, seq, senderID, bodyEnc, clientMsgID,
 		threadID, parentArg, isThreadRoot,
-		opts.kindArg(), replyToArg, opts.isForward, forwardedFromArg, forwardPlatformArg)
+		opts.kindArg(), replyToArg, opts.isForward, forwardedFromArg, forwardPlatformArg, taskIDArg)
 	if err != nil {
 		return nil, err
 	}
@@ -646,6 +706,7 @@ func (s *Store) appendMessageTx(
 		ReplyToID:         opts.replyToID,
 		IsForward:         opts.isForward,
 		ForwardPlatform:   opts.forwardPlatform,
+		TaskID:            opts.taskID,
 		SenderUsername:    senderUsername,
 		SenderDisplayName: senderDisplayName,
 	}

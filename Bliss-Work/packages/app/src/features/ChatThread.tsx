@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Ban, Check, Forward, PhoneMissed, Pin, Camera, Hash, Eye, Download } from "lucide-react";
+import { Link } from "react-router-dom";
+import { MessageSquare, Ban, Check, Forward, ListTodo, PhoneMissed, Pin, Camera, Hash, Eye, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Avatar } from "@taskboard/ui";
@@ -10,6 +11,8 @@ import { parseChatEnvelope, readablePrefix, type MediaItem } from "../lib/chatEn
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { isIdSwapOnly, isNearBottom } from "../lib/threadScroll";
 import { useUserLabels } from "../lib/userLabel";
+import { useTaskCards } from "../lib/useTaskTitles";
+import { formatTaskInstant } from "../lib/taskDates";
 import { waForwardText, waShareLink } from "../lib/waLink";
 import { useWhatsAppMediaForward } from "../lib/useWhatsAppMediaForward";
 import { Composer } from "./Composer";
@@ -59,6 +62,10 @@ export interface ThreadMessage {
   forwardPlatform?: string;
   /** Pinned for everyone in the channel. Channels only; DMs never set it. */
   pinned?: boolean;
+  /** Set when this message was sent through a task's "Chat" entry point.
+   *  Rendered as a permanent, clickable "Task: {title}" label — the per-message
+   *  replacement for the old top-of-conversation "Discussing task" banner. */
+  taskId?: string;
   /** Who has read this one. CHANNELS only — a DM's equivalent is `status`,
    *  which has a single answer because there is a single reader. */
   channelReceipts?: ChannelReadReceiptDTO[];
@@ -184,6 +191,7 @@ export function ChatThread({
   onMarkUnread,
   onDeleteForAll,
   canModerate,
+  onCreateTask,
   onTogglePin,
   onReact,
   replyTo,
@@ -259,6 +267,13 @@ export function ChatThread({
    * the same question would be the same answer N times.
    */
   canModerate?: boolean;
+  /**
+   * Offers "Create task from this" on the caller's own messages. Notes to
+   * Self only — every existing call site omits it, and the action makes no
+   * sense on a message sent TO someone else. Never fires automatically: the
+   * CreateTaskDialog it opens still requires the user to review and submit.
+   */
+  onCreateTask?: (messageId: string) => void;
   /** Pin/unpin a message for everyone. Absent where pinning does not apply
    *  (DMs) or where the caller may not moderate. */
   onTogglePin?: (messageId: string, pinned: boolean) => void;
@@ -344,6 +359,10 @@ export function ChatThread({
   const listRef = useRef<HTMLDivElement>(null);
   const forwardMedia = useWhatsAppMediaForward();
 
+  // Task-reference cards — one lookup per distinct task, not per message
+  // (see useTaskCards).
+  const taskCards = useTaskCards(useMemo(() => messages.flatMap((m) => (m.taskId ? [m.taskId] : [])), [messages]));
+
   // Index for resolving a reply's quoted message, over the pages currently
   // held. A quote whose target predates the loaded window renders via the
   // message's own replyTo* fields instead.
@@ -352,7 +371,12 @@ export function ChatThread({
   // Sender avatars resolved live rather than trusted from `senderName` (which,
   // like the DM/channel row it comes from, can lag a change) — shared by both
   // callers, so this covers a DM's one peer and a channel's whole roster.
-  const { avatarUrlOf } = useUserLabels(useMemo(() => messages.map((m) => m.senderId), [messages]));
+  const { avatarUrlOf, nameOf } = useUserLabels(
+    useMemo(
+      () => [...messages.map((m) => m.senderId), ...[...taskCards.values()].flatMap((c) => c.participantIds)],
+      [messages, taskCards],
+    ),
+  );
 
   // Scroll management, doing two jobs that fight each other.
   //
@@ -690,6 +714,50 @@ export function ChatThread({
                         <Forward size={11} /> {t("thread.forwarded")}
                       </div>
                     )}
+                    {/* Permanent, clickable task reference — replaces the old
+                        top-of-conversation "Discussing task" banner. Reuses the
+                        exact "Open task" route, so a deleted/inaccessible task
+                        renders the same graceful empty state that link already
+                        has (MailTask.tsx). Unchanged from its original shape
+                        (see ChatThread.taskLabel.test.tsx): falls back to the
+                        bare id when the title can't be resolved — deleted, or
+                        taskDetail 404/403'ing because access was revoked after
+                        a share — rather than hiding the label or blocking the
+                        link. A second, OPTIONAL row (status/deadline/assignees)
+                        renders below it only once taskDetail actually resolved;
+                        "can't resolve it" already means nothing further is
+                        shown, which is the access-revoked case handling itself. */}
+                    {m.taskId && !m.deletedForAll && (() => {
+                      const card = taskCards.get(m.taskId);
+                      const title = card?.title || m.taskId;
+                      return (
+                        <>
+                          <Link
+                            to={`/app/mail/task/${m.taskId}`}
+                            className="mb-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-accent hover:underline"
+                          >
+                            <ListTodo size={11} /> {t("thread.task", { title })}
+                          </Link>
+                          {card && !card.unavailable && (
+                            <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-[10px] text-muted">
+                              <span className="rounded-full bg-surface-2 px-1.5 py-0.5 font-medium text-fg ring-1 ring-border/60">
+                                {t(`thread.taskStatus.${card.myStatus}`, { defaultValue: card.myStatus })}
+                              </span>
+                              {card.deadlineAt && (
+                                <span>{t("thread.taskDeadline", { when: formatTaskInstant(card.deadlineAt) })}</span>
+                              )}
+                              {card.participantIds.length > 0 && (
+                                <span className="truncate">
+                                  {t("thread.taskAssignees", {
+                                    names: card.participantIds.map((id) => nameOf(id)).join(", "),
+                                  })}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                     <div className={`group flex items-center gap-1 ${mine ? "flex-row-reverse" : "flex-row"}`}>
                       {m.deletedForAll ? (
                         // A tombstone, not a gap. The body genuinely is not on
@@ -760,6 +828,7 @@ export function ChatThread({
                           onMarkUnread={onMarkUnread ? () => onMarkUnread(m.id) : undefined}
                           onDeleteForAll={onDeleteForAll ? () => onDeleteForAll(m.id) : undefined}
                           canDeleteForAll={mine || !!canModerate}
+                          onCreateTask={mine && onCreateTask ? () => onCreateTask(m.id) : undefined}
                           pinned={m.pinned}
                           onTogglePin={
                             onTogglePin ? () => onTogglePin(m.id, !m.pinned) : undefined

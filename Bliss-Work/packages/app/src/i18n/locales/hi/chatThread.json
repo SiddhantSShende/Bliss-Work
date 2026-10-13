@@ -15,6 +15,18 @@
     },
     "pinned": "पिन किया",
     "forwarded": "फ़ॉरवर्ड किया गया",
+    "task": "कार्य: {{title}}",
+    "taskUnavailable": "कार्य उपलब्ध नहीं है",
+    "taskDeadline": "समय सीमा {{when}}",
+    "taskAssignees": "असाइनी: {{names}}",
+    "taskStatus": {
+      "SENT": "भेजा गया (प्रतीक्षित)",
+      "ACKNOWLEDGED": "स्वीकृत",
+      "COMPLETED": "पूर्ण",
+      "IGNORED": "अनदेखा किया",
+      "LEFT": "छोड़ा",
+      "MISSED": "छूट गया"
+    },
     "tombstone": "यह संदेश हटा दिया गया",
     "deletedMessage": "हटाया गया संदेश",
     "originalMessage": "मूल संदेश",
@@ -77,6 +89,13 @@
     "notFound": {
       "title": "बातचीत नहीं मिली",
       "hint": "साइडबार से कोई दूसरी चुनें।"
+    },
+    "selfChat": {
+      "title": "स्वयं के लिए नोट्स",
+      "subtitle": "आपकी निजी जगह",
+      "composerPlaceholder": "अपने लिए एक नोट लिखें…",
+      "taskCreatedBody": "इस नोट से एक कार्य बनाया गया",
+      "linkTaskFailed": "कार्य बन गया, पर यहाँ लिंक नहीं हो सका"
     },
     "startCall": {
       "blockedNotice": {
@@ -255,6 +274,7 @@
     },
     "menu": {
       "reply": "उत्तर दें",
+      "createTask": "इससे कार्य बनाएं",
       "download": "डाउनलोड करें",
       "downloadNamed": "{{name}} डाउनलोड करें",
       "forwardTo": "चैट या चैनल में फ़ॉरवर्ड करें…",

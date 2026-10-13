@@ -319,6 +319,16 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// navigate to an empty thread instead of sending a fake greeting.
 			r.Post("/conversations", s.openConversation)
 			r.Get("/conversations", s.listConversations)
+			// Notes to Self. A static "self" segment alongside the "{id}" group
+			// below — chi resolves the literal route first, same pattern as any
+			// REST API's "/users/me" next to "/users/{id}". Open-or-create (same
+			// idempotent shape as /conversations above); sending into it goes
+			// through the ordinary /conversations/{id}/reply below once the id
+			// is known — see store.OpenSelfChat for why no new send path is
+			// needed. share-task is the one thing that IS new: the only way to
+			// tag an arbitrary message with a taskId outside a task discussion.
+			r.Post("/conversations/self", s.openSelfChat)
+			r.Post("/conversations/self/share-task", s.shareTaskToSelfChat)
 			// Sidebar badge counts — the lightweight alternative to fetching
 			// the full conversations/channels/inbox-peers lists just to sum
 			// their unread fields. See docs/API-LAZY-LOADING-AUDIT.md D1/S3.
@@ -769,6 +779,56 @@ func (s *Server) openConversation(w http.ResponseWriter, r *http.Request) {
 	// 200, not 201: the conversation may well have already existed, and the
 	// caller cannot tell the difference (nor should it care).
 	writeJSON(w, http.StatusOK, map[string]string{"conversationId": convID})
+}
+
+// openSelfChat opens-or-creates the caller's Notes-to-Self conversation and
+// returns its id. Mirrors openConversation's shape exactly, with no body: the
+// peer is always the caller, so there is nothing for a client to supply. See
+// store.OpenSelfChat for why this is a dedicated entry point rather than
+// openConversation with peerId == self.
+func (s *Server) openSelfChat(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	convID, err := s.store.OpenSelfChat(r.Context(), claims.OrgID, claims.UserID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	// 200, not 201: this may well have already existed — see openConversation.
+	writeJSON(w, http.StatusOK, map[string]string{"conversationId": convID})
+}
+
+type shareTaskToSelfChatReq struct {
+	TaskID      string `json:"taskId"`
+	Body        string `json:"body"`
+	ClientMsgID string `json:"clientMsgId"`
+}
+
+// shareTaskToSelfChat serves the "Share to Notes to Self" action on a task
+// card. taskId is opaque here — task-svc owns the task and its authorization;
+// this only checks that it looks like an id, the same trust boundary
+// task_discussions.go's taskId already crosses. See store.ShareTaskToSelfChat
+// for why no task-existence/membership check belongs in messaging-svc.
+func (s *Server) shareTaskToSelfChat(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	var req shareTaskToSelfChatReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !validUUID(req.TaskID) || req.Body == "" || !validUUID(req.ClientMsgID) {
+		writeErr(w, http.StatusBadRequest, "taskId, body, clientMsgId required")
+		return
+	}
+	if !validMessageBody(req.Body) {
+		writeErr(w, http.StatusBadRequest, errBodyTooLong)
+		return
+	}
+	res, err := s.store.ShareTaskToSelfChat(r.Context(), claims.OrgID, claims.UserID, req.TaskID, req.Body, req.ClientMsgID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, res)
 }
 
 func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {

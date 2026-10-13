@@ -37,6 +37,11 @@
     },
     "you": "Você",
     "startChatting": "Começar a conversar",
+    "selfChat": {
+      "title": "Notas para mim",
+      "subtitle": "Seu espaço pessoal",
+      "openFailed": "Não foi possível abrir Notas para mim"
+    },
     "empty": {
       "title": "Nenhum chat ainda",
       "hint": "Toque em + para iniciar uma conversa."

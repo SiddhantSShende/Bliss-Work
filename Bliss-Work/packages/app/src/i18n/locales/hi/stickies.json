@@ -25,7 +25,8 @@
     "navPrevious": "पिछला पिन किया टास्क",
     "navNext": "अगला पिन किया टास्क",
     "chat": "चैट",
-    "discussingTask": "टास्क पर चर्चा: {{title}}",
+    "shareToSelfChat": "स्वयं के लिए नोट्स में शेयर करें",
+    "shareToSelfChatBody": "यह टास्क शेयर किया गया",
     "openTask": "टास्क खोलें"
   },
   "overlay": {
@@ -39,7 +40,9 @@
     "noteUnpinnedDescription": "वह अब भी आपकी टास्क सूची में है — उसे वहीं से पूरा करें।",
     "unpinFailed": "नोट अनपिन नहीं हो सका",
     "desktopFull": "इस टास्क को डेस्कटॉप पर पिन नहीं किया जा सका।",
-    "chatOpenFailed": "वह चैट नहीं खुल सकी. कृपया फिर से प्रयास करें."
+    "chatOpenFailed": "वह चैट नहीं खुल सकी. कृपया फिर से प्रयास करें.",
+    "sharedToSelfChat": "स्वयं के लिए नोट्स में शेयर किया गया",
+    "shareToSelfChatFailed": "इस टास्क को स्वयं के लिए नोट्स में शेयर नहीं किया जा सका"
   },
   "window": {
     "loading": "लोड हो रहा है…",

@@ -15,6 +15,18 @@
     },
     "pinned": "Épinglé",
     "forwarded": "Transféré",
+    "task": "Tâche : {{title}}",
+    "taskUnavailable": "Tâche indisponible",
+    "taskDeadline": "Échéance : {{when}}",
+    "taskAssignees": "Assigné à : {{names}}",
+    "taskStatus": {
+      "SENT": "Envoyée (en attente)",
+      "ACKNOWLEDGED": "Prise en compte",
+      "COMPLETED": "Terminée",
+      "IGNORED": "Ignorée",
+      "LEFT": "Abandonnée",
+      "MISSED": "Manquée"
+    },
     "tombstone": "Ce message a été supprimé",
     "deletedMessage": "Message supprimé",
     "originalMessage": "Message d'origine",
@@ -80,6 +92,13 @@
     "notFound": {
       "title": "Conversation introuvable",
       "hint": "Choisissez-en une autre dans la barre latérale."
+    },
+    "selfChat": {
+      "title": "Notes personnelles",
+      "subtitle": "Votre espace personnel",
+      "composerPlaceholder": "Écrivez-vous une note…",
+      "taskCreatedBody": "Tâche créée à partir de cette note",
+      "linkTaskFailed": "Tâche créée, mais impossible de la relier ici"
     },
     "startCall": {
       "blockedNotice": {
@@ -265,6 +284,7 @@
     },
     "menu": {
       "reply": "Répondre",
+      "createTask": "Créer une tâche à partir de ceci",
       "download": "Télécharger",
       "downloadNamed": "Télécharger {{name}}",
       "forwardTo": "Transférer vers une discussion ou un canal…",

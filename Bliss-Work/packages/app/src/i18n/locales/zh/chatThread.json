@@ -15,6 +15,18 @@
     },
     "pinned": "已置顶",
     "forwarded": "已转发",
+    "task": "任务：{{title}}",
+    "taskUnavailable": "任务不可用",
+    "taskDeadline": "截止：{{when}}",
+    "taskAssignees": "负责人：{{names}}",
+    "taskStatus": {
+      "SENT": "已发送（待处理）",
+      "ACKNOWLEDGED": "已知悉",
+      "COMPLETED": "已完成",
+      "IGNORED": "已忽略",
+      "LEFT": "已退出",
+      "MISSED": "已错过"
+    },
     "tombstone": "此消息已被删除",
     "deletedMessage": "已删除的消息",
     "originalMessage": "原消息",
@@ -74,6 +86,13 @@
     "notFound": {
       "title": "未找到对话",
       "hint": "请从侧边栏选择其他对话。"
+    },
+    "selfChat": {
+      "title": "自我笔记",
+      "subtitle": "你的私人空间",
+      "composerPlaceholder": "给自己写点笔记…",
+      "taskCreatedBody": "已根据此笔记创建任务",
+      "linkTaskFailed": "任务已创建，但未能关联到此处"
     },
     "startCall": {
       "blockedNotice": {
@@ -245,6 +264,7 @@
     },
     "menu": {
       "reply": "回复",
+      "createTask": "根据此消息创建任务",
       "download": "下载",
       "downloadNamed": "下载 {{name}}",
       "forwardTo": "转发到聊天或频道…",

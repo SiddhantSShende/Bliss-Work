@@ -548,7 +548,7 @@ type rawMessage struct {
 const messageColumns = `
 	m.id, m.conversation_id, m.thread_id, m.parent_message_id, m.is_thread_root,
 	m.seq, m.sender_id, m.body, m.body_enc, m.created_at, m.sender_dismissed_at, m.kind,
-	m.reply_to_id, m.deleted_for_all_at, m.is_forward, m.forward_platform,
+	m.reply_to_id, m.deleted_for_all_at, m.is_forward, m.forward_platform, m.task_id,
 	CASE
 	    WHEN md.read_at      IS NOT NULL THEN 'SEEN'
 	    WHEN md.delivered_at IS NOT NULL THEN 'DELIVERED'
@@ -579,13 +579,14 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 		deletedForAllAt   *time.Time
 		isForward         bool
 		forwardPlatform   *string
+		taskID            *string
 		status            string
 	)
 	var kind string
 	if err := rows.Scan(
 		&r.m.ID, &r.m.ConversationID, &threadID, &parentMsgID, &isThreadRoot,
 		&r.m.Seq, &r.m.SenderID, &bodyPlain, &bodyEnc, &created, &senderDismissedAt, &kind,
-		&replyToID, &deletedForAllAt, &isForward, &forwardPlatform, &status,
+		&replyToID, &deletedForAllAt, &isForward, &forwardPlatform, &taskID, &status,
 	); err != nil {
 		return rawMessage{}, err
 	}
@@ -597,6 +598,9 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 	r.m.IsForward = isForward
 	if forwardPlatform != nil {
 		r.m.ForwardPlatform = *forwardPlatform
+	}
+	if taskID != nil {
+		r.m.TaskID = *taskID
 	}
 	// 'text' is the overwhelming majority; omit it so the wire shape for an
 	// ordinary message is byte-identical to what clients saw before.

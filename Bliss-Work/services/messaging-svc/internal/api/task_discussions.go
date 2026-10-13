@@ -98,6 +98,8 @@ type sendTaskDiscussionMsgReq struct {
 	ChannelID   string `json:"channelId"`
 	Body        string `json:"body"`
 	ClientMsgID string `json:"clientMsgId"`
+	// ReplyToID quotes another message in the same conversation/channel ("" = none).
+	ReplyToID string `json:"replyToId"`
 }
 
 // sendTaskDiscussionMessage serves POST /api/v1/tasks/{taskId}/discussion/messages.
@@ -125,6 +127,10 @@ func (s *Server) sendTaskDiscussionMessage(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "exactly one of peerId or channelId is required")
 		return
 	}
+	if req.ReplyToID != "" && !validUUID(req.ReplyToID) {
+		writeErr(w, http.StatusBadRequest, "invalid replyToId")
+		return
+	}
 	if req.PeerID != "" {
 		if !validUUID(req.PeerID) {
 			writeErr(w, http.StatusBadRequest, "invalid peerId")
@@ -134,7 +140,7 @@ func (s *Server) sendTaskDiscussionMessage(w http.ResponseWriter, r *http.Reques
 			writeErr(w, http.StatusBadRequest, "cannot message yourself")
 			return
 		}
-		res, err := s.store.SendTaskDiscussionMessage(r.Context(), claims.OrgID, claims.UserID, taskID, req.PeerID, req.Body, req.ClientMsgID)
+		res, err := s.store.SendTaskDiscussionMessage(r.Context(), claims.OrgID, claims.UserID, taskID, req.PeerID, req.Body, req.ClientMsgID, req.ReplyToID)
 		if err != nil {
 			s.mapErr(w, err)
 			return
@@ -146,7 +152,7 @@ func (s *Server) sendTaskDiscussionMessage(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "invalid channelId")
 		return
 	}
-	res, err := s.store.SendChannelTaskMessage(r.Context(), claims.OrgID, claims.UserID, taskID, req.ChannelID, req.Body, req.ClientMsgID)
+	res, err := s.store.SendChannelTaskMessage(r.Context(), claims.OrgID, claims.UserID, taskID, req.ChannelID, req.Body, req.ClientMsgID, req.ReplyToID)
 	if err != nil {
 		s.mapErr(w, err)
 		return

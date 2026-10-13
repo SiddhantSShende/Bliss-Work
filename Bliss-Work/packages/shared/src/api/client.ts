@@ -76,6 +76,7 @@ import {
   TaskDiscussionSummaryDTO,
   TaskAnalyticsDTO,
   ChannelAnalyticsDTO,
+  ProjectAnalyticsDTO,
   OrgActivitySummaryDTO,
   ThreadDTO,
   TimelinePage,
@@ -921,6 +922,34 @@ export class ApiClient {
     );
   }
   /**
+   * Open-or-create the caller's Notes-to-Self conversation, without sending
+   * anything — the same "navigate, don't fabricate a greeting" shape as
+   * `openConversation`. Idempotent: every call (first use, another device,
+   * a second tab) resolves to the SAME conversation id.
+   */
+  openSelfChat() {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/conversations/self",
+      { method: "POST" },
+      z.object({ conversationId: z.string() }),
+    );
+  }
+  /**
+   * The "Share to Notes to Self" action on a task card. Opens the caller's
+   * self-chat (if this is its first use) and appends `body` tagged with
+   * `taskId`, so it renders as a task-reference card exactly like a
+   * task-discussion message does (see ChatThread's `taskId` rendering).
+   */
+  shareTaskToSelfChat(taskId: string, body: string, clientMsgId?: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/conversations/self/share-task",
+      { method: "POST", body: JSON.stringify({ taskId, body, clientMsgId: clientMsgId ?? uuid() }) },
+      z.object({ conversationId: z.string(), threadId: z.string(), messageId: z.string(), seq: z.number() }),
+    );
+  }
+  /**
    * Resolve (or create) a task's chat target without sending anything —
    * exactly `openConversation`'s own "navigate, don't fabricate a greeting"
    * shape, for the "Chat" button on a task card/sticky widget. Idempotent.
@@ -948,17 +977,23 @@ export class ApiClient {
   }
   /** Send through a task's "Chat" entry point — DM or channel, whichever
    *  `target` names. Creates the discussion (and, for a DM's first message,
-   *  its thread) on first use. */
+   *  its thread) on first use. The returned message carries `taskId`, so a
+   *  task-focused conversation's composer routes through this instead of
+   *  `reply`/`sendChannelMessage` to keep its messages permanently tagged. */
   sendTaskDiscussionMessage(
     taskId: string,
     body: string,
-    clientMsgId: string,
+    clientMsgId: string | undefined,
     target: { peerId: string } | { channelId: string },
+    replyToId?: string,
   ) {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/tasks/${taskId}/discussion/messages`,
-      { method: "POST", body: JSON.stringify({ ...target, body, clientMsgId }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ ...target, body, clientMsgId: clientMsgId ?? uuid(), replyToId }),
+      },
       z.object({ messageId: z.string(), seq: z.number() }),
     );
   }
@@ -1865,6 +1900,17 @@ export class ApiClient {
       ProjectDTO,
     );
   }
+  /** Mark a project COMPLETED. Only its creator or an org_admin may call this
+   *  (ProjectDTO.canComplete), and only once every task in it is COMPLETED —
+   *  the server re-checks both regardless of what the client showed. */
+  completeProject(projectId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/projects/${encodeURIComponent(projectId)}/complete`,
+      { method: "POST" },
+      ProjectDTO,
+    );
+  }
   /** A miss is expected while the New Task form is being typed. */
   async projectByName(name: string): Promise<ProjectDTO | null> {
     const query = new URLSearchParams({ name });
@@ -1881,6 +1927,10 @@ export class ApiClient {
     }
   }
   createTask(body: {
+    /** The task's own identity — its heading everywhere it's shown. Distinct
+     *  from `title` below, which (despite the name) is the PROJECT this task
+     *  is filed under. */
+    taskTitle: string;
     title: string;
     description: string;
     assigneeIds?: string[];
@@ -2058,6 +2108,23 @@ export class ApiClient {
       `/api/v1/tasks/channels/${channelId}/analytics`,
       {},
       ChannelAnalyticsDTO,
+    );
+  }
+  /** Snapshot analytics across every task in a project (tasks.projectId).
+   *  Visible to anyone who is the sender or an assignee of at least one task
+   *  (or schedule) in the project — the same rule projectDetail enforces.
+   *  `tasks` (the per-task breakdown) is paginated; every other field covers
+   *  the whole project. */
+  projectAnalytics(projectId: string, opts: { limit?: number; offset?: number } = {}) {
+    const query = new URLSearchParams();
+    if (opts.limit !== undefined) query.set("limit", String(opts.limit));
+    if (opts.offset !== undefined) query.set("offset", String(opts.offset));
+    const qs = query.toString();
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/projects/${encodeURIComponent(projectId)}/analytics${qs ? `?${qs}` : ""}`,
+      {},
+      ProjectAnalyticsDTO,
     );
   }
   /** Reopen the completed assignments for this task; the server chooses recipients. */

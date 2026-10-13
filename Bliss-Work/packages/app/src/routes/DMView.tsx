@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, MessageSquare, ChevronLeft, Ban } from "lucide-react";
+import { X, MessageSquare, ChevronLeft, Ban, StickyNote } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Avatar, Button, EmptyState } from "@taskboard/ui";
@@ -15,7 +15,6 @@ import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { SendCallLinkDialog } from "../features/SendCallLinkDialog";
 import { deliverCallLink } from "../lib/deliverCallLink";
 import { ChatThread } from "../features/ChatThread";
-import { TaskDiscussionBanner } from "../features/TaskDiscussionBanner";
 import { ConversationMenu } from "../features/ConversationMenu";
 import { ConfirmDialog } from "../features/ConfirmDialog";
 import { SelectionToolbar } from "../features/SelectionToolbar";
@@ -39,6 +38,7 @@ import { useSelectedChat } from "../lib/selectedChat";
 import { useActiveThread, type ActiveThread } from "../lib/activeThread";
 import { useMarkTargetNotificationsRead } from "../lib/useMarkTargetNotificationsRead";
 import { isAttachmentActivityKind } from "../lib/useAttachmentActivity";
+import { CreateTaskDialog } from "../features/CreateTaskDialog";
 
 export function DMView() {
   // From memory, not from the path: the conversation id is deliberately absent
@@ -46,7 +46,7 @@ export function DMView() {
   // is still one conversation's worth of state, it is just told which one by
   // the shell rather than by the router.
   const { t } = useTranslation("chatThread");
-  const { selectedId, closeChat, focusMessageId = null, clearFocus, focusTaskId, clearTaskFocus } = useSelectedChat();
+  const { selectedId, closeChat, focusMessageId = null, clearFocus, focusTaskId } = useSelectedChat();
   const conversationId = selectedId ?? "";
   const { api, config } = useRuntime();
   const qc = useQueryClient();
@@ -55,17 +55,10 @@ export function DMView() {
 
   const { data: conversations = [] } = useQuery({ queryKey: qk.conversations, queryFn: () => api.conversations() });
   const conv = conversations.find((c: ConversationDTO) => c.id === conversationId);
-
-  // The task a "Chat" button opened this conversation for (see
-  // useOpenTaskDiscussion). Best-effort title lookup — taskDetail is
-  // assignee-scoped, so an allocator viewing their own sent task may not
-  // resolve one; the banner still shows with the bare id in that case.
-  const { data: focusedTask } = useQuery({
-    queryKey: ["taskDetail", focusTaskId],
-    queryFn: () => api.taskDetail(focusTaskId!),
-    enabled: !!focusTaskId,
-    retry: false,
-  });
+  // Notes to Self: same ConversationDTO shape as any other 1:1 (the peer IS
+  // the caller — see store.OpenSelfChat), so this is the one place the
+  // difference has to be decided, not a second data model.
+  const isSelf = conv?.peerId === me.id;
 
   // One person. This screen used to poll the entire organisation's online set
   // every 20 seconds to light a single dot — see lib/usePresence.
@@ -111,7 +104,8 @@ export function DMView() {
     },
   );
 
-  const { peerTyping, onType, stop: stopTyping } = useChatTyping(conversationId, conv?.peerId);
+  // No typing indicator to broadcast to yourself.
+  const { peerTyping, onType, stop: stopTyping } = useChatTyping(conversationId, isSelf ? undefined : conv?.peerId);
   const call = useCall();
 
   // Arms a forward; the WhatsApp handoff is the menu anchor's own doing and the
@@ -133,6 +127,11 @@ export function DMView() {
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [clearChatOpen, setClearChatOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  // "Create task from this" — Notes to Self only (see ChatThread's
+  // onCreateTask doc comment). The dialog is prefilled from the message's
+  // own text; creating is still an explicit, reviewable submit on the
+  // dialog itself, never automatic.
+  const [taskDraftFromMessage, setTaskDraftFromMessage] = useState<string | null>(null);
   const selection = useMessageSelection(conversationId);
 
   // Same route-reuse trap as ChannelView's members sheet: navigating to another
@@ -299,9 +298,21 @@ export function DMView() {
       senderId: me.id,
       body,
       replyToId,
+      taskId: focusTaskId ?? undefined,
       createdAt: new Date().toISOString(),
     }),
-    mutationFn: ({ body, replyToId }) => api.reply(conversationId, body, undefined, replyToId),
+    // Task-focused (opened via a task's "Chat" button, or still on
+    // ?taskId=-equivalent focus — see useSelectedChat): route through the
+    // task-discussion endpoint instead of the plain reply, so the message is
+    // permanently tagged (ChatThread's "Task: {title}" label) rather than
+    // relying on the now-removed ephemeral banner. conv.peerId is this
+    // conversation's own, already-membership-checked peer — never a
+    // client-supplied id — so this can only tag the user's own sends in the
+    // conversation they are actually in.
+    mutationFn: ({ body, replyToId }) =>
+      focusTaskId && conv
+        ? api.sendTaskDiscussionMessage(focusTaskId, body, undefined, { peerId: conv.peerId }, replyToId)
+        : api.reply(conversationId, body, undefined, replyToId),
     // SENT is the whole point of the 201, and it has to be written here: the
     // optimistic row carries no status (it has not reached the server yet) and
     // `pending` stops being true the moment the real id lands. Without it the
@@ -401,7 +412,7 @@ export function DMView() {
   // Never render peerUsername directly — it is the email local-part. Read
   // before the early return because the derived lists below need it; the helper
   // answers "Unknown user" for a conversation that is briefly missing.
-  const peerName = displayNameOf(conv);
+  const peerName = isSelf ? t("dmView.selfChat.title") : displayNameOf(conv);
 
   // Tell ScreenshotNotice this chat is the one on screen, so a detected
   // attempt posts its system message here rather than nowhere — see
@@ -443,6 +454,7 @@ export function DMView() {
         status: m.status, pending: m.id.startsWith("temp:"),
         replyToId: m.replyToId, deletedForAll: m.deletedForAll,
         isForward: m.isForward, forwardPlatform: m.forwardPlatform,
+        taskId: m.taskId,
         reactions: reactionsByMessage.get(m.id),
       })),
     [messages, reactionsByMessage],
@@ -479,6 +491,22 @@ export function DMView() {
     contextName: conv ? peerName : undefined,
     send: (body) => reply.mutate({ body, replyToId: takeReply() }),
   });
+
+  // Opens CreateTaskDialog prefilled from one self-chat message. Posting the
+  // link back is a SEPARATE action (onCreated below, once the dialog's own
+  // explicit submit actually creates the task) — nothing here creates a
+  // task on its own.
+  const createTaskFrom = (messageId: string) => {
+    const message = messages.find((m) => m.id === messageId);
+    if (!message) return;
+    setTaskDraftFromMessage(message.body.length > 120 ? `${message.body.slice(0, 120)}…` : message.body);
+  };
+  const linkCreatedTask = (taskId: string) => {
+    api
+      .shareTaskToSelfChat(taskId, t("dmView.selfChat.taskCreatedBody"))
+      .then(() => qc.invalidateQueries({ queryKey: qk.messages(conversationId) }))
+      .catch(() => toast.error(t("dmView.selfChat.linkTaskFailed")));
+  };
 
   if (!conv)
     return (
@@ -570,52 +598,68 @@ export function DMView() {
           >
             <ChevronLeft size={20} />
           </button>
-          <Avatar name={peerName} src={avatarUrlOf(conv.peerId)} status={peerStatus} />
+          {isSelf ? (
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg">
+              <StickyNote size={17} />
+            </span>
+          ) : (
+            <Avatar name={peerName} src={avatarUrlOf(conv.peerId)} status={peerStatus} />
+          )}
           <div className="min-w-0 leading-tight">
             <div className="truncate font-semibold text-fg">{peerName}</div>
-            <div
-              className={`text-xs ${
-                peerStatus === "busy"
-                  ? "text-warning"
+            {isSelf ? (
+              <div className="text-xs text-muted">{t("dmView.selfChat.subtitle")}</div>
+            ) : (
+              <div
+                className={`text-xs ${
+                  peerStatus === "busy"
+                    ? "text-warning"
+                    : peerStatus === "online"
+                      ? "text-success"
+                      : "text-muted"
+                }`}
+              >
+                {peerStatus === "busy"
+                  ? t("dmView.header.status.busy")
                   : peerStatus === "online"
-                    ? "text-success"
-                    : "text-muted"
-              }`}
-            >
-              {peerStatus === "busy"
-                ? t("dmView.header.status.busy")
-                : peerStatus === "online"
-                  ? t("dmView.header.status.online")
-                  : t("dmView.header.status.offline")}
-            </div>
+                    ? t("dmView.header.status.online")
+                    : t("dmView.header.status.offline")}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <CallMenu
-            onVoiceCall={() => startCall("audio")}
-            onVideoCall={() => startCall("video")}
-            onSendLink={sendCallLink}
-            onSchedule={scheduleCall}
-            busy={sendLink.isPending}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => block.mutate()}
-            disabled={block.isPending}
-            title={conv.blockedByMe ? t("dmView.header.unblockTitle") : t("dmView.header.blockTitle")}
-          >
-            <Ban size={15} /> {conv.blockedByMe ? t("dmView.header.unblockLabel") : t("dmView.header.blockLabel")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => ignore.mutate()}
-            disabled={ignore.isPending}
-            title={t("dmView.header.removeFromInboxes")}
-          >
-            <X size={15} /> {t("dmView.header.ignore")}
-          </Button>
+          {/* Calling, blocking and "remove from inboxes" all assume a second
+              person — none of them mean anything pointed at yourself. */}
+          {!isSelf && (
+            <>
+              <CallMenu
+                onVoiceCall={() => startCall("audio")}
+                onVideoCall={() => startCall("video")}
+                onSendLink={sendCallLink}
+                onSchedule={scheduleCall}
+                busy={sendLink.isPending}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => block.mutate()}
+                disabled={block.isPending}
+                title={conv.blockedByMe ? t("dmView.header.unblockTitle") : t("dmView.header.blockTitle")}
+              >
+                <Ban size={15} /> {conv.blockedByMe ? t("dmView.header.unblockLabel") : t("dmView.header.blockLabel")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => ignore.mutate()}
+                disabled={ignore.isPending}
+                title={t("dmView.header.removeFromInboxes")}
+              >
+                <X size={15} /> {t("dmView.header.ignore")}
+              </Button>
+            </>
+          )}
           <ConversationMenu
             scope="chat"
             onViewProfile={() => nav(`/app/members/${conv.peerId}`)}
@@ -645,13 +689,6 @@ export function DMView() {
           placeholder={t("dmView.search.placeholder", { name: peerName })}
         />
       )}
-      {focusTaskId && (
-        <TaskDiscussionBanner
-          taskId={focusTaskId}
-          taskTitle={focusedTask?.title}
-          onClear={clearTaskFocus}
-        />
-      )}
       <ChatThread
         threadId={conversationId}
         messages={shown}
@@ -676,6 +713,7 @@ export function DMView() {
           if (message) markUnread.mutate(Math.max(0, message.seq - 1));
         }}
         onDeleteForAll={(id) => removeForAll.mutate(id)}
+        onCreateTask={isSelf ? createTaskFrom : undefined}
         onReact={reactToggle}
         selectionMode={selection.active}
         selectedIds={selection.selected}
@@ -709,7 +747,7 @@ export function DMView() {
         onType={onType}
         peerTyping={peerTyping}
         peerName={peerName}
-        placeholder={t("dmView.composer.placeholder", { name: peerName })}
+        placeholder={isSelf ? t("dmView.selfChat.composerPlaceholder") : t("dmView.composer.placeholder", { name: peerName })}
         disabled={isBlocked}
         notice={
           conv.blockedByMe
@@ -736,6 +774,14 @@ export function DMView() {
         overlay={media.overlay}
       />
       <input {...media.fileInputProps} />
+      {isSelf && (
+        <CreateTaskDialog
+          open={taskDraftFromMessage !== null}
+          onClose={() => setTaskDraftFromMessage(null)}
+          prefillTaskTitle={taskDraftFromMessage ?? undefined}
+          onCreated={linkCreatedTask}
+        />
+      )}
       <ForwardToDialog
         open={!!forwardTo}
         onClose={() => setForwardTo(null)}

@@ -220,15 +220,19 @@ func (s *Store) BulkTaskDiscussions(ctx context.Context, orgID, callerID string,
 // discussion row. A later send reuses that thread via ReplyToThread.
 // Idempotent on clientMsgID exactly as SendMessage/ReplyToThread already are;
 // this adds no second dedupe layer.
-func (s *Store) SendTaskDiscussionMessage(ctx context.Context, orgID, callerID, taskID, peerID, body, clientMsgID string) (*SendResult, error) {
+//
+// replyToID quotes another message in the same conversation, exactly like
+// Reply's/ReplyToThread's own replyToID — passed through so a task-focused
+// conversation keeps its ordinary reply-to-quote composer behaviour.
+func (s *Store) SendTaskDiscussionMessage(ctx context.Context, orgID, callerID, taskID, peerID, body, clientMsgID, replyToID string) (*SendResult, error) {
 	disc, err := s.openTaskDiscussionDM(ctx, orgID, callerID, taskID, peerID)
 	if err != nil {
 		return nil, err
 	}
 	if disc.ThreadID != nil {
-		return s.ReplyToThread(ctx, orgID, callerID, *disc.ThreadID, "", body, clientMsgID, "")
+		return s.replyToThreadForTask(ctx, orgID, callerID, *disc.ThreadID, body, clientMsgID, replyToID, taskID)
 	}
-	res, err := s.SendMessage(ctx, orgID, callerID, peerID, body, clientMsgID, SendOptions{})
+	res, err := s.SendMessage(ctx, orgID, callerID, peerID, body, clientMsgID, SendOptions{ReplyToID: replyToID, TaskID: taskID})
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +265,11 @@ func (s *Store) SendTaskDiscussionMessage(ctx context.Context, orgID, callerID, 
 // exercises. Mirrors its idempotency (INSERT ... ON CONFLICT DO NOTHING on
 // the same (channel_id, sender_id, client_msg_id) unique constraint) and its
 // membership/block gates exactly.
-func (s *Store) SendChannelTaskMessage(ctx context.Context, orgID, callerID, taskID, channelID, body, clientMsgID string) (*ChannelSendResult, error) {
+//
+// replyToID quotes another message in the same channel, mirroring
+// SendChannelMessage's own replyToID, so a task-focused channel view keeps
+// its ordinary reply-to-quote composer behaviour.
+func (s *Store) SendChannelTaskMessage(ctx context.Context, orgID, callerID, taskID, channelID, body, clientMsgID, replyToID string) (*ChannelSendResult, error) {
 	// Ensure the discussion row exists (same idempotent upsert OpenTaskDiscussion
 	// uses) so BulkTaskDiscussions can find this task's channel discussion even
 	// when the caller sent straight in without ever calling Open first — and so
@@ -317,11 +325,15 @@ func (s *Store) SendChannelTaskMessage(ctx context.Context, orgID, callerID, tas
 			return err
 		}
 		msgID := uuid.Must(uuid.NewV7()).String()
+		var replyToArg *string
+		if replyToID != "" {
+			replyToArg = &replyToID
+		}
 		tag, err := tx.Exec(ctx,
-			`INSERT INTO channel_messages (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id, kind, task_id)
-			 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9)
+			`INSERT INTO channel_messages (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id, kind, task_id, reply_to_id)
+			 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10)
 			 ON CONFLICT (channel_id, sender_id, client_msg_id) DO NOTHING`,
-			msgID, orgID, channelID, seq, callerID, bodyEnc, clientMsgID, MessageKindText, taskID)
+			msgID, orgID, channelID, seq, callerID, bodyEnc, clientMsgID, MessageKindText, taskID, replyToArg)
 		if err != nil {
 			return err
 		}
@@ -370,6 +382,7 @@ func (s *Store) SendChannelTaskMessage(ctx context.Context, orgID, callerID, tas
 			Body:              body,
 			Members:           members,
 			TaskID:            &tid,
+			ReplyToID:         replyToID,
 		}
 		if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
 			return err

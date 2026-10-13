@@ -31,6 +31,11 @@
     },
     "you": "你",
     "startChatting": "开始聊天",
+    "selfChat": {
+      "title": "自我笔记",
+      "subtitle": "你的私人空间",
+      "openFailed": "无法打开自我笔记"
+    },
     "empty": {
       "title": "暂无聊天",
       "hint": "点击 + 开始对话。"

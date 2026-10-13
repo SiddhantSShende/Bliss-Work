@@ -31,6 +31,11 @@
     },
     "you": "나",
     "startChatting": "채팅 시작",
+    "selfChat": {
+      "title": "나에게 메모",
+      "subtitle": "나만의 공간",
+      "openFailed": "나에게 메모를 열 수 없습니다"
+    },
     "empty": {
       "title": "아직 채팅이 없어요",
       "hint": "+를 눌러 대화를 시작하세요."

@@ -34,6 +34,11 @@
     },
     "you": "You",
     "startChatting": "Start chatting",
+    "selfChat": {
+      "title": "Notes to Self",
+      "subtitle": "Your personal space",
+      "openFailed": "Couldn't open Notes to Self"
+    },
     "empty": {
       "title": "No chats yet",
       "hint": "Tap + to start a conversation."

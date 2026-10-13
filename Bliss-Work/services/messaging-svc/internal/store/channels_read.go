@@ -270,7 +270,7 @@ func (s *Store) ChannelMessages(
 			        COALESCE(up.username, ''), COALESCE(up.display_name, ''),
 			        m.body, m.body_enc, m.created_at, m.kind, m.is_forward, m.forward_platform,
 			        m.deleted_for_all_at IS NOT NULL AS deleted_for_all,
-			        m.pinned_at IS NOT NULL AS pinned, m.reply_to_id
+			        m.pinned_at IS NOT NULL AS pinned, m.reply_to_id, m.task_id
 			 FROM channel_messages m
 			 LEFT JOIN user_projection up ON up.user_id = m.sender_id
 			 WHERE m.channel_id = $1 AND m.seq < $2
@@ -294,6 +294,7 @@ func (s *Store) ChannelMessages(
 			kind            string
 			replyToID       *string
 			forwardPlatform *string
+			taskID          *string
 		}
 		var raws []rawChMsg
 		for rows.Next() {
@@ -301,7 +302,7 @@ func (s *Store) ChannelMessages(
 			if err := rows.Scan(&r.m.ID, &r.m.ChannelID, &r.m.Seq, &r.m.SenderID,
 				&r.m.SenderUsername, &r.m.SenderDisplayName,
 				&r.bodyTxt, &r.bodyEnc, &r.created, &r.kind, &r.m.IsForward, &r.forwardPlatform,
-				&r.m.DeletedForAll, &r.m.Pinned, &r.replyToID); err != nil {
+				&r.m.DeletedForAll, &r.m.Pinned, &r.replyToID, &r.taskID); err != nil {
 				rows.Close()
 				return err
 			}
@@ -323,6 +324,9 @@ func (s *Store) ChannelMessages(
 			}
 			if r.forwardPlatform != nil {
 				m.ForwardPlatform = *r.forwardPlatform
+			}
+			if r.taskID != nil {
+				m.TaskID = *r.taskID
 			}
 			// A tombstone never ships its body. Skipping the decrypt IS the point:
 			// "deleted" that still sends the text to every client and hides it in

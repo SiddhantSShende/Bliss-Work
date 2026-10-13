@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Bell, BellOff, MessageSquarePlus, MoreVertical, Phone, Pin, Plus, Search, Trash2 } from "lucide-react";
+import { Bell, BellOff, MessageSquarePlus, MoreVertical, Phone, Pin, Plus, Search, StickyNote, Trash2 } from "lucide-react";
 import { Avatar, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -15,6 +15,7 @@ import { usePresence } from "../lib/usePresence";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { useSelectedChat } from "../lib/selectedChat";
+import { useOpenSelfChat } from "../lib/useSelfChat";
 import { listPreview, readablePrefix, withSenderLabel } from "../lib/chatEnvelope";
 import { ConfirmDialog } from "../features/ConfirmDialog";
 import { useSession } from "../store/session";
@@ -126,16 +127,26 @@ export function ChatsList() {
   const [filter, setFilter] = useState<"all" | "unread" | "mentions">("all");
   const [deleteTarget, setDeleteTarget] = useState<ConversationDTO | null>(null);
   const { data: conversations = [] } = useQuery({ queryKey: qk.conversations, queryFn: () => api.conversations() });
+  // Notes to Self is a real `conversations` row (peerId === the caller) once
+  // opened, but it gets its OWN pinned row below rather than appearing twice
+  // — see that row's own comment. Everything that lists or sums ordinary
+  // chats below reads `otherConversations`, never the raw `conversations`.
+  const selfConversation = conversations.find((c: ConversationDTO) => c.peerId === me.id);
+  const otherConversations = useMemo(
+    () => conversations.filter((c: ConversationDTO) => c.peerId !== me.id),
+    [conversations, me.id],
+  );
+  const selfChat = useOpenSelfChat();
   // Mute and "add shortcut", set from a chat's own overflow menu, are read back
   // here — this list is the only place either one is observable. Both are
   // device-local; see lib/conversationPrefs.
   const prefs = useConversationPrefs();
   // Presence for the peers on screen, not for the whole organisation — see
   // lib/usePresence. This list is bounded by how many chats a person has.
-  const onlineSet = usePresence(conversations.map((c: ConversationDTO) => c.peerId));
+  const onlineSet = usePresence(otherConversations.map((c: ConversationDTO) => c.peerId));
   // Peer avatars resolved live rather than trusted from the conversation row —
   // see displayNameOf's docstring on why the embedded copy can lag a change.
-  const { avatarUrlOf } = useUserLabels(conversations.map((c: ConversationDTO) => c.peerId));
+  const { avatarUrlOf } = useUserLabels(otherConversations.map((c: ConversationDTO) => c.peerId));
 
   // Same two calls DMView's own "Clear Chat" makes from inside the
   // conversation: hide the history for this caller, then drop the
@@ -155,10 +166,10 @@ export function ChatsList() {
   // recent first). A stable partition rather than a sort, so two pinned chats
   // stay in the order the conversation list already put them in.
   const ordered = useMemo(() => {
-    const pinned = conversations.filter((c: ConversationDTO) => prefs.hasShortcut("chat", c.id));
-    if (pinned.length === 0) return conversations;
-    return [...pinned, ...conversations.filter((c: ConversationDTO) => !prefs.hasShortcut("chat", c.id))];
-  }, [conversations, prefs]);
+    const pinned = otherConversations.filter((c: ConversationDTO) => prefs.hasShortcut("chat", c.id));
+    if (pinned.length === 0) return otherConversations;
+    return [...pinned, ...otherConversations.filter((c: ConversationDTO) => !prefs.hasShortcut("chat", c.id))];
+  }, [otherConversations, prefs]);
 
   const visibleChats = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -225,9 +236,9 @@ export function ChatsList() {
             >
               {t(`chatsList.filters.${value}`)}
               {value === "unread" &&
-                conversations.filter((conversation: ConversationDTO) => conversation.unread > 0).length > 0 && (
+                otherConversations.filter((conversation: ConversationDTO) => conversation.unread > 0).length > 0 && (
                   <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-accent-fg">
-                    {conversations.filter((conversation: ConversationDTO) => conversation.unread > 0).length}
+                    {otherConversations.filter((conversation: ConversationDTO) => conversation.unread > 0).length}
                   </span>
                 )}
             </button>
@@ -235,7 +246,37 @@ export function ChatsList() {
         </div>
       </div>
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
-        {conversations.length === 0 ? (
+        {/* Notes to Self: a permanent fixture, not a row from `conversations` —
+            it is discoverable before the caller has ever opened it (the
+            underlying row may not exist yet; see store.OpenSelfChat), so it
+            is rendered unconditionally here rather than being derived from
+            the fetched list like every other row below. Never filtered by
+            search or the unread/mentions tabs, same as any pinned fixture. */}
+        <button
+          type="button"
+          onClick={() => selfChat.open()}
+          disabled={selfChat.busy}
+          aria-current={selfConversation && selectedId === selfConversation.id ? "true" : undefined}
+          className={rowClass(!!selfConversation && selectedId === selfConversation.id) + " w-full"}
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg">
+            <StickyNote size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate font-medium text-fg">{t("chatsList.selfChat.title")}</span>
+              {selfConversation && (
+                <span className="shrink-0 text-[10px] text-muted">{relTime(selfConversation.lastMessageAt)}</span>
+              )}
+            </div>
+            <span className="truncate text-sm text-muted">
+              {selfConversation?.lastMessage
+                ? readablePrefix(selfConversation.lastMessage)
+                : t("chatsList.selfChat.subtitle")}
+            </span>
+          </div>
+        </button>
+        {otherConversations.length === 0 ? (
           <EmptyState icon={<MessageSquarePlus size={22} />} title={t("chatsList.empty.title")} hint={t("chatsList.empty.hint")} />
         ) : visibleChats.length === 0 ? (
           <EmptyState icon={<Search size={22} />} title={t("chatsList.emptySearch.title")} hint={t("chatsList.emptySearch.hint")} />

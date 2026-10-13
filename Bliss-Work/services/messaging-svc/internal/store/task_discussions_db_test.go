@@ -206,7 +206,7 @@ func TestSendTaskDiscussionMessageBackfillsThreadOnFirstSend(t *testing.T) {
 		t.Fatalf("freshly opened discussion already has a threadId: %v", *opened.ThreadID)
 	}
 
-	first, err := s.SendTaskDiscussionMessage(ctx, orgID, allocator, taskID, assignee, "about this task", uuid.Must(uuid.NewV7()).String())
+	first, err := s.SendTaskDiscussionMessage(ctx, orgID, allocator, taskID, assignee, "about this task", uuid.Must(uuid.NewV7()).String(), "")
 	if err != nil {
 		t.Fatalf("first send: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestSendTaskDiscussionMessageBackfillsThreadOnFirstSend(t *testing.T) {
 		t.Fatalf("task_discussions.thread_id = %v, want %q", backfilled, first.ThreadID)
 	}
 
-	second, err := s.SendTaskDiscussionMessage(ctx, orgID, allocator, taskID, assignee, "a follow-up", uuid.Must(uuid.NewV7()).String())
+	second, err := s.SendTaskDiscussionMessage(ctx, orgID, allocator, taskID, assignee, "a follow-up", uuid.Must(uuid.NewV7()).String(), "")
 	if err != nil {
 		t.Fatalf("second send: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestBulkTaskDiscussionsDMUnreadCount(t *testing.T) {
 	seedUser(t, s, orgID, allocator, "priya", "Priya Nair")
 	seedUser(t, s, orgID, assignee, "sam", "Sam Okafor")
 
-	if _, err := s.SendTaskDiscussionMessage(ctx, orgID, allocator, taskID, assignee, "please take a look", uuid.Must(uuid.NewV7()).String()); err != nil {
+	if _, err := s.SendTaskDiscussionMessage(ctx, orgID, allocator, taskID, assignee, "please take a look", uuid.Must(uuid.NewV7()).String(), ""); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 
@@ -300,7 +300,7 @@ func TestBulkTaskDiscussionsChannelUnreadCount(t *testing.T) {
 	if _, err := s.SendChannelMessage(ctx, orgID, channelID, sender, "unrelated chatter", uuid.Must(uuid.NewV7()).String(), "", "", ""); err != nil {
 		t.Fatalf("send ordinary message: %v", err)
 	}
-	if _, err := s.SendChannelTaskMessage(ctx, orgID, sender, taskID, channelID, "about this task", uuid.Must(uuid.NewV7()).String()); err != nil {
+	if _, err := s.SendChannelTaskMessage(ctx, orgID, sender, taskID, channelID, "about this task", uuid.Must(uuid.NewV7()).String(), ""); err != nil {
 		t.Fatalf("send task message: %v", err)
 	}
 
@@ -321,5 +321,103 @@ func TestBulkTaskDiscussionsChannelUnreadCount(t *testing.T) {
 	}
 	if len(after) != 1 || after[0].UnreadCount != 0 {
 		t.Fatalf("after marking read, summaries = %+v, want UnreadCount 0", after)
+	}
+}
+
+// TestSendTaskDiscussionMessagePersistsTaskIDAndReplyToID: both the
+// thread-creating first send and a later reply-to-thread send tag their row
+// with task_id (readable back via ListMessages, not just the live event), a
+// reply carries replyToId through, and — the regression this guards against —
+// an ordinary Reply sent afterward in the SAME conversation must NOT inherit
+// the task tag just because the conversation was once task-focused.
+func TestSendTaskDiscussionMessagePersistsTaskIDAndReplyToID(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+
+	orgID := uuid.Must(uuid.NewV7()).String()
+	allocator := uuid.Must(uuid.NewV7()).String()
+	assignee := uuid.Must(uuid.NewV7()).String()
+	taskID := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, allocator, "priya", "Priya Nair")
+	seedUser(t, s, orgID, assignee, "sam", "Sam Okafor")
+
+	if _, err := s.OpenTaskDiscussion(ctx, orgID, allocator, taskID, &assignee, nil); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	first, err := s.SendTaskDiscussionMessage(ctx, orgID, allocator, taskID, assignee, "about this task", uuid.Must(uuid.NewV7()).String(), "")
+	if err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+	second, err := s.SendTaskDiscussionMessage(ctx, orgID, allocator, taskID, assignee, "quoting myself", uuid.Must(uuid.NewV7()).String(), first.MessageID)
+	if err != nil {
+		t.Fatalf("second send: %v", err)
+	}
+
+	// An ordinary reply in the SAME conversation, through the plain composer
+	// path — never through the task endpoint. Must not pick up task_id.
+	plain, err := s.Reply(ctx, orgID, assignee, first.ConversationID, "just chatting", uuid.Must(uuid.NewV7()).String(), "")
+	if err != nil {
+		t.Fatalf("plain reply: %v", err)
+	}
+
+	rows, err := s.ListMessages(ctx, orgID, allocator, first.ConversationID, 0, 50)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	byID := map[string]MessageDTO{}
+	for _, m := range rows {
+		byID[m.ID] = m
+	}
+	if m := byID[first.MessageID]; m.TaskID != taskID {
+		t.Errorf("first message taskId = %q, want %q", m.TaskID, taskID)
+	}
+	if m := byID[second.MessageID]; m.TaskID != taskID {
+		t.Errorf("second message taskId = %q, want %q", m.TaskID, taskID)
+	} else if m.ReplyToID != first.MessageID {
+		t.Errorf("second message replyToId = %q, want %q", m.ReplyToID, first.MessageID)
+	}
+	if m := byID[plain.MessageID]; m.TaskID != "" {
+		t.Errorf("plain reply taskId = %q, want empty — an ordinary send must never inherit a stale task tag", m.TaskID)
+	}
+}
+
+// TestSendChannelTaskMessagePersistsTaskIDAndReplyToID is the channel twin:
+// task_id and replyToId both survive a reload via ChannelMessages, and an
+// ordinary channel message sent around it stays untagged.
+func TestSendChannelTaskMessagePersistsTaskIDAndReplyToID(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+
+	orgID := uuid.Must(uuid.NewV7()).String()
+	sender := uuid.Must(uuid.NewV7()).String()
+	channelID := uuid.Must(uuid.NewV7()).String()
+	taskID := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, sender, "priya", "Priya Nair")
+	seedChannel(t, s, orgID, channelID, sender)
+
+	ordinary, err := s.SendChannelMessage(ctx, orgID, channelID, sender, "unrelated chatter", uuid.Must(uuid.NewV7()).String(), "", "", "")
+	if err != nil {
+		t.Fatalf("send ordinary message: %v", err)
+	}
+	tagged, err := s.SendChannelTaskMessage(ctx, orgID, sender, taskID, channelID, "about this task", uuid.Must(uuid.NewV7()).String(), ordinary.MessageID)
+	if err != nil {
+		t.Fatalf("send task message: %v", err)
+	}
+
+	rows, err := s.ChannelMessages(ctx, orgID, channelID, sender, 0, 50)
+	if err != nil {
+		t.Fatalf("list channel messages: %v", err)
+	}
+	byID := map[string]ChannelMessageDTO{}
+	for _, m := range rows {
+		byID[m.ID] = m
+	}
+	if m := byID[ordinary.MessageID]; m.TaskID != "" {
+		t.Errorf("ordinary message taskId = %q, want empty", m.TaskID)
+	}
+	if m := byID[tagged.MessageID]; m.TaskID != taskID {
+		t.Errorf("tagged message taskId = %q, want %q", m.TaskID, taskID)
+	} else if m.ReplyToID != ordinary.MessageID {
+		t.Errorf("tagged message replyToId = %q, want %q", m.ReplyToID, ordinary.MessageID)
 	}
 }

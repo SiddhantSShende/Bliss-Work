@@ -742,6 +742,10 @@ type MessageDTO struct {
 	// hardcoded prose, so a future destination is a new value here, not a new
 	// string baked into the server. See migrations/0032_forward_platform.sql.
 	ForwardPlatform string `json:"forwardPlatform,omitempty"`
+	// TaskID is set when this message was sent through a task's "Chat" entry
+	// point (see SendTaskDiscussionMessage / task_discussions.go). Mirrors
+	// ChannelMessageDTO.TaskID; omitted for an ordinary message.
+	TaskID string `json:"taskId,omitempty"`
 }
 
 // ChannelDTO mirrors the canonical ChannelDTO contract.
@@ -807,6 +811,10 @@ type ChannelMessageDTO struct {
 	Pinned bool `json:"pinned,omitempty"`
 	// ReplyToID is the message this one quotes, if any. Mirrors MessageDTO.ReplyToID.
 	ReplyToID string `json:"replyToId,omitempty"`
+	// TaskID is set when this message was sent through a task's "Chat" entry
+	// point (see SendChannelTaskMessage / task_discussions.go). Mirrors
+	// MessageDTO.TaskID; omitted for an ordinary channel message.
+	TaskID string `json:"taskId,omitempty"`
 }
 
 // ChannelSendResult is returned to the API after a channel message send.

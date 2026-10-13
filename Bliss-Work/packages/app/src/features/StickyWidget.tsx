@@ -1,4 +1,4 @@
-import { Check, X, Flag, LogOut, PinOff, Minus, MessageCircle } from "lucide-react";
+import { Check, X, Flag, LogOut, PinOff, Minus, MessageCircle, StickyNote } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
@@ -56,6 +56,8 @@ export function StickyWidget({
   onChat,
   chatBusy = false,
   chatUnreadCount,
+  onShareToSelfChat,
+  shareBusy = false,
 }: {
   task: StickyTaskDTO;
   onAction: (action: TaskAction) => void;
@@ -125,6 +127,15 @@ export function StickyWidget({
    *  call site doesn't supply one yet); 0 renders "Chat" with no badge either
    *  — the badge only appears once there is something unread to report. */
   chatUnreadCount?: number;
+  /**
+   * "Share to Notes to Self" — posts a reference to THIS task into the
+   * caller's own Notes to Self, for saving/following up on it personally.
+   * Omitted (every existing call site that hasn't been updated yet), no
+   * button renders and the card is exactly as it was.
+   */
+  onShareToSelfChat?: () => void;
+  /** True while a previous onShareToSelfChat call is still resolving. */
+  shareBusy?: boolean;
 }) {
   const { t } = useTranslation("stickies");
   // senderUsername is the email local-part, so "from j.okafor" is what a note
@@ -382,6 +393,17 @@ export function StickyWidget({
               {chatUnreadCount}
             </Badge>
           )}
+        </ActionBtn>
+      )}
+      {onShareToSelfChat && (
+        <ActionBtn
+          tight={compact}
+          tone="ghost"
+          label={t("card.shareToSelfChat")}
+          disabled={shareBusy}
+          onClick={onShareToSelfChat}
+        >
+          <StickyNote size={15} className={rowIcon} /> {t("card.shareToSelfChat")}
         </ActionBtn>
       )}
     </div>

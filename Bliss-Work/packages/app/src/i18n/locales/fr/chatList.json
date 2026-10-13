@@ -37,6 +37,11 @@
     },
     "you": "Vous",
     "startChatting": "Démarrer une discussion",
+    "selfChat": {
+      "title": "Notes personnelles",
+      "subtitle": "Votre espace personnel",
+      "openFailed": "Impossible d'ouvrir Notes personnelles"
+    },
     "empty": {
       "title": "Aucune discussion pour l'instant",
       "hint": "Appuyez sur + pour démarrer une conversation."

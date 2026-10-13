@@ -75,6 +75,38 @@ func (s *Store) OpenConversation(ctx context.Context, orgID, callerID, peerID st
 	return convID, nil
 }
 
+// OpenSelfChat ensures the caller's Notes-to-Self conversation exists and is
+// visible, without appending a message. Idempotent — same upsert pattern as
+// OpenConversation above, deliberately keyed on the self pair (user_low =
+// user_high = callerID) that OpenConversation's own `callerID == peerID`
+// guard exists to refuse for an ordinary 1:1. That guard protects real DM
+// semantics (you cannot open a conversation "with yourself" as a second
+// party); this is a different, explicitly-named conversation — the caller's
+// own permanent note-taking space — so it gets its own entry point rather
+// than widening OpenConversation's.
+//
+// Only ONE member row is upserted: conversation_members is keyed
+// (conversation_id, user_id), and the caller is the only distinct user in a
+// self-chat, so there is no second row to revive.
+func (s *Store) OpenSelfChat(ctx context.Context, orgID, callerID string) (string, error) {
+	convID := uuid.Must(uuid.NewV7()).String()
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO conversations (id, org_id, user_low, user_high)
+			 VALUES ($1, $2, $3, $3)
+			 ON CONFLICT (org_id, user_low, user_high) DO UPDATE SET org_id = EXCLUDED.org_id
+			 RETURNING id`,
+			convID, orgID, callerID).Scan(&convID); err != nil {
+			return err
+		}
+		return s.upsertMember(ctx, tx, convID, orgID, callerID)
+	})
+	if err != nil {
+		return "", err
+	}
+	return convID, nil
+}
+
 // ── Ignore ────────────────────────────────────────────────────────────────────
 
 // Ignore hides the conversation for BOTH members and emits conversation.ignored.

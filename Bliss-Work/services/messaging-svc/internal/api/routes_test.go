@@ -76,6 +76,9 @@ var cappedRoutes = map[string]string{
 	"POST /api/v1/conversations/{id}/ignore": "small",
 	"POST /api/v1/conversations/{id}/clear":  "small",
 	"POST /api/v1/conversations/{id}/read":   "small",
+	// Notes to Self. Same /api/v1 small-body group as the routes above.
+	"POST /api/v1/conversations/self":            "small",
+	"POST /api/v1/conversations/self/share-task": "small",
 	// Bulk "delete for everyone" — a batch of message ids, scoped to the
 	// conversation. Same /api/v1 small-body group, so the cap is inherited.
 	"POST /api/v1/conversations/{id}/messages/delete": "small",

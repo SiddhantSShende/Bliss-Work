@@ -15,6 +15,18 @@
     },
     "pinned": "ピン留め中",
     "forwarded": "転送済み",
+    "task": "タスク: {{title}}",
+    "taskUnavailable": "タスクは利用できません",
+    "taskDeadline": "期限: {{when}}",
+    "taskAssignees": "担当者: {{names}}",
+    "taskStatus": {
+      "SENT": "送信済み(確認待ち)",
+      "ACKNOWLEDGED": "確認済み",
+      "COMPLETED": "完了",
+      "IGNORED": "無視",
+      "LEFT": "辞退",
+      "MISSED": "期限超過"
+    },
     "tombstone": "このメッセージは削除されました",
     "deletedMessage": "削除されたメッセージ",
     "originalMessage": "元のメッセージ",
@@ -74,6 +86,13 @@
     "notFound": {
       "title": "会話が見つかりません",
       "hint": "サイドバーから別の会話を選択してください。"
+    },
+    "selfChat": {
+      "title": "自分へのメモ",
+      "subtitle": "あなた専用のスペース",
+      "composerPlaceholder": "自分にメモを書く…",
+      "taskCreatedBody": "このメモからタスクを作成しました",
+      "linkTaskFailed": "タスクは作成されましたが、ここにリンクできませんでした"
     },
     "startCall": {
       "blockedNotice": {
@@ -245,6 +264,7 @@
     },
     "menu": {
       "reply": "返信",
+      "createTask": "これからタスクを作成",
       "download": "ダウンロード",
       "downloadNamed": "{{name}}をダウンロード",
       "forwardTo": "チャットまたはチャンネルに転送…",

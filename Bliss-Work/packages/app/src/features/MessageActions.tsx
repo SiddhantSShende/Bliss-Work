@@ -4,6 +4,7 @@ import {
   CornerUpLeft,
   Download,
   Forward,
+  ListPlus,
   MoreHorizontal,
   MailOpen,
   Pin,
@@ -49,6 +50,7 @@ export function MessageActions({
   canDeleteForAll,
   pinned,
   onTogglePin,
+  onCreateTask,
 }: {
   mine: boolean;
   /**
@@ -121,6 +123,9 @@ export function MessageActions({
   /** Pin/unpin for everyone. Absent where pinning does not apply (DMs) or where
    *  the caller may not moderate — the server enforces it either way. */
   onTogglePin?: () => void;
+  /** "Create task from this" — Notes to Self only. Absent on every other
+   *  surface, so the entry simply does not render there. */
+  onCreateTask?: () => void;
 }) {
   const { t } = useTranslation("chatThread");
   const [menu, setMenu] = useState(false);
@@ -221,6 +226,11 @@ export function MessageActions({
           {onReply && (
             <button role="menuitem" className={item} onClick={() => { onReply(); setMenu(false); }}>
               <CornerUpLeft size={13} className="text-muted" /> {t("messageActions.menu.reply")}
+            </button>
+          )}
+          {onCreateTask && (
+            <button role="menuitem" className={item} onClick={() => { onCreateTask(); setMenu(false); }}>
+              <ListPlus size={13} className="text-muted" /> {t("messageActions.menu.createTask")}
             </button>
           )}
           {onDownload &&

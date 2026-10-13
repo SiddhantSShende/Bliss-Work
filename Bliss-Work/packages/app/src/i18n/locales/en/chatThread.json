@@ -15,6 +15,18 @@
     },
     "pinned": "Pinned",
     "forwarded": "Forwarded",
+    "task": "Task: {{title}}",
+    "taskUnavailable": "Task unavailable",
+    "taskDeadline": "Due {{when}}",
+    "taskAssignees": "Assignees: {{names}}",
+    "taskStatus": {
+      "SENT": "Sent (awaiting)",
+      "ACKNOWLEDGED": "Acknowledged",
+      "COMPLETED": "Completed",
+      "IGNORED": "Ignored",
+      "LEFT": "Left",
+      "MISSED": "Missed"
+    },
     "tombstone": "This message was deleted",
     "deletedMessage": "Deleted message",
     "originalMessage": "Original message",
@@ -77,6 +89,13 @@
     "notFound": {
       "title": "Conversation not found",
       "hint": "Pick another from the sidebar."
+    },
+    "selfChat": {
+      "title": "Notes to Self",
+      "subtitle": "Your personal space",
+      "composerPlaceholder": "Write a note to yourself…",
+      "taskCreatedBody": "Created a task from this note",
+      "linkTaskFailed": "Task created, but couldn't link it back here"
     },
     "startCall": {
       "blockedNotice": {
@@ -255,6 +274,7 @@
     },
     "menu": {
       "reply": "Reply",
+      "createTask": "Create task from this",
       "download": "Download",
       "downloadNamed": "Download {{name}}",
       "forwardTo": "Forward to chat or channel…",

@@ -395,6 +395,7 @@ function handleMessageEvent(e: ServerEvent, ctx: EventHandlerContext) {
               kind: e.kind,
               isForward: e.isForward,
               forwardPlatform: e.forwardPlatform,
+              taskId: e.taskId ?? undefined,
               createdAt: e.occurredAt,
             });
           return next.sort((a, b) => a.seq - b.seq);

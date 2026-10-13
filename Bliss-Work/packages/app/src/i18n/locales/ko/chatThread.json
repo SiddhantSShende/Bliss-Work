@@ -15,6 +15,18 @@
     },
     "pinned": "고정됨",
     "forwarded": "전달됨",
+    "task": "작업: {{title}}",
+    "taskUnavailable": "작업을 사용할 수 없음",
+    "taskDeadline": "마감: {{when}}",
+    "taskAssignees": "담당자: {{names}}",
+    "taskStatus": {
+      "SENT": "전송됨(대기 중)",
+      "ACKNOWLEDGED": "확인함",
+      "COMPLETED": "완료",
+      "IGNORED": "무시함",
+      "LEFT": "나감",
+      "MISSED": "기한 초과"
+    },
     "tombstone": "삭제된 메시지예요",
     "deletedMessage": "삭제된 메시지",
     "originalMessage": "원본 메시지",
@@ -74,6 +86,13 @@
     "notFound": {
       "title": "대화를 찾을 수 없어요",
       "hint": "사이드바에서 다른 대화를 선택하세요."
+    },
+    "selfChat": {
+      "title": "나에게 메모",
+      "subtitle": "나만의 공간",
+      "composerPlaceholder": "나에게 메모를 남겨보세요…",
+      "taskCreatedBody": "이 메모로 작업을 만들었어요",
+      "linkTaskFailed": "작업은 생성됐지만 여기에 연결하지 못했어요"
     },
     "startCall": {
       "blockedNotice": {
@@ -245,6 +264,7 @@
     },
     "menu": {
       "reply": "답장",
+      "createTask": "이 내용으로 작업 만들기",
       "download": "다운로드",
       "downloadNamed": "{{name}} 다운로드",
       "forwardTo": "채팅 또는 채널로 전달…",

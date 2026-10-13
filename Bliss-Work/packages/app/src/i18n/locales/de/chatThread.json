@@ -15,6 +15,18 @@
     },
     "pinned": "Angeheftet",
     "forwarded": "Weitergeleitet",
+    "task": "Aufgabe: {{title}}",
+    "taskUnavailable": "Aufgabe nicht verfügbar",
+    "taskDeadline": "Fällig am {{when}}",
+    "taskAssignees": "Zugewiesen an: {{names}}",
+    "taskStatus": {
+      "SENT": "Gesendet (ausstehend)",
+      "ACKNOWLEDGED": "Bestätigt",
+      "COMPLETED": "Abgeschlossen",
+      "IGNORED": "Ignoriert",
+      "LEFT": "Verlassen",
+      "MISSED": "Verpasst"
+    },
     "tombstone": "Diese Nachricht wurde gelöscht",
     "deletedMessage": "Gelöschte Nachricht",
     "originalMessage": "Ursprüngliche Nachricht",
@@ -77,6 +89,13 @@
     "notFound": {
       "title": "Unterhaltung nicht gefunden",
       "hint": "Wählen Sie in der Seitenleiste eine andere aus."
+    },
+    "selfChat": {
+      "title": "Notizen an mich",
+      "subtitle": "Dein persönlicher Bereich",
+      "composerPlaceholder": "Schreib dir eine Notiz …",
+      "taskCreatedBody": "Aufgabe aus dieser Notiz erstellt",
+      "linkTaskFailed": "Aufgabe erstellt, konnte aber nicht verknüpft werden"
     },
     "startCall": {
       "blockedNotice": {
@@ -255,6 +274,7 @@
     },
     "menu": {
       "reply": "Antworten",
+      "createTask": "Aufgabe hieraus erstellen",
       "download": "Herunterladen",
       "downloadNamed": "{{name}} herunterladen",
       "forwardTo": "An Chat oder Kanal weiterleiten…",

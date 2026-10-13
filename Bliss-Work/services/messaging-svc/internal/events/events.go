@@ -119,7 +119,11 @@ type MessageCreated struct {
 	// to the normalized destination (store.PlatformWhatsApp today) — mirrors
 	// store.MessageDTO.ForwardPlatform so a live-pushed pill renders the same
 	// generic "Message forwarded to X" line a page-load would.
-	ForwardPlatform   string `json:"forwardPlatform,omitempty"`
+	ForwardPlatform string `json:"forwardPlatform,omitempty"`
+	// TaskID is set when this message was sent through a task's "Chat" entry
+	// point (see store.SendTaskDiscussionMessage / task_discussions.go).
+	// Mirrors store.MessageDTO.TaskID; omitted for an ordinary message.
+	TaskID            string `json:"taskId,omitempty"`
 	SenderDisplayName string `json:"senderDisplayName,omitempty"`
 	SenderUsername    string `json:"senderUsername,omitempty"`
 }

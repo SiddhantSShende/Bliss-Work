@@ -166,6 +166,10 @@ export const MessageCreated = z.object({
    *  "forward_external", so a live-pushed pill renders the same
    *  "Message forwarded to WhatsApp" line a page-load would. */
   forwardPlatform: z.string().optional(),
+  /** Mirrors MessageDTO.taskId (domain.ts) — set when sent through a task's
+   *  "Chat" entry point, so a live-pushed message renders its "Task: {title}"
+   *  label without waiting on a refetch. */
+  taskId: z.string().uuid().nullable().optional(),
 });
 
 export const ConversationIgnored = z.object({

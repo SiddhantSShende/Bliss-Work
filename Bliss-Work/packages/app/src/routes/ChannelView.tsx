@@ -16,7 +16,6 @@ import { useSession } from "../store/session";
 import { useMessageFocus } from "../lib/useMessageFocus";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
-import { TaskDiscussionBanner } from "../features/TaskDiscussionBanner";
 import { useOlderMessages } from "../lib/useOlderMessages";
 import { ChannelMembersSheet } from "../features/ChannelMembersSheet";
 import { LeaveChannelDialog } from "../features/LeaveChannelDialog";
@@ -48,22 +47,13 @@ export function ChannelView() {
   const { channelId = "" } = useParams();
   const focusMessage = useMessageFocus();
   // The task a "Chat" button opened this channel for (?taskId=…, same pattern
-  // as useMessageFocus's ?m=). Cleared with `replace` so Back doesn't walk
-  // through it.
-  const [searchParams, setSearchParams] = useSearchParams();
+  // as useMessageFocus's ?m=). Drives the composer's send-routing below (so a
+  // message sent while this is set is permanently tagged via the task
+  // discussion endpoint); dropped by every ordinary channel-switch navigation
+  // (plain pathname, no carried-over search string — see ChannelsList.tsx),
+  // so it never lingers onto an unrelated channel.
+  const [searchParams] = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
-  const clearTaskFocus = useCallback(
-    () =>
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.delete("taskId");
-          return next;
-        },
-        { replace: true },
-      ),
-    [setSearchParams],
-  );
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -85,17 +75,6 @@ export function ChannelView() {
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
   const selection = useMessageSelection(channelId);
-
-  // Best-effort title for the TaskDiscussionBanner above — see DMView's
-  // identical lookup. taskDetail is scoped to the caller's own assignment, so
-  // a channel member with no task_assignees row for this task won't resolve
-  // one; the banner still shows with the bare id in that case.
-  const { data: focusedTask } = useQuery({
-    queryKey: ["taskDetail", focusTaskId],
-    queryFn: () => api.taskDetail(focusTaskId!),
-    enabled: !!focusTaskId,
-    retry: false,
-  });
 
   // Switching channels must land on the CHAT, never on the previous channel's
   // members sheet. This component is mounted once for the whole
@@ -452,10 +431,20 @@ export function ChannelView() {
       senderDisplayName: me.displayName,
       body,
       replyToId,
+      taskId: focusTaskId ?? undefined,
       createdAt: new Date().toISOString(),
     }),
+    // Task-focused (?taskId=, or opened via a task's "Chat" button): route
+    // through the task-discussion endpoint instead of the plain send, so the
+    // message is permanently tagged (ChatThread's "Task: {title}" label)
+    // rather than relying on the now-removed ephemeral banner. `channelId` is
+    // this view's own route param, already membership-checked server-side —
+    // never a client-supplied target — so this can only tag the user's own
+    // sends in the channel they are actually in.
     mutationFn: ({ body, replyToId }) =>
-      api.sendChannelMessage(channelId, body, undefined, undefined, replyToId),
+      focusTaskId
+        ? api.sendTaskDiscussionMessage(focusTaskId, body, undefined, { channelId }, replyToId)
+        : api.sendChannelMessage(channelId, body, undefined, undefined, replyToId),
     // No reconcile: unlike DMView's messages, a ChannelMessageDTO carries no
     // `status` field at all (channels use per-member read receipts instead —
     // see receiptsByMessage below), so the plain id/seq patch is everything
@@ -482,7 +471,7 @@ export function ChannelView() {
         // reader should see above a channel bubble.
         id: m.id, senderId: m.senderId, senderName: m.senderDisplayName || m.senderUsername,
         body: m.body, at: m.createdAt, kind: m.kind, isForward: m.isForward,
-        forwardPlatform: m.forwardPlatform,
+        forwardPlatform: m.forwardPlatform, taskId: m.taskId ?? undefined,
         pending: m.id.startsWith("temp:"),
         replyToId: m.replyToId,
         deletedForAll: m.deletedForAll,
@@ -723,13 +712,6 @@ export function ChannelView() {
           meId={me.id}
           channelLocked={channel.isLocked}
           contextName={channel.name}
-        />
-      )}
-      {focusTaskId && (
-        <TaskDiscussionBanner
-          taskId={focusTaskId}
-          taskTitle={focusedTask?.title}
-          onClear={clearTaskFocus}
         />
       )}
       <ChatThread

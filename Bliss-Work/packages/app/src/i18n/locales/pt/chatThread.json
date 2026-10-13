@@ -15,6 +15,18 @@
     },
     "pinned": "Fixada",
     "forwarded": "Encaminhada",
+    "task": "Tarefa: {{title}}",
+    "taskUnavailable": "Tarefa indisponível",
+    "taskDeadline": "Prazo: {{when}}",
+    "taskAssignees": "Responsáveis: {{names}}",
+    "taskStatus": {
+      "SENT": "Enviada (aguardando)",
+      "ACKNOWLEDGED": "Confirmada",
+      "COMPLETED": "Concluída",
+      "IGNORED": "Ignorada",
+      "LEFT": "Abandonada",
+      "MISSED": "Perdida"
+    },
     "tombstone": "Esta mensagem foi excluída",
     "deletedMessage": "Mensagem excluída",
     "originalMessage": "Mensagem original",
@@ -80,6 +92,13 @@
     "notFound": {
       "title": "Conversa não encontrada",
       "hint": "Escolha outra na barra lateral."
+    },
+    "selfChat": {
+      "title": "Notas para mim",
+      "subtitle": "Seu espaço pessoal",
+      "composerPlaceholder": "Escreva uma nota para você…",
+      "taskCreatedBody": "Tarefa criada a partir desta nota",
+      "linkTaskFailed": "Tarefa criada, mas não foi possível vinculá-la aqui"
     },
     "startCall": {
       "blockedNotice": {
@@ -265,6 +284,7 @@
     },
     "menu": {
       "reply": "Responder",
+      "createTask": "Criar tarefa a partir disto",
       "download": "Baixar",
       "downloadNamed": "Baixar {{name}}",
       "forwardTo": "Encaminhar para chat ou canal…",

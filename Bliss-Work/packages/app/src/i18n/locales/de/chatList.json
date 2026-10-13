@@ -34,6 +34,11 @@
     },
     "you": "Sie",
     "startChatting": "Chat starten",
+    "selfChat": {
+      "title": "Notizen an mich",
+      "subtitle": "Dein persönlicher Bereich",
+      "openFailed": "Notizen an mich konnten nicht geöffnet werden"
+    },
     "empty": {
       "title": "Noch keine Chats",
       "hint": "Tippen Sie auf +, um eine Unterhaltung zu beginnen."

@@ -86,7 +86,7 @@ describe("the notification-svc build that predates paging fails the strict schem
 describe("createTask response", () => {
   const withTaskBase = (body: unknown) => {
     serve(body);
-    return new ApiClient({ taskBase: "http://task.test", getToken: async () => "t" } as never).createTask({ title: "t", description: "d" });
+    return new ApiClient({ taskBase: "http://task.test", getToken: async () => "t" } as never).createTask({ taskTitle: "t", title: "t", description: "d" });
   };
 
   it("accepts the explicit scheduleId: null task-svc sends for an immediate task", async () => {

@@ -516,6 +516,13 @@ export const MessageDTO = z.object({
    * validation, the same tolerance MessageKindWire gives an unknown `kind`.
    */
   forwardPlatform: z.string().optional(),
+  /**
+   * Set when this message was sent through a task's "Chat" entry point.
+   * Rendered as a permanent, clickable "Task: {title}" label (replacing the
+   * old top-of-conversation banner) that reuses the same navigation as
+   * "Open task". Mirrors ChannelMessageDTO.taskId; absent for an ordinary message.
+   */
+  taskId: z.string().uuid().optional(),
 });
 
 /** One emoji's tally on one message, from the caller's point of view. */
@@ -878,10 +885,18 @@ export const SentTaskDTO = z.object({
 });
 export type SentTaskDTO = z.infer<typeof SentTaskDTO>;
 
+export const ProjectStatus = z.enum(["ACTIVE", "COMPLETED"]);
+export type ProjectStatus = z.infer<typeof ProjectStatus>;
+
 export const ProjectDTO = z.object({
   id: z.string().uuid(),
   name: z.string(),
   channelId: z.string().uuid(),
+  status: ProjectStatus,
+  /** Caller is this project's creator or an org_admin → the client renders
+   *  the Complete Project button. The server re-checks regardless — this
+   *  only decides what to OFFER. */
+  canComplete: z.boolean(),
 });
 export type ProjectDTO = z.infer<typeof ProjectDTO>;
 
@@ -1022,6 +1037,52 @@ export const ChannelAnalyticsDTO = z.object({
   workload: z.array(AssigneeWorkloadDTO),
 });
 export type ChannelAnalyticsDTO = z.infer<typeof ChannelAnalyticsDTO>;
+
+export const ProjectTaskAssigneeDTO = z.object({
+  assigneeId: z.string().uuid(),
+  assigneeUsername: z.string(),
+  status: AssigneeStatus,
+  assignedAt: z.string().nullable().optional(),
+});
+export type ProjectTaskAssigneeDTO = z.infer<typeof ProjectTaskAssigneeDTO>;
+
+/** Per-task status in a project's breakdown list — the same completed/
+ *  abandoned/remaining rule CompletionMetricsDTO is built from, surfaced per
+ *  task instead of only in aggregate. */
+export const ProjectTaskStatus = z.enum(["COMPLETED", "ABANDONED", "IN_PROGRESS"]);
+export type ProjectTaskStatus = z.infer<typeof ProjectTaskStatus>;
+
+export const ProjectTaskSummaryDTO = z.object({
+  taskId: z.string().uuid(),
+  title: z.string(),
+  senderId: z.string().uuid(),
+  senderUsername: z.string(),
+  createdAt: z.string(),
+  deadlineAt: z.string().nullable().optional(),
+  /** True once at least one assignee row on this task is MISSED — the same
+   *  outcome task-svc's deadline sweep already owns. */
+  overdue: z.boolean(),
+  taskStatus: ProjectTaskStatus,
+  assignees: z.array(ProjectTaskAssigneeDTO),
+});
+export type ProjectTaskSummaryDTO = z.infer<typeof ProjectTaskSummaryDTO>;
+
+/** Snapshot analytics across every task in a project (tasks.projectId — a
+ *  task belongs to at most one project, so there is no join-table fan-out on
+ *  that side to double-count). `tasks` is paginated (tasksOffset/tasksLimit/
+ *  tasksTotal); every other field is computed over the whole project. */
+export const ProjectAnalyticsDTO = z.object({
+  projectId: z.string().uuid(),
+  statusBreakdown: StatusBreakdownDTO,
+  completion: CompletionMetricsDTO,
+  workload: z.array(AssigneeWorkloadDTO),
+  overdueUniqueTasks: z.number().int(),
+  tasks: z.array(ProjectTaskSummaryDTO),
+  tasksOffset: z.number().int(),
+  tasksLimit: z.number().int(),
+  tasksTotal: z.number().int(),
+});
+export type ProjectAnalyticsDTO = z.infer<typeof ProjectAnalyticsDTO>;
 
 // ── Availability roster ──────────────────────────────────────────────────────
 /** One user's OPEN task counts. Users with no open work at all are absent from

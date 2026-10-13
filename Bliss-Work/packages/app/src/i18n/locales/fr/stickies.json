@@ -25,7 +25,8 @@
     "navPrevious": "Tâche épinglée précédente",
     "navNext": "Tâche épinglée suivante",
     "chat": "Chat",
-    "discussingTask": "Discussion sur la tâche : {{title}}",
+    "shareToSelfChat": "Partager vers Notes personnelles",
+    "shareToSelfChatBody": "Tâche partagée",
     "openTask": "Ouvrir la tâche"
   },
   "overlay": {
@@ -39,7 +40,9 @@
     "noteUnpinnedDescription": "Elle figure toujours dans votre liste de tâches — terminez-la depuis là.",
     "unpinFailed": "Impossible de désépingler la note",
     "desktopFull": "Impossible d'épingler cette tâche au bureau.",
-    "chatOpenFailed": "Impossible d'ouvrir cette discussion. Veuillez réessayer."
+    "chatOpenFailed": "Impossible d'ouvrir cette discussion. Veuillez réessayer.",
+    "sharedToSelfChat": "Partagé vers Notes personnelles",
+    "shareToSelfChatFailed": "Impossible de partager cette tâche vers Notes personnelles"
   },
   "window": {
     "loading": "Chargement…",

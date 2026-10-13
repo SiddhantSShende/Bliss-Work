@@ -25,7 +25,8 @@
     "navPrevious": "前のピン留めタスク",
     "navNext": "次のピン留めタスク",
     "chat": "チャット",
-    "discussingTask": "タスクについて話し合っています: {{title}}",
+    "shareToSelfChat": "自分へのメモに共有",
+    "shareToSelfChatBody": "このタスクを共有しました",
     "openTask": "タスクを開く"
   },
   "overlay": {
@@ -39,7 +40,9 @@
     "noteUnpinnedDescription": "タスク一覧には残っています。そこから完了できます。",
     "unpinFailed": "付箋のピン留めを解除できませんでした",
     "desktopFull": "このタスクをデスクトップにピン留めできませんでした。",
-    "chatOpenFailed": "チャットを開けませんでした。もう一度お試しください。"
+    "chatOpenFailed": "チャットを開けませんでした。もう一度お試しください。",
+    "sharedToSelfChat": "自分へのメモに共有しました",
+    "shareToSelfChatFailed": "このタスクを自分へのメモに共有できませんでした"
   },
   "window": {
     "loading": "読み込み中…",
