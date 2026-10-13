@@ -11,11 +11,13 @@ import (
 // an ad-hoc one does not, so inventing a default for the second would cut off
 // live calls nobody asked to be cut off.
 func TestParseScheduleDerivesTheEndFromTheDuration(t *testing.T) {
-	const start = "2026-09-01T10:00:00Z"
-	at, err := time.Parse(time.RFC3339, start)
-	if err != nil {
-		t.Fatalf("test fixture: %v", err)
-	}
+	// Computed relative to now, not a fixed date: parseSchedule refuses a
+	// ScheduledAt in the past (see its own comment on scheduleGraceWindow),
+	// so a hardcoded past-tense literal here would start failing the moment
+	// real time caught up to it — exactly what happened to this test's
+	// original "2026-09-01T10:00:00Z".
+	at := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
+	start := at.Format(time.RFC3339)
 
 	cases := []struct {
 		name string

@@ -56,6 +56,10 @@ var cappedRoutes = map[string]string{
 	// /internal/* — service-to-service, small JSON.
 	"POST /internal/messages/delivered": "small",
 	"POST /internal/messages/hydrate":   "small",
+	// task-svc resolves/creates channels and fans members in here. Same
+	// internal-only group, small JSON bodies.
+	"POST /internal/channels":              "small",
+	"POST /internal/channels/{id}/members": "small",
 	// Inbound mail. Already-parsed JSON, not raw MIME, and the store truncates
 	// the subject and body to their rune limits — so a large message is
 	// rejected by the cap long before anything is stored.

@@ -145,6 +145,13 @@ describe("shared custom-theme definitions", () => {
     mount();
     await waitFor(() => expect(theme.customTheme).toEqual(storedTheme(["#111111"])));
 
+    h.api.me.mockResolvedValue({ customTheme: storedTheme(["#eeeeee"]), customThemeRevision: 2, themePrefs: null });
+    await refocus();
+    await waitFor(() => expect(theme.customTheme).toEqual(storedTheme(["#eeeeee"])));
+    expect(theme.theme).toBe("purple");
+    expect(theme.customThemeActive).toBe(false);
+    expect(h.api.updateProfile).not.toHaveBeenCalled();
+  });
 
   it("updates an active custom palette without changing the selected theme", async () => {
     localStorage.setItem("tb-theme", "rose-dark");
@@ -158,13 +165,6 @@ describe("shared custom-theme definitions", () => {
     expect(theme.customThemeActive).toBe(true);
     expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#eeeeee");
   });
-    h.api.me.mockResolvedValue({ customTheme: storedTheme(["#eeeeee"]), customThemeRevision: 2, themePrefs: null });
-    await refocus();
-    await waitFor(() => expect(theme.customTheme).toEqual(storedTheme(["#eeeeee"])));
-    expect(theme.theme).toBe("purple");
-    expect(theme.customThemeActive).toBe(false);
-    expect(h.api.updateProfile).not.toHaveBeenCalled();
-  });
 
   it("retries an unsynced definition on focus", async () => {
     h.api.me.mockResolvedValue({ customTheme: null, customThemeRevision: 2, themePrefs: null });
@@ -176,7 +176,11 @@ describe("shared custom-theme definitions", () => {
     mount();
     await waitFor(() => expect(h.api.me).toHaveBeenCalledTimes(2));
     expect(theme.customTheme).toBeNull();
-    expect(theme.theme).toBe("teal");
+    // No tb-theme in localStorage (cleared in beforeEach) and no themePrefs
+    // from the account → the platform default (bluePurple, see
+    // packages/ui/src/theme/themes.ts's DEFAULT_THEME), same as every other
+    // test in this file that mounts with neither set.
+    expect(theme.theme).toBe("bluePurple");
     expect(h.api.updateProfile).not.toHaveBeenCalled();
 
     act(() => theme.saveCustomTheme(storedTheme(["#112233"])));
