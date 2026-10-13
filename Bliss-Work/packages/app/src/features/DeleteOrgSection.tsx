@@ -84,7 +84,11 @@ export function DeleteOrgSection() {
 
   return (
     <section className="rounded-2xl border border-danger/30 p-5">
-      <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-danger">
+      {/* Formatting intentionally swapped between this heading and the
+          openButton below (position/content/behavior unchanged either way):
+          the heading now wears the button's old pill-chip look, and the
+          button now wears the heading's old plain danger-text look. */}
+      <h2 className="mb-2 inline-flex h-8 items-center gap-2 rounded-xl bg-accent-soft px-3 text-[13px] font-medium tracking-[-0.01em] text-accent">
         <AlertTriangle size={16} /> {t("org:deleteOrgSection.dangerZone.heading")}
       </h2>
       {!open ? (
@@ -92,7 +96,12 @@ export function DeleteOrgSection() {
           <p className="mb-3 text-sm text-muted">
             {t("org:deleteOrgSection.dangerZone.description")}
           </p>
-          <Button variant="subtle" size="sm" onClick={() => setOpen(true)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto gap-2 px-0 text-sm font-semibold text-danger hover:bg-transparent hover:text-danger"
+            onClick={() => setOpen(true)}
+          >
             {t("org:deleteOrgSection.dangerZone.openButton")}
           </Button>
         </>

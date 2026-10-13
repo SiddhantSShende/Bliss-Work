@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
+import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { errorText } from "../lib/errorText";
 
@@ -17,6 +18,7 @@ export function MfaPolicySection() {
   const { t, i18n } = useTranslation("account");
   const { api } = useRuntime();
   const qc = useQueryClient();
+  const setUser = useSession((s) => s.setUser);
 
   const { data, isLoading } = useQuery({
     queryKey: qk.orgMfaSettings,
@@ -25,8 +27,14 @@ export function MfaPolicySection() {
 
   const toggle = useMutation({
     mutationFn: (requireMfaForAdmins: boolean) => api.setOrgMfaSettings({ requireMfaForAdmins }),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       qc.setQueryData(qk.orgMfaSettings, result);
+      // The admin flipping this toggle is themselves an org_admin whose own
+      // AppShell banner (MfaRequiredBanner) reads session.user, not this
+      // query — without this it would not reflect the new policy until the
+      // next background token refresh (~15 min), same fix as MfaSettings.tsx
+      // applies after the user's own enrollment changes.
+      setUser(await api.me());
       toast.success(
         result.requireMfaForAdmins
           ? t("account:mfaPolicy.toasts.enabled")
