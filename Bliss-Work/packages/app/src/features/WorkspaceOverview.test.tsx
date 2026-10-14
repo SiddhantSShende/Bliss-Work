@@ -1,0 +1,176 @@
+/**
+ * WorkspaceOverview: org_admin gating (the core access-control risk — a
+ * non-admin must see nothing, not an error or an empty shell), loading/
+ * error/empty states, and that the range tabs / channel filter actually
+ * refetch with new query params rather than being decorative.
+ */
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ChannelDTO, type UserDTO, type WorkspaceOverviewDTO } from "@taskboard/shared";
+
+const h = vi.hoisted(() => ({ channels: vi.fn(), workspaceAnalyticsOverview: vi.fn() }));
+vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h, config: {} }) }));
+
+import { WorkspaceOverview } from "./WorkspaceOverview";
+import { useSession } from "../store/session";
+
+const person = (id: string, roles: string[] = ["member"]): UserDTO =>
+  ({
+    id, orgId: "00000000-0000-4000-8000-000000000999", orgName: "Acme", username: "u", displayName: "U",
+    email: "u@acme.test", roles, avatarUrl: null, mfaEnrolled: false,
+    orgRequireMfaForAdmins: false, orgMfaGracePeriodEndsAt: null, themePrefs: null,
+  }) as UserDTO;
+const ADMIN = person("u-admin", ["org_admin"]);
+const MEMBER = person("u-member", ["member"]);
+
+const CHANNEL_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const CHANNEL = ChannelDTO.parse({
+  id: CHANNEL_ID,
+  name: "Design",
+  memberCount: 1,
+  lastMessage: null,
+  lastMessageAt: null,
+});
+
+const OVERVIEW: WorkspaceOverviewDTO = {
+  statusBreakdown: { sent: 1, acknowledged: 0, completed: 2, ignored: 0, left: 0, missed: 1 },
+  completion: {
+    totalAssignments: 4,
+    completedAssignments: 2,
+    assignmentCompletionRate: 50,
+    totalUniqueTasks: 4,
+    completedUniqueTasks: 2,
+    abandonedUniqueTasks: 0,
+    remainingUniqueTasks: 2,
+    uniqueTaskCompletionRate: 50,
+  },
+  overdueUniqueTasks: 1,
+  inProgressUniqueTasks: 1,
+  workload: [
+    { assigneeId: "u1", assigneeUsername: "alice", assignedCount: 3, completedCount: 2, inProgressCount: 1, completionRate: 66.7 },
+  ],
+  channels: [{ channelId: CHANNEL_ID, totalUniqueTasks: 4, completedUniqueTasks: 2, completionRate: 50 }],
+  dailyActivity: [
+    { day: "2026-10-01", tasksCreated: 2, tasksCompleted: 1 },
+    { day: "2026-10-02", tasksCreated: 2, tasksCompleted: 1 },
+  ],
+  rangeFrom: "2026-10-01",
+  rangeTo: "2026-10-02",
+};
+
+const EMPTY_OVERVIEW: WorkspaceOverviewDTO = {
+  ...OVERVIEW,
+  completion: { ...OVERVIEW.completion, totalUniqueTasks: 0, completedUniqueTasks: 0, remainingUniqueTasks: 0 },
+  overdueUniqueTasks: 0,
+  inProgressUniqueTasks: 0,
+  workload: [],
+  channels: [],
+  dailyActivity: [],
+};
+
+function mount() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceOverview />
+    </QueryClientProvider>,
+  );
+}
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  useSession.setState({ user: null });
+});
+
+describe("WorkspaceOverview", () => {
+  it("renders nothing for a non-admin session", () => {
+    useSession.setState({ user: MEMBER });
+    const { container } = mount();
+    expect(container).toBeEmptyDOMElement();
+    expect(h.workspaceAnalyticsOverview).not.toHaveBeenCalled();
+  });
+
+  it("renders nothing with no session at all", () => {
+    const { container } = mount();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("shows KPI totals for an admin session", async () => {
+    useSession.setState({ user: ADMIN });
+    h.channels.mockResolvedValue([CHANNEL]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    mount();
+
+    const totalLabel = await screen.findByText("Total Tasks");
+    const kpiGrid = totalLabel.closest(".grid");
+    expect(kpiGrid).not.toBeNull();
+    const kpi = within(kpiGrid as HTMLElement);
+    expect(kpi.getByText("Total Tasks").parentElement).toHaveTextContent("4");
+    expect(kpi.getByText("Completed").parentElement).toHaveTextContent("2");
+    expect(kpi.getByText("In Progress").parentElement).toHaveTextContent("1");
+    expect(kpi.getByText("Overdue").parentElement).toHaveTextContent("1");
+  });
+
+  it("resolves channel names from the channels list, not raw ids", async () => {
+    useSession.setState({ user: ADMIN });
+    h.channels.mockResolvedValue([CHANNEL]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    mount();
+
+    const channelSection = (await screen.findByText("Channel Performance")).closest("section");
+    expect(within(channelSection as HTMLElement).getByText("Design")).toBeInTheDocument();
+  });
+
+  it("shows the empty state when there are no tasks in range", async () => {
+    useSession.setState({ user: ADMIN });
+    h.channels.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
+    mount();
+
+    expect(await screen.findByText("No activity yet")).toBeInTheDocument();
+  });
+
+  it("shows a retry control on error", async () => {
+    useSession.setState({ user: ADMIN });
+    h.channels.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockRejectedValue(new Error("boom"));
+    mount();
+
+    expect(await screen.findByText("Couldn't load the overview")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("refetches with a new date range when a range tab is clicked", async () => {
+    useSession.setState({ user: ADMIN });
+    h.channels.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    mount();
+    await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalledTimes(1));
+    const firstCall = h.workspaceAnalyticsOverview.mock.calls[0][0];
+
+    await userEvent.click(screen.getByRole("tab", { name: /last 7 days/i }));
+
+    await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalledTimes(2));
+    const secondCall = h.workspaceAnalyticsOverview.mock.calls[1][0];
+    expect(secondCall.from).not.toBe(firstCall.from);
+  });
+
+  it("refetches scoped to one channel when the channel filter changes", async () => {
+    useSession.setState({ user: ADMIN });
+    h.channels.mockResolvedValue([CHANNEL]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    mount();
+    await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalledTimes(1));
+
+    await userEvent.selectOptions(await screen.findByRole("combobox"), CHANNEL_ID);
+
+    await waitFor(() =>
+      expect(h.workspaceAnalyticsOverview).toHaveBeenLastCalledWith(
+        expect.objectContaining({ channelId: CHANNEL_ID }),
+      ),
+    );
+  });
+});

@@ -414,18 +414,75 @@
   },
   "analyticsHub": {
     "title": "分析",
-    "hint": "选择一个频道以查看其任务分析。",
+    "hint": "选择一个频道或项目以查看其任务分析。",
     "channelsTitle": "频道",
     "emptyChannels": {
       "title": "暂无频道",
       "hint": "加入或创建一个频道，即可在此查看其分析。"
     },
+    "projectsTitle": "项目",
+    "emptyProjects": {
+      "title": "暂无项目",
+      "hint": "在任务中创建一个项目，即可在此查看其仪表盘。"
+    },
+    "projectsLoadError": {
+      "title": "无法加载项目",
+      "hint": "获取项目时出错。",
+      "retry": "重试"
+    },
     "noSelection": {
-      "title": "选择频道",
-      "hint": "选择左侧的频道以查看其分析。"
+      "title": "选择频道或项目",
+      "hint": "选择左侧的频道或项目以查看其分析。"
     },
     "taskHint": "想查看某个任务的分析？请从 Mail 中打开该任务。",
-    "openMail": "打开 Mail"
+    "openMail": "打开 Mail",
+    "overview": {
+      "subtitle": "跨所有频道的工作区任务活动总览。",
+      "allChannels": "所有频道",
+      "channelFilterLabel": "频道",
+      "privateChannel": "私密频道",
+      "kpis": {
+        "total": "任务总数",
+        "completed": "已完成",
+        "inProgress": "进行中",
+        "overdue": "已逾期"
+      },
+      "sections": {
+        "channelPerformance": "频道表现",
+        "personWorkload": "人员工作量",
+        "workloadVsCompletion": "工作量与完成率",
+        "statusDistribution": "状态分布",
+        "statusFlow": "状态流转",
+        "activityPulse": "活动脉搏"
+      },
+      "statusFlowHint": "所选时间范围内的状态构成。",
+      "workloadTable": {
+        "person": "人员",
+        "assigned": "已分配",
+        "completed": "已完成",
+        "inProgress": "进行中",
+        "progress": "进度"
+      },
+      "scatter": {
+        "xLabel": "已分配任务",
+        "yLabel": "完成率",
+        "hint": "每个点代表一个人：已分配工作量与其完成率的对比。"
+      },
+      "activity": {
+        "created": "创建",
+        "completed": "完成",
+        "hint": "每日创建和完成的任务数。"
+      },
+      "empty": {
+        "title": "暂无活动",
+        "hint": "此时间范围内没有创建或完成任何任务。"
+      },
+      "loadError": {
+        "title": "无法加载总览",
+        "hint": "获取工作区分析数据时出错。",
+        "retry": "重试"
+      }
+    }
   },
   "analytics": {
     "loading": "正在加载分析数据…",

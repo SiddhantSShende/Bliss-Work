@@ -26,6 +26,10 @@ export const qk = {
    *  refetched on normal TanStack staleness/refocus like any other snapshot. */
   taskAnalytics: (taskId: string) => ["tasks", "analytics", taskId] as const,
   channelAnalytics: (channelId: string) => ["tasks", "channelAnalytics", channelId] as const,
+  /** Workspace-wide overview dashboard (org_admin only). `channelId` defaults
+   *  to "all" so the unfiltered view has a stable, cacheable key of its own. */
+  workspaceAnalyticsOverview: (from: string, to: string, channelId?: string) =>
+    ["tasks", "workspaceOverview", from, to, channelId ?? "all"] as const,
   /** Paginated (see useInfiniteQuery in ProjectAnalyticsPanel) — one key per
    *  project, not per page; TanStack keeps every fetched page under it. */
   projectAnalytics: (projectId: string) => ["tasks", "projectAnalytics", projectId] as const,

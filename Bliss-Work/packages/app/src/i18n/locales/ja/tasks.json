@@ -414,18 +414,75 @@
   },
   "analyticsHub": {
     "title": "分析",
-    "hint": "チャンネルを選択して、タスクの分析を表示します。",
+    "hint": "チャンネルまたはプロジェクトを選択して、タスクの分析を表示します。",
     "channelsTitle": "チャンネル",
     "emptyChannels": {
       "title": "チャンネルがありません",
       "hint": "ここで分析を表示するには、チャンネルに参加するか、新しく作成してください。"
     },
+    "projectsTitle": "プロジェクト",
+    "emptyProjects": {
+      "title": "プロジェクトがありません",
+      "hint": "ここでダッシュボードを表示するには、タスクでプロジェクトを作成してください。"
+    },
+    "projectsLoadError": {
+      "title": "プロジェクトを読み込めませんでした",
+      "hint": "プロジェクトの取得中に問題が発生しました。",
+      "retry": "再試行"
+    },
     "noSelection": {
-      "title": "チャンネルを選択",
-      "hint": "左側からチャンネルを選択して、分析を表示してください。"
+      "title": "チャンネルまたはプロジェクトを選択",
+      "hint": "左側からチャンネルまたはプロジェクトを選択して、分析を表示してください。"
     },
     "taskHint": "特定のタスクの分析を確認しますか？Mail からタスクを開いてください。",
-    "openMail": "Mail を開く"
+    "openMail": "Mail を開く",
+    "overview": {
+      "subtitle": "すべてのチャンネルにおけるタスク活動のワークスペース全体のビュー。",
+      "allChannels": "すべてのチャンネル",
+      "channelFilterLabel": "チャンネル",
+      "privateChannel": "非公開チャンネル",
+      "kpis": {
+        "total": "タスク合計",
+        "completed": "完了",
+        "inProgress": "進行中",
+        "overdue": "期限超過"
+      },
+      "sections": {
+        "channelPerformance": "チャンネル別パフォーマンス",
+        "personWorkload": "メンバー別ワークロード",
+        "workloadVsCompletion": "ワークロードと完了率",
+        "statusDistribution": "ステータス分布",
+        "statusFlow": "ステータスフロー",
+        "activityPulse": "アクティビティパルス"
+      },
+      "statusFlowHint": "選択した期間のステータス構成。",
+      "workloadTable": {
+        "person": "メンバー",
+        "assigned": "割り当て済み",
+        "completed": "完了",
+        "inProgress": "進行中",
+        "progress": "進捗"
+      },
+      "scatter": {
+        "xLabel": "割り当てタスク数",
+        "yLabel": "完了率",
+        "hint": "各点は1人を表し、割り当てられたワークロードと完了率を示します。"
+      },
+      "activity": {
+        "created": "作成",
+        "completed": "完了",
+        "hint": "日別の作成・完了タスク数。"
+      },
+      "empty": {
+        "title": "まだ活動がありません",
+        "hint": "この期間にタスクの作成・完了はありませんでした。"
+      },
+      "loadError": {
+        "title": "概要を読み込めませんでした",
+        "hint": "ワークスペース分析の取得中に問題が発生しました。",
+        "retry": "再試行"
+      }
+    }
   },
   "analytics": {
     "loading": "分析を読み込み中…",

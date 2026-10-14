@@ -438,18 +438,75 @@
   },
   "analyticsHub": {
     "title": "Analíticas",
-    "hint": "Selecciona un canal para ver sus analíticas de tareas.",
+    "hint": "Selecciona un canal o un proyecto para ver sus analíticas de tareas.",
     "channelsTitle": "Canales",
     "emptyChannels": {
       "title": "Aún no hay canales",
       "hint": "Únete a un canal o crea uno para ver sus analíticas aquí."
     },
+    "projectsTitle": "Proyectos",
+    "emptyProjects": {
+      "title": "Aún no hay proyectos",
+      "hint": "Crea un proyecto en Tareas para ver su panel aquí."
+    },
+    "projectsLoadError": {
+      "title": "No se pudieron cargar los proyectos",
+      "hint": "Algo salió mal al obtener tus proyectos.",
+      "retry": "Intentar de nuevo"
+    },
     "noSelection": {
-      "title": "Selecciona un canal",
-      "hint": "Elige un canal a la izquierda para ver sus analíticas."
+      "title": "Selecciona un canal o un proyecto",
+      "hint": "Elige un canal o un proyecto a la izquierda para ver sus analíticas."
     },
     "taskHint": "¿Buscas las analíticas de una tarea específica? Ábrela desde Correo.",
-    "openMail": "Abrir Correo"
+    "openMail": "Abrir Correo",
+    "overview": {
+      "subtitle": "Una vista general de la actividad de tareas en todos los canales del espacio de trabajo.",
+      "allChannels": "Todos los canales",
+      "channelFilterLabel": "Canal",
+      "privateChannel": "Canal privado",
+      "kpis": {
+        "total": "Tareas totales",
+        "completed": "Completadas",
+        "inProgress": "En curso",
+        "overdue": "Vencidas"
+      },
+      "sections": {
+        "channelPerformance": "Rendimiento por canal",
+        "personWorkload": "Carga de trabajo por persona",
+        "workloadVsCompletion": "Carga vs. finalización",
+        "statusDistribution": "Distribución de estados",
+        "statusFlow": "Flujo de estados",
+        "activityPulse": "Pulso de actividad"
+      },
+      "statusFlowHint": "Mezcla de estados del período seleccionado.",
+      "workloadTable": {
+        "person": "Persona",
+        "assigned": "Asignadas",
+        "completed": "Completadas",
+        "inProgress": "En curso",
+        "progress": "Progreso"
+      },
+      "scatter": {
+        "xLabel": "Tareas asignadas",
+        "yLabel": "Tasa de finalización",
+        "hint": "Cada punto es una persona: carga asignada frente a su tasa de finalización."
+      },
+      "activity": {
+        "created": "Creadas",
+        "completed": "Completadas",
+        "hint": "Tareas creadas y completadas por día."
+      },
+      "empty": {
+        "title": "Aún sin actividad",
+        "hint": "No se crearon ni completaron tareas en este período."
+      },
+      "loadError": {
+        "title": "No se pudo cargar el resumen",
+        "hint": "Ocurrió un error al obtener los análisis del espacio de trabajo.",
+        "retry": "Reintentar"
+      }
+    }
   },
   "analytics": {
     "loading": "Cargando analíticas…",

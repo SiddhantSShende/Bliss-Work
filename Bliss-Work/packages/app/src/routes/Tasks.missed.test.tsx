@@ -187,6 +187,23 @@ describe("the Missed category", () => {
     expect(within(el).queryByRole("button", { name: /Acknowledge|Ignore|Complete|Leave/ })).not.toBeInTheDocument();
   });
 
+  it("hides the Participants roster on a missed card, even when the task has participants", async () => {
+    server = server.map((t) =>
+      t.taskId === C
+        ? { ...t, participants: [{ userId: A, username: "alice", status: "ACKNOWLEDGED" as AssigneeStatus }] }
+        : t,
+    );
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText("Write the report");
+    await user.click(category("Missed"));
+
+    const missed = await screen.findByText("File the expenses");
+    const el = missed.closest("[data-task-card]") as HTMLElement;
+    expect(within(el).queryByText("Participants")).not.toBeInTheDocument();
+    expect(within(el).queryByText("alice")).not.toBeInTheDocument();
+  });
+
   it("explains an empty Missed bucket", async () => {
     server = server.filter((t) => t.myStatus !== "MISSED");
     const user = userEvent.setup();

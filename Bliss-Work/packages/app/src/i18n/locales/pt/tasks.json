@@ -438,18 +438,75 @@
   },
   "analyticsHub": {
     "title": "Análises",
-    "hint": "Selecione um canal para ver as análises das suas tarefas.",
+    "hint": "Selecione um canal ou um projeto para ver as análises das suas tarefas.",
     "channelsTitle": "Canais",
     "emptyChannels": {
       "title": "Ainda não há canais",
       "hint": "Entre em um canal ou crie um para ver suas análises aqui."
     },
+    "projectsTitle": "Projetos",
+    "emptyProjects": {
+      "title": "Ainda não há projetos",
+      "hint": "Crie um projeto em Tarefas para ver o painel aqui."
+    },
+    "projectsLoadError": {
+      "title": "Não foi possível carregar os projetos",
+      "hint": "Algo deu errado ao buscar seus projetos.",
+      "retry": "Tentar novamente"
+    },
     "noSelection": {
-      "title": "Selecione um canal",
-      "hint": "Escolha um canal à esquerda para ver suas análises."
+      "title": "Selecione um canal ou um projeto",
+      "hint": "Escolha um canal ou um projeto à esquerda para ver suas análises."
     },
     "taskHint": "Procurando as análises de uma tarefa específica? Abra-a pelo Mail.",
-    "openMail": "Abrir Mail"
+    "openMail": "Abrir Mail",
+    "overview": {
+      "subtitle": "Uma visão geral da atividade de tarefas em todos os canais do espaço de trabalho.",
+      "allChannels": "Todos os canais",
+      "channelFilterLabel": "Canal",
+      "privateChannel": "Canal privado",
+      "kpis": {
+        "total": "Total de tarefas",
+        "completed": "Concluídas",
+        "inProgress": "Em andamento",
+        "overdue": "Atrasadas"
+      },
+      "sections": {
+        "channelPerformance": "Desempenho por canal",
+        "personWorkload": "Carga de trabalho por pessoa",
+        "workloadVsCompletion": "Carga vs. conclusão",
+        "statusDistribution": "Distribuição de status",
+        "statusFlow": "Fluxo de status",
+        "activityPulse": "Pulso de atividade"
+      },
+      "statusFlowHint": "Mistura de status do período selecionado.",
+      "workloadTable": {
+        "person": "Pessoa",
+        "assigned": "Atribuídas",
+        "completed": "Concluídas",
+        "inProgress": "Em andamento",
+        "progress": "Progresso"
+      },
+      "scatter": {
+        "xLabel": "Tarefas atribuídas",
+        "yLabel": "Taxa de conclusão",
+        "hint": "Cada ponto é uma pessoa: carga atribuída em relação à sua taxa de conclusão."
+      },
+      "activity": {
+        "created": "Criadas",
+        "completed": "Concluídas",
+        "hint": "Tarefas criadas e concluídas por dia."
+      },
+      "empty": {
+        "title": "Ainda sem atividade",
+        "hint": "Nenhuma tarefa foi criada ou concluída neste período."
+      },
+      "loadError": {
+        "title": "Não foi possível carregar a visão geral",
+        "hint": "Ocorreu um erro ao buscar as análises do espaço de trabalho.",
+        "retry": "Tentar novamente"
+      }
+    }
   },
   "analytics": {
     "loading": "Carregando análises…",

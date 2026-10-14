@@ -8,7 +8,6 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { CompleteProjectButton } from "../features/CompleteProjectButton";
 import { MyTasksBoard } from "../features/MyTasksBoard";
-import { ProjectAnalyticsPanel } from "../features/ProjectAnalyticsPanel";
 import { ProjectAssignedTasks } from "./Tasks";
 
 export function ProjectWorkspace() {
@@ -50,10 +49,6 @@ export function ProjectWorkspace() {
         </div>
       </header>
       <div className="min-h-0 flex-1 space-y-8 overflow-auto p-4 sm:p-5">
-        <section aria-labelledby="project-dashboard">
-          <h2 id="project-dashboard" className="mb-3 text-sm font-semibold text-fg">{t("analytics.project.title")}</h2>
-          <ProjectAnalyticsPanel projectId={project.data.id} />
-        </section>
         <section aria-labelledby="project-created-tasks">
           <h2 id="project-created-tasks" className="mb-3 text-sm font-semibold text-fg">{t("projects.createdTasks")}</h2>
           <MyTasksBoard projectId={project.data.id} />

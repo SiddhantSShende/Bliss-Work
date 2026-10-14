@@ -438,18 +438,75 @@
   },
   "analyticsHub": {
     "title": "Analyses",
-    "hint": "Sélectionnez un canal pour consulter les analyses de ses tâches.",
+    "hint": "Sélectionnez un canal ou un projet pour consulter les analyses de ses tâches.",
     "channelsTitle": "Canaux",
     "emptyChannels": {
       "title": "Aucun canal pour le moment",
       "hint": "Rejoignez ou créez un canal pour consulter ses analyses ici."
     },
+    "projectsTitle": "Projets",
+    "emptyProjects": {
+      "title": "Aucun projet pour le moment",
+      "hint": "Créez un projet dans Tâches pour consulter son tableau de bord ici."
+    },
+    "projectsLoadError": {
+      "title": "Impossible de charger les projets",
+      "hint": "Une erreur s'est produite lors de la récupération de vos projets.",
+      "retry": "Réessayer"
+    },
     "noSelection": {
-      "title": "Sélectionnez un canal",
-      "hint": "Choisissez un canal à gauche pour consulter ses analyses."
+      "title": "Sélectionnez un canal ou un projet",
+      "hint": "Choisissez un canal ou un projet à gauche pour consulter ses analyses."
     },
     "taskHint": "Vous cherchez les analyses d’une tâche précise ? Ouvrez-la depuis Mail.",
-    "openMail": "Ouvrir Mail"
+    "openMail": "Ouvrir Mail",
+    "overview": {
+      "subtitle": "Une vue d'ensemble de l'activité des tâches sur tous les canaux de l'espace de travail.",
+      "allChannels": "Tous les canaux",
+      "channelFilterLabel": "Canal",
+      "privateChannel": "Canal privé",
+      "kpis": {
+        "total": "Tâches totales",
+        "completed": "Terminées",
+        "inProgress": "En cours",
+        "overdue": "En retard"
+      },
+      "sections": {
+        "channelPerformance": "Performance par canal",
+        "personWorkload": "Charge de travail par personne",
+        "workloadVsCompletion": "Charge vs. taux d'achèvement",
+        "statusDistribution": "Répartition des statuts",
+        "statusFlow": "Flux des statuts",
+        "activityPulse": "Pouls d'activité"
+      },
+      "statusFlowHint": "Répartition des statuts pour la période sélectionnée.",
+      "workloadTable": {
+        "person": "Personne",
+        "assigned": "Assignées",
+        "completed": "Terminées",
+        "inProgress": "En cours",
+        "progress": "Progression"
+      },
+      "scatter": {
+        "xLabel": "Tâches assignées",
+        "yLabel": "Taux d'achèvement",
+        "hint": "Chaque point représente une personne : charge assignée par rapport à son taux d'achèvement."
+      },
+      "activity": {
+        "created": "Créées",
+        "completed": "Terminées",
+        "hint": "Tâches créées et terminées par jour."
+      },
+      "empty": {
+        "title": "Aucune activité pour l'instant",
+        "hint": "Aucune tâche n'a été créée ni terminée sur cette période."
+      },
+      "loadError": {
+        "title": "Impossible de charger l'aperçu",
+        "hint": "Une erreur s'est produite lors du chargement des analyses de l'espace de travail.",
+        "retry": "Réessayer"
+      }
+    }
   },
   "analytics": {
     "loading": "Chargement des statistiques…",

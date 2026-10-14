@@ -414,18 +414,75 @@
   },
   "analyticsHub": {
     "title": "분석",
-    "hint": "채널을 선택하여 해당 채널의 작업 분석을 확인하세요.",
+    "hint": "채널 또는 프로젝트를 선택하여 작업 분석을 확인하세요.",
     "channelsTitle": "채널",
     "emptyChannels": {
       "title": "아직 채널이 없습니다",
       "hint": "여기에서 분석을 확인하려면 채널에 참여하거나 새 채널을 만드세요."
     },
+    "projectsTitle": "프로젝트",
+    "emptyProjects": {
+      "title": "아직 프로젝트가 없습니다",
+      "hint": "여기에서 대시보드를 확인하려면 작업에서 프로젝트를 만드세요."
+    },
+    "projectsLoadError": {
+      "title": "프로젝트를 불러올 수 없습니다",
+      "hint": "프로젝트를 가져오는 중 문제가 발생했습니다.",
+      "retry": "다시 시도"
+    },
     "noSelection": {
-      "title": "채널 선택",
-      "hint": "왼쪽에서 채널을 선택하여 분석을 확인하세요."
+      "title": "채널 또는 프로젝트 선택",
+      "hint": "왼쪽에서 채널 또는 프로젝트를 선택하여 분석을 확인하세요."
     },
     "taskHint": "특정 작업의 분석을 확인하고 싶으신가요? Mail에서 해당 작업을 여세요.",
-    "openMail": "Mail 열기"
+    "openMail": "Mail 열기",
+    "overview": {
+      "subtitle": "모든 채널에 걸친 작업 활동의 워크스페이스 전체 보기입니다.",
+      "allChannels": "모든 채널",
+      "channelFilterLabel": "채널",
+      "privateChannel": "비공개 채널",
+      "kpis": {
+        "total": "전체 작업",
+        "completed": "완료",
+        "inProgress": "진행 중",
+        "overdue": "기한 초과"
+      },
+      "sections": {
+        "channelPerformance": "채널별 성과",
+        "personWorkload": "담당자별 업무량",
+        "workloadVsCompletion": "업무량 대비 완료율",
+        "statusDistribution": "상태 분포",
+        "statusFlow": "상태 흐름",
+        "activityPulse": "활동 추이"
+      },
+      "statusFlowHint": "선택한 기간의 상태 구성입니다.",
+      "workloadTable": {
+        "person": "담당자",
+        "assigned": "할당됨",
+        "completed": "완료",
+        "inProgress": "진행 중",
+        "progress": "진행률"
+      },
+      "scatter": {
+        "xLabel": "할당된 작업",
+        "yLabel": "완료율",
+        "hint": "각 점은 한 명의 담당자이며, 할당된 업무량과 완료율을 나타냅니다."
+      },
+      "activity": {
+        "created": "생성됨",
+        "completed": "완료됨",
+        "hint": "일별 생성 및 완료된 작업 수."
+      },
+      "empty": {
+        "title": "아직 활동이 없습니다",
+        "hint": "이 기간에 생성되거나 완료된 작업이 없습니다."
+      },
+      "loadError": {
+        "title": "개요를 불러오지 못했습니다",
+        "hint": "워크스페이스 분석을 가져오는 중 문제가 발생했습니다.",
+        "retry": "다시 시도"
+      }
+    }
   },
   "analytics": {
     "loading": "분석을 불러오는 중…",

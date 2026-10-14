@@ -77,6 +77,7 @@ import {
   TaskAnalyticsDTO,
   ChannelAnalyticsDTO,
   ProjectAnalyticsDTO,
+  WorkspaceOverviewDTO,
   OrgActivitySummaryDTO,
   ThreadDTO,
   TimelinePage,
@@ -2125,6 +2126,25 @@ export class ApiClient {
       `/api/v1/tasks/projects/${encodeURIComponent(projectId)}/analytics${qs ? `?${qs}` : ""}`,
       {},
       ProjectAnalyticsDTO,
+    );
+  }
+  /** Workspace-wide rollup (KPI totals, per-channel ranking, per-person
+   *  workload, a day-bucketed activity series) behind the Analytics page's
+   *  overview dashboard. org_admin only — aggregates every channel and every
+   *  member in the org, not just ones the caller is a party to. `from`/`to`
+   *  are absolute dates computed by the client in the viewer's timezone, same
+   *  rule as `rangeQuery()`. */
+  workspaceAnalyticsOverview(opts: { from?: string; to?: string; channelId?: string } = {}) {
+    const query = new URLSearchParams();
+    if (opts.from) query.set("from", opts.from);
+    if (opts.to) query.set("to", opts.to);
+    if (opts.channelId) query.set("channelId", opts.channelId);
+    const qs = query.toString();
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/analytics/overview${qs ? `?${qs}` : ""}`,
+      {},
+      WorkspaceOverviewDTO,
     );
   }
   /** Reopen the completed assignments for this task; the server chooses recipients. */

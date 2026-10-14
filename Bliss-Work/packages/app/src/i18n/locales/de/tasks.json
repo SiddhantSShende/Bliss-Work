@@ -426,18 +426,75 @@
   },
   "analyticsHub": {
     "title": "Analysen",
-    "hint": "Wähle einen Kanal aus, um die Aufgabenanalysen anzuzeigen.",
+    "hint": "Wähle einen Kanal oder ein Projekt aus, um die Aufgabenanalysen anzuzeigen.",
     "channelsTitle": "Kanäle",
     "emptyChannels": {
       "title": "Noch keine Kanäle",
       "hint": "Tritt einem Kanal bei oder erstelle einen, um hier dessen Analysen zu sehen."
     },
+    "projectsTitle": "Projekte",
+    "emptyProjects": {
+      "title": "Noch keine Projekte",
+      "hint": "Erstelle ein Projekt in Aufgaben, um hier dessen Dashboard zu sehen."
+    },
+    "projectsLoadError": {
+      "title": "Projekte konnten nicht geladen werden",
+      "hint": "Beim Abrufen deiner Projekte ist etwas schiefgelaufen.",
+      "retry": "Erneut versuchen"
+    },
     "noSelection": {
-      "title": "Kanal auswählen",
-      "hint": "Wähle links einen Kanal aus, um dessen Analysen anzuzeigen."
+      "title": "Kanal oder Projekt auswählen",
+      "hint": "Wähle links einen Kanal oder ein Projekt aus, um dessen Analysen anzuzeigen."
     },
     "taskHint": "Du suchst die Analysen einer bestimmten Aufgabe? Öffne sie über Mail.",
-    "openMail": "Mail öffnen"
+    "openMail": "Mail öffnen",
+    "overview": {
+      "subtitle": "Ein arbeitsbereichsweiter Überblick über die Aufgabenaktivität in allen Kanälen.",
+      "allChannels": "Alle Kanäle",
+      "channelFilterLabel": "Kanal",
+      "privateChannel": "Privater Kanal",
+      "kpis": {
+        "total": "Aufgaben gesamt",
+        "completed": "Erledigt",
+        "inProgress": "In Bearbeitung",
+        "overdue": "Überfällig"
+      },
+      "sections": {
+        "channelPerformance": "Kanalleistung",
+        "personWorkload": "Arbeitsauslastung",
+        "workloadVsCompletion": "Auslastung vs. Abschlussquote",
+        "statusDistribution": "Statusverteilung",
+        "statusFlow": "Statusverlauf",
+        "activityPulse": "Aktivitätsverlauf"
+      },
+      "statusFlowHint": "Statusmix für den gewählten Zeitraum.",
+      "workloadTable": {
+        "person": "Person",
+        "assigned": "Zugewiesen",
+        "completed": "Erledigt",
+        "inProgress": "In Bearbeitung",
+        "progress": "Fortschritt"
+      },
+      "scatter": {
+        "xLabel": "Zugewiesene Aufgaben",
+        "yLabel": "Abschlussquote",
+        "hint": "Jeder Punkt ist eine Person: zugewiesene Auslastung gegenüber ihrer Abschlussquote."
+      },
+      "activity": {
+        "created": "Erstellt",
+        "completed": "Erledigt",
+        "hint": "Pro Tag erstellte und erledigte Aufgaben."
+      },
+      "empty": {
+        "title": "Noch keine Aktivität",
+        "hint": "In diesem Zeitraum wurden keine Aufgaben erstellt oder erledigt."
+      },
+      "loadError": {
+        "title": "Überblick konnte nicht geladen werden",
+        "hint": "Beim Abrufen der Workspace-Analysen ist ein Fehler aufgetreten.",
+        "retry": "Erneut versuchen"
+      }
+    }
   },
   "analytics": {
     "loading": "Analysen werden geladen…",

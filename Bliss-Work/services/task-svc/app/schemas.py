@@ -626,3 +626,40 @@ class ProjectAnalyticsDTO(BaseModel):
     tasksOffset: int
     tasksLimit: int
     tasksTotal: int
+
+
+# ── Workspace-wide overview (org_admin only; see tasks_analytics.workspace_overview) ──
+
+
+class WorkloadBreakdownDTO(BaseModel):
+    assigneeId: str
+    assigneeUsername: str
+    assignedCount: int
+    completedCount: int
+    inProgressCount: int
+    completionRate: float  # 0..100; 0 when assignedCount == 0
+
+
+class ChannelPerformanceDTO(BaseModel):
+    channelId: str
+    totalUniqueTasks: int
+    completedUniqueTasks: int
+    completionRate: float  # 0..100; 0 when totalUniqueTasks == 0
+
+
+class DailyActivityPointDTO(BaseModel):
+    day: str  # YYYY-MM-DD, local to the org's rollup — see _parse_overview_range
+    tasksCreated: int
+    tasksCompleted: int
+
+
+class WorkspaceOverviewDTO(BaseModel):
+    statusBreakdown: StatusBreakdownDTO
+    completion: CompletionMetricsDTO
+    overdueUniqueTasks: int
+    inProgressUniqueTasks: int
+    workload: list[WorkloadBreakdownDTO]
+    channels: list[ChannelPerformanceDTO]
+    dailyActivity: list[DailyActivityPointDTO]
+    rangeFrom: str
+    rangeTo: str

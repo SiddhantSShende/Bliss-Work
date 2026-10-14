@@ -1084,6 +1084,51 @@ export const ProjectAnalyticsDTO = z.object({
 });
 export type ProjectAnalyticsDTO = z.infer<typeof ProjectAnalyticsDTO>;
 
+// ── Workspace-wide overview (org_admin only; GET /tasks/analytics/overview) ──
+// Aggregates every channel and every member in the org, unlike the three DTOs
+// above which each scope to something the caller is already a party to.
+
+export const WorkloadBreakdownDTO = z.object({
+  assigneeId: z.string().uuid(),
+  assigneeUsername: z.string(),
+  assignedCount: z.number().int(),
+  completedCount: z.number().int(),
+  inProgressCount: z.number().int(),
+  /** 0..100; 0 when assignedCount is 0. */
+  completionRate: z.number(),
+});
+export type WorkloadBreakdownDTO = z.infer<typeof WorkloadBreakdownDTO>;
+
+export const ChannelPerformanceDTO = z.object({
+  channelId: z.string().uuid(),
+  totalUniqueTasks: z.number().int(),
+  completedUniqueTasks: z.number().int(),
+  /** 0..100; 0 when totalUniqueTasks is 0. */
+  completionRate: z.number(),
+});
+export type ChannelPerformanceDTO = z.infer<typeof ChannelPerformanceDTO>;
+
+export const DailyActivityPointDTO = z.object({
+  /** YYYY-MM-DD, UTC calendar day. */
+  day: z.string(),
+  tasksCreated: z.number().int(),
+  tasksCompleted: z.number().int(),
+});
+export type DailyActivityPointDTO = z.infer<typeof DailyActivityPointDTO>;
+
+export const WorkspaceOverviewDTO = z.object({
+  statusBreakdown: StatusBreakdownDTO,
+  completion: CompletionMetricsDTO,
+  overdueUniqueTasks: z.number().int(),
+  inProgressUniqueTasks: z.number().int(),
+  workload: z.array(WorkloadBreakdownDTO),
+  channels: z.array(ChannelPerformanceDTO),
+  dailyActivity: z.array(DailyActivityPointDTO),
+  rangeFrom: z.string(),
+  rangeTo: z.string(),
+});
+export type WorkspaceOverviewDTO = z.infer<typeof WorkspaceOverviewDTO>;
+
 // ── Availability roster ──────────────────────────────────────────────────────
 /** One user's OPEN task counts. Users with no open work at all are absent from
  *  the response entirely, so the client treats a miss as 0/0. */

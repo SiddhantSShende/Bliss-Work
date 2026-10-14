@@ -34,6 +34,10 @@ export function Tasks() {
   const { t } = useTranslation("tasks");
   const { view = "allocated" } = useParams();
   const projects = useProjects();
+  // Same server-authoritative split TasksList uses for the desktop sidebar —
+  // see the comment there.
+  const activeProjects = projects.data?.filter((p) => p.status === "ACTIVE") ?? [];
+  const completedProjects = projects.data?.filter((p) => p.status === "COMPLETED") ?? [];
   const [createOpen, setCreateOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [preselect, setPreselect] = useState<UserDTO[]>([]);
@@ -84,9 +88,26 @@ export function Tasks() {
         </div>
       </header>
       <ExportTasksDialog open={exportOpen} onClose={() => setExportOpen(false)} />
-      {projects.data && projects.data.length > 0 && (
+      {activeProjects.length > 0 && (
         <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2 md:hidden">
-          {projects.data.map((project) => (
+          {activeProjects.map((project) => (
+            <NavLink
+              key={project.id}
+              to={`/app/tasks/projects/${project.id}`}
+              className={({ isActive }) =>
+                `max-w-52 shrink-0 truncate rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                  isActive ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
+                }`
+              }
+            >
+              {project.name}
+            </NavLink>
+          ))}
+        </div>
+      )}
+      {view === "completed" && completedProjects.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2 md:hidden">
+          {completedProjects.map((project) => (
             <NavLink
               key={project.id}
               to={`/app/tasks/projects/${project.id}`}
@@ -389,8 +410,10 @@ function AssignedBucket({ view, projectId }: { view: string; projectId?: string 
                 currentUserId={currentUserId}
                 participantLayout="list"
                 landscape
-                // Allocated to me is the viewer's own work: no participants block there.
-                hideParticipants={view === "allocated"}
+                // Allocated to me is the viewer's own work, and the terminal/archive
+                // views (completed/left/ignored/missed) no longer need the roster:
+                // no participants block there.
+                hideParticipants={view === "allocated" || isTerminalView(view)}
                 // The project page's "Assigned to you" section keeps the participants
                 // block (names, statuses, Add member) but drops both Withdraw controls —
                 // leaving/removing yourself still works via the Leave button in the

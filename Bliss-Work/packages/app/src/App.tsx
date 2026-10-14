@@ -364,6 +364,7 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="settings/sessions" element={<ActiveSessions />} />
                     <Route path="org" element={<Org />} />
                     <Route path="analytics" element={<Analytics />} />
+                    <Route path="analytics/projects/:projectId" element={<Analytics />} />
                     <Route path="analytics/:channelId" element={<Analytics />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/app" replace />} />

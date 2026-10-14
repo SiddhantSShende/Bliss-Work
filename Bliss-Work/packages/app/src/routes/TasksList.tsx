@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -27,6 +28,11 @@ export function TasksList() {
   const { data: assigned = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
   const { data: sent = [] } = useQuery({ queryKey: qk.sent, queryFn: () => api.tasksSent() });
   const projects = useProjects();
+  // Server-authoritative: a project's own status decides which list it's in,
+  // so completing/reopening a project (which invalidates qk.projects) moves
+  // it between sections on the next refetch with no extra client state.
+  const activeProjects = projects.data?.filter((p) => p.status === "ACTIVE") ?? [];
+  const completedProjects = projects.data?.filter((p) => p.status === "COMPLETED") ?? [];
   // Same hook the pane uses, so the badge and the grid can never disagree —
   // TanStack dedupes the underlying queries, so this costs no extra network.
   const { roster } = useAvailability();
@@ -67,12 +73,12 @@ export function TasksList() {
     <>
       <ListHeader title={t("tasksList.header")} />
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
-        {projects.data && projects.data.length > 0 && (
+        {activeProjects.length > 0 && (
           <>
             <div className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted">
               {t("projects.section")}
             </div>
-            {projects.data.map((project) => (
+            {activeProjects.map((project) => (
               <NavLink
                 key={project.id}
                 to={`/app/tasks/projects/${project.id}`}
@@ -88,15 +94,31 @@ export function TasksList() {
         {CATS.map((c) => {
           const n = counts[c.view] ?? 0;
           return (
-            <NavLink key={c.view} to={`/app/tasks/${c.view}`} className={({ isActive }) => rowClass(isActive)}>
-              <NavIconTile>
-                <c.icon size={17} />
-              </NavIconTile>
-              <span className="flex-1 text-sm font-medium text-fg">{categoryLabel[c.view]}</span>
-              {n > 0 && (
-                <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold text-muted">{n}</span>
+            <Fragment key={c.view}>
+              <NavLink to={`/app/tasks/${c.view}`} className={({ isActive }) => rowClass(isActive)}>
+                <NavIconTile>
+                  <c.icon size={17} />
+                </NavIconTile>
+                <span className="flex-1 text-sm font-medium text-fg">{categoryLabel[c.view]}</span>
+                {n > 0 && (
+                  <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold text-muted">{n}</span>
+                )}
+              </NavLink>
+              {c.view === "completed" && completedProjects.length > 0 && (
+                <div className="ml-7 space-y-0.5 border-l border-border/60 pl-2">
+                  {completedProjects.map((project) => (
+                    <NavLink
+                      key={project.id}
+                      to={`/app/tasks/projects/${project.id}`}
+                      className={({ isActive }) => rowClass(isActive)}
+                    >
+                      <NavIconTile><Folder size={15} /></NavIconTile>
+                      <span className="min-w-0 flex-1 truncate text-sm text-muted">{project.name}</span>
+                    </NavLink>
+                  ))}
+                </div>
               )}
-            </NavLink>
+            </Fragment>
           );
         })}
       </div>

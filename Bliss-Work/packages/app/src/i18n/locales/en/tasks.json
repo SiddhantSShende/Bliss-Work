@@ -429,18 +429,75 @@
   },
   "analyticsHub": {
     "title": "Analytics",
-    "hint": "Pick a channel to see its task analytics.",
+    "hint": "Pick a channel or a project to see its task analytics.",
     "channelsTitle": "Channels",
     "emptyChannels": {
       "title": "No channels yet",
       "hint": "Join or create a channel to see its analytics here."
     },
+    "projectsTitle": "Projects",
+    "emptyProjects": {
+      "title": "No projects yet",
+      "hint": "Create a project in Tasks to see its dashboard here."
+    },
+    "projectsLoadError": {
+      "title": "Couldn't load projects",
+      "hint": "Something went wrong fetching your projects.",
+      "retry": "Try again"
+    },
     "noSelection": {
-      "title": "Select a channel",
-      "hint": "Choose a channel on the left to view its analytics."
+      "title": "Select a channel or a project",
+      "hint": "Choose a channel or a project on the left to view its analytics."
     },
     "taskHint": "Looking for one task's analytics? Open it from Mail.",
-    "openMail": "Open Mail"
+    "openMail": "Open Mail",
+    "overview": {
+      "subtitle": "A workspace-wide view of task activity across every channel.",
+      "allChannels": "All channels",
+      "channelFilterLabel": "Channel",
+      "privateChannel": "Private channel",
+      "kpis": {
+        "total": "Total Tasks",
+        "completed": "Completed",
+        "inProgress": "In Progress",
+        "overdue": "Overdue"
+      },
+      "sections": {
+        "channelPerformance": "Channel Performance",
+        "personWorkload": "Person Workload",
+        "workloadVsCompletion": "Workload vs Completion",
+        "statusDistribution": "Status Distribution",
+        "statusFlow": "Status Flow",
+        "activityPulse": "Activity Pulse"
+      },
+      "statusFlowHint": "Status mix for the selected range.",
+      "workloadTable": {
+        "person": "Person",
+        "assigned": "Assigned",
+        "completed": "Completed",
+        "inProgress": "In progress",
+        "progress": "Progress"
+      },
+      "scatter": {
+        "xLabel": "Assigned tasks",
+        "yLabel": "Completion rate",
+        "hint": "Each point is one person: assigned workload against their completion rate."
+      },
+      "activity": {
+        "created": "Created",
+        "completed": "Completed",
+        "hint": "Tasks created and completed per day."
+      },
+      "empty": {
+        "title": "No activity yet",
+        "hint": "No tasks were created or completed in this range."
+      },
+      "loadError": {
+        "title": "Couldn't load the overview",
+        "hint": "Something went wrong fetching workspace analytics.",
+        "retry": "Try again"
+      }
+    }
   },
   "analytics": {
     "loading": "Loading analytics…",

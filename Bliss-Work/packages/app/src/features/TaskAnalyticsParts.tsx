@@ -87,7 +87,7 @@ export function CompletionRing({
   );
 }
 
-const STATUS_COLORS: Record<keyof StatusBreakdownDTO, string> = {
+export const STATUS_COLORS: Record<keyof StatusBreakdownDTO, string> = {
   completed: "var(--color-success)",
   acknowledged: "var(--color-chart-ink)",
   sent: "var(--color-chart-context)",

@@ -1,8 +1,9 @@
 /**
- * ProjectWorkspace: the project page's own loading/error states, and that the
- * project dashboard (ProjectAnalyticsPanel, real component — this is the new
- * integration under test) renders real backend data for the project's id
- * alongside the existing Created-by-you / Assigned-to-you sections.
+ * ProjectWorkspace: the project page's own loading/error states, and that it
+ * renders the project name and the Created-by-you / Assigned-to-you sections
+ * for the real project id. The project dashboard (ProjectAnalyticsPanel) used
+ * to be inlined here too; it has moved to Analytics (see Analytics.test.tsx)
+ * and this page must not render it anymore.
  *
  * MyTasksBoard and ProjectAssignedTasks are each covered by their own test
  * suites already; they're stubbed here so this file stays focused on the
@@ -12,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import type { ProjectAnalyticsDTO, ProjectDTO } from "@taskboard/shared";
+import type { ProjectDTO } from "@taskboard/shared";
 
 const h = vi.hoisted(() => ({
   projectDetail: vi.fn(),
@@ -34,27 +35,6 @@ const PROJECT: ProjectDTO = {
   channelId: "chan-1",
   status: "ACTIVE",
   canComplete: false,
-};
-
-const ANALYTICS: ProjectAnalyticsDTO = {
-  projectId: "proj-1",
-  statusBreakdown: { sent: 1, acknowledged: 0, completed: 4, ignored: 0, left: 0, missed: 0 },
-  completion: {
-    totalAssignments: 5,
-    completedAssignments: 4,
-    assignmentCompletionRate: 80,
-    totalUniqueTasks: 5,
-    completedUniqueTasks: 4,
-    abandonedUniqueTasks: 0,
-    remainingUniqueTasks: 1,
-    uniqueTaskCompletionRate: 80,
-  },
-  workload: [],
-  overdueUniqueTasks: 0,
-  tasks: [],
-  tasksOffset: 0,
-  tasksLimit: 20,
-  tasksTotal: 5,
 };
 
 function mount(projectId = "proj-1") {
@@ -83,17 +63,16 @@ describe("ProjectWorkspace", () => {
     expect(await screen.findByText(/project/i)).toBeInTheDocument();
   });
 
-  it("renders the project name, dashboard metrics, and both task sections for the real project id", async () => {
+  it("renders the project name and both task sections for the real project id, without the dashboard", async () => {
     h.projectDetail.mockResolvedValue(PROJECT);
-    h.projectAnalytics.mockResolvedValue(ANALYTICS);
     mount();
 
     expect(await screen.findByText("Launch Plan")).toBeInTheDocument();
     expect(h.projectDetail).toHaveBeenCalledWith("proj-1");
 
-    // The dashboard is the real ProjectAnalyticsPanel, fed by the real project id.
-    expect(await screen.findByText("5")).toBeInTheDocument(); // totalUniqueTasks KPI
-    expect(h.projectAnalytics).toHaveBeenCalledWith("proj-1", expect.objectContaining({ offset: 0 }));
+    // The dashboard moved to Analytics — this page must no longer fetch or render it.
+    expect(h.projectAnalytics).not.toHaveBeenCalled();
+    expect(screen.queryByText("Project dashboard")).not.toBeInTheDocument();
 
     expect(screen.getByTestId("created-by-you")).toHaveTextContent("proj-1");
     expect(screen.getByTestId("assigned-to-you")).toHaveTextContent("proj-1");

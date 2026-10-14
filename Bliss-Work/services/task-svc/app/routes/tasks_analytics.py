@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
-from ..auth import Principal, PrincipalDep
+from ..auth import OrgAdminDep, Principal, PrincipalDep
 from crypto import cryptor
 from ..db import session, set_org_context
 from ..schemas import (
     AssigneeWorkloadDTO,
     ChannelAnalyticsDTO,
+    ChannelPerformanceDTO,
     CompletionMetricsDTO,
+    DailyActivityPointDTO,
     ProjectAnalyticsDTO,
     ProjectTaskAssigneeDTO,
     ProjectTaskStatus,
@@ -20,6 +23,8 @@ from ..schemas import (
     StatusBreakdownDTO,
     TaskAnalyticsAssigneeDTO,
     TaskAnalyticsDTO,
+    WorkloadBreakdownDTO,
+    WorkspaceOverviewDTO,
 )
 from .helpers import iso
 from .projects_read import _AUTHORIZED_PROJECT
@@ -29,6 +34,10 @@ router = APIRouter()
 
 _DEFAULT_TASKS_LIMIT = 20
 _MAX_TASKS_LIMIT = 100
+_DEFAULT_OVERVIEW_DAYS = 30
+_MAX_OVERVIEW_RANGE_DAYS = 400
+_OVERVIEW_CHANNELS_LIMIT = 10
+_OVERVIEW_WORKLOAD_LIMIT = 20
 
 # Rows never left/ignored their assignment — the ones that can still make a
 # task "complete". See the module docstring in schemas.py for the full rule.
@@ -486,4 +495,262 @@ async def project_analytics(
         tasksOffset=offset,
         tasksLimit=limit,
         tasksTotal=total_unique,
+    )
+
+
+def _parse_overview_day(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _overview_range(from_: str | None, to: str | None) -> tuple[date, date]:
+    """Parse the range, defaulting to the last 30 days and bounding its width.
+
+    The client sends absolute dates it computed in the VIEWER's timezone (the
+    same rule the tasks export and telemetry-svc's analytics follow) — the
+    server never interprets "last week". Reimplemented locally rather than
+    imported from telemetry-svc: the two are separate deployable services.
+    """
+    end = _parse_overview_day(to) or datetime.now(timezone.utc).date()
+    start = _parse_overview_day(from_) or (end - timedelta(days=_DEFAULT_OVERVIEW_DAYS - 1))
+    if start > end:
+        start, end = end, start
+    if (end - start).days > _MAX_OVERVIEW_RANGE_DAYS:
+        start = end - timedelta(days=_MAX_OVERVIEW_RANGE_DAYS)
+    return start, end
+
+
+@router.get("/tasks/analytics/overview", response_model=WorkspaceOverviewDTO)
+async def workspace_overview(
+    principal: Principal = OrgAdminDep,
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = Query(default=None),
+    channelId: str | None = Query(default=None),
+) -> WorkspaceOverviewDTO:
+    """Workspace-wide rollup across every channel in the org: KPI totals, a
+    per-channel completion ranking, per-person workload, and a day-bucketed
+    activity series — the data behind the Analytics page's overview dashboard.
+
+    org_admin only (OrgAdminDep), unlike the three endpoints above: this
+    aggregates productivity data across every member and every channel in the
+    org, including channels the caller never joined, which is a materially
+    different exposure than task/channel/project analytics above, each of
+    which requires the caller to already be a party (sender, assignee, or
+    channel member) to what they're asking about. Same gate telemetry-svc's
+    GET /telemetry/org/summary uses for the same reason.
+    """
+    org_id = principal.org_id
+    start_day, end_day = _overview_range(from_, to)
+    start = datetime.combine(start_day, time.min, tzinfo=timezone.utc)
+    end = datetime.combine(end_day + timedelta(days=1), time.min, tzinfo=timezone.utc)
+
+    channel_join = (
+        "JOIN task_channels tc ON tc.task_id = t.id AND tc.org_id = t.org_id" if channelId else ""
+    )
+    channel_where = "AND tc.channel_id = :channel_id" if channelId else ""
+    params: dict[str, object] = {"org": org_id, "start": start, "end": end}
+    if channelId:
+        params["channel_id"] = channelId
+
+    async with session() as db:
+        # RLS: bind org context before any statement.
+        await set_org_context(db, org_id)
+
+        status_rows = (
+            await db.execute(
+                text(
+                    "SELECT ta.status, COUNT(*) AS n "
+                    "FROM tasks t "
+                    "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
+                    f"{channel_join} "
+                    "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
+                    f"{channel_where} "
+                    "GROUP BY ta.status"
+                ),
+                params,
+            )
+        ).all()
+
+        # Same per-task "remaining / remaining_incomplete / missed_count" rule
+        # as project_analytics above, scoped org-wide instead of per-project.
+        per_task_rows = (
+            await db.execute(
+                text(
+                    "SELECT ta.task_id, "
+                    "       COUNT(*) FILTER (WHERE ta.status NOT IN ('LEFT','IGNORED')) AS remaining, "
+                    "       COUNT(*) FILTER ("
+                    "           WHERE ta.status NOT IN ('LEFT','IGNORED') AND ta.status <> 'COMPLETED'"
+                    "       ) AS remaining_incomplete, "
+                    "       COUNT(*) FILTER (WHERE ta.status = 'MISSED') AS missed_count "
+                    "FROM tasks t "
+                    "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
+                    f"{channel_join} "
+                    "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
+                    f"{channel_where} "
+                    "GROUP BY ta.task_id"
+                ),
+                params,
+            )
+        ).all()
+
+        # Per (channel, task) — always joins task_channels (it IS the grouping
+        # key), independent of the optional single-channel filter above.
+        per_channel_rows = (
+            await db.execute(
+                text(
+                    "SELECT tc.channel_id, t.id AS task_id, "
+                    "       COUNT(*) FILTER (WHERE ta.status NOT IN ('LEFT','IGNORED')) AS remaining, "
+                    "       COUNT(*) FILTER ("
+                    "           WHERE ta.status NOT IN ('LEFT','IGNORED') AND ta.status <> 'COMPLETED'"
+                    "       ) AS remaining_incomplete "
+                    "FROM tasks t "
+                    "JOIN task_channels tc ON tc.task_id = t.id AND tc.org_id = t.org_id "
+                    "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
+                    "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
+                    f"{channel_where} "
+                    "GROUP BY tc.channel_id, t.id"
+                ),
+                params,
+            )
+        ).all()
+
+        workload_rows = (
+            await db.execute(
+                text(
+                    "SELECT ta.assignee_id, COALESCE(up.username, '') AS username, "
+                    "       COUNT(*) AS assigned, "
+                    "       COUNT(*) FILTER (WHERE ta.status = 'COMPLETED') AS completed, "
+                    "       COUNT(*) FILTER (WHERE ta.status IN ('SENT','ACKNOWLEDGED')) AS in_progress "
+                    "FROM tasks t "
+                    "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
+                    "LEFT JOIN user_projection up "
+                    "       ON up.user_id = ta.assignee_id AND up.org_id = ta.org_id "
+                    f"{channel_join} "
+                    "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
+                    f"{channel_where} "
+                    "GROUP BY ta.assignee_id, up.username "
+                    "ORDER BY assigned DESC, ta.assignee_id "
+                    "LIMIT :workload_limit"
+                ),
+                {**params, "workload_limit": _OVERVIEW_WORKLOAD_LIMIT},
+            )
+        ).all()
+
+        # One row per calendar day in range (UTC, matching the >= start / <
+        # end scope above), zero-filled where nothing happened that day.
+        daily_rows = (
+            await db.execute(
+                text(
+                    "WITH days AS ("
+                    "    SELECT generate_series(CAST(:start_day AS date), CAST(:end_day AS date), "
+                    "           interval '1 day')::date AS day"
+                    "), created AS ("
+                    "    SELECT (t.created_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS n "
+                    "    FROM tasks t "
+                    f"    {channel_join} "
+                    "    WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
+                    f"    {channel_where} "
+                    "    GROUP BY 1"
+                    "), completed AS ("
+                    "    SELECT (ta.completed_at AT TIME ZONE 'UTC')::date AS day, "
+                    "           COUNT(DISTINCT ta.task_id) AS n "
+                    "    FROM task_assignees ta "
+                    "    JOIN tasks t ON t.id = ta.task_id AND t.org_id = ta.org_id "
+                    f"    {channel_join} "
+                    "    WHERE t.org_id = :org AND ta.completed_at >= :start AND ta.completed_at < :end "
+                    f"    {channel_where} "
+                    "    GROUP BY 1"
+                    ") "
+                    "SELECT days.day, COALESCE(created.n, 0) AS created_n, COALESCE(completed.n, 0) AS completed_n "
+                    "FROM days "
+                    "LEFT JOIN created ON created.day = days.day "
+                    "LEFT JOIN completed ON completed.day = days.day "
+                    "ORDER BY days.day"
+                ),
+                {**params, "start_day": start_day, "end_day": end_day},
+            )
+        ).all()
+
+    breakdown = StatusBreakdownDTO()
+    total_assignments = 0
+    completed_assignments = 0
+    for r in status_rows:
+        total_assignments += r.n
+        if r.status == "COMPLETED":
+            completed_assignments = r.n
+        setattr(breakdown, r.status.lower(), r.n)
+
+    total_unique = len(per_task_rows)
+    completed_unique = sum(1 for r in per_task_rows if r.remaining > 0 and r.remaining_incomplete == 0)
+    abandoned_unique = sum(1 for r in per_task_rows if r.remaining == 0)
+    remaining_unique = total_unique - completed_unique - abandoned_unique
+    overdue_unique = sum(1 for r in per_task_rows if r.missed_count > 0)
+    # Always a subset of remaining_unique: a MISSED row keeps remaining_incomplete
+    # > 0 (MISSED is in _REMAINING_STATUSES and is never COMPLETED), so an
+    # overdue task can be neither "completed" nor "abandoned" above.
+    in_progress_unique = remaining_unique - overdue_unique
+
+    completion = CompletionMetricsDTO(
+        totalAssignments=total_assignments,
+        completedAssignments=completed_assignments,
+        assignmentCompletionRate=_rate(completed_assignments, total_assignments),
+        totalUniqueTasks=total_unique,
+        completedUniqueTasks=completed_unique,
+        abandonedUniqueTasks=abandoned_unique,
+        remainingUniqueTasks=remaining_unique,
+        uniqueTaskCompletionRate=_unique_task_completion(total_unique, completed_unique, abandoned_unique),
+    )
+
+    per_channel_totals: dict[str, dict[str, int]] = {}
+    for r in per_channel_rows:
+        bucket = per_channel_totals.setdefault(str(r.channel_id), {"total": 0, "completed": 0})
+        bucket["total"] += 1
+        if r.remaining > 0 and r.remaining_incomplete == 0:
+            bucket["completed"] += 1
+
+    channels = sorted(
+        (
+            ChannelPerformanceDTO(
+                channelId=cid,
+                totalUniqueTasks=bucket["total"],
+                completedUniqueTasks=bucket["completed"],
+                completionRate=_rate(bucket["completed"], bucket["total"]),
+            )
+            for cid, bucket in per_channel_totals.items()
+        ),
+        key=lambda c: c.totalUniqueTasks,
+        reverse=True,
+    )[:_OVERVIEW_CHANNELS_LIMIT]
+
+    workload = [
+        WorkloadBreakdownDTO(
+            assigneeId=str(r.assignee_id),
+            assigneeUsername=r.username,
+            assignedCount=r.assigned,
+            completedCount=r.completed,
+            inProgressCount=r.in_progress,
+            completionRate=_rate(r.completed, r.assigned),
+        )
+        for r in workload_rows
+    ]
+
+    daily_activity = [
+        DailyActivityPointDTO(day=r.day.isoformat(), tasksCreated=r.created_n, tasksCompleted=r.completed_n)
+        for r in daily_rows
+    ]
+
+    return WorkspaceOverviewDTO(
+        statusBreakdown=breakdown,
+        completion=completion,
+        overdueUniqueTasks=overdue_unique,
+        inProgressUniqueTasks=in_progress_unique,
+        workload=workload,
+        channels=channels,
+        dailyActivity=daily_activity,
+        rangeFrom=start_day.isoformat(),
+        rangeTo=end_day.isoformat(),
     )
