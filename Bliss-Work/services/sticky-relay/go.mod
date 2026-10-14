@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/segmentio/kafka-go v0.4.48
+	github.com/segmentio/kafka-go v0.4.51
 	github.com/task-board/shared-kafkaauth v0.0.0-00010101000000-000000000000
 )
 
