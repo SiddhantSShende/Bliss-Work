@@ -19,7 +19,7 @@
 # brief outage for every service. Left as a prepared, reviewable artifact
 # rather than applied automatically.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4
+FROM postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
 
 RUN apk add --no-cache pgbackrest
 
