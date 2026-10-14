@@ -13,7 +13,7 @@
 #
 # .dockerignore at the repo root keeps that context to roughly source size.
 
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS build
+FROM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS build
 
 ENV npm_config_update_notifier=false \
     # The root devDependencies include electron and playwright, whose postinstall
@@ -56,7 +56,7 @@ COPY packages/shared/       packages/shared/
 COPY services/graph-gw/     services/graph-gw/
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS final
+FROM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS final
 
 ENV NODE_ENV=production \
     npm_config_update_notifier=false
