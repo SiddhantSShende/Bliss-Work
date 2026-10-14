@@ -34,14 +34,14 @@
     "setup:branding": "bash scripts/setup-branding.sh"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
-    "eslint": "^9.39.4",
+    "@types/node": "^26.6.4",
+    "eslint": "^10.12.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.7.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
-    "typescript-eslint": "^8.62.0"
+    "globals": "^17.13.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.71.1"
   },
   "overrides": {
     "vite": "6.4.3",
