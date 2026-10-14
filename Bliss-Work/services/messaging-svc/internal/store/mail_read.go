@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/task-board/messaging-svc/internal/events"
 	"github.com/task-board/messaging-svc/internal/readcache"
 )
 
@@ -250,18 +251,75 @@ func (s *Store) MarkMailRead(ctx context.Context, orgID, userID, mailID string) 
 		if ct.RowsAffected() == 0 {
 			return ErrNotFound
 		}
-		_, err = tx.Exec(ctx, `
+		if _, err = tx.Exec(ctx, `
 			UPDATE inbox_items
 			SET unread_count = 0, updated_at = now()
 			WHERE owner_user_id = $1 AND item_kind = 'MAIL' AND ref_id = $2`,
-			userID, mailID)
-		return err
+			userID, mailID); err != nil {
+			return err
+		}
+		// Write-back to this owner's own connected mailbox, if they have one —
+		// see MailOwnerStateChanged's doc. ct.RowsAffected() above already
+		// confirmed mail_deliveries had a row to mark, so this is never emitted
+		// for a mail this owner cannot actually read.
+		isRead := true
+		return insertOutbox(ctx, tx, mailID, events.MailOwnerStateChanged{
+			Type:        events.TypeMailOwnerStateChanged,
+			EventID:     uuid.Must(uuid.NewV7()).String(),
+			OrgID:       orgID,
+			OccurredAt:  nowISO(),
+			MailID:      mailID,
+			OwnerUserID: userID,
+			IsRead:      &isRead,
+		})
 	})
 	if err != nil {
 		return err
 	}
 	readcache.Del(ctx, s.cache, readcache.MailKey(orgID, mailID, userID))
 	return nil
+}
+
+// SetMailReadForOwner mirrors ONE owner's Outlook read/unread state into their
+// own BlissWork mail_deliveries row — the INBOUND half of read-state sync
+// (integrations-svc's mail_sync_worker, reporting what it saw on the delta
+// walk of the connected user's own mailbox).
+//
+// Deliberately NOT MarkMailRead: that function emits MailOwnerStateChanged on
+// every call, which exists to carry a BlissWork-side read action OUT to
+// Outlook. Reusing it here would echo the very change this call is reacting
+// to right back at integrations-svc — see HideMailForOwner's identical
+// reasoning for the delete direction.
+//
+// Unlike MarkMailRead, this can also go backwards (isRead=false): Outlook's
+// own unread state is the thing being mirrored, not a one-way "has been
+// opened" flag.
+//
+// RLS: bypass — trusted service-to-service path, org/owner from the caller.
+func (s *Store) SetMailReadForOwner(ctx context.Context, orgID, ownerUserID, mailID string, isRead bool) error {
+	return s.withBypass(ctx, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx, `
+			UPDATE mail_deliveries
+			SET read_at = CASE WHEN $4 THEN COALESCE(read_at, now()) ELSE NULL END
+			WHERE mail_id = $1 AND owner_user_id = $2 AND org_id = $3`,
+			mailID, ownerUserID, orgID, isRead)
+		if err != nil {
+			return err
+		}
+		if ct.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		unread := 0
+		if !isRead {
+			unread = 1
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE inbox_items
+			SET unread_count = $3, updated_at = now()
+			WHERE owner_user_id = $1 AND item_kind = 'MAIL' AND ref_id = $2`,
+			ownerUserID, mailID, unread)
+		return err
+	})
 }
 
 // requireMailReader is the attachments.scope='mail' membership rule. Same

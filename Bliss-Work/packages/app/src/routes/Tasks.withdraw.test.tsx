@@ -213,10 +213,10 @@ describe("Allocated to me — Add member only, no participants block", () => {
     const body = card("Review the deck").firstElementChild as HTMLElement;
     expect(body.className).toContain("14rem");
     const side = body.lastElementChild as HTMLElement;
-    expect(within(side).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Chat", "Share to Notes to Self", "Add member"]);
+    expect(within(side).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Chat", "Add member"]);
 
     const sent = card("Write the report").firstElementChild!.lastElementChild as HTMLElement;
-    expect(within(sent).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Acknowledge", "Ignore", "Chat", "Share to Notes to Self", "Add member"]);
+    expect(within(sent).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Acknowledge", "Ignore", "Chat", "Add member"]);
     // Full width, so it reads as part of the action area rather than a stray link.
     expect(within(side).getByRole("button", { name: "Add member" })).toHaveClass("w-full");
   });

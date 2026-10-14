@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/task-board/messaging-svc/internal/events"
 )
 
 // MaxInboxPeers bounds the People sidebar's aggregate query. The sidebar is
@@ -341,6 +344,38 @@ func (s *Store) ListInboxPeers(
 	return out, nil
 }
 
+// HideMailForOwner hides one owner's copy of a mail — the INBOUND half of
+// delete sync (integrations-svc's mail_sync_worker, after the connected
+// user deleted this message directly in Outlook).
+//
+// Deliberately NOT SetInboxItemHidden: that function emits
+// MailOwnerStateChanged on every hide, which exists to carry a BlissWork-side
+// delete OUT to Outlook. Reusing it here would echo the very notification this
+// call is reacting to right back at integrations-svc. Both directions already
+// converge on their own (moving an already-moved Graph message is a no-op
+// 404, hiding an already-hidden row is a no-op UPDATE) — this just avoids a
+// pointless extra round trip, not a correctness issue.
+//
+// RLS: bypass — a trusted service-to-service path whose org and owner come
+// from the caller (integrations-svc), not from a session, same posture as
+// DeliverInboundMail.
+func (s *Store) HideMailForOwner(ctx context.Context, orgID, ownerUserID, mailID string) error {
+	return s.withBypass(ctx, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx, `
+			UPDATE inbox_items
+			SET hidden_for_owner = true, updated_at = now()
+			WHERE owner_user_id = $1 AND item_kind = 'MAIL' AND ref_id = $2 AND org_id = $3`,
+			ownerUserID, mailID, orgID)
+		if err != nil {
+			return err
+		}
+		if ct.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
 // MarkInboxItemHidden hides a single (owner, kind, ref) row. Called by
 // /inbox/items/{id}/ignore (the non-thread-scoped path).
 func (s *Store) MarkInboxItemHidden(
@@ -371,6 +406,24 @@ func (s *Store) SetInboxItemHidden(
 		}
 		if ct.RowsAffected() == 0 {
 			return ErrForbidden
+		}
+		// Write-back to a connected mailbox (integrations-svc's
+		// mail_sync_worker): only the DELETE direction (hidden=true) — Outlook
+		// has no equivalent "undo" this could reverse, so a Restore stays
+		// local-only. Not emitted on every item kind: only a MAIL row has a
+		// provider mailbox on the other end of it at all.
+		if itemKind == "MAIL" && hidden {
+			if err := insertOutbox(ctx, tx, refID, events.MailOwnerStateChanged{
+				Type:        events.TypeMailOwnerStateChanged,
+				EventID:     uuid.Must(uuid.NewV7()).String(),
+				OrgID:       orgID,
+				OccurredAt:  nowISO(),
+				MailID:      refID,
+				OwnerUserID: ownerUserID,
+				Hidden:      &hidden,
+			}); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

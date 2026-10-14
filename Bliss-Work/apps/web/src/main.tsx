@@ -63,6 +63,11 @@ const config: PlatformConfig = {
   // screens. Making it mandatory would turn an optional optimisation into a
   // deploy blocker.
   graphBase: env.VITE_GRAPH_BASE,
+  // Deliberately absent from REQUIRED_ENV: Settings > Microsoft 365 is
+  // enterprise-plan-gated already, so most deployments never reach it, and
+  // an unset base simply means that one Settings card can't load — not a
+  // reason to fail the whole build.
+  integrationsBase: env.VITE_INTEGRATIONS_BASE ?? "http://localhost:8005",
   wsUrl: env.VITE_WS_URL ?? "ws://localhost:8090/ws",
   router: "browser",
 };

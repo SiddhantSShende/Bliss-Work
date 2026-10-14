@@ -61,7 +61,12 @@ beforeEach(() => {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       const path = url.pathname;
-      if (path.endsWith("/unread-count")) return json({ unreadCount: rows.filter((n) => !n.read).length });
+      if (path.endsWith("/unread-count")) {
+        return json({
+          unreadCount: rows.filter((n) => !n.read).length,
+          tasksUnreadCount: rows.filter((n) => !n.read && n.kind.startsWith("TASK_")).length,
+        });
+      }
       if (path.endsWith("/read-by-tasks")) {
         const ids = new Set((JSON.parse(String(init?.body)) as { taskIds: string[] }).taskIds);
         const hit = rows.filter((n) => !n.read && n.taskId && ids.has(n.taskId));

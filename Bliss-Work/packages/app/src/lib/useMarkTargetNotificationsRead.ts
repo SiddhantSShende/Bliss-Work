@@ -52,6 +52,8 @@ export async function markTargetNotificationsRead(
   if (updated === 0) return;
 
   markNotificationPagesRead(qc, (n) => belongsTo(n, field, id));
+  // A target is a conversation, a channel or a call — never a task — so this
+  // only ever lowers the bell, never the Tasks badge.
   decrementUnreadCount(qc, updated);
   void qc.invalidateQueries({ queryKey: qk.notificationsRead });
   void refreshUnreadCount(qc);

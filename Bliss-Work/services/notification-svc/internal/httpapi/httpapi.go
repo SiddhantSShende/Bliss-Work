@@ -333,13 +333,27 @@ func decodeNotificationCursor(raw string) (time.Time, uuid.UUID, error) {
 // unreadCountDTO is the response shape for handleUnreadCount.
 type unreadCountDTO struct {
 	UnreadCount int64 `json:"unreadCount"`
+	// TasksUnreadCount is the TASK_* subset of UnreadCount — the Tasks rail
+	// badge. Everything else (channel/DM messages, meetings, calls) counts
+	// toward UnreadCount (the bell) but must not inflate this one.
+	TasksUnreadCount int64 `json:"tasksUnreadCount"`
 }
+
+// taskKindPrefix matches every TASK_* kind (TASK_ASSIGNED, TASK_COMPLETED, ...)
+// by prefix, the same rule packages/app/src/lib/notificationDestination.ts's
+// notificationCategory() uses to classify a kind as "task" — so a new TASK_*
+// kind lands in the Tasks badge on both sides without either one needing an
+// explicit per-kind list.
+const taskKindPrefix = `TASK\_%`
 
 // handleUnreadCount serves GET /api/v1/notifications/unread-count. Unlike
 // handleList (capped at the 200 most recent rows), this counts every unread
 // notification the caller owns — a small, deliberate accuracy improvement
 // over summing the capped list client-side, not just a lighter version of
-// the same answer.
+// the same answer. It also returns the TASK_*-scoped subset of that count:
+// the bell badge and the Tasks rail badge share this one query/cache entry
+// but must read different fields from it, since a channel/DM/meeting/call
+// notification must never move the Tasks badge.
 func (s *Server) handleUnreadCount(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.FromContext(r.Context())
 	if !ok {
@@ -347,18 +361,19 @@ func (s *Server) handleUnreadCount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var count int64
+	var count, taskCount int64
 	err := s.pool.QueryRow(r.Context(),
-		`SELECT count(*) FROM notifications
+		`SELECT count(*), count(*) FILTER (WHERE kind LIKE $2 ESCAPE '\')
+		   FROM notifications
 		  WHERE recipient_id = $1 AND read_at IS NULL`,
-		claims.UserID).Scan(&count)
+		claims.UserID, taskKindPrefix).Scan(&count, &taskCount)
 	if err != nil {
 		s.log.Error("unread count query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, unreadCountDTO{UnreadCount: count})
+	writeJSON(w, http.StatusOK, unreadCountDTO{UnreadCount: count, TasksUnreadCount: taskCount})
 }
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {

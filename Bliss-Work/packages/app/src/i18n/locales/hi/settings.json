@@ -31,6 +31,10 @@
     "title": "मौजूदा लॉगिन",
     "description": "वे सभी डिवाइस देखें जो अभी आपके खाते में साइन इन हैं, और उनमें से किसी को भी दूर से साइन आउट करें।"
   },
+  "outlook": {
+    "title": "Microsoft 365 / Outlook",
+    "description": "Connect your Outlook mailbox to send and sync mail from BlissWork."
+  },
   "activity": {
     "title": "आपकी गतिविधि",
     "description": "{{brand}} आपके काम करने के तरीके के बारे में जो कुछ भी दर्ज करता है, वह सब देखें — वही रिकॉर्ड जो आपके वर्कस्पेस के एडमिन देखते हैं।"

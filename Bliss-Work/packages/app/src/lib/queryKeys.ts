@@ -105,6 +105,7 @@ export const qk = {
   // refresh-token families: GET /auth/sessions and its admin twin.
   activeSessions: ["auth", "sessions"] as const,
   memberActiveSessions: (userId: string) => ["auth", "sessions", userId] as const,
+  integrations: ["integrations"] as const,
   invites: ["invites"] as const,
   presence: ["presence"] as const,
   /** Who is in a live call right now — the "Busy" half of a person's status.

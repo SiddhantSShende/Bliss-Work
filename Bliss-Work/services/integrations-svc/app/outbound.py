@@ -139,7 +139,9 @@ async def _send_gmail(token: str, target: str, text: str, subject: str | None) -
 
 async def _send_outlook(token: str, target: str, text: str, subject: str | None) -> SendResult:
     try:
-        await ms.send_mail(token, to=target, subject=subject or DEFAULT_SUBJECT, body=text)
+        _graph_id, internet_message_id = await ms.send_mail(
+            token, to=target, subject=subject or DEFAULT_SUBJECT, body=text
+        )
     except ms.MicrosoftAuthError as exc:
         raise OutboundError(str(exc), retryable=True, is_auth_error=True) from exc
     except ms.MicrosoftAmbiguousDelivery as exc:
@@ -148,8 +150,11 @@ async def _send_outlook(token: str, target: str, text: str, subject: str | None)
         raise OutboundError(str(exc), retryable=True) from exc
     except ms.MicrosoftError as exc:
         raise OutboundError(str(exc)) from exc
-    # Graph returns 202 with no body — there is genuinely no id to record.
-    return SendResult(external_id=None, kind="email")
+    # send_mail now creates-then-sends a draft (see microsoft.py), so there IS
+    # an id to record — internetMessageId (not the mailbox-scoped Graph `id`),
+    # consistent with how every other provider's external_id is a stable,
+    # cross-system identifier rather than something scoped to one mailbox.
+    return SendResult(external_id=internet_message_id or None, kind="email")
 
 
 async def _send_teams(token: str, target: str, text: str) -> SendResult:

@@ -127,6 +127,7 @@ type taskEvent struct {
 	SenderUsername string `json:"senderUsername"`
 	Title          string `json:"title"`
 	Description    string `json:"description"`
+	ChannelName    string `json:"channelName"`
 }
 
 // handle processes one message and reports whether its offset is safe to
@@ -168,6 +169,17 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 			ctx, evt.OrgID, evt.AssigneeID, evt.TaskID, evt.SenderID,
 			evt.Title, evt.Description, occurred,
 		)
+		if werr == nil {
+			// A durable Mail-history record of the assignment, independent of
+			// whether email-worker's offline-gated SMTP relay ever fires for
+			// it — see DeliverTaskAssignmentMail's own doc comment.
+			werr = c.store.DeliverTaskAssignmentMail(ctx, store.TaskAssignmentMailInput{
+				OrgID: evt.OrgID, EventID: evt.EventID, AssigneeID: evt.AssigneeID,
+				SenderID: evt.SenderID, SenderUsername: evt.SenderUsername,
+				Title: evt.Title, Description: evt.Description, ChannelName: evt.ChannelName,
+				OccurredAt: occurred,
+			})
+		}
 	case typeTaskWithdrawn:
 		werr = c.store.DeleteTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred)
 	case typeTaskAcknowledged:

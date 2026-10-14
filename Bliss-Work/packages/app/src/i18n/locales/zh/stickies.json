@@ -25,8 +25,6 @@
     "navPrevious": "上一个置顶任务",
     "navNext": "下一个置顶任务",
     "chat": "聊天",
-    "shareToSelfChat": "分享到自我笔记",
-    "shareToSelfChatBody": "已分享此任务",
     "openTask": "打开任务"
   },
   "overlay": {
@@ -40,9 +38,7 @@
     "noteUnpinnedDescription": "任务仍在你的任务列表中，请在那里完成。",
     "unpinFailed": "无法取消便签置顶",
     "desktopFull": "无法将此任务置顶到桌面。",
-    "chatOpenFailed": "无法打开该聊天,请重试。",
-    "sharedToSelfChat": "已分享到自我笔记",
-    "shareToSelfChatFailed": "无法将此任务分享到自我笔记"
+    "chatOpenFailed": "无法打开该聊天,请重试。"
   },
   "window": {
     "loading": "加载中…",

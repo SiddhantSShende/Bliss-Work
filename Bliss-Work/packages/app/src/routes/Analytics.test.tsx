@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { ChannelDTO, type ChannelAnalyticsDTO, type ProjectAnalyticsDTO, type ProjectDTO } from "@taskboard/shared";
+import {
+  ChannelDTO,
+  type ChannelAnalyticsDTO,
+  type ProjectAnalyticsDTO,
+  type ProjectDTO,
+  type WorkspaceOverviewDTO,
+} from "@taskboard/shared";
 
 const h = vi.hoisted(() => ({
   channels: vi.fn(),
@@ -10,6 +16,7 @@ const h = vi.hoisted(() => ({
   projects: vi.fn(),
   projectDetail: vi.fn(),
   projectAnalytics: vi.fn(),
+  workspaceAnalyticsOverview: vi.fn(),
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h, config: {} }) }));
 
@@ -40,10 +47,11 @@ const ANALYTICS: ChannelAnalyticsDTO = {
 };
 
 const PROJECT_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const PROJECT_OWN_CHANNEL_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const PROJECT: ProjectDTO = {
   id: PROJECT_ID,
   name: "Launch Plan",
-  channelId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  channelId: PROJECT_OWN_CHANNEL_ID,
   status: "ACTIVE",
   canComplete: false,
 };
@@ -68,6 +76,27 @@ const PROJECT_ANALYTICS: ProjectAnalyticsDTO = {
   tasksTotal: 5,
 };
 
+const EMPTY_OVERVIEW: WorkspaceOverviewDTO = {
+  statusBreakdown: { sent: 0, acknowledged: 0, completed: 0, ignored: 0, left: 0, missed: 0 },
+  completion: {
+    totalAssignments: 0,
+    completedAssignments: 0,
+    assignmentCompletionRate: 0,
+    totalUniqueTasks: 0,
+    completedUniqueTasks: 0,
+    abandonedUniqueTasks: 0,
+    remainingUniqueTasks: 0,
+    uniqueTaskCompletionRate: 0,
+  },
+  overdueUniqueTasks: 0,
+  inProgressUniqueTasks: 0,
+  workload: [],
+  channels: [],
+  dailyActivity: [],
+  rangeFrom: "2026-10-01",
+  rangeTo: "2026-10-02",
+};
+
 function mount(path: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -89,9 +118,10 @@ afterEach(() => {
 });
 
 describe("Analytics route", () => {
-  it("renders the channel list", async () => {
+  it("renders the channel list under the unified Projects section", async () => {
     h.channels.mockResolvedValue([CHANNEL]);
     h.projects.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount("/app/analytics");
     expect(await screen.findByRole("link", { name: /design/i })).toHaveAttribute(
       "href",
@@ -109,20 +139,24 @@ describe("Analytics route", () => {
     expect((await screen.findByText("Total tasks")).parentElement).toHaveTextContent("3");
     expect(screen.getByText("Completed tasks").parentElement).toHaveTextContent("2");
     await waitFor(() => expect(h.channelAnalytics).toHaveBeenCalledWith(CHANNEL_ID));
+    // Selecting a channel must not also render the workspace overview query.
+    expect(h.workspaceAnalyticsOverview).not.toHaveBeenCalled();
   });
 
-  it("shows the no-selection empty state without a channelId or projectId", async () => {
+  it("shows the workspace Overview by default, with no channel or project selected", async () => {
     h.channels.mockResolvedValue([CHANNEL]);
     h.projects.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount("/app/analytics");
 
-    expect(await screen.findByText("Select a channel or a project")).toBeInTheDocument();
-    expect(screen.getByText("Choose a channel or a project on the left to view its analytics.")).toBeInTheDocument();
+    await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalled());
+    expect(screen.getByRole("link", { name: /overview/i })).toHaveAttribute("aria-current", "page");
   });
 
   it("renders the project list", async () => {
     h.channels.mockResolvedValue([]);
     h.projects.mockResolvedValue([PROJECT]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount("/app/analytics");
 
     expect(await screen.findByRole("link", { name: /launch plan/i })).toHaveAttribute(
@@ -130,6 +164,20 @@ describe("Analytics route", () => {
       `/app/analytics/projects/${PROJECT_ID}`,
     );
     expect(h.projectAnalytics).not.toHaveBeenCalled();
+  });
+
+  it("excludes a project's own auto-created channel from the list, so the project appears once", async () => {
+    h.channels.mockResolvedValue([CHANNEL, { ...CHANNEL, id: PROJECT_OWN_CHANNEL_ID, name: "Launch Plan" }]);
+    h.projects.mockResolvedValue([PROJECT]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
+    mount("/app/analytics");
+
+    expect(await screen.findByRole("link", { name: /launch plan/i })).toHaveAttribute(
+      "href",
+      `/app/analytics/projects/${PROJECT_ID}`,
+    );
+    expect(screen.getAllByRole("link", { name: /launch plan/i })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /design/i })).toBeInTheDocument();
   });
 
   it("loads the selected project's dashboard through the real panel, identifying the project", async () => {
@@ -144,13 +192,15 @@ describe("Analytics route", () => {
     expect(screen.getByText("Completed tasks").parentElement).toHaveTextContent("4");
     await waitFor(() => expect(h.projectAnalytics).toHaveBeenCalledWith(PROJECT_ID, expect.objectContaining({ offset: 0 })));
     expect(h.channelAnalytics).not.toHaveBeenCalled();
+    expect(h.workspaceAnalyticsOverview).not.toHaveBeenCalled();
   });
 
-  it("shows an empty-projects state when there are none", async () => {
-    h.channels.mockResolvedValue([CHANNEL]);
+  it("shows an empty-projects state when there are no accessible projects or channels", async () => {
+    h.channels.mockResolvedValue([]);
     h.projects.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount("/app/analytics");
 
-    expect(await screen.findByText("No projects yet")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing to show yet")).toBeInTheDocument();
   });
 });

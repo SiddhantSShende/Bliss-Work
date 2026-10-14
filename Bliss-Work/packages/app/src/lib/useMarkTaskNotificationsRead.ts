@@ -46,8 +46,10 @@ export async function markTaskNotificationsRead(
     markNotificationPagesRead(qc, (n) => !!n.taskId && tasks.has(n.taskId));
     // The badge is its own server-side count (see unreadNotificationCount.ts), so
     // patching the list never moves it: lower it by what the server says it
-    // changed, then let a refetch have the last word.
-    decrementUnreadCount(qc, updated);
+    // changed, then let a refetch have the last word. Every row read-by-tasks
+    // touches has a task_id, so it is a TASK_* notification — `updated` lowers
+    // the Tasks badge by the same amount as the bell.
+    decrementUnreadCount(qc, updated, updated);
     // The read feed does not hold these rows yet — it will, next time it loads.
     void qc.invalidateQueries({ queryKey: qk.notificationsRead });
     void refreshUnreadCount(qc);

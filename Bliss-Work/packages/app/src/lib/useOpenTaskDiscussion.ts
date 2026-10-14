@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useRuntime } from "./runtime";
+import { useSession } from "../store/session";
 import { qk } from "./queryBridge";
 import { useSelectedChat } from "./selectedChat";
 
@@ -31,6 +32,7 @@ export function useOpenTaskDiscussion() {
   const qc = useQueryClient();
   const { openChat } = useSelectedChat();
   const navigate = useNavigate();
+  const currentUserId = useSession((s) => s.user?.id);
   const [busy, setBusy] = useState(false);
 
   const openDiscussion = async ({ taskId, peerId, channelId }: TaskChatTarget) => {
@@ -41,6 +43,16 @@ export function useOpenTaskDiscussion() {
     setBusy(true);
     try {
       if (peerId) {
+        // A task sent to yourself has no second party for a DM — messaging-svc
+        // rejects peerId === caller with 400 ("cannot open a task discussion
+        // with yourself"). Open the caller's own Notes-to-Self instead, via
+        // the same idempotent entry point the pinned chats-list row uses
+        // (useSelfChat) — not a task discussion, just the plain self-chat.
+        if (peerId === currentUserId) {
+          const { conversationId } = await api.openSelfChat();
+          openChat(conversationId);
+          return;
+        }
         const d = await api.openTaskDiscussion(taskId, { peerId });
         await qc.invalidateQueries({ queryKey: qk.taskDiscussions });
         if (d.conversationId) openChat(d.conversationId, { taskId });

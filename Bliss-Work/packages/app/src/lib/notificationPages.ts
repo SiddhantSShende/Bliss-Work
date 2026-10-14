@@ -1,6 +1,7 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type { NotificationDTO, NotificationPageDTO } from "@taskboard/shared";
 import { qk } from "./queryKeys";
+import { notificationCategory } from "./notificationDestination";
 
 export type NotificationPages = InfiniteData<NotificationPageDTO, unknown>;
 
@@ -92,23 +93,35 @@ export function addRealtimeNotification(qc: QueryClient, notification: Notificat
   qc.setQueryData<NotificationPages>(qk.notifications, (previous) =>
     insertNotificationIntoPages(previous, notification),
   );
-  qc.setQueryData<{ unreadCount: number }>(qk.notificationsUnreadCount, (previous) =>
-    previous && { unreadCount: previous.unreadCount + 1 },
+  qc.setQueryData<{ unreadCount: number; tasksUnreadCount: number }>(qk.notificationsUnreadCount, (previous) =>
+    previous && {
+      unreadCount: previous.unreadCount + 1,
+      tasksUnreadCount: previous.tasksUnreadCount + (notificationCategory(notification.kind) === "task" ? 1 : 0),
+    },
   );
   return true;
+}
+
+/** How many notifications a `markNotificationPagesRead` call flipped: `total`
+ *  for the bell badge, and `tasks` (the TASK_*-kind subset of `total`) for the
+ *  Tasks badge. */
+export interface FlippedCounts {
+  total: number;
+  tasks: number;
 }
 
 export function markNotificationPagesRead(
   qc: QueryClient,
   predicate: (notification: NotificationDTO) => boolean,
-): number {
-  let flipped = 0;
+): FlippedCounts {
+  const counts: FlippedCounts = { total: 0, tasks: 0 };
   qc.setQueryData<NotificationPages>(qk.notifications, (previous) =>
     mapNotificationPages(previous, (notification) => {
       if (notification.read || !predicate(notification)) return notification;
-      flipped++;
+      counts.total++;
+      if (notificationCategory(notification.kind) === "task") counts.tasks++;
       return { ...notification, read: true };
     }),
   );
-  return flipped;
+  return counts;
 }

@@ -234,16 +234,6 @@ function AssignedBucket({ view, projectId }: { view: string; projectId?: string 
   );
   const { openDiscussion, busy: chatBusy } = useOpenTaskDiscussion();
 
-  // "Share to Notes to Self" — posts a reference to the task (resolved and
-  // rendered as a card by ChatThread via taskId) into the caller's own
-  // self-chat. No server-side confirmation needed beyond the toast: nothing
-  // destructive happens, and the card is immediately visible from there.
-  const shareToSelfChat = useMutation({
-    mutationFn: (taskId: string) => api.shareTaskToSelfChat(taskId, t("card.shareToSelfChatBody", { ns: "stickies" })),
-    onSuccess: () => toast.success(t("toasts.sharedToSelfChat", { ns: "stickies" })),
-    onError: () => toast.error(t("toasts.shareToSelfChatFailed", { ns: "stickies" })),
-  });
-
   const act = useMutation({
     mutationFn: ({ taskId, action }: { taskId: string; action: TaskAction }) =>
       api.taskAction(taskId, verb[action]),
@@ -438,8 +428,6 @@ function AssignedBucket({ view, projectId }: { view: string; projectId?: string 
                 }
                 chatBusy={chatBusy}
                 chatUnreadCount={unreadByTask.get(task.taskId)}
-                onShareToSelfChat={() => shareToSelfChat.mutate(task.taskId)}
-                shareBusy={shareToSelfChat.isPending && shareToSelfChat.variables === task.taskId}
               />
             </motion.div>
           );

@@ -57,6 +57,16 @@ class Settings(BaseSettings):
     # clicked Claim rather than by a trusted service impersonating them.
     task_internal_base: str = "http://task-svc:8002"
 
+    # messaging-svc base + its OWN internal-endpoint secret — mail_sync_worker's
+    # producer (POST /internal/mail/inbound) and write-back endpoints
+    # (external-ref, hide-for-owner). Mirrors email-worker/app/config.py's
+    # identical fields; this is messaging-svc's secret, not ours, shared only
+    # because every internal caller of messaging-svc presents the same value.
+    messaging_internal_base: str = Field(
+        default="http://messaging-svc:8004", validation_alias="MESSAGING_INTERNAL_BASE"
+    )
+    messaging_internal_token: str = Field(default="", validation_alias="MESSAGING_INTERNAL_TOKEN")
+
     # ── App-level OAuth client credentials (OUR developer apps) ─────────────────
     # Per-user tokens obtained through these flows are stored encrypted per-row.
     # All optional: a provider whose creds are unset is simply not connectable.
@@ -109,6 +119,8 @@ class Settings(BaseSettings):
             problems.append("INTEGRATIONS_DATABASE_URL must use sslmode=verify-full in production")
         if not self.internal_token:
             problems.append("INTEGRATIONS_INTERNAL_TOKEN must be set in production")
+        if not self.messaging_internal_token:
+            problems.append("MESSAGING_INTERNAL_TOKEN must be set in production")
         if not self.public_base_url:
             problems.append("PUBLIC_BASE_URL must be set in production (OAuth/webhook callbacks)")
         if self.data_kek_provider == "kms":

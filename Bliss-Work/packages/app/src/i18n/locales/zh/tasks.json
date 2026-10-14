@@ -414,25 +414,17 @@
   },
   "analyticsHub": {
     "title": "分析",
-    "hint": "选择一个频道或项目以查看其任务分析。",
-    "channelsTitle": "频道",
-    "emptyChannels": {
-      "title": "暂无频道",
-      "hint": "加入或创建一个频道，即可在此查看其分析。"
-    },
+    "hint": "查看工作区分析，或选择一个项目以查看其任务。",
+    "overviewTitle": "总览",
     "projectsTitle": "项目",
     "emptyProjects": {
-      "title": "暂无项目",
-      "hint": "在任务中创建一个项目，即可在此查看其仪表盘。"
+      "title": "暂无可显示内容",
+      "hint": "创建一个项目或加入一个频道，即可在此查看其分析。"
     },
     "projectsLoadError": {
       "title": "无法加载项目",
       "hint": "获取项目时出错。",
       "retry": "重试"
-    },
-    "noSelection": {
-      "title": "选择频道或项目",
-      "hint": "选择左侧的频道或项目以查看其分析。"
     },
     "taskHint": "想查看某个任务的分析？请从 Mail 中打开该任务。",
     "openMail": "打开 Mail",

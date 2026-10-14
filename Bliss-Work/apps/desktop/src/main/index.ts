@@ -78,6 +78,7 @@ const ENDPOINTS = resolveEndpointsFromEnv(app.isPackaged, {
   // override maps, making TB_TELEMETRY_BASE silently inert on desktop.
   telemetryBase: process.env.TB_TELEMETRY_BASE,
   stickyBase: process.env.TB_STICKY_BASE,
+  integrationsBase: process.env.TB_INTEGRATIONS_BASE,
   wsUrl: process.env.TB_WS_URL,
 });
 

@@ -103,7 +103,7 @@ export function TopNavbar({
         </IconButton>
 
         <button
-          onClick={() => nav("/app/mail")}
+          onClick={() => nav("/app/analytics")}
           title="BlissWork"
           className={`shrink-0 rounded-xl px-1 transition hover:opacity-80 ${noDrag}`}
         >

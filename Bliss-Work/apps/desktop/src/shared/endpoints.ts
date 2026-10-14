@@ -25,6 +25,8 @@ export interface Endpoints {
    *  desktop. Additive — when this points at nothing reachable, the notes fall
    *  back to task-svc's /tasks/sticky exactly as before. */
   stickyBase: string;
+  /** integrations-svc: connected-account OAuth (Settings > Microsoft 365). */
+  integrationsBase: string;
   wsUrl: string;
 }
 
@@ -39,6 +41,7 @@ export const PROD_ENDPOINTS: Endpoints = {
   messagingBase: `${PROD_ORIGIN}/api/messaging`,
   telemetryBase: `${PROD_ORIGIN}/api/telemetry`,
   stickyBase: `${PROD_ORIGIN}/api/sticky`,
+  integrationsBase: `${PROD_ORIGIN}/api/integrations`,
   wsUrl: "wss://communication.rnrtechs.com/ws",
 };
 
@@ -50,6 +53,7 @@ export const DEV_ENDPOINTS: Endpoints = {
   messagingBase: "http://localhost:8004",
   telemetryBase: "http://localhost:8006",
   stickyBase: "http://localhost:8008",
+  integrationsBase: "http://localhost:8005",
   wsUrl: "ws://localhost:8090/ws",
 };
 
@@ -73,6 +77,7 @@ export function resolveEndpoints(
     messagingBase: pick("messagingBase"),
     telemetryBase: pick("telemetryBase"),
     stickyBase: pick("stickyBase"),
+    integrationsBase: pick("integrationsBase"),
     wsUrl: pick("wsUrl"),
   };
 }

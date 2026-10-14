@@ -31,6 +31,10 @@
     "title": "Aktuelle Anmeldungen",
     "description": "Sehen Sie alle Geräte, auf denen Ihr Konto gerade angemeldet ist, und melden Sie sie bei Bedarf aus der Ferne ab."
   },
+  "outlook": {
+    "title": "Microsoft 365 / Outlook",
+    "description": "Connect your Outlook mailbox to send and sync mail from BlissWork."
+  },
   "activity": {
     "title": "Ihre Aktivität",
     "description": "Sehen Sie alles, was {{brand}} über Ihre Arbeitsweise erfasst – dieselben Daten sehen auch die Admins Ihres Arbeitsbereichs."

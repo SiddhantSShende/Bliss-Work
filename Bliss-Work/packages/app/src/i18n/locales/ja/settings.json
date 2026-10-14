@@ -31,6 +31,10 @@
     "title": "現在のログイン",
     "description": "アカウントにログイン中のデバイスをすべて確認し、リモートでログアウトできます。"
   },
+  "outlook": {
+    "title": "Microsoft 365 / Outlook",
+    "description": "Connect your Outlook mailbox to send and sync mail from BlissWork."
+  },
   "activity": {
     "title": "アクティビティ",
     "description": "{{brand}}が記録しているあなたの作業状況をすべて確認できます。ワークスペースの管理者にも同じ記録が表示されます。"

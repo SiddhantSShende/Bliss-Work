@@ -140,7 +140,13 @@ def config_for(provider: str, creds: AppCredentialsLike | None) -> OAuthConfig |
         # setup failure: a single-tenant app authorized via /common returns
         # AADSTS50194 rather than anything self-explanatory.
         tenant = creds.tenant or "common"
-        graph_scopes = {"outlook": ["Mail.Read", "Mail.Send"], "teams": ["Chat.ReadWrite"]}[provider]
+        # Mail.ReadWrite (alongside Mail.Read/Mail.Send) is what lets a BlissWork-side
+        # read/delete action write back to the connected user's own Outlook message
+        # (mark read, move to Deleted Items) — see mail_sync_worker.py.
+        graph_scopes = {
+            "outlook": ["Mail.Read", "Mail.ReadWrite", "Mail.Send"],
+            "teams": ["Chat.ReadWrite"],
+        }[provider]
         return OAuthConfig(
             name=provider,
             authorize_endpoint=f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",

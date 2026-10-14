@@ -78,7 +78,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
         name="outlook",
         label="Outlook",
         auth_kind="oauth2_code",
-        default_scopes=("Mail.Read", "Mail.Send", "offline_access"),
+        default_scopes=("Mail.Read", "Mail.ReadWrite", "Mail.Send", "offline_access"),
     ),
     "teams": ProviderSpec(
         name="teams",

@@ -16,40 +16,33 @@ import {
 import { Tabs } from "./Tabs";
 import { activityRanges, computeRange, type RangeKey } from "../lib/dateRange";
 import { useRuntime } from "../lib/runtime";
-import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 
-/** Workspace-wide overview above the per-channel Analytics panel: KPI totals,
- *  channel/person rankings, and distribution/activity charts across every
- *  channel in the org. org_admin only — see tasks_analytics.workspace_overview
- *  on the server for why this is a materially different exposure than the
- *  per-channel panel below it, which stays open to every member. Non-admins
- *  render nothing here, so the page looks exactly as it does today for them. */
+/** Workspace analytics: KPI totals, channel/person rankings, and
+ *  distribution/activity charts. Open to every authenticated member — the
+ *  server (tasks_analytics.workspace_overview) scopes a non-admin's results
+ *  to tasks they're already a party to (sender or assignee); org_admin sees
+ *  the unrestricted, org-wide rollup. This is the Analytics page's Overview
+ *  entry, selected whenever no channel/project is picked. */
 export function WorkspaceOverview() {
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
-  const me = useSession((s) => s.user);
-  const isAdmin = !!me?.roles?.includes("org_admin");
   const [range, setRange] = useState<RangeKey>("30d");
   const [channelId, setChannelId] = useState<string>("");
   const { from, to } = computeRange(range);
 
-  // Same qk.channels query the Channels sidebar below already fires — TanStack
+  // Same qk.channels query the Projects sidebar already fires — TanStack
   // dedupes it, so this adds no extra request.
   const { data: channels = [] } = useQuery({
     queryKey: qk.channels,
     queryFn: () => api.channels(),
-    enabled: isAdmin,
   });
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: qk.workspaceAnalyticsOverview(from, to, channelId || undefined),
     queryFn: () => api.workspaceAnalyticsOverview({ from, to, channelId: channelId || undefined }),
-    enabled: isAdmin,
   });
 
-  if (!isAdmin) return null;
-
-  // Channel ids the overview references but the admin isn't personally a
+  // Channel ids the overview references but the caller isn't personally a
   // member of (e.g. a locked channel) fall back to a generic label rather
   // than fetching org-wide channel data — keeps the membership-based
   // name-privacy model intact even for admins.
@@ -58,7 +51,7 @@ export function WorkspaceOverview() {
   const nameOfPerson = (id: string) => data?.workload.find((w) => w.assigneeId === id)?.assigneeUsername || id;
 
   return (
-    <section className="max-h-[36rem] shrink-0 space-y-4 overflow-y-auto border-b border-border/60 p-4 sm:p-6">
+    <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs tabs={activityRanges()} active={range} onChange={setRange} />
         <select

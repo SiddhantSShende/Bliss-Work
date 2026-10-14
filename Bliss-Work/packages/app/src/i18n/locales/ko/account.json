@@ -67,6 +67,42 @@
       }
     }
   },
+  "outlookSettings": {
+    "header": {
+      "title": "Microsoft 365 / Outlook",
+      "subtitle": "Send mail as yourself and keep your Outlook mailbox in sync with BlissWork."
+    },
+    "notConnected": {
+      "title": "Not connected",
+      "description": "Connect your Microsoft 365 or Outlook.com account to send mail as yourself and sync your mailbox.",
+      "connectButton": "Connect to Microsoft"
+    },
+    "connected": {
+      "statusLabel": "Connected",
+      "errorStatusLabel": "Needs attention",
+      "lastSyncedAt": "Last synced {{when}}",
+      "neverSynced": "Not synced yet",
+      "disconnectButton": "Disconnect",
+      "reconnectButton": "Reconnect"
+    },
+    "errors": {
+      "access_denied": "You declined the Microsoft sign-in request. Connect again when you're ready.",
+      "not_configured": "Microsoft 365 isn't set up for this workspace yet. Ask an admin to add the Microsoft app credentials.",
+      "oauth_failed": "We couldn't finish connecting to Microsoft. Please try again.",
+      "already_connected_by_teammate": "This Outlook mailbox is already connected by another teammate. Ask them to disconnect it first.",
+      "generic": "Something went wrong connecting your Microsoft account. Please try again."
+    },
+    "confirmDisconnect": {
+      "title": "Disconnect Microsoft 365?",
+      "message": "BlissWork will stop sending and syncing mail through this Outlook mailbox. Mail already in BlissWork is not affected.",
+      "confirmLabel": "Disconnect"
+    },
+    "toasts": {
+      "connected": "Connected to Microsoft 365.",
+      "disconnected": "Disconnected from Microsoft 365.",
+      "disconnectFailed": "Couldn't disconnect. Please try again."
+    }
+  },
   "activeSessionsList": {
     "thisDevice": "이 기기",
     "active": "{{time}} 활동",

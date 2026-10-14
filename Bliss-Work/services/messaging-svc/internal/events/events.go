@@ -79,6 +79,10 @@ const (
 	// download of a mail's file. Consumed by telemetry-svc only — see
 	// MailAttachmentDownloaded.
 	TypeMailAttachmentDownloaded = "mail.attachment.downloaded"
+	// TypeMailOwnerStateChanged announces that ONE owner's read or delete
+	// action on a mail should write back to their own connected mailbox.
+	// Consumed by integrations-svc only — see MailOwnerStateChanged.
+	TypeMailOwnerStateChanged = "mail.owner_state_changed"
 )
 
 // MessageCreated is emitted when a new message is appended to a conversation.
@@ -551,6 +555,29 @@ type MailAttachmentDownloaded struct {
 	Filename     string `json:"filename,omitempty"`
 	Mime         string `json:"mime,omitempty"`
 	SizeBytes    int64  `json:"sizeBytes"`
+}
+
+// MailOwnerStateChanged says ONE owner's read or delete action on a mail
+// should be mirrored out to their own connected Outlook mailbox, if they have
+// one — see integrations-svc's mail_sync_worker. No `members`: this never
+// reaches ws-gateway or any client, and nothing about a colleague's copy of
+// the same mail is implied — OwnerUserID is the only mailbox this can ever
+// touch (integrations-svc looks up ITS OWN connection for that exact user,
+// never resolves a provider connection from the mail alone).
+//
+// Exactly one of IsRead/Hidden is set per event — they are independent
+// actions (MarkMailRead vs SetInboxItemHidden), never both at once — and both
+// ride *bool + omitempty so the consumer can tell "not this kind of change"
+// apart from an explicit false.
+type MailOwnerStateChanged struct {
+	Type        string `json:"type"`
+	EventID     string `json:"eventId"`
+	OrgID       string `json:"orgId"`
+	OccurredAt  string `json:"occurredAt"`
+	MailID      string `json:"mailId"`
+	OwnerUserID string `json:"ownerUserId"`
+	IsRead      *bool  `json:"isRead,omitempty"`
+	Hidden      *bool  `json:"hidden,omitempty"`
 }
 
 // MailDelivered announces that a mail was delivered into one or more people's

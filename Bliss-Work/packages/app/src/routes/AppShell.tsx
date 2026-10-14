@@ -97,6 +97,9 @@ export function AppShell() {
     queryFn: () => api.notificationsUnreadCount(),
   });
   const unread = notifUnread?.unreadCount ?? 0;
+  // Server-scoped to TASK_* kinds — unlike `unread` above, a channel/DM
+  // message, meeting or call notification must never move this one.
+  const tasksUnread = notifUnread?.tasksUnreadCount ?? 0;
 
   // The bell's own list — unlike the badge count above, this genuinely only
   // needs to exist once the panel is actually opened.
@@ -109,7 +112,7 @@ export function AppShell() {
 
   const railBadges: Record<string, number> = {
     mail: unreadCounts?.inboxPeers ?? 0,
-    tasks: unread,
+    tasks: tasksUnread,
     chats: unreadCounts?.conversations ?? 0,
     channels: unreadCounts?.channels ?? 0,
   };

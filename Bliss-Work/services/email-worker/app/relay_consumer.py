@@ -1,4 +1,5 @@
-"""relay_consumer ─ Phase 6 offline-only SMTP relay.
+"""relay_consumer ─ Phase 6 offline-only SMTP relay (MESSAGE_CREATED only —
+see below for why TASK_ASSIGNED is no longer gated on presence).
 
 Consumes ``messaging.events.v1`` + ``task.events.v1`` (group
 ``email-worker-relay``, distinct from the auth-invite group so partition
@@ -10,12 +11,16 @@ assignment and offset commit are independent). For every relayable event:
      returns no rows and we skip; if a 'pending' row exists (prior worker
      crashed mid-flight), the reaper retries it later.
   3. Lookup recipient e-mail + username via auth-svc's internal API.
-  4. Offline gate: check presence FIRST. Already online → done, no email, no
-     wait. Offline → wait out a grace window (event.occurredAt until it is
-     offline_threshold_seconds old, measured from occurredAt NOT now(), so an
-     event this consumer reaches late — a rebalance, a backlog — has already
-     used it up), then check presence again before deciding to send: a
-     reconnect during the wait still skips the email.
+  4. Offline gate, MESSAGE_CREATED only: check presence FIRST. Already
+     online → done, no email, no wait. Offline → wait out a grace window
+     (event.occurredAt until it is offline_threshold_seconds old, measured
+     from occurredAt NOT now(), so an event this consumer reaches late — a
+     rebalance, a backlog — has already used it up), then check presence
+     again before deciding to send: a reconnect during the wait still skips
+     the email. TASK_ASSIGNED skips this step entirely and always sends: a
+     task assignment is not something the recipient is guaranteed to have
+     seen just because they're online somewhere in the app right now, so the
+     email is not conditioned on presence the way a chat notification is.
   5. Render + send via the existing aiosmtplib Mailer.
   6. UPDATE email_consumed.state='sent', sent_at=now().
 
@@ -468,58 +473,66 @@ class RelayConsumer:
             return False
 
         async with self._mark_inflight(str(event_id), str(recipient_id)):
-            # Presence gate, checked FIRST. A recipient already online right
-            # now needs neither an email nor the wait below — the in-app copy
-            # is what they'll see. This used to be checked only AFTER the
-            # wait, so EVERY event on this (the highest-volume) topic paid up
-            # to offline_threshold_seconds before this partition's next batch
-            # could even be picked up — online recipients included, throttling
-            # live in-app delivery on unrelated events behind it for no
-            # reason: nothing about an online recipient can change during a
-            # wait that exists only to give an OFFLINE one a chance to
-            # reconnect.
-            if not await self._should_relay(recipient_id):
-                # Online: mark sent (=skipped, no rewind) so a later replay
-                # doesn't try again. The result is the same to the user.
-                await self._mark_sent(event_id, recipient_id)
-                self._failures.pop(str(event_id), None)
-                return True
+            # Presence gate — MESSAGE_CREATED only. A task assignment is not a
+            # realtime event the in-app UI is guaranteed to surface the same
+            # way a chat bubble is: it must reach the assignee's inbox
+            # regardless of whether they happen to be online at the instant
+            # it's created, so TASK_ASSIGNED always falls through to send,
+            # skipping both the presence check and the reconnect-grace wait
+            # below entirely.
+            if etype == MESSAGE_CREATED:
+                # Checked FIRST. A recipient already online right now needs
+                # neither an email nor the wait below — the in-app copy is
+                # what they'll see. This used to be checked only AFTER the
+                # wait, so EVERY event on this (the highest-volume) topic paid
+                # up to offline_threshold_seconds before this partition's next
+                # batch could even be picked up — online recipients included,
+                # throttling live in-app delivery on unrelated events behind
+                # it for no reason: nothing about an online recipient can
+                # change during a wait that exists only to give an OFFLINE one
+                # a chance to reconnect.
+                if not await self._should_relay(recipient_id):
+                    # Online: mark sent (=skipped, no rewind) so a later replay
+                    # doesn't try again. The result is the same to the user.
+                    await self._mark_sent(event_id, recipient_id)
+                    self._failures.pop(str(event_id), None)
+                    return True
 
-            # Offline right now: give them a grace window to reconnect and see
-            # the event live before it becomes an email. event.occurredAt is
-            # the canonical "when did this happen on the bus" timestamp —
-            # measuring from it rather than from now() means an event this
-            # consumer only reaches late (a rebalance, a backlog) has already
-            # used up its window and skips straight to the final check below
-            # with wait=0.
-            #
-            # Waiting here is safe against the reaper because this pair is in
-            # _inflight for THIS process (see _mark_inflight) and, for every
-            # process, because the wait itself is bounded by
-            # offline_threshold_seconds — _reap_once's window covers at least
-            # that. See _REAP_SEND_BUDGET_SECONDS.
-            wait = self._grace_remaining(event.get("occurredAt", ""))
-            if wait > 0:
-                await self._sleep_or_stop(wait)
-                if self._stop.is_set():
-                    # Shutting down mid-wait: NOT a skip. Release the claim so the
-                    # redelivery after the restart can send it.
-                    await self._release_claim(str(event_id), str(recipient_id))
-                    return False
-                # The wait is the only thing that can leave this claim
-                # 'pending' for anywhere near the reaper's abandonment window.
-                # Refresh it here so _reap_once measures the send phase that
-                # follows from THIS point, not from the original claim —
-                # keeping the window's job to covering one phase at a time
-                # instead of their sum.
-                await self._touch_claim(str(event_id), str(recipient_id))
+                # Offline right now: give them a grace window to reconnect and
+                # see the event live before it becomes an email.
+                # event.occurredAt is the canonical "when did this happen on
+                # the bus" timestamp — measuring from it rather than from
+                # now() means an event this consumer only reaches late (a
+                # rebalance, a backlog) has already used up its window and
+                # skips straight to the final check below with wait=0.
+                #
+                # Waiting here is safe against the reaper because this pair is
+                # in _inflight for THIS process (see _mark_inflight) and, for
+                # every process, because the wait itself is bounded by
+                # offline_threshold_seconds — _reap_once's window covers at
+                # least that. See _REAP_SEND_BUDGET_SECONDS.
+                wait = self._grace_remaining(event.get("occurredAt", ""))
+                if wait > 0:
+                    await self._sleep_or_stop(wait)
+                    if self._stop.is_set():
+                        # Shutting down mid-wait: NOT a skip. Release the claim so the
+                        # redelivery after the restart can send it.
+                        await self._release_claim(str(event_id), str(recipient_id))
+                        return False
+                    # The wait is the only thing that can leave this claim
+                    # 'pending' for anywhere near the reaper's abandonment window.
+                    # Refresh it here so _reap_once measures the send phase that
+                    # follows from THIS point, not from the original claim —
+                    # keeping the window's job to covering one phase at a time
+                    # instead of their sum.
+                    await self._touch_claim(str(event_id), str(recipient_id))
 
-            # Final check: they may have reconnected during the wait. Still
-            # offline (or the window was already used up above) → send.
-            if not await self._should_relay(recipient_id):
-                await self._mark_sent(event_id, recipient_id)
-                self._failures.pop(str(event_id), None)
-                return True
+                # Final check: they may have reconnected during the wait. Still
+                # offline (or the window was already used up above) → send.
+                if not await self._should_relay(recipient_id):
+                    await self._mark_sent(event_id, recipient_id)
+                    self._failures.pop(str(event_id), None)
+                    return True
 
             try:
                 await self._send_for_event(event, recipient_id, etype)
@@ -1192,10 +1205,11 @@ class RelayConsumer:
         A task-assignment recipient lookup sets ``retry_transient`` so an
         exhausted transient failure reaches Kafka's retry/DLQ path rather than
         being mistaken for an ineligible recipient.
-        The relay only fires for OFFLINE recipients (already off the hot path),
-        so a synchronous service-to-service lookup here is fine — and it keeps
-        email-worker free of any cross-service database access (strict
-        database-per-service).
+        For MESSAGE_CREATED the relay only fires for OFFLINE recipients
+        (already off the hot path); TASK_ASSIGNED always fires. Either way
+        this is a synchronous service-to-service lookup rather than a
+        cross-service database read, keeping email-worker free of any
+        cross-service database access (strict database-per-service).
 
         Resilience: bounded per-attempt timeout, up to 3 retries with
         backoff+jitter on transient failures (connect/timeout/5xx), and a

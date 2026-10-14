@@ -426,25 +426,17 @@
   },
   "analyticsHub": {
     "title": "Analysen",
-    "hint": "Wähle einen Kanal oder ein Projekt aus, um die Aufgabenanalysen anzuzeigen.",
-    "channelsTitle": "Kanäle",
-    "emptyChannels": {
-      "title": "Noch keine Kanäle",
-      "hint": "Tritt einem Kanal bei oder erstelle einen, um hier dessen Analysen zu sehen."
-    },
+    "hint": "Sieh dir die Workspace-Analysen an oder wähle ein Projekt, um dessen Aufgaben zu sehen.",
+    "overviewTitle": "Überblick",
     "projectsTitle": "Projekte",
     "emptyProjects": {
-      "title": "Noch keine Projekte",
-      "hint": "Erstelle ein Projekt in Aufgaben, um hier dessen Dashboard zu sehen."
+      "title": "Noch nichts zum Anzeigen",
+      "hint": "Erstelle ein Projekt oder tritt einem Kanal bei, um hier dessen Analysen zu sehen."
     },
     "projectsLoadError": {
       "title": "Projekte konnten nicht geladen werden",
       "hint": "Beim Abrufen deiner Projekte ist etwas schiefgelaufen.",
       "retry": "Erneut versuchen"
-    },
-    "noSelection": {
-      "title": "Kanal oder Projekt auswählen",
-      "hint": "Wähle links einen Kanal oder ein Projekt aus, um dessen Analysen anzuzeigen."
     },
     "taskHint": "Du suchst die Analysen einer bestimmten Aufgabe? Öffne sie über Mail.",
     "openMail": "Mail öffnen",

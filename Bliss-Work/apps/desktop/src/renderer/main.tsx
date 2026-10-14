@@ -136,6 +136,7 @@ const ENDPOINTS = resolveEndpointsFromEnv(!env.DEV, {
   // deployment that moved telemetry broke member activity on desktop alone.
   telemetryBase: env.VITE_TELEMETRY_BASE,
   stickyBase: env.VITE_STICKY_BASE,
+  integrationsBase: env.VITE_INTEGRATIONS_BASE,
   wsUrl: env.VITE_WS_URL,
 });
 

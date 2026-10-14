@@ -50,9 +50,10 @@ def _webhook_url(provider: str, token: str | None) -> str | None:
 
 
 def _row_to_out(r) -> ConnectionOut:
-    # webhook_token is only selected on some queries; treat its absence as None
-    # rather than requiring every SELECT to carry the column.
+    # webhook_token and last_synced_at are only selected on some queries; treat
+    # their absence as None rather than requiring every SELECT to carry them.
     token = getattr(r, "webhook_token", None)
+    last_synced_at = getattr(r, "last_synced_at", None)
     return ConnectionOut(
         id=str(r.id),
         provider=r.provider,
@@ -64,6 +65,7 @@ def _row_to_out(r) -> ConnectionOut:
         webhookUrl=_webhook_url(r.provider, token),
         createdAt=r.created_at.isoformat(),
         updatedAt=r.updated_at.isoformat(),
+        lastSyncedAt=last_synced_at.isoformat() if last_synced_at else None,
     )
 
 
@@ -96,12 +98,18 @@ async def list_integrations(principal: Principal = PrincipalDep) -> list[Connect
         res = await db.execute(
             text(
                 """
-                SELECT id, provider, status, scope_kind, display_label, scopes,
-                       last_error, webhook_token, metadata_enc, created_at, updated_at
-                  FROM integration_connections
-                 WHERE status <> 'revoked'
-                   AND (owner_user_id = :uid OR owner_user_id IS NULL)
-                 ORDER BY created_at DESC
+                SELECT c.id, c.provider, c.status, c.scope_kind, c.display_label, c.scopes,
+                       c.last_error, c.webhook_token, c.metadata_enc, c.created_at, c.updated_at,
+                       s.last_synced_at
+                  FROM integration_connections c
+                  LEFT JOIN LATERAL (
+                      SELECT max(last_synced_at) AS last_synced_at
+                        FROM mail_sync_links
+                       WHERE connection_id = c.id
+                  ) s ON true
+                 WHERE c.status <> 'revoked'
+                   AND (c.owner_user_id = :uid OR c.owner_user_id IS NULL)
+                 ORDER BY c.created_at DESC
                 """
             ),
             {"uid": principal.user_id},

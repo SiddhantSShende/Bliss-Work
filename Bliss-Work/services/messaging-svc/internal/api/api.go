@@ -240,6 +240,16 @@ func (s *Server) Router(webOrigin string) http.Handler {
 		// the upload cap that let it exist and by what the relay agrees to ask
 		// for in the first place.
 		g.Get("/internal/mail/{mailId}/attachments/{id}", s.internalMailAttachment)
+		// Backfills external_message_id on a locally-SENT mail once
+		// integrations-svc's Graph send reveals the provider's assigned
+		// internetMessageId — see providers/microsoft.py's module docstring.
+		g.Patch("/internal/mail/{mailId}/external-ref", s.internalSetMailExternalRef)
+		// Mirrors a connected mailbox's own delete into this one owner's
+		// BlissWork mail row — never any other recipient's.
+		g.Post("/internal/mail/{mailId}/hide-for-owner", s.internalHideMailForOwner)
+		// Mirrors a connected mailbox's own read/unread state into this one
+		// owner's BlissWork mail row — the read-state twin of the route above.
+		g.Post("/internal/mail/{mailId}/read-for-owner", s.internalMarkMailReadForOwner)
 		// DEK rotation for messagingdb's org_keys. Ops / incident-response only;
 		// mirrors auth-svc's POST /internal/keys/rotate/{org_id} — rotate every
 		// service's copy to fully rotate an org.

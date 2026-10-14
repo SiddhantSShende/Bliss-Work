@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from .. import outbound
+from .. import messaging_client, outbound
 from ..config import settings
 from crypto import cryptor
 from ..db import session, set_org_context
@@ -609,8 +609,10 @@ async def internal_send_mail(
                 )
 
         httpclient.reset_request_issued()
+        graph_id = ""
+        internet_message_id = ""
         try:
-            await ms.send_mail(
+            graph_id, internet_message_id = await ms.send_mail(
                 token,
                 to=body.to,
                 subject=body.subject,
@@ -726,5 +728,36 @@ async def internal_send_mail(
 
         if body.mailId:
             await _resolve_mail_send(db, body.mailId, body.orgId, "sent")
+            if graph_id:
+                # Loop-prevention bookkeeping — see microsoft.py's module
+                # docstring. Best-effort: the mail is already sent and resolved
+                # by this point, so a failure here must not fail the request,
+                # only leave this one Sent copy without write-back support and
+                # (if external-ref doesn't land) susceptible to one future
+                # duplicate import from the Sent-Items delta walk — self-healing
+                # the moment either call succeeds on a later send.
+                await db.execute(
+                    text(
+                        """
+                        INSERT INTO mail_sync_links
+                            (id, connection_id, org_id, mail_id, graph_message_id, folder,
+                             last_known_is_read)
+                        VALUES (:id, :conn, :org, :mail, :graph, 'sentitems', true)
+                        ON CONFLICT (connection_id, graph_message_id) DO NOTHING
+                        """
+                    ),
+                    {
+                        "id": str(uuid6.uuid7()),
+                        "conn": str(row.id),
+                        "org": body.orgId,
+                        "mail": body.mailId,
+                        "graph": graph_id,
+                    },
+                )
+                await db.commit()
+            if internet_message_id:
+                await messaging_client.set_external_ref(
+                    body.orgId, body.mailId, internet_message_id
+                )
 
     return MailSendResp(status="sent", provider="outlook")

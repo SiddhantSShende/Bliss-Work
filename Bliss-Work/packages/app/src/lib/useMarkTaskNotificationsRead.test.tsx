@@ -35,7 +35,10 @@ function notification(id: string, taskId: string | null, read = false): Notifica
 function fakeServer(rows: NotificationDTO[], opts: { failMark?: boolean; holdMark?: Promise<void> } = {}) {
   const state = rows.map((n) => ({ ...n }));
   const fns = {
-    notificationsUnreadCount: vi.fn(async () => ({ unreadCount: state.filter((n) => !n.read).length })),
+    notificationsUnreadCount: vi.fn(async () => ({
+      unreadCount: state.filter((n) => !n.read).length,
+      tasksUnreadCount: state.filter((n) => !n.read && n.taskId).length,
+    })),
     markTaskNotificationsRead: vi.fn(async (taskIds: string[]) => {
       await opts.holdMark;
       if (opts.failMark) throw new Error("boom");
@@ -121,12 +124,14 @@ describe("useMarkTaskNotificationsRead", () => {
   it("lowers the badge by exactly what the server marked, without waiting for a refetch", async () => {
     const server = fakeServer([notification("a", TASK_A), notification("keep1", null), notification("keep2", OTHER_TASK)]);
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    qc.setQueryData(qk.notificationsUnreadCount, { unreadCount: 3 });
+    qc.setQueryData(qk.notificationsUnreadCount, { unreadCount: 3, tasksUnreadCount: 3 });
 
     await markTaskNotificationsRead(server.api, qc, [TASK_A]);
 
     // No active observer, so nothing refetched: this is the optimistic step alone.
-    expect(qc.getQueryData(qk.notificationsUnreadCount)).toEqual({ unreadCount: 2 });
+    // Every row read-by-tasks touches is a TASK_* notification, so the Tasks
+    // badge falls by the same amount as the bell.
+    expect(qc.getQueryData(qk.notificationsUnreadCount)).toEqual({ unreadCount: 2, tasksUnreadCount: 2 });
   });
 
   it("changes nothing and refetches nothing when the server had nothing to mark", async () => {
@@ -143,12 +148,14 @@ describe("useMarkTaskNotificationsRead", () => {
   it("never takes the badge below zero", async () => {
     const server = fakeServer([notification("a", TASK_A), notification("a2", TASK_A)]);
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    qc.setQueryData(qk.notificationsUnreadCount, { unreadCount: 1 }); // stale-low cache
+    qc.setQueryData(qk.notificationsUnreadCount, { unreadCount: 1, tasksUnreadCount: 1 }); // stale-low cache
 
     await markTaskNotificationsRead(server.api, qc, [TASK_A]);
 
     // Optimistic -2 clamps at 0; the refetch then reads the server's own number.
-    await waitFor(() => expect(qc.getQueryData(qk.notificationsUnreadCount)).toEqual({ unreadCount: 0 }));
+    await waitFor(() =>
+      expect(qc.getQueryData(qk.notificationsUnreadCount)).toEqual({ unreadCount: 0, tasksUnreadCount: 0 }),
+    );
   });
 
   it("puts nothing in the cache and throws nothing when the server call fails — the notification is still unread", async () => {

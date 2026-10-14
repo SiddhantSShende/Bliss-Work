@@ -72,7 +72,28 @@ func (s *Store) DeliverInboundMail(ctx context.Context, in InboundMailInput) (st
 
 	mailID := uuid.Must(uuid.NewV7()).String()
 	delivered := 0
+	var duplicateID string
 	err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		// Resolve the duplicate case FIRST, before resolving recipients at
+		// all — a message this org already has (a redelivered webhook, or
+		// mail_sync_worker walking a SECOND connected mailbox's copy of a
+		// mail that already exists, including this org's own previously-SENT
+		// mail backfilled with its external_message_id — see
+		// providers/microsoft.py's module docstring) is a duplicate
+		// regardless of who its recipients resolve to. Checking only AFTER an
+		// empty-locals rejection would wrongly answer "nobody deliverable" for
+		// an all-external-recipient mail this org already has, instead of
+		// "yes, already have it" — and the caller needs the real mailID
+		// either way to link its own connection to it (mail_sync_links).
+		existing, eerr := s.existingMailIDByExternalRef(ctx, tx, in.OrgID, in.ExternalMessageID)
+		if eerr != nil {
+			return eerr
+		}
+		if existing != "" {
+			duplicateID = existing
+			return ErrMailDuplicate
+		}
+
 		recipients, rerr := resolveMailRecipients(ctx, tx, in.OrgID, in.To, in.Cc, nil)
 		if rerr != nil {
 			return rerr
@@ -86,6 +107,15 @@ func (s *Store) DeliverInboundMail(ctx context.Context, in InboundMailInput) (st
 		}
 
 		if ierr := s.insertInboundMail(ctx, tx, in, from, mailID); ierr != nil {
+			if errors.Is(ierr, ErrMailDuplicate) {
+				// Lost the race against a concurrent delivery of the same
+				// Message-ID between the check above and this INSERT.
+				existing, lerr := s.existingMailIDByExternalRef(ctx, tx, in.OrgID, in.ExternalMessageID)
+				if lerr != nil {
+					return lerr
+				}
+				duplicateID = existing
+			}
 			return ierr
 		}
 		if werr := s.writeMailRecipients(ctx, tx, in.OrgID, mailID, recipients); werr != nil {
@@ -113,9 +143,34 @@ func (s *Store) DeliverInboundMail(ctx context.Context, in InboundMailInput) (st
 		})
 	})
 	if err != nil {
+		if errors.Is(err, ErrMailDuplicate) {
+			return duplicateID, 0, err
+		}
 		return "", 0, err
 	}
 	return mailID, delivered, nil
+}
+
+// existingMailIDByExternalRef resolves the mail this org already has for a
+// given RFC 5322 Message-ID, or "" if none. Used to answer a duplicate
+// delivery with the real mailID instead of an empty one — see
+// DeliverInboundMail. Matches ANY status (SENT or RECEIVED): a locally-SENT
+// mail backfilled with its external_message_id (routes/internal.go's
+// external-ref endpoint, messaging-svc side) is exactly as much "already have
+// it" as a previously-RECEIVED one.
+func (s *Store) existingMailIDByExternalRef(ctx context.Context, tx pgx.Tx, orgID, externalMessageID string) (string, error) {
+	externalMessageID = strings.TrimSpace(externalMessageID)
+	if externalMessageID == "" {
+		return "", nil
+	}
+	var id string
+	err := tx.QueryRow(ctx, `
+		SELECT id FROM mail_messages WHERE org_id = $1 AND external_message_id = $2`,
+		orgID, externalMessageID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
 }
 
 // insertInboundMail writes the mail row, failing cleanly on a redelivery.

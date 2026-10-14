@@ -54,7 +54,11 @@ beforeEach(() => {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       const path = url.pathname;
-      if (path.endsWith("/unread-count")) return json({ unreadCount: rows.filter((n) => !n.read).length });
+      if (path.endsWith("/unread-count")) {
+        const unread = rows.filter((n) => !n.read).length;
+        // Every seeded row here is TASK_ASSIGNED, so the two counts agree.
+        return json({ unreadCount: unread, tasksUnreadCount: unread });
+      }
       if (path.endsWith("/read-all")) {
         readAllRequests++;
         return json({});

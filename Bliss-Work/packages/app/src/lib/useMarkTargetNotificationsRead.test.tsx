@@ -34,7 +34,10 @@ function notification(id: string, kind: string, ids: Ids, read = false): Notific
 function fakeServer(rows: NotificationDTO[], opts: { failMark?: boolean } = {}) {
   const state = rows.map((n) => ({ ...n }));
   const fns = {
-    notificationsUnreadCount: vi.fn(async () => ({ unreadCount: state.filter((n) => !n.read).length })),
+    notificationsUnreadCount: vi.fn(async () => ({
+      unreadCount: state.filter((n) => !n.read).length,
+      tasksUnreadCount: state.filter((n) => !n.read && n.kind.startsWith("TASK_")).length,
+    })),
     markNotificationsReadByTarget: vi.fn(async (target: NotificationReadTarget) => {
       if (opts.failMark) throw new Error("boom");
       const [[field, id]] = Object.entries(target) as [[keyof Ids, string]];
@@ -147,12 +150,13 @@ describe("useMarkTargetNotificationsRead", () => {
   it("lowers the badge by exactly what the server marked, without waiting for a refetch", async () => {
     const server = mixed();
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    qc.setQueryData(qk.notificationsUnreadCount, { unreadCount: 10 });
+    qc.setQueryData(qk.notificationsUnreadCount, { unreadCount: 10, tasksUnreadCount: 1 });
 
     await markTargetNotificationsRead(server.api, qc, "callId", CALL_A);
 
     // No active observer, so nothing refetched: this is the optimistic step alone.
-    expect(qc.getQueryData(qk.notificationsUnreadCount)).toEqual({ unreadCount: 8 });
+    // A call/meeting target never touches the Tasks-scoped count.
+    expect(qc.getQueryData(qk.notificationsUnreadCount)).toEqual({ unreadCount: 8, tasksUnreadCount: 1 });
   });
 
   it("changes nothing and refetches nothing when the server had nothing to mark", async () => {

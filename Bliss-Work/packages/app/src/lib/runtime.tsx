@@ -52,6 +52,7 @@ export function RuntimeProvider({
       notificationBase: config.notificationBase,
       graphBase: config.graphBase,
       stickyBase: config.stickyBase,
+      integrationsBase: config.integrationsBase,
       presenceBase,
       getToken,
       // Auto-recover from an expired access token: refresh (single-flight,

@@ -438,25 +438,17 @@
   },
   "analyticsHub": {
     "title": "Análises",
-    "hint": "Selecione um canal ou um projeto para ver as análises das suas tarefas.",
-    "channelsTitle": "Canais",
-    "emptyChannels": {
-      "title": "Ainda não há canais",
-      "hint": "Entre em um canal ou crie um para ver suas análises aqui."
-    },
+    "hint": "Veja as análises do espaço de trabalho ou escolha um projeto para ver suas tarefas.",
+    "overviewTitle": "Visão geral",
     "projectsTitle": "Projetos",
     "emptyProjects": {
-      "title": "Ainda não há projetos",
-      "hint": "Crie um projeto em Tarefas para ver o painel aqui."
+      "title": "Nada para mostrar ainda",
+      "hint": "Crie um projeto ou entre em um canal para ver suas análises aqui."
     },
     "projectsLoadError": {
       "title": "Não foi possível carregar os projetos",
       "hint": "Algo deu errado ao buscar seus projetos.",
       "retry": "Tentar novamente"
-    },
-    "noSelection": {
-      "title": "Selecione um canal ou um projeto",
-      "hint": "Escolha um canal ou um projeto à esquerda para ver suas análises."
     },
     "taskHint": "Procurando as análises de uma tarefa específica? Abra-a pelo Mail.",
     "openMail": "Abrir Mail",

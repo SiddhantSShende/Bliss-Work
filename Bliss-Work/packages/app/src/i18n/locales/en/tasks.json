@@ -429,25 +429,17 @@
   },
   "analyticsHub": {
     "title": "Analytics",
-    "hint": "Pick a channel or a project to see its task analytics.",
-    "channelsTitle": "Channels",
-    "emptyChannels": {
-      "title": "No channels yet",
-      "hint": "Join or create a channel to see its analytics here."
-    },
+    "hint": "View workspace analytics, or pick a project to see its tasks.",
+    "overviewTitle": "Overview",
     "projectsTitle": "Projects",
     "emptyProjects": {
-      "title": "No projects yet",
-      "hint": "Create a project in Tasks to see its dashboard here."
+      "title": "Nothing to show yet",
+      "hint": "Create a project, or join a channel, to see its analytics here."
     },
     "projectsLoadError": {
       "title": "Couldn't load projects",
       "hint": "Something went wrong fetching your projects.",
       "retry": "Try again"
-    },
-    "noSelection": {
-      "title": "Select a channel or a project",
-      "hint": "Choose a channel or a project on the left to view its analytics."
     },
     "taskHint": "Looking for one task's analytics? Open it from Mail.",
     "openMail": "Open Mail",

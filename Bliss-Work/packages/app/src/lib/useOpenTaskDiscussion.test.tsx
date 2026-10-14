@@ -5,14 +5,18 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactNode } from "react";
 
 const openTaskDiscussion = vi.fn();
+const openSelfChat = vi.fn();
 const openChat = vi.fn();
 let navigateSpy: ReturnType<typeof vi.fn>;
 
 vi.mock("./runtime", () => ({
-  useRuntime: () => ({ api: { openTaskDiscussion } }),
+  useRuntime: () => ({ api: { openTaskDiscussion, openSelfChat } }),
 }));
 vi.mock("./selectedChat", () => ({
   useSelectedChat: () => ({ openChat }),
+}));
+vi.mock("../store/session", () => ({
+  useSession: (sel: (s: { user: { id: string } }) => unknown) => sel({ user: { id: "me" } }),
 }));
 vi.mock("react-router-dom", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-router-dom")>();
@@ -34,6 +38,7 @@ const wrapper = ({ children }: { children: ReactNode }) => {
 
 beforeEach(() => {
   openTaskDiscussion.mockReset();
+  openSelfChat.mockReset();
   openChat.mockReset();
   navigateSpy = vi.fn();
 });
@@ -48,6 +53,17 @@ describe("useOpenTaskDiscussion", () => {
     expect(openTaskDiscussion).toHaveBeenCalledWith("t1", { peerId: "p1" });
     expect(openChat).toHaveBeenCalledWith("c1", { taskId: "t1" });
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it("opens the caller's own self-chat instead of a task discussion when peerId is the caller", async () => {
+    openSelfChat.mockResolvedValue({ conversationId: "self-c1" });
+    const { result } = renderHook(() => useOpenTaskDiscussion(), { wrapper });
+
+    await result.current.openDiscussion({ taskId: "t1", peerId: "me" });
+
+    expect(openTaskDiscussion).not.toHaveBeenCalled();
+    expect(openSelfChat).toHaveBeenCalledTimes(1);
+    expect(openChat).toHaveBeenCalledWith("self-c1");
   });
 
   it("navigates to the channel with ?taskId= for the channel case", async () => {

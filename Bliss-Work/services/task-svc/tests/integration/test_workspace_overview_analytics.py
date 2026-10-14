@@ -1,11 +1,12 @@
-"""GET /tasks/analytics/overview — org-wide rollup behind the Workspace
-Analytics dashboard: KPI totals, per-channel ranking, per-person workload,
+"""GET /tasks/analytics/overview — workspace rollup behind the Analytics
+Overview dashboard: KPI totals, per-channel ranking, per-person workload,
 and a day-bucketed activity series.
 
-org_admin only (OrgAdminDep) — unlike the per-task/per-channel/per-project
-analytics endpoints, which each require the caller to already be a party to
-what they're asking about, this aggregates every channel and every member in
-the org regardless of the caller's own channel membership.
+Open to any authenticated member. org_admin gets the original unrestricted,
+org-wide rollup. A non-admin gets the same rollup shape, but every row is
+filtered to tasks they are already a party to (sender or assignee) — the
+same "am I a party to this" rule the per-task/per-channel/per-project
+analytics endpoints enforce individually.
 """
 
 from __future__ import annotations
@@ -115,9 +116,37 @@ def _today() -> date:
     return datetime.now(timezone.utc).date()
 
 
-async def test_non_admin_is_rejected(db_app):
+async def test_non_admin_is_accepted(db_app):
     r = await _get(SENDER, roles=["member"])
-    assert r.status_code == 403
+    assert r.status_code == 200, r.text
+
+
+async def test_non_admin_only_sees_own_tasks(db_app):
+    ch = _id()
+    other_sender, other_assignee = _id(), _id()
+    me_assignee = _id()
+
+    # A task I sent — visible to me.
+    mine = await _task(ORG_A, SENDER)
+    await _attach_channel(ORG_A, mine, ch)
+    await _assignee_row(ORG_A, mine, me_assignee, "COMPLETED")
+
+    # A task I'm assigned to (someone else sent it) — also visible to me.
+    assigned_to_me = await _task(ORG_A, other_sender)
+    await _attach_channel(ORG_A, assigned_to_me, ch)
+    await _assignee_row(ORG_A, assigned_to_me, SENDER, "SENT")
+
+    # A task I have no part in — must stay invisible to a non-admin.
+    not_mine = await _task(ORG_A, other_sender)
+    await _attach_channel(ORG_A, not_mine, ch)
+    await _assignee_row(ORG_A, not_mine, other_assignee, "COMPLETED")
+
+    member_r = await _get(SENDER, roles=["member"])
+    assert member_r.status_code == 200, member_r.text
+    assert member_r.json()["completion"]["totalUniqueTasks"] == 2
+
+    admin_r = await _get(SENDER, roles=["org_admin"])
+    assert admin_r.json()["completion"]["totalUniqueTasks"] == 3
 
 
 async def test_empty_org_is_all_zero_not_divide_by_zero(db_app):

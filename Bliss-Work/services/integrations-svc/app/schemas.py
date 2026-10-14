@@ -25,6 +25,11 @@ class ConnectionOut(BaseModel):
     #: knowing the per-connection webhook URL.
     createdAt: str
     updatedAt: str
+    #: Most recent mail_sync_worker activity for this connection (Outlook only
+    #: today) — NULL for a connection that has never completed a sync sweep.
+    #: Surfaced in Settings so a member can tell "connected" apart from
+    #: "connected and actually syncing".
+    lastSyncedAt: str | None = None
 
 
 class ConnectStartOut(BaseModel):

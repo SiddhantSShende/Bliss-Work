@@ -64,6 +64,11 @@ var cappedRoutes = map[string]string{
 	// the subject and body to their rune limits — so a large message is
 	// rejected by the cap long before anything is stored.
 	"POST /internal/mail/inbound": "small",
+	// Loop-prevention bookkeeping + the inbound half of read/delete sync — all
+	// tiny JSON bodies, same /internal/* small-body group.
+	"PATCH /internal/mail/{mailId}/external-ref":  "small",
+	"POST /internal/mail/{mailId}/hide-for-owner": "small",
+	"POST /internal/mail/{mailId}/read-for-owner": "small",
 	// DEK rotation. No body at all — the org id is in the path — but it is a
 	// POST, so it inherits the same small-body group and is listed here for
 	// the walk to find.

@@ -140,6 +140,40 @@ func (s *Store) SendMail(ctx context.Context, in SendMailInput) (*SendMailResult
 	return res, nil
 }
 
+// SetMailExternalRef backfills a locally-SENT mail's external_message_id with
+// the provider's assigned internetMessageId, once integrations-svc's Graph
+// send reveals it (see providers/microsoft.py's module docstring on WHY this
+// has to happen after the fact: Graph only assigns the id once a draft is
+// created, which happens after messaging-svc already committed this row as
+// SENT with no id at all).
+//
+// This is what makes mail_sync_worker's later Sent-Items delta walk dedup this
+// exact message for free against the EXISTING uq_mail_messages_external_id
+// index — no new dedup logic, just a column that was always there but never
+// written for locally-composed mail.
+//
+// `WHERE external_message_id IS NULL`: idempotent by construction. A retry
+// (or a second provider attempt for the same mail_id, which the idempotency
+// claim in integrations-svc already prevents from being a REAL second send)
+// is a no-op rather than overwriting a value some earlier call already set.
+//
+// RLS: bypass — trusted service-to-service path, org passed by the caller,
+// same posture as DeliverInboundMail/HideMailForOwner.
+func (s *Store) SetMailExternalRef(ctx context.Context, orgID, mailID, externalMessageID string) error {
+	externalMessageID = strings.TrimSpace(externalMessageID)
+	if externalMessageID == "" {
+		return nil
+	}
+	return s.withBypass(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE mail_messages
+			SET external_message_id = $3, updated_at = now()
+			WHERE id = $1 AND org_id = $2 AND status = 'SENT' AND external_message_id IS NULL`,
+			mailID, orgID, externalMessageID)
+		return err
+	})
+}
+
 // mailAuthor is the From: identity stamped onto a sent mail, read from the org
 // directory at send time so the delivered copy keeps the address it was
 // actually sent from even if the account changes later.

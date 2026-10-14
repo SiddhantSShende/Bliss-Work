@@ -880,8 +880,8 @@ function handleNotificationEvent(e: ServerEvent, ctx: EventHandlerContext) {
         if (isActiveThread) {
           void api.markNotificationRead(e.notificationId).then(
             () => {
-              const flipped = markNotificationPagesRead(qc, (n) => n.id === e.notificationId);
-              decrementUnreadCount(qc, flipped);
+              const { total, tasks } = markNotificationPagesRead(qc, (n) => n.id === e.notificationId);
+              decrementUnreadCount(qc, total, tasks);
               invalidate(qk.notificationsUnreadCount);
             },
             () => {},

@@ -25,8 +25,6 @@
     "navPrevious": "Tarea fijada anterior",
     "navNext": "Tarea fijada siguiente",
     "chat": "Chat",
-    "shareToSelfChat": "Compartir en Notas para mí",
-    "shareToSelfChatBody": "Tarea compartida",
     "openTask": "Abrir tarea"
   },
   "overlay": {
@@ -40,9 +38,7 @@
     "noteUnpinnedDescription": "Sigue en tu lista de tareas: complétala desde allí.",
     "unpinFailed": "No se pudo desfijar la nota",
     "desktopFull": "No se pudo fijar esta tarea en el escritorio.",
-    "chatOpenFailed": "No se pudo abrir ese chat. Inténtalo de nuevo.",
-    "sharedToSelfChat": "Compartido en Notas para mí",
-    "shareToSelfChatFailed": "No se pudo compartir esta tarea en Notas para mí"
+    "chatOpenFailed": "No se pudo abrir ese chat. Inténtalo de nuevo."
   },
   "window": {
     "loading": "Cargando…",

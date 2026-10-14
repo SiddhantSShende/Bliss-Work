@@ -24,6 +24,7 @@ export function buildApiConfig(
     telemetryBase: cfg.telemetryBase,
     notificationBase: cfg.notificationBase,
     stickyBase: cfg.stickyBase,
+    integrationsBase: cfg.integrationsBase,
     presenceBase: cfg.wsUrl.replace(/^ws/, "http").replace(/\/ws\/?$/, ""),
     ...auth,
   };

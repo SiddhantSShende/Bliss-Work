@@ -55,7 +55,8 @@ export async function markNotificationsRead(
   todo.forEach((id) => readsInFlight.add(id));
   const wanted = new Set(todo);
   const flip = () => markNotificationPagesRead(qc, (n) => wanted.has(n.id));
-  decrementUnreadCount(qc, flip());
+  const { total, tasks } = flip();
+  decrementUnreadCount(qc, total, tasks);
   let failed = false;
   try {
     const results = await Promise.all(todo.map((id) => api.markNotificationRead(id).then(() => true, () => false)));

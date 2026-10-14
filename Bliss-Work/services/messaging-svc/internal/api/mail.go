@@ -281,7 +281,11 @@ func (s *Server) receiveInboundMail(w http.ResponseWriter, r *http.Request) {
 		SentAt:            sentAt,
 	})
 	if errors.Is(err, store.ErrMailDuplicate) {
-		writeJSON(w, http.StatusOK, map[string]any{"duplicate": true})
+		// mailID still carries the EXISTING mail's id (see
+		// existingMailIDByExternalRef) — a caller syncing a second connected
+		// mailbox's copy of an already-known mail needs it to link its own
+		// connection, even though nothing new was stored.
+		writeJSON(w, http.StatusOK, map[string]any{"duplicate": true, "mailId": mailID})
 		return
 	}
 	if err != nil {
@@ -289,6 +293,133 @@ func (s *Server) receiveInboundMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"mailId": mailID, "delivered": delivered})
+}
+
+type setMailExternalRefReq struct {
+	OrgID             string `json:"orgId"`
+	ExternalMessageID string `json:"externalMessageId"`
+}
+
+// internalSetMailExternalRef serves PATCH /internal/mail/{mailId}/external-ref.
+//
+// See store.SetMailExternalRef for why this exists and why it's safe to call
+// more than once. Always 204 on a syntactically valid request — whether the
+// row existed, already had a value, or belonged to a different org than
+// claimed (RLS-bypass UPDATE simply matches 0 rows) all look identical to the
+// caller on purpose: this is bookkeeping for a future dedup, not something
+// integrations-svc's send path should ever treat as a reason to fail an
+// already-completed send.
+func (s *Server) internalSetMailExternalRef(w http.ResponseWriter, r *http.Request) {
+	if !internalAuthOK(r) {
+		writeErrR(w, r, http.StatusUnauthorized, "bad internal token")
+		return
+	}
+	mailID := chi.URLParam(r, "mailId")
+	if !validUUID(mailID) {
+		writeErrR(w, r, http.StatusBadRequest, "invalid mailId")
+		return
+	}
+	var req setMailExternalRefReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrR(w, r, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !validUUID(req.OrgID) {
+		writeErrR(w, r, http.StatusBadRequest, "invalid orgId")
+		return
+	}
+	if err := s.store.SetMailExternalRef(r.Context(), req.OrgID, mailID, req.ExternalMessageID); err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type markMailReadForOwnerReq struct {
+	OrgID       string `json:"orgId"`
+	OwnerUserID string `json:"ownerUserId"`
+	IsRead      bool   `json:"isRead"`
+}
+
+// internalMarkMailReadForOwner serves POST /internal/mail/{mailId}/read-for-owner.
+//
+// The INBOUND half of read-state sync — see store.SetMailReadForOwner for why
+// this is a separate function from the user-facing MarkMailRead. A 404 (no
+// inbox row for this exact owner+mail) is reported as success: there is
+// nothing to mark, which is the expected outcome for a mail that hasn't
+// reached this owner's BlissWork mailbox yet.
+func (s *Server) internalMarkMailReadForOwner(w http.ResponseWriter, r *http.Request) {
+	if !internalAuthOK(r) {
+		writeErrR(w, r, http.StatusUnauthorized, "bad internal token")
+		return
+	}
+	mailID := chi.URLParam(r, "mailId")
+	if !validUUID(mailID) {
+		writeErrR(w, r, http.StatusBadRequest, "invalid mailId")
+		return
+	}
+	var req markMailReadForOwnerReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrR(w, r, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !validUUID(req.OrgID) || !validUUID(req.OwnerUserID) {
+		writeErrR(w, r, http.StatusBadRequest, "invalid orgId/ownerUserId")
+		return
+	}
+	err := s.store.SetMailReadForOwner(r.Context(), req.OrgID, req.OwnerUserID, mailID, req.IsRead)
+	if errors.Is(err, store.ErrNotFound) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type hideMailForOwnerReq struct {
+	OrgID       string `json:"orgId"`
+	OwnerUserID string `json:"ownerUserId"`
+}
+
+// internalHideMailForOwner serves POST /internal/mail/{mailId}/hide-for-owner.
+//
+// See store.HideMailForOwner for why this is a separate function from the
+// user-facing SetInboxItemHidden rather than a thin wrapper over it. A 404
+// (no inbox row for this exact owner+mail) is reported as success — there was
+// nothing to hide, which is the expected outcome for, e.g., a webhook
+// redelivery of the same Outlook deletion.
+func (s *Server) internalHideMailForOwner(w http.ResponseWriter, r *http.Request) {
+	if !internalAuthOK(r) {
+		writeErrR(w, r, http.StatusUnauthorized, "bad internal token")
+		return
+	}
+	mailID := chi.URLParam(r, "mailId")
+	if !validUUID(mailID) {
+		writeErrR(w, r, http.StatusBadRequest, "invalid mailId")
+		return
+	}
+	var req hideMailForOwnerReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrR(w, r, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !validUUID(req.OrgID) || !validUUID(req.OwnerUserID) {
+		writeErrR(w, r, http.StatusBadRequest, "invalid orgId/ownerUserId")
+		return
+	}
+	err := s.store.HideMailForOwner(r.Context(), req.OrgID, req.OwnerUserID, mailID)
+	if errors.Is(err, store.ErrNotFound) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // internalMailAttachment serves GET /internal/mail/{mailId}/attachments/{id}.

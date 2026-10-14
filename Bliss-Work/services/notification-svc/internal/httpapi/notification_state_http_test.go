@@ -55,6 +55,17 @@ func (c stateClient) count() int {
 	return int(out.UnreadCount)
 }
 
+func (c stateClient) tasksCount() int {
+	c.t.Helper()
+	status, body := c.do(http.MethodGet, "/unread-count", nil)
+	if status != http.StatusOK {
+		c.t.Fatalf("unread-count = %d", status)
+	}
+	var out unreadCountDTO
+	_ = json.Unmarshal(body, &out)
+	return int(out.TasksUnreadCount)
+}
+
 // history is the panel's feed: every notification, no read filter, newest first.
 func (c stateClient) history() []notificationDTO {
 	c.t.Helper()
@@ -165,6 +176,44 @@ func TestBadgeAndHistoryAgreeThroughTheWholeReadLifecycle(t *testing.T) {
 	want["second"] = true
 	if got := states(c.history()); !mapsEqual(got, want) {
 		t.Errorf("history after read-all = %v, want %v — read-all must not delete anything", got, want)
+	}
+}
+
+// A channel message notification must swell the bell's total but never the
+// Tasks-scoped count, and vice versa for a task notification — the bug this
+// pins is the Tasks rail badge reading the unscoped total instead.
+func TestUnreadCountScopesTasksSeparatelyFromOtherKinds(t *testing.T) {
+	env := newTestEnv(t)
+	me := uuid.NewString()
+	c := stateClient{t, env, env.sign(me)}
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	channelID := uuid.NewString()
+
+	if n, tn := c.count(), c.tasksCount(); n != 0 || tn != 0 {
+		t.Fatalf("empty account = (%d, %d), want (0, 0)", n, tn)
+	}
+
+	// One task notification, two channel-message notifications, both unread.
+	env.seedTask(t, me, "task1", nil, false, base.Add(1*time.Minute))
+	env.seedTargeted(t, me, "chan1", events.KindChannelMessage, nil, &channelID, nil, false, base.Add(2*time.Minute))
+	env.seedTargeted(t, me, "chan2", events.KindChannelMessage, nil, &channelID, nil, false, base.Add(3*time.Minute))
+
+	if n := c.count(); n != 3 {
+		t.Errorf("bell total = %d, want 3 (every kind)", n)
+	}
+	if tn := c.tasksCount(); tn != 1 {
+		t.Errorf("tasks-scoped count = %d, want 1 (channel messages must not count)", tn)
+	}
+
+	// Reading the channel notifications drops the bell but leaves Tasks alone.
+	if status, _ := c.do(http.MethodPost, "/read-by-target", map[string]any{"channelId": channelID}); status != http.StatusOK {
+		t.Fatalf("read-by-target = %d", status)
+	}
+	if n := c.count(); n != 1 {
+		t.Errorf("bell total after reading channel = %d, want 1", n)
+	}
+	if tn := c.tasksCount(); tn != 1 {
+		t.Errorf("tasks-scoped count after reading channel = %d, want unchanged 1", tn)
 	}
 }
 

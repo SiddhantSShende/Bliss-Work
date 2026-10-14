@@ -32,11 +32,28 @@ router = APIRouter()
 _DESKTOP_RETURN = "taskboard://oauth"
 
 
-def _app_url(suffix: str) -> str:
-    return settings.web_origin.rstrip("/") + "/app/integrations" + suffix
+#: Where each provider's connect/disconnect UI actually lives. Outlook is the
+#: only provider with a real Settings page today (packages/app/src/routes/
+#: OutlookSettings.tsx) — the generic multi-provider "Integrations" hub this
+#: used to redirect to was deleted along with its only consumer (commit
+#: 7add122) and never rebuilt, so every OTHER provider falls back to that now
+#: nonexistent path. That fallback is harmless in practice: with no UI to
+#: start a connect flow for gmail/teams/slack, their OAuth callback is not
+#: reachable today either — but it is kept rather than deleted so a future
+#: provider's launch is "add one line here", not "first notice the redirect
+#: is broken".
+_APP_PATH_FOR_PROVIDER = {"outlook": "/app/settings/outlook"}
+_DEFAULT_APP_PATH = "/app/integrations"
 
 
-def _finish(redirect_after: str | None, params: str, state: str | None = None) -> Response:
+def _app_url(provider: str, suffix: str) -> str:
+    path = _APP_PATH_FOR_PROVIDER.get(provider, _DEFAULT_APP_PATH)
+    return settings.web_origin.rstrip("/") + path + suffix
+
+
+def _finish(
+    provider: str, redirect_after: str | None, params: str, state: str | None = None
+) -> Response:
     """Send the browser back to whichever client started the flow.
 
     Web gets a plain 302 into the SPA. Desktop gets an HTML interstitial rather
@@ -46,7 +63,7 @@ def _finish(redirect_after: str | None, params: str, state: str | None = None) -
     back to BlissWork.
     """
     if redirect_after != _DESKTOP_RETURN:
-        response: Response = RedirectResponse(_app_url(params), status_code=302)
+        response: Response = RedirectResponse(_app_url(provider, params), status_code=302)
     else:
         target = f"{_DESKTOP_RETURN}{params}"
         escaped = html.escape(target, quote=True)
@@ -123,7 +140,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
                 else:
                     await db.rollback()
                     error_state = None
-        return _finish(redirect_after, f"?error={error_param}", error_state)
+        return _finish(provider, redirect_after, f"?error={error_param}", error_state)
     code = q.get("code")
     state = q.get("state")
     if not code or not state:
@@ -182,7 +199,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
         if cfg is None:
             # The credentials were deleted mid-flow. State is already consumed.
             await db.commit()
-            return _finish(redirect_after, "?error=not_configured", state)
+            return _finish(provider, redirect_after, "?error=not_configured", state)
 
         verifier = await cryptor().decrypt(
             db, org, bytes(st.code_verifier_enc) if st.code_verifier_enc else None
@@ -195,7 +212,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
         except Exception as exc:  # noqa: BLE001 — surface as a friendly redirect
             log.warning("oauth_callback_failed", provider=provider, error=str(exc))
             await db.commit()  # state already consumed
-            return _finish(redirect_after, "?error=oauth_failed", state)
+            return _finish(provider, redirect_after, "?error=oauth_failed", state)
 
         access_enc = await cryptor().encrypt(db, org, tokens.get("access_token", ""))
         refresh_enc = (
@@ -264,7 +281,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
             # this exact external account is already connected under a
             # DIFFERENT owner. The original owner must disconnect it first.
             await db.commit()
-            return _finish(redirect_after, "?error=already_connected_by_teammate", state)
+            return _finish(provider, redirect_after, "?error=already_connected_by_teammate", state)
 
         # Auto-derive this account's mention handles, in the SAME transaction as
         # the connection itself — so a user who connects Gmail is immediately
@@ -283,4 +300,4 @@ async def oauth_callback(provider: str, request: Request) -> Response:
 
         await db.commit()
 
-    return _finish(redirect_after, f"?connected={provider}", state)
+    return _finish(provider, redirect_after, f"?connected={provider}", state)

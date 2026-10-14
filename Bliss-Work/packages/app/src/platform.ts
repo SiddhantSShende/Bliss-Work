@@ -150,6 +150,12 @@ export interface PlatformConfig {
   messagingBase: string;
   telemetryBase: string;
   /**
+   * integrations-svc — connected-account OAuth (Settings > Microsoft 365).
+   * OPTIONAL, same reasoning as stickyBase below — mobile has no equivalent
+   * Settings surface yet and omits this entirely.
+   */
+  integrationsBase?: string;
+  /**
    * sticky-svc — the durable record of which task notes belong on this user's
    * desktop.
    *

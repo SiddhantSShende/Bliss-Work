@@ -31,6 +31,10 @@
     "title": "当前登录",
     "description": "查看所有已登录你账号的设备，并可远程将其退出登录。"
   },
+  "outlook": {
+    "title": "Microsoft 365 / Outlook",
+    "description": "Connect your Outlook mailbox to send and sync mail from BlissWork."
+  },
   "activity": {
     "title": "你的活动",
     "description": "查看 {{brand}} 记录的你的所有工作情况，工作区管理员看到的也是同一份记录。"

@@ -13,6 +13,8 @@ import {
   ActivitySessionPage,
   ActivitySummaryDTO,
   AuditPage,
+  ConnectIntegrationResultDTO,
+  IntegrationConnectionDTO,
   AvailabilityDTO,
   BulkDeleteResultDTO,
   BulkForwardResultDTO,
@@ -100,6 +102,15 @@ export interface ApiConfig {
   telemetryBase: string; // member activity record, e.g. http://localhost:8006
   notificationBase: string; // notifications are served by task/notification svc
   presenceBase: string; // ws-gateway HTTP, e.g. http://localhost:8090
+  /**
+   * integrations-svc — connected-account OAuth (Settings > Microsoft 365).
+   *
+   * OPTIONAL, same reasoning as stickyBase/graphBase below: mobile has no
+   * Settings surface for this yet, so its platform config simply omits it.
+   * Every method that needs it treats an absent base as "feature
+   * unavailable on this platform" rather than throwing.
+   */
+  integrationsBase?: string; // e.g. http://localhost:8005
   /**
    * sticky-svc, e.g. http://localhost:8008 — the durable record of which task
    * notes belong on this user's desktop.
@@ -2089,6 +2100,49 @@ export class ApiClient {
       z.unknown(),
     );
   }
+  // ── integrations (connected external accounts — Settings > Microsoft 365) ──
+  /** Every connection visible to the caller (their own, plus any org-wide
+   *  ones) — never includes tokens. Empty array when integrationsBase is not
+   *  configured, same "feature unavailable" posture as the sticky methods. */
+  async listIntegrations(): Promise<IntegrationConnectionDTO[]> {
+    if (!this.cfg.integrationsBase) return [];
+    return this.req(
+      this.cfg.integrationsBase,
+      "/api/v1/integrations",
+      {},
+      z.array(IntegrationConnectionDTO),
+    );
+  }
+  /** Start connecting a provider. For an OAuth provider (outlook) this
+   *  returns an authorizeUrl to redirect the browser to; the connection
+   *  itself is created by the provider's callback, not by this call.
+   *  `returnTo: "desktop"` asks the callback to hand back to the
+   *  `taskboard://oauth` custom scheme instead of the web app route — see
+   *  integrations-svc's routes/oauth.py for why there is no third option. */
+  connectIntegration(provider: string, options?: { returnTo?: "desktop" }) {
+    if (!this.cfg.integrationsBase) {
+      return Promise.reject(new Error("integrations service is not configured"));
+    }
+    return this.req(
+      this.cfg.integrationsBase,
+      `/api/v1/integrations/${encodeURIComponent(provider)}/connect/start`,
+      { method: "POST", body: JSON.stringify(options ?? {}) },
+      ConnectIntegrationResultDTO,
+    );
+  }
+  /** Disconnect — revokes the stored token (best-effort, at the provider too)
+   *  and stops any sync worker from touching this connection again. */
+  disconnectIntegration(connectionId: string) {
+    if (!this.cfg.integrationsBase) {
+      return Promise.reject(new Error("integrations service is not configured"));
+    }
+    return this.req<void>(
+      this.cfg.integrationsBase,
+      `/api/v1/integrations/${encodeURIComponent(connectionId)}`,
+      { method: "DELETE" },
+    );
+  }
+
   /** Single task assigned to me at ANY status — used by the inbox detail view so
    *  a terminal (completed/ignored/left) task opened from the unified inbox
    *  resolves from the server instead of 404-ing on a cache miss. */
@@ -2560,13 +2614,17 @@ export class ApiClient {
    *  just the (up to 200) most recent ones handleList/notifications() caps
    *  at, so this is actually MORE accurate than summing that list's !read
    *  rows for a caller with a deep backlog. See
-   *  docs/API-LAZY-LOADING-AUDIT.md D1/S3. */
+   *  docs/API-LAZY-LOADING-AUDIT.md D1/S3.
+   *
+   *  tasksUnreadCount is the TASK_* subset of unreadCount — the Tasks rail
+   *  badge. Everything else (channel/DM messages, meetings, calls) must only
+   *  move unreadCount (the bell), never this field. */
   notificationsUnreadCount() {
     return this.req(
       this.cfg.notificationBase,
       "/api/v1/notifications/unread-count",
       {},
-      z.object({ unreadCount: z.number() }),
+      z.object({ unreadCount: z.number(), tasksUnreadCount: z.number() }),
     );
   }
   markNotificationRead(id: string) {

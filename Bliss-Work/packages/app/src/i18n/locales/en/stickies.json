@@ -13,8 +13,6 @@
     "complete": "Complete",
     "leave": "Leave",
     "chat": "Chat",
-    "shareToSelfChat": "Share to Notes to Self",
-    "shareToSelfChatBody": "Shared this task",
     "openTask": "Open task",
     "untitledTask": "Untitled task",
     "expand": "Expand",
@@ -40,9 +38,7 @@
     "noteUnpinnedDescription": "It's still in your Tasks list — complete it from there.",
     "unpinFailed": "Couldn't unpin the note",
     "desktopFull": "Couldn't pin this task to the desktop.",
-    "chatOpenFailed": "Couldn't open that chat. Please try again.",
-    "sharedToSelfChat": "Shared to Notes to Self",
-    "shareToSelfChatFailed": "Couldn't share this task to Notes to Self"
+    "chatOpenFailed": "Couldn't open that chat. Please try again."
   },
   "window": {
     "loading": "Loading…",

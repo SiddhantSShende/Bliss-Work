@@ -31,6 +31,10 @@
     "title": "Inicios de sesión actuales",
     "description": "Consulta todos los dispositivos con sesión iniciada en tu cuenta y cierra la sesión de cualquiera de ellos de forma remota."
   },
+  "outlook": {
+    "title": "Microsoft 365 / Outlook",
+    "description": "Connect your Outlook mailbox to send and sync mail from BlissWork."
+  },
   "activity": {
     "title": "Tu actividad",
     "description": "Consulta todo lo que {{brand}} registra sobre cómo trabajas: el mismo registro que ven los administradores de tu espacio de trabajo."

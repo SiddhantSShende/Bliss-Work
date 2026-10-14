@@ -1,9 +1,10 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, Folder, Hash } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { Button, EmptyState, PageHeader, Spinner } from "@taskboard/ui";
-import type { ChannelDTO } from "@taskboard/shared";
+import type { ChannelDTO, ProjectDTO } from "@taskboard/shared";
 import { ChannelAnalyticsPanel } from "../features/ChannelAnalyticsPanel";
 import { ProjectAnalyticsSection } from "../features/ProjectAnalyticsSection";
 import { WorkspaceOverview } from "../features/WorkspaceOverview";
@@ -11,6 +12,8 @@ import { NavIconTile, rowClass } from "../features/ListPane";
 import { useProjects } from "../features/useProjects";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+
+type ProjectsEntry = { kind: "project" | "channel"; id: string; name: string };
 
 export function Analytics() {
   const { t } = useTranslation(["tasks", "chatList"]);
@@ -22,85 +25,82 @@ export function Analytics() {
     queryFn: () => api.channels(),
   });
   const projects = useProjects();
+
+  // Every project auto-provisions its own private, locked channel (see the
+  // doc comment on ProjectAnalyticsPanel) — that channel is never a
+  // task-assignment target in its own right, so it's excluded here to avoid
+  // listing the same project twice under two different ids.
+  const entries = useMemo<ProjectsEntry[]>(() => {
+    const projectChannelIds = new Set((projects.data ?? []).map((p: ProjectDTO) => p.channelId));
+    const projectEntries: ProjectsEntry[] = (projects.data ?? []).map((p: ProjectDTO) => ({
+      kind: "project",
+      id: p.id,
+      name: p.name,
+    }));
+    const channelEntries: ProjectsEntry[] = (channels ?? [])
+      .filter((c: ChannelDTO) => !projectChannelIds.has(c.id))
+      .map((c: ChannelDTO) => ({ kind: "channel", id: c.id, name: c.name }));
+    return [...projectEntries, ...channelEntries].sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects.data, channels]);
+
+  const isLoadingList = isLoading || projects.isLoading;
+  const isErrorList = isError || projects.isError;
+  const retryList = () => {
+    void refetch();
+    void projects.refetch();
+  };
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <PageHeader
         title={t("tasks:analyticsHub.title")}
         subtitle={t("tasks:analyticsHub.hint")}
       />
-      <WorkspaceOverview />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col sm:flex-row">
-        <aside className="flex max-h-[28rem] w-full shrink-0 flex-col border-b border-border/60 sm:max-h-none sm:w-72 sm:border-b-0 sm:border-r">
-          <div className="flex min-h-0 flex-1 flex-col border-b border-border/60">
-            <h2 className="border-b border-border/60 px-4 py-3 text-sm font-semibold text-fg">
-              {t("tasks:analyticsHub.channelsTitle")}
-            </h2>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {isLoading ? (
-                <div className="flex justify-center p-6"><Spinner /></div>
-              ) : isError ? (
-                <div className="space-y-2">
-                  <EmptyState
-                    title={t("chatList:channelsList.loadError.title")}
-                    hint={t("chatList:channelsList.loadError.hint")}
-                  />
-                  <div className="flex justify-center">
-                    <Button variant="subtle" size="sm" onClick={() => void refetch()}>
-                      {t("chatList:channelsList.loadError.retry")}
-                    </Button>
-                  </div>
-                </div>
-              ) : channels?.length ? (
-                <div className="space-y-1">
-                  {channels.map((channel: ChannelDTO) => (
-                    <NavLink
-                      key={channel.id}
-                      to={`/app/analytics/${channel.id}`}
-                      className={({ isActive }) => rowClass(isActive)}
-                    >
-                      <NavIconTile><Hash size={17} /></NavIconTile>
-                      <span className="truncate text-sm font-medium text-fg">{channel.name}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState
-                  icon={<Hash size={22} />}
-                  title={t("tasks:analyticsHub.emptyChannels.title")}
-                  hint={t("tasks:analyticsHub.emptyChannels.hint")}
-                />
-              )}
-            </div>
+        <aside className="flex max-h-[28rem] w-full shrink-0 flex-col border-b border-border/60 sm:max-h-none sm:h-full sm:w-72 sm:border-b-0 sm:border-r">
+          <div className="shrink-0 border-b border-border/60 p-2">
+            <NavLink to="/app/analytics" end className={({ isActive }) => rowClass(isActive)}>
+              <NavIconTile><BarChart3 size={17} /></NavIconTile>
+              <span className="truncate text-sm font-medium text-fg">
+                {t("tasks:analyticsHub.overviewTitle")}
+              </span>
+            </NavLink>
           </div>
           <div className="flex min-h-0 flex-1 flex-col">
             <h2 className="border-b border-border/60 px-4 py-3 text-sm font-semibold text-fg">
               {t("tasks:analyticsHub.projectsTitle")}
             </h2>
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {projects.isLoading ? (
+              {isLoadingList ? (
                 <div className="flex justify-center p-6"><Spinner /></div>
-              ) : projects.isError ? (
+              ) : isErrorList ? (
                 <div className="space-y-2">
                   <EmptyState
                     title={t("tasks:analyticsHub.projectsLoadError.title")}
                     hint={t("tasks:analyticsHub.projectsLoadError.hint")}
                   />
                   <div className="flex justify-center">
-                    <Button variant="subtle" size="sm" onClick={() => void projects.refetch()}>
+                    <Button variant="subtle" size="sm" onClick={retryList}>
                       {t("tasks:analyticsHub.projectsLoadError.retry")}
                     </Button>
                   </div>
                 </div>
-              ) : projects.data?.length ? (
+              ) : entries.length ? (
                 <div className="space-y-1">
-                  {projects.data.map((project) => (
+                  {entries.map((entry) => (
                     <NavLink
-                      key={project.id}
-                      to={`/app/analytics/projects/${project.id}`}
+                      key={`${entry.kind}:${entry.id}`}
+                      to={
+                        entry.kind === "project"
+                          ? `/app/analytics/projects/${entry.id}`
+                          : `/app/analytics/${entry.id}`
+                      }
                       className={({ isActive }) => rowClass(isActive)}
                     >
-                      <NavIconTile><Folder size={17} /></NavIconTile>
-                      <span className="truncate text-sm font-medium text-fg">{project.name}</span>
+                      <NavIconTile>
+                        {entry.kind === "project" ? <Folder size={17} /> : <Hash size={17} />}
+                      </NavIconTile>
+                      <span className="truncate text-sm font-medium text-fg">{entry.name}</span>
                     </NavLink>
                   ))}
                 </div>
@@ -114,17 +114,13 @@ export function Analytics() {
             </div>
           </div>
         </aside>
-        <main className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
           {projectId ? (
             <ProjectAnalyticsSection projectId={projectId} />
           ) : channelId ? (
             <ChannelAnalyticsPanel channelId={channelId} />
           ) : (
-            <EmptyState
-              icon={<BarChart3 size={22} />}
-              title={t("tasks:analyticsHub.noSelection.title")}
-              hint={t("tasks:analyticsHub.noSelection.hint")}
-            />
+            <WorkspaceOverview />
           )}
           <section className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-surface-1 p-4">
             <p className="text-sm text-muted">{t("tasks:analyticsHub.taskHint")}</p>

@@ -103,17 +103,31 @@ async def test_mail_without_a_subject_gets_a_default(crypt, monkeypatch):
     assert outbound.DEFAULT_SUBJECT in decoded
 
 
-async def test_outlook_has_no_external_id(crypt, monkeypatch):
-    """Graph answers /me/sendMail with 202 and an EMPTY body.
-
-    There is genuinely no message id. The partial unique index on
-    external_id_bidx only covers non-null values, so NULL is fine — but a caller
-    assuming an id exists would break here.
-    """
+async def test_outlook_external_id_is_the_internet_message_id(crypt, monkeypatch):
+    """send_mail is draft-then-send (see microsoft.py): it returns the
+    Graph-assigned internetMessageId, which is what gets recorded as this
+    activity's external_id — a stable, cross-mailbox identifier, unlike the
+    mailbox-scoped Graph `id` the same call also returns."""
     crypt()
 
     async def fake_send_mail(_token, *, to, subject, body):
-        return None
+        return "msg-1", "<abc123@graph.microsoft.com>"
+
+    monkeypatch.setattr(outbound.ms, "send_mail", fake_send_mail)
+    res = await outbound.send_via_connection(
+        None, "org", _Row("outlook"), target="a@b.com", text="body"
+    )
+    assert res.external_id == "<abc123@graph.microsoft.com>"
+    assert res.kind == "email"
+
+
+async def test_outlook_external_id_is_none_when_graph_omits_it(crypt, monkeypatch):
+    # Belt-and-suspenders: an empty string from a stubbed/odd response must
+    # still become None, not an empty-but-truthy external id.
+    crypt()
+
+    async def fake_send_mail(_token, *, to, subject, body):
+        return "msg-1", ""
 
     monkeypatch.setattr(outbound.ms, "send_mail", fake_send_mail)
     res = await outbound.send_via_connection(

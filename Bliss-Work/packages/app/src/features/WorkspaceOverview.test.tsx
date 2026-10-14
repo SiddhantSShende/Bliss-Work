@@ -1,6 +1,7 @@
 /**
- * WorkspaceOverview: org_admin gating (the core access-control risk — a
- * non-admin must see nothing, not an error or an empty shell), loading/
+ * WorkspaceOverview: open to every authenticated member now (authorization
+ * lives server-side — see tasks_analytics.workspace_overview — scoping a
+ * non-admin's rows to their own tasks rather than hiding the panel), loading/
  * error/empty states, and that the range tabs / channel filter actually
  * refetch with new query params rather than being decorative.
  */
@@ -8,22 +9,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ChannelDTO, type UserDTO, type WorkspaceOverviewDTO } from "@taskboard/shared";
+import { ChannelDTO, type WorkspaceOverviewDTO } from "@taskboard/shared";
 
 const h = vi.hoisted(() => ({ channels: vi.fn(), workspaceAnalyticsOverview: vi.fn() }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h, config: {} }) }));
 
 import { WorkspaceOverview } from "./WorkspaceOverview";
-import { useSession } from "../store/session";
-
-const person = (id: string, roles: string[] = ["member"]): UserDTO =>
-  ({
-    id, orgId: "00000000-0000-4000-8000-000000000999", orgName: "Acme", username: "u", displayName: "U",
-    email: "u@acme.test", roles, avatarUrl: null, mfaEnrolled: false,
-    orgRequireMfaForAdmins: false, orgMfaGracePeriodEndsAt: null, themePrefs: null,
-  }) as UserDTO;
-const ADMIN = person("u-admin", ["org_admin"]);
-const MEMBER = person("u-member", ["member"]);
 
 const CHANNEL_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CHANNEL = ChannelDTO.parse({
@@ -82,24 +73,10 @@ function mount() {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
-  useSession.setState({ user: null });
 });
 
 describe("WorkspaceOverview", () => {
-  it("renders nothing for a non-admin session", () => {
-    useSession.setState({ user: MEMBER });
-    const { container } = mount();
-    expect(container).toBeEmptyDOMElement();
-    expect(h.workspaceAnalyticsOverview).not.toHaveBeenCalled();
-  });
-
-  it("renders nothing with no session at all", () => {
-    const { container } = mount();
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("shows KPI totals for an admin session", async () => {
-    useSession.setState({ user: ADMIN });
+  it("fetches and shows KPI totals — no client-side role gate", async () => {
     h.channels.mockResolvedValue([CHANNEL]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
     mount();
@@ -115,7 +92,6 @@ describe("WorkspaceOverview", () => {
   });
 
   it("resolves channel names from the channels list, not raw ids", async () => {
-    useSession.setState({ user: ADMIN });
     h.channels.mockResolvedValue([CHANNEL]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
     mount();
@@ -125,7 +101,6 @@ describe("WorkspaceOverview", () => {
   });
 
   it("shows the empty state when there are no tasks in range", async () => {
-    useSession.setState({ user: ADMIN });
     h.channels.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount();
@@ -134,7 +109,6 @@ describe("WorkspaceOverview", () => {
   });
 
   it("shows a retry control on error", async () => {
-    useSession.setState({ user: ADMIN });
     h.channels.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockRejectedValue(new Error("boom"));
     mount();
@@ -144,7 +118,6 @@ describe("WorkspaceOverview", () => {
   });
 
   it("refetches with a new date range when a range tab is clicked", async () => {
-    useSession.setState({ user: ADMIN });
     h.channels.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
     mount();
@@ -159,7 +132,6 @@ describe("WorkspaceOverview", () => {
   });
 
   it("refetches scoped to one channel when the channel filter changes", async () => {
-    useSession.setState({ user: ADMIN });
     h.channels.mockResolvedValue([CHANNEL]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
     mount();

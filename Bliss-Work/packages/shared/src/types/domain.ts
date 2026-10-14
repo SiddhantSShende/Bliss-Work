@@ -201,6 +201,34 @@ export const ActiveSessionDTO = z.object({
 });
 export type ActiveSessionDTO = z.infer<typeof ActiveSessionDTO>;
 
+/**
+ * A connected external account (integrations-svc's generic connected-account
+ * system — Settings > Microsoft 365 is the one UI that reads this today).
+ * NEVER carries a token; the server's own ConnectionOut has none to send.
+ */
+export const IntegrationConnectionDTO = z.object({
+  id: z.string(),
+  provider: z.string(),
+  status: z.enum(["pending", "connected", "error", "revoked"]),
+  scopeKind: z.enum(["user", "org"]),
+  displayLabel: z.string(),
+  scopes: z.array(z.string()),
+  lastError: z.string().nullable().default(null),
+  webhookUrl: z.string().nullable().default(null),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  // Most recent mail_sync_worker activity — null for a connection that has
+  // never completed a sync sweep (e.g. just connected, or not a mail provider).
+  lastSyncedAt: z.string().nullable().default(null),
+});
+export type IntegrationConnectionDTO = z.infer<typeof IntegrationConnectionDTO>;
+
+export const ConnectIntegrationResultDTO = z.object({
+  authorizeUrl: z.string().nullable().default(null),
+  connection: IntegrationConnectionDTO.nullable().default(null),
+});
+export type ConnectIntegrationResultDTO = z.infer<typeof ConnectIntegrationResultDTO>;
+
 export const DayBucket = z.object({
   day: z.string(),
   activeMs: z.number().default(0),

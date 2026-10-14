@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
-from ..auth import OrgAdminDep, Principal, PrincipalDep
+from ..auth import Principal, PrincipalDep
 from crypto import cryptor
 from ..db import session, set_org_context
 from ..schemas import (
@@ -526,24 +526,29 @@ def _overview_range(from_: str | None, to: str | None) -> tuple[date, date]:
 
 @router.get("/tasks/analytics/overview", response_model=WorkspaceOverviewDTO)
 async def workspace_overview(
-    principal: Principal = OrgAdminDep,
+    principal: Principal = PrincipalDep,
     from_: str | None = Query(default=None, alias="from"),
     to: str | None = Query(default=None),
     channelId: str | None = Query(default=None),
 ) -> WorkspaceOverviewDTO:
-    """Workspace-wide rollup across every channel in the org: KPI totals, a
-    per-channel completion ranking, per-person workload, and a day-bucketed
-    activity series — the data behind the Analytics page's overview dashboard.
+    """Workspace-wide rollup: KPI totals, a per-channel completion ranking,
+    per-person workload, and a day-bucketed activity series — the data behind
+    the Analytics page's overview dashboard.
 
-    org_admin only (OrgAdminDep), unlike the three endpoints above: this
-    aggregates productivity data across every member and every channel in the
-    org, including channels the caller never joined, which is a materially
-    different exposure than task/channel/project analytics above, each of
-    which requires the caller to already be a party (sender, assignee, or
-    channel member) to what they're asking about. Same gate telemetry-svc's
-    GET /telemetry/org/summary uses for the same reason.
+    Open to any authenticated member, but non-admins only ever see tasks they
+    are already a party to (sender or assignee) — the same "am I a party to
+    this" rule task_analytics/channel_analytics/project_analytics enforce
+    above, just applied as a row filter instead of a single lookup, since this
+    endpoint aggregates rather than fetching one task/channel/project. Members
+    never see another member's channels, workload, or activity this way.
+
+    org_admin keeps the original unrestricted, org-wide rollup (including
+    channels/members the caller never joined) — the same elevated view
+    telemetry-svc's GET /telemetry/org/summary grants admins for the same
+    reason.
     """
-    org_id = principal.org_id
+    org_id, me = principal.org_id, principal.user_id
+    is_admin = "org_admin" in principal.roles
     start_day, end_day = _overview_range(from_, to)
     start = datetime.combine(start_day, time.min, tzinfo=timezone.utc)
     end = datetime.combine(end_day + timedelta(days=1), time.min, tzinfo=timezone.utc)
@@ -552,7 +557,17 @@ async def workspace_overview(
         "JOIN task_channels tc ON tc.task_id = t.id AND tc.org_id = t.org_id" if channelId else ""
     )
     channel_where = "AND tc.channel_id = :channel_id" if channelId else ""
-    params: dict[str, object] = {"org": org_id, "start": start, "end": end}
+    member_where = (
+        ""
+        if is_admin
+        else (
+            "AND (t.sender_id = :me OR EXISTS ("
+            "SELECT 1 FROM task_assignees ta_mine WHERE ta_mine.org_id = t.org_id "
+            "AND ta_mine.task_id = t.id AND ta_mine.assignee_id = :me"
+            "))"
+        )
+    )
+    params: dict[str, object] = {"org": org_id, "start": start, "end": end, "me": me}
     if channelId:
         params["channel_id"] = channelId
 
@@ -568,7 +583,7 @@ async def workspace_overview(
                     "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
                     f"{channel_join} "
                     "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"{channel_where} "
+                    f"{channel_where} {member_where} "
                     "GROUP BY ta.status"
                 ),
                 params,
@@ -590,7 +605,7 @@ async def workspace_overview(
                     "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
                     f"{channel_join} "
                     "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"{channel_where} "
+                    f"{channel_where} {member_where} "
                     "GROUP BY ta.task_id"
                 ),
                 params,
@@ -611,7 +626,7 @@ async def workspace_overview(
                     "JOIN task_channels tc ON tc.task_id = t.id AND tc.org_id = t.org_id "
                     "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
                     "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"{channel_where} "
+                    f"{channel_where} {member_where} "
                     "GROUP BY tc.channel_id, t.id"
                 ),
                 params,
@@ -631,7 +646,7 @@ async def workspace_overview(
                     "       ON up.user_id = ta.assignee_id AND up.org_id = ta.org_id "
                     f"{channel_join} "
                     "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"{channel_where} "
+                    f"{channel_where} {member_where} "
                     "GROUP BY ta.assignee_id, up.username "
                     "ORDER BY assigned DESC, ta.assignee_id "
                     "LIMIT :workload_limit"
@@ -653,7 +668,7 @@ async def workspace_overview(
                     "    FROM tasks t "
                     f"    {channel_join} "
                     "    WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"    {channel_where} "
+                    f"    {channel_where} {member_where} "
                     "    GROUP BY 1"
                     "), completed AS ("
                     "    SELECT (ta.completed_at AT TIME ZONE 'UTC')::date AS day, "
@@ -662,7 +677,7 @@ async def workspace_overview(
                     "    JOIN tasks t ON t.id = ta.task_id AND t.org_id = ta.org_id "
                     f"    {channel_join} "
                     "    WHERE t.org_id = :org AND ta.completed_at >= :start AND ta.completed_at < :end "
-                    f"    {channel_where} "
+                    f"    {channel_where} {member_where} "
                     "    GROUP BY 1"
                     ") "
                     "SELECT days.day, COALESCE(created.n, 0) AS created_n, COALESCE(completed.n, 0) AS completed_n "
