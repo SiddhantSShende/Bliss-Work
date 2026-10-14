@@ -25,7 +25,7 @@ ENV GOTOOLCHAIN=auto
 RUN xcaddy build \
     --with github.com/corazawaf/coraza-caddy/v2@v2.5.0
 
-FROM caddy:2.11-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+FROM caddy:2.11-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
 # Replace the stock binary with the WAF-enabled build.
 COPY --from=build /usr/bin/caddy /usr/bin/caddy
 # Sanity: the coraza module must be compiled in. Its module ID is
