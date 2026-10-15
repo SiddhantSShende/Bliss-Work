@@ -429,25 +429,26 @@
     "taskHint": "特定のタスクの分析を確認しますか？Mail からタスクを開いてください。",
     "openMail": "Mail を開く",
     "overview": {
-      "subtitle": "すべてのチャンネルにおけるタスク活動のワークスペース全体のビュー。",
-      "allChannels": "すべてのチャンネル",
-      "channelFilterLabel": "チャンネル",
-      "privateChannel": "非公開チャンネル",
+      "subtitle": "すべてのプロジェクトにおけるタスク活動のワークスペース全体のビュー。",
+      "allProjects": "すべてのプロジェクト",
+      "projectFilterLabel": "プロジェクト",
       "kpis": {
         "total": "タスク合計",
         "completed": "完了",
         "inProgress": "進行中",
-        "overdue": "期限超過"
+        "overdue": "期限超過",
+        "vsPreviousPeriod": "前期間比",
+        "noPreviousPeriod": "前期間のデータなし"
       },
       "sections": {
-        "channelPerformance": "チャンネル別パフォーマンス",
+        "projectPerformance": "プロジェクト別パフォーマンス",
         "personWorkload": "メンバー別ワークロード",
         "workloadVsCompletion": "ワークロードと完了率",
         "statusDistribution": "ステータス分布",
         "statusFlow": "ステータスフロー",
         "activityPulse": "アクティビティパルス"
       },
-      "statusFlowHint": "選択した期間のステータス構成。",
+      "statusFlowHint": "選択した期間における日別のステータス推移。",
       "workloadTable": {
         "person": "メンバー",
         "assigned": "割り当て済み",

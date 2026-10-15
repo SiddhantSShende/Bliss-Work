@@ -30,6 +30,14 @@
   --color-surface: #ffffff;
   --color-surface-2: #f4f4f5;
   --color-border: #e4e4e7;
+  /* Chat/channel message-bubble backgrounds: neutral and light/dark-only.
+     Deliberately NOT redeclared in any .bluePurple/.rose/.purple/.teal/.lime
+     block below, and never set by a Custom theme (customThemeTokens.ts only
+     touches the brand and accent tokens) — a selected accent colour or
+     gradient must never show up behind chat text, in any family. Only the
+     .dark override changes these, so every theme's bubbles look the same. */
+  --color-bubble-sent: #eef0f3;
+  --color-bubble-received: #ffffff;
   --color-muted: #6b7280;
   --color-fg: #111827;
   --color-accent: #2563eb;
@@ -96,6 +104,9 @@
   --color-surface: #0f172a;
   --color-surface-2: #16213a;
   --color-border: #1e3a5f;
+  /* See the light block's --color-bubble-* comment above — same rule here. */
+  --color-bubble-sent: #3f3f46;
+  --color-bubble-received: #27272a;
   --color-muted: #94a3b8;
   --color-fg: #f8fafc;
   --color-accent: #3b82f6;

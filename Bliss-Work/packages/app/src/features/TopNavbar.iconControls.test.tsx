@@ -41,8 +41,8 @@ describe("header Get App and Invite", () => {
         expect(button, `${name} ${cls}`).toHaveClass(cls);
         expect(bell, `bell ${cls}`).toHaveClass(cls);
       }
-      // Tinted from the accent TOKENS — no colour is named here.
-      expect(button).toHaveClass("bg-accent-soft", "text-accent");
+      // Tinted from the brand gradient TOKENS — no colour is named here.
+      expect(button).toHaveClass("from-brand-from/15", "to-brand-to/15", "text-accent");
     }
   });
 

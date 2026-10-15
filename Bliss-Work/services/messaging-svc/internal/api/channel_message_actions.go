@@ -150,7 +150,10 @@ func (s *Server) setChannelReaction(w http.ResponseWriter, r *http.Request) {
 		r.Context(), claims.OrgID, claims.UserID, msgID, emoji, r.Method == http.MethodPut,
 	)
 	if err != nil {
-		s.mapErr(w, err)
+		// mapErrR, not mapErr: see reply()'s own comment on the same swap —
+		// carries r so a 403 here logs its route/request_id too. No other
+		// effect; the response is identical either way.
+		s.mapErrR(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -174,7 +177,10 @@ func (s *Server) listChannelReactions(w http.ResponseWriter, r *http.Request) {
 		r.Context(), claims.OrgID, claims.UserID, channelID, beforeSeq, limit,
 	)
 	if err != nil {
-		s.mapErr(w, err)
+		// mapErrR, not mapErr: see reply()'s own comment on the same swap —
+		// carries r so a 403 here logs its route/request_id too. No other
+		// effect; the response is identical either way.
+		s.mapErrR(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)

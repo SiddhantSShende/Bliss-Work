@@ -31,7 +31,7 @@ export function ListHeader({ title, action }: { title: string; action?: React.Re
  *  theme — its colours are the accent tokens, which the active theme supplies. */
 export function NavIconTile({ children }: { children: React.ReactNode }) {
   return (
-    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
       {children}
     </span>
   );
@@ -39,7 +39,9 @@ export function NavIconTile({ children }: { children: React.ReactNode }) {
 
 export const rowClass = (active: boolean) =>
   `flex items-center gap-3 rounded-xl p-2.5 text-left transition-colors ${
-    active ? "bg-gradient-to-r from-accent/20 to-accent/5 ring-1 ring-accent/15" : "hover:bg-surface-2"
+    active
+      ? "bg-gradient-to-r from-brand-from/20 via-brand-mid/12 to-brand-to/5 ring-1 ring-accent/15"
+      : "hover:bg-surface-2"
   }`;
 
 /** Localized via the global i18next instance (i18n.language), same as

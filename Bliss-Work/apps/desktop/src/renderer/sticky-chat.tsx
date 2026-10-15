@@ -138,11 +138,9 @@ function StickyChatApp() {
                 className={`flex flex-col ${mine ? "items-end" : "items-start"}`}
               >
                 <div
-                  className={`max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3 py-1.5 text-[13px] shadow-[0_2px_8px_-3px_rgba(40,30,90,0.25)] ${
-                    mine
-                      ? "rounded-br-md bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
-                      : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
-                  } ${m.id.startsWith("temp:") && !m.failed ? "opacity-60" : ""} ${m.failed ? "ring-1 ring-danger" : ""}`}
+                  className={`max-w-[80%] whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl px-3 py-1.5 text-[13px] text-fg shadow-[0_2px_8px_-3px_rgba(40,30,90,0.25)] ${
+                    mine ? "rounded-br-md bg-bubble-sent" : "rounded-bl-md bg-bubble-received"
+                  } ${m.failed ? "ring-1 ring-danger" : "ring-1 ring-border/60"} ${m.id.startsWith("temp:") && !m.failed ? "opacity-60" : ""}`}
                 >
                   {/* Attachments and shared locations carry a JSON envelope
                       after a U+001F sentinel. This window is fed over IPC under

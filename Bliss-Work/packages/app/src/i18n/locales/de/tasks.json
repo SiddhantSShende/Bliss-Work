@@ -441,25 +441,26 @@
     "taskHint": "Du suchst die Analysen einer bestimmten Aufgabe? Öffne sie über Mail.",
     "openMail": "Mail öffnen",
     "overview": {
-      "subtitle": "Ein arbeitsbereichsweiter Überblick über die Aufgabenaktivität in allen Kanälen.",
-      "allChannels": "Alle Kanäle",
-      "channelFilterLabel": "Kanal",
-      "privateChannel": "Privater Kanal",
+      "subtitle": "Ein arbeitsbereichsweiter Überblick über die Aufgabenaktivität in allen Projekten.",
+      "allProjects": "Alle Projekte",
+      "projectFilterLabel": "Projekt",
       "kpis": {
         "total": "Aufgaben gesamt",
         "completed": "Erledigt",
         "inProgress": "In Bearbeitung",
-        "overdue": "Überfällig"
+        "overdue": "Überfällig",
+        "vsPreviousPeriod": "ggü. vorherigem Zeitraum",
+        "noPreviousPeriod": "Keine Daten für den vorherigen Zeitraum"
       },
       "sections": {
-        "channelPerformance": "Kanalleistung",
+        "projectPerformance": "Projektleistung",
         "personWorkload": "Arbeitsauslastung",
         "workloadVsCompletion": "Auslastung vs. Abschlussquote",
         "statusDistribution": "Statusverteilung",
         "statusFlow": "Statusverlauf",
         "activityPulse": "Aktivitätsverlauf"
       },
-      "statusFlowHint": "Statusmix für den gewählten Zeitraum.",
+      "statusFlowHint": "Statusübergänge pro Tag für den gewählten Zeitraum.",
       "workloadTable": {
         "person": "Person",
         "assigned": "Zugewiesen",

@@ -24,8 +24,8 @@
     }
   },
   "twoFactor": {
-    "title": "Two-factor authentication",
-    "description": "Add an authenticator app as a second sign-in step."
+    "title": "Security",
+    "description": "Manage two-factor authentication and your password."
   },
   "activeSessions": {
     "title": "Current Logins",

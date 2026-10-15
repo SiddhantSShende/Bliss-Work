@@ -429,25 +429,26 @@
     "taskHint": "想查看某个任务的分析？请从 Mail 中打开该任务。",
     "openMail": "打开 Mail",
     "overview": {
-      "subtitle": "跨所有频道的工作区任务活动总览。",
-      "allChannels": "所有频道",
-      "channelFilterLabel": "频道",
-      "privateChannel": "私密频道",
+      "subtitle": "跨所有项目的工作区任务活动总览。",
+      "allProjects": "所有项目",
+      "projectFilterLabel": "项目",
       "kpis": {
         "total": "任务总数",
         "completed": "已完成",
         "inProgress": "进行中",
-        "overdue": "已逾期"
+        "overdue": "已逾期",
+        "vsPreviousPeriod": "较上期",
+        "noPreviousPeriod": "无上期数据"
       },
       "sections": {
-        "channelPerformance": "频道表现",
+        "projectPerformance": "项目表现",
         "personWorkload": "人员工作量",
         "workloadVsCompletion": "工作量与完成率",
         "statusDistribution": "状态分布",
         "statusFlow": "状态流转",
         "activityPulse": "活动脉搏"
       },
-      "statusFlowHint": "所选时间范围内的状态构成。",
+      "statusFlowHint": "所选时间范围内每日的状态变化。",
       "workloadTable": {
         "person": "人员",
         "assigned": "已分配",

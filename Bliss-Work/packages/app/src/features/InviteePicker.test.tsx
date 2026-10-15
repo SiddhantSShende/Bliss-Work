@@ -39,7 +39,7 @@ describe("the default (themed) look", () => {
     expect(search.className).toContain("text-fg");
     expect(search.className).not.toContain("bg-white");
     const row = await screen.findByRole("button", { name: /Ada Lovelace/ });
-    expect(row.className).toContain("bg-accent-soft"); // selected
+    expect(row.className).toContain("from-brand-from/15"); // selected
     expect((await screen.findByRole("button", { name: /Grace Hopper/ })).className).toContain("hover:bg-surface-2");
   });
 
@@ -56,7 +56,7 @@ describe("the light variant", () => {
     expect(search.className).toContain("bg-white");
     expect(search.className).toContain("text-gray-900");
     expect(search.className).not.toContain("bg-surface-2");
-    expect((await screen.findByRole("button", { name: /Ada Lovelace/ })).className).toContain("bg-accent/10");
+    expect((await screen.findByRole("button", { name: /Ada Lovelace/ })).className).toContain("from-brand-from/10");
   });
 
   it("can take focus on open", () => {

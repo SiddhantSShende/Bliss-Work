@@ -83,7 +83,7 @@ export function MemberPicker({
                 onClick={() => toggle(u.id)}
                 aria-pressed={on}
                 className={`flex w-full items-center gap-2.5 rounded-lg p-2 text-left ${
-                  on ? "bg-accent-soft" : "hover:bg-surface-2"
+                  on ? "bg-gradient-to-r from-brand-from/15 to-brand-to/15" : "hover:bg-surface-2"
                 }`}
               >
                 <Avatar name={u.displayName} src={u.avatarUrl} size="sm" />

@@ -70,7 +70,9 @@ export function TaskFilterAssignPanel({
             aria-controls={`${baseId}-panel-${id}`}
             onClick={() => select(id)}
             className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
-              tab === id ? "border-accent/40 bg-accent-soft text-accent" : "border-transparent text-muted hover:text-fg"
+              tab === id
+                ? "border-accent/40 bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent"
+                : "border-transparent text-muted hover:text-fg"
             }`}
           >
             {icon}
@@ -178,7 +180,7 @@ function ChannelList({
     >
       {list.items.map((c) => (
         <Row key={c.id} checked={filter.channelIds.has(c.id)} onToggle={() => onToggle(c.id)}>
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
             <Hash size={16} aria-hidden />
           </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{c.name}</span>

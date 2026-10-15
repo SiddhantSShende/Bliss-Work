@@ -90,6 +90,7 @@
     "errors": {
       "access_denied": "You declined the Microsoft sign-in request. Connect again when you're ready.",
       "not_configured": "Microsoft 365 isn't set up for this workspace yet. Ask an admin to add the Microsoft app credentials.",
+      "plan_required": "External Integrations requires the enterprise plan. Ask a workspace admin to upgrade to connect Microsoft 365.",
       "oauth_failed": "We couldn't finish connecting to Microsoft. Please try again.",
       "already_connected_by_teammate": "This Outlook mailbox is already connected by another teammate. Ask them to disconnect it first.",
       "generic": "Something went wrong connecting your Microsoft account. Please try again."
@@ -112,10 +113,33 @@
     "approximateNetwork": "अनुमानित नेटवर्क",
     "signOut": "साइन आउट करें"
   },
+  "changePassword": {
+    "card": {
+      "title": "पासवर्ड बदलें",
+      "description": "साइन इन करने के लिए इस्तेमाल होने वाला पासवर्ड अपडेट करें।",
+      "action": "पासवर्ड बदलें"
+    },
+    "dialog": {
+      "title": "अपना पासवर्ड बदलें"
+    },
+    "currentPasswordLabel": "मौजूदा पासवर्ड",
+    "confirmPasswordLabel": "नया पासवर्ड की पुष्टि करें",
+    "submit": "पासवर्ड बदलें",
+    "errors": {
+      "currentPasswordIncorrect": "वह पासवर्ड गलत है।",
+      "confirmMismatch": "पासवर्ड मेल नहीं खाते।"
+    },
+    "toasts": {
+      "success": "पासवर्ड बदल दिया गया",
+      "tooManyAttemptsTitle": "बहुत ज़्यादा प्रयास। दोबारा कोशिश करने से पहले थोड़ी देर रुकें।",
+      "failedTitle": "आपका पासवर्ड नहीं बदला जा सका",
+      "failedDescription": "कृपया फिर से कोशिश करें।"
+    }
+  },
   "mfaSettings": {
     "header": {
-      "title": "टू-फ़ैक्टर ऑथेंटिकेशन",
-      "subtitle": "ऑथेंटिकेटर ऐप से साइन-इन में दूसरा चरण जोड़ें।"
+      "title": "सुरक्षा",
+      "subtitle": "अपना टू-फ़ैक्टर ऑथेंटिकेशन और पासवर्ड प्रबंधित करें।"
     },
     "enrolled": {
       "status": {

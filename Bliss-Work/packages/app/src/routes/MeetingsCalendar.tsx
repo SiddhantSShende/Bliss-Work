@@ -204,7 +204,7 @@ export function MeetingsCalendar() {
                   type="button"
                   aria-pressed={s.key === scale}
                   onClick={() => setView({ scale: s.key })}
-                  className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${s.key === scale ? "bg-accent text-accent-fg" : "text-muted hover:text-fg"}`}
+                  className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${s.key === scale ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg" : "text-muted hover:text-fg"}`}
                 >
                   {t(`calendar.scale.${s.key}`)}
                 </button>

@@ -231,7 +231,9 @@ export function ChatsList() {
               aria-selected={filter === value}
               onClick={() => setFilter(value)}
               className={`relative flex-1 px-2 py-1.5 text-xs font-medium capitalize transition-colors ${
-                filter === value ? "text-accent after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-accent" : "text-muted hover:text-fg"
+                filter === value
+                  ? "text-accent after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-gradient-to-r after:from-brand-from after:to-brand-to"
+                  : "text-muted hover:text-fg"
               }`}
             >
               {t(`chatsList.filters.${value}`)}

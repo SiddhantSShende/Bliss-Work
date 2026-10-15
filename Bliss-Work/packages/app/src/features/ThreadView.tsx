@@ -222,16 +222,16 @@ export function ThreadView({
                     {!grouped && <Avatar name={m.senderName || "?"} size="sm" />}
                   </div>
                 )}
-                <div className={`flex max-w-[72%] flex-col ${mine ? "items-end" : "items-start"}`}>
+                <div className={`flex min-w-0 max-w-[72%] flex-col ${mine ? "items-end" : "items-start"}`}>
                   {!mine && showSenderNames && !grouped && (
                     <div className="mb-0.5 ml-1 text-xs font-medium text-muted">{m.senderName}</div>
                   )}
                   {renderBody?.(m) ?? (
                     <div
-                      className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
+                      className={`whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl px-3.5 py-2 text-sm text-fg shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ring-1 ring-border/60 ${
                         mine
-                          ? "rounded-br-md bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
-                          : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
+                          ? "rounded-br-md bg-bubble-sent"
+                          : "rounded-bl-md bg-bubble-received"
                       } ${m.pending ? "opacity-60" : ""}`}
                     >
                       {renderMessageBody(m.body)}

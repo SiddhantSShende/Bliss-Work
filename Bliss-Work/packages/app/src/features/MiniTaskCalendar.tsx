@@ -57,7 +57,7 @@ export function MiniTaskCalendar({
         {days.map((day) => {
           const selected = selectedDay !== null && isSameDay(day, selectedDay);
           const tone = selected
-            ? "bg-accent text-accent-fg"
+            ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
             : new Date(day).getMonth() === month
               ? "text-fg hover:bg-surface-2"
               : "text-muted/60 hover:bg-surface-2";

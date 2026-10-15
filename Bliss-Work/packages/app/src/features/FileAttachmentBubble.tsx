@@ -31,22 +31,20 @@ export function FileAttachmentBubble(props: FileAttachmentBubbleProps) {
 
   return (
     <div
-      className={`flex w-[80%] flex-col gap-2 rounded-2xl px-3.5 py-2.5 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
-        mine
-          ? "rounded-br-md bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
-          : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
+      className={`flex w-[80%] flex-col gap-2 rounded-2xl px-3.5 py-2.5 text-sm text-fg shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ring-1 ring-border/60 ${
+        mine ? "rounded-br-md bg-bubble-sent" : "rounded-bl-md bg-bubble-received"
       }`}
     >
       <div className="flex items-center gap-2">
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${mine ? "bg-accent-fg/15" : "bg-accent-soft text-accent"}`}>
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
           <FileIcon size={18} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{fileName}</div>
-          <div className={`text-xs ${mine ? "text-accent-fg/70" : "text-muted"}`}>{prettySize(fileSize)}</div>
+          <div className="text-xs text-muted">{prettySize(fileSize)}</div>
         </div>
         {state.kind === "DONE" && (
-          <Check size={16} className={mine ? "text-accent-fg" : "text-success"} />
+          <Check size={16} className="text-success" />
         )}
       </div>
 

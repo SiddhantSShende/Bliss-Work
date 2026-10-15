@@ -24,8 +24,8 @@
     }
   },
   "twoFactor": {
-    "title": "2단계 인증",
-    "description": "인증 앱을 로그인의 두 번째 단계로 추가하세요."
+    "title": "보안",
+    "description": "2단계 인증과 비밀번호를 관리하세요."
   },
   "activeSessions": {
     "title": "현재 로그인",

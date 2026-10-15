@@ -178,7 +178,7 @@ export function CallTile({
         <div className="absolute inset-0 flex items-center justify-center">
           <div
             className={cn(
-              "flex items-center justify-center rounded-full bg-accent-soft font-semibold text-accent",
+              "flex items-center justify-center rounded-full bg-gradient-to-br from-brand-from via-brand-mid to-brand-to font-semibold text-accent-fg",
               AVATAR,
             )}
           >

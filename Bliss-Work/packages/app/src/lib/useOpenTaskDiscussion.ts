@@ -48,9 +48,14 @@ export function useOpenTaskDiscussion() {
         // with yourself"). Open the caller's own Notes-to-Self instead, via
         // the same idempotent entry point the pinned chats-list row uses
         // (useSelfChat) — not a task discussion, just the plain self-chat.
+        // `{ taskId }` still has to be passed through: it is what sets
+        // focusTaskId, which is what tells DMView's composer to route every
+        // send through shareTaskToSelfChat (taskId-tagged) instead of the
+        // plain reply — otherwise a self-assigned task's messages would carry
+        // no taskId and never render the "Task: …" card (ChatThread.tsx).
         if (peerId === currentUserId) {
           const { conversationId } = await api.openSelfChat();
-          openChat(conversationId);
+          openChat(conversationId, { taskId });
           return;
         }
         const d = await api.openTaskDiscussion(taskId, { peerId });

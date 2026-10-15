@@ -146,7 +146,7 @@ export function MeetingRepeatField({
                       onClick={() => onChange(toggleWeekday(value, startDate, d))}
                       className={`h-9 w-9 rounded-full text-xs font-semibold uppercase transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                         on
-                          ? "bg-accent text-accent-fg"
+                          ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
                           : `border ${c.dayOff}`
                       }`}
                     >

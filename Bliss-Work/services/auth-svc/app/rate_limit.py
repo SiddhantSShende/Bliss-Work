@@ -100,6 +100,10 @@ _SENSITIVE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     # invalidation (see routes/account_service.py).
     ("POST", "/auth/password/forgot"): (3, 60),
     ("POST", "/auth/password/reset"): (5, 60),
+    # Authenticated change-password: a current-password guessing surface
+    # exactly like /auth/mfa/disable, so it gets the same tight budget (the
+    # identity lockout in change_password_tx is the per-account backstop).
+    ("POST", "/auth/password/change"): (5, 60),
     # Peek endpoint, same budget as the email-verify/invites-verify peeks
     # below — was missing here even though it's the same shape (GET, no
     # session, checks a single-use token's validity) as both.

@@ -436,7 +436,7 @@ export function CreateTaskDialog({
                     {frequency === "WEEKLY" && (
                       <div className="flex flex-wrap gap-1.5">
                         {weekdayLabels.map((label, day) => (
-                          <button key={label} type="button" onClick={() => setWeekdays((current) => toggled(current, day))} className={`rounded-full px-2.5 py-1 text-xs ${weekdays.has(day) ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted"}`}>
+                          <button key={label} type="button" onClick={() => setWeekdays((current) => toggled(current, day))} className={`rounded-full px-2.5 py-1 text-xs ${weekdays.has(day) ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg" : "bg-surface-2 text-muted"}`}>
                             {label}
                           </button>
                         ))}
@@ -530,7 +530,9 @@ function AllocationCard({
     <label
       title={description}
       className={`relative flex cursor-pointer flex-col justify-center rounded-xl border p-2 transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent ${
-        checked ? "border-accent bg-accent-soft" : "border-border bg-surface hover:bg-surface-2"
+        checked
+          ? "border-accent bg-gradient-to-br from-brand-from/15 to-brand-to/15"
+          : "border-border bg-surface hover:bg-surface-2"
       }`}
     >
       <input
@@ -543,7 +545,9 @@ function AllocationCard({
       <span className="flex min-w-0 items-center gap-2">
         <span
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-            checked ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted"
+            checked
+              ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+              : "bg-surface-2 text-muted"
           }`}
         >
           <Icon size={15} aria-hidden />
@@ -568,7 +572,9 @@ function ModeTab({
       type="button"
       onClick={onClick}
       className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition ${
-        active ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
+        active
+          ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+          : "bg-surface-2 text-muted hover:text-fg"
       }`}
     >
       {children}

@@ -156,8 +156,9 @@ export const IconButton = forwardRef<
     ref={ref}
     className={cn(
       "relative inline-flex h-9 w-9 items-center justify-center rounded-xl text-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
-      tone === "soft" && "bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent hover:brightness-[0.97] active:scale-95",
-      active && "bg-accent-soft text-accent",
+      tone === "soft" &&
+        "bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent hover:from-brand-from/15 hover:to-brand-to/15 hover:text-accent hover:brightness-[0.97] active:scale-95",
+      active && "bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent",
       className,
     )}
     {...props}

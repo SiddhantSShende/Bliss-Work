@@ -147,6 +147,35 @@ export interface ApiConfig {
    *  connection can't pin a request — and the UI state waiting on it — open
    *  forever. Each attempt (including the post-refresh retry) gets a fresh timer. */
   timeoutMs?: number;
+  /**
+   * Which process constructed this client ("web", "electron", "electron-utility",
+   * …) — surfaced only in the temporary authDiag log below, to tell apart the
+   * renderer's own ApiClient from the Electron utility process's separate one
+   * (apps/desktop/src/main/ws-process.ts) when correlating a failing request.
+   * Omit outside that investigation; it has no effect on requests themselves.
+   */
+  clientId?: string;
+}
+
+/**
+ * TEMPORARY diagnostic for the "missing bearer token" investigation (messaging
+ * channel/reaction/conversation requests 401ing while others on the same page
+ * succeed). Logs only non-secret request metadata — method, path, a boolean for
+ * whether a well-formed `Bearer ` header was attached, the correlation id this
+ * same request carries server-side (jwtauth.go logs the identical id), and the
+ * eventual response status. NEVER the token, cookies, or message content.
+ *
+ * Remove this block (and the `x-request-id`/clientId plumbing around it in
+ * `req()`) once the root cause is confirmed — it is not meant to ship long-term.
+ */
+const AUTH_DIAG = true;
+function authDiagLog(
+  phase: "request" | "response",
+  fields: { requestId: string; method: string; path: string; clientId?: string; bearerPresent?: boolean; status?: number },
+) {
+  if (!AUTH_DIAG) return;
+  // eslint-disable-next-line no-console
+  console.info(`[authDiag:${phase}]`, fields);
 }
 
 /** Shared `?from=&to=` builder. Dates are ABSOLUTE and computed by the client in
@@ -257,6 +286,23 @@ export class ApiClient {
     };
     if (token) headers["authorization"] = `Bearer ${token}`;
 
+    // TEMPORARY, see authDiagLog's doc comment. Reuses an id the caller already
+    // set on retry (same request, second attempt) rather than minting a new one,
+    // so one failed+retried request is still one correlation id end to end.
+    const diagRequestId =
+      (init.headers as Record<string, string> | undefined)?.["x-request-id"] ??
+      (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+    if (AUTH_DIAG) {
+      headers["x-request-id"] = diagRequestId;
+      authDiagLog("request", {
+        requestId: diagRequestId,
+        method: init.method ?? "GET",
+        path,
+        clientId: this.cfg.clientId,
+        bearerPresent: headers["authorization"]?.startsWith("Bearer ") ?? false,
+      });
+    }
+
     // Abort a hung request after timeoutMs (default 30s). Without this a stalled
     // TCP connection blocks the promise — and any UI waiting on it — indefinitely.
     const controller = new AbortController();
@@ -278,6 +324,9 @@ export class ApiClient {
     } finally {
       clearTimeout(timer);
     }
+    if (AUTH_DIAG) {
+      authDiagLog("response", { requestId: diagRequestId, method: init.method ?? "GET", path, status: res.status });
+    }
     // Access tokens expire after ~15 min. When an AUTHED request 401s, silently
     // refresh once and retry so an expired token self-heals instead of
     // cascading 401s across every screen. Guard on `token` so a genuinely
@@ -291,7 +340,16 @@ export class ApiClient {
     // locally once the session is terminal. Retrying here stays correct.
     if (res.status === 401 && token && !retried && this.cfg.refreshToken) {
       const fresh = await this.cfg.refreshToken();
-      if (fresh) return this.req<T>(base, path, init, schema, true);
+      if (fresh) {
+        // Carry the SAME diagnostic request id into the retry, so the retry's
+        // own request/response log lines still read as one correlation id
+        // rather than minting a second, unrelated one. TEMPORARY, see
+        // authDiagLog's doc comment.
+        const retryInit = AUTH_DIAG
+          ? { ...init, headers: { ...(init.headers as Record<string, string>), "x-request-id": diagRequestId } }
+          : init;
+        return this.req<T>(base, path, retryInit, schema, true);
+      }
     }
     if (!res.ok) {
       throw await ApiError.fromResponse(res);
@@ -805,6 +863,14 @@ export class ApiClient {
       body: JSON.stringify(body),
     });
   }
+  /** Authenticated self-service password change — current password only, no
+   *  second factor (the caller already holds a valid session). */
+  changePassword(body: { currentPassword: string; newPassword: string }) {
+    return this.req<void>(this.cfg.authBase, "/auth/password/change", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
   /** Cheap validity probe for the email-verify landing page (does not consume). */
   verifyEmailToken(token: string) {
     return this.req(
@@ -948,16 +1014,20 @@ export class ApiClient {
     );
   }
   /**
-   * The "Share to Notes to Self" action on a task card. Opens the caller's
-   * self-chat (if this is its first use) and appends `body` tagged with
-   * `taskId`, so it renders as a task-reference card exactly like a
+   * The "Share to Notes to Self" action on a task card, and also what a
+   * self-assigned task's "Chat" button routes its ENTIRE composer through
+   * (see useOpenTaskDiscussion/DMView — sendTaskDiscussionMessage rejects
+   * peerId === caller, so this is the self-chat equivalent). Opens the
+   * caller's self-chat (if this is its first use) and appends `body` tagged
+   * with `taskId`, so it renders as a task-reference card exactly like a
    * task-discussion message does (see ChatThread's `taskId` rendering).
+   * `replyToId` quotes another message in the same self-chat, same as `reply`.
    */
-  shareTaskToSelfChat(taskId: string, body: string, clientMsgId?: string) {
+  shareTaskToSelfChat(taskId: string, body: string, clientMsgId?: string, replyToId?: string) {
     return this.req(
       this.cfg.messagingBase,
       "/api/v1/conversations/self/share-task",
-      { method: "POST", body: JSON.stringify({ taskId, body, clientMsgId: clientMsgId ?? uuid() }) },
+      { method: "POST", body: JSON.stringify({ taskId, body, clientMsgId: clientMsgId ?? uuid(), replyToId }) },
       z.object({ conversationId: z.string(), threadId: z.string(), messageId: z.string(), seq: z.number() }),
     );
   }
@@ -2182,17 +2252,18 @@ export class ApiClient {
       ProjectAnalyticsDTO,
     );
   }
-  /** Workspace-wide rollup (KPI totals, per-channel ranking, per-person
-   *  workload, a day-bucketed activity series) behind the Analytics page's
-   *  overview dashboard. org_admin only — aggregates every channel and every
-   *  member in the org, not just ones the caller is a party to. `from`/`to`
-   *  are absolute dates computed by the client in the viewer's timezone, same
-   *  rule as `rangeQuery()`. */
-  workspaceAnalyticsOverview(opts: { from?: string; to?: string; channelId?: string } = {}) {
+  /** Workspace-wide rollup (KPI totals with trend + sparkline, per-project
+   *  ranking, per-person workload, a day-bucketed activity series, and a
+   *  day×status flow series) behind the Analytics page's overview dashboard.
+   *  Open to every member; a non-admin is row-scoped server-side to tasks
+   *  they are already a party to — org_admin sees the unrestricted, org-wide
+   *  rollup. `from`/`to` are absolute dates computed by the client in the
+   *  viewer's timezone, same rule as `rangeQuery()`. */
+  workspaceAnalyticsOverview(opts: { from?: string; to?: string; projectId?: string } = {}) {
     const query = new URLSearchParams();
     if (opts.from) query.set("from", opts.from);
     if (opts.to) query.set("to", opts.to);
-    if (opts.channelId) query.set("channelId", opts.channelId);
+    if (opts.projectId) query.set("projectId", opts.projectId);
     const qs = query.toString();
     return this.req(
       this.cfg.taskBase,

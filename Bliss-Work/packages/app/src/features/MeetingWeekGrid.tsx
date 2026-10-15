@@ -137,7 +137,7 @@ function DayHeading({ day, today }: { day: number; today: boolean }) {
       <div
         className={
           today
-            ? "mx-auto mt-0.5 inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-fg"
+            ? "mx-auto mt-0.5 inline-flex items-center rounded-full bg-gradient-to-br from-brand-from via-brand-mid to-brand-to px-2 py-0.5 text-xs font-semibold text-accent-fg"
             : "mt-0.5 text-xs font-semibold text-fg"
         }
       >

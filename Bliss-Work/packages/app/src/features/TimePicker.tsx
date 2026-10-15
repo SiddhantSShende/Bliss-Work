@@ -243,7 +243,7 @@ export function TimePicker({
                   aria-pressed={period === "AM"}
                   disabled={periodDisabled("AM")}
                   onClick={() => setPeriod("AM")}
-                  className={`px-1.5 py-0.5 disabled:cursor-not-allowed disabled:opacity-40 ${period === "AM" ? "bg-accent text-accent-fg" : c.periodOff}`}
+                  className={`px-1.5 py-0.5 disabled:cursor-not-allowed disabled:opacity-40 ${period === "AM" ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg" : c.periodOff}`}
                 >
                   {t("newMeeting.time.am")}
                 </button>
@@ -252,7 +252,7 @@ export function TimePicker({
                   aria-pressed={period === "PM"}
                   disabled={periodDisabled("PM")}
                   onClick={() => setPeriod("PM")}
-                  className={`px-1.5 py-0.5 disabled:cursor-not-allowed disabled:opacity-40 ${period === "PM" ? "bg-accent text-accent-fg" : c.periodOff}`}
+                  className={`px-1.5 py-0.5 disabled:cursor-not-allowed disabled:opacity-40 ${period === "PM" ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg" : c.periodOff}`}
                 >
                   {t("newMeeting.time.pm")}
                 </button>
@@ -289,7 +289,9 @@ export function TimePicker({
                     disabled={optionDisabled(v)}
                     style={{ left: p.x, top: p.y, transform: "translate(-50%, -50%)" }}
                     className={`absolute flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
-                      isSelected ? "bg-accent text-accent-fg" : c.numberOff
+                      isSelected
+                        ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+                        : c.numberOff
                     }`}
                   >
                     {mode === "hour" ? v : String(v).padStart(2, "0")}
@@ -310,7 +312,7 @@ export function TimePicker({
                 type="button"
                 onClick={confirm}
                 disabled={draftTooEarly}
-                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-40"
+                className="rounded-lg bg-gradient-to-br from-brand-from via-brand-mid to-brand-to px-3 py-1.5 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-40"
               >
                 {t("newMeeting.time.ok")}
               </button>

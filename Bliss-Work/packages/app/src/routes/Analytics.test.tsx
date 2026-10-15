@@ -91,8 +91,15 @@ const EMPTY_OVERVIEW: WorkspaceOverviewDTO = {
   overdueUniqueTasks: 0,
   inProgressUniqueTasks: 0,
   workload: [],
-  channels: [],
+  projectPerformance: [],
   dailyActivity: [],
+  kpis: {
+    totalTasks: { value: 0, previousValue: 0, deltaPct: null, sparkline: [] },
+    completed: { value: 0, previousValue: 0, deltaPct: null, sparkline: [] },
+    inProgress: { value: 0, previousValue: 0, deltaPct: null, sparkline: [] },
+    overdue: { value: 0, previousValue: 0, deltaPct: null, sparkline: [] },
+  },
+  statusFlow: [],
   rangeFrom: "2026-10-01",
   rangeTo: "2026-10-02",
 };

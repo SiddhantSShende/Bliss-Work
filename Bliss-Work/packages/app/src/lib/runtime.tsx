@@ -54,6 +54,11 @@ export function RuntimeProvider({
       stickyBase: config.stickyBase,
       integrationsBase: config.integrationsBase,
       presenceBase,
+      // TEMPORARY, see ApiConfig.clientId / authDiagLog in client.ts — tells
+      // this renderer's own requests apart from the Electron utility process's
+      // separate ApiClient (ws-process.ts) when correlating the "missing
+      // bearer token" investigation's logs.
+      clientId: `${config.kind}-renderer`,
       getToken,
       // Auto-recover from an expired access token: refresh (single-flight,
       // shared with bootstrap + WS) and let req() retry. null ⇒ refresh failed.

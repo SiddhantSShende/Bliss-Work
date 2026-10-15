@@ -229,7 +229,10 @@ func (s *Server) listChannelMessages(w http.ResponseWriter, r *http.Request) {
 	beforeSeq, limit := pageParams(r, DefaultMessagePageSize, MaxMessagePageSize)
 	msgs, err := s.store.ChannelMessages(r.Context(), claims.OrgID, channelID, claims.UserID, beforeSeq, limit)
 	if err != nil {
-		s.mapErr(w, err)
+		// mapErrR, not mapErr: see reply()'s own comment on the same swap —
+		// carries r so a 403 here logs its route/request_id too. No other
+		// effect; the response is identical either way.
+		s.mapErrR(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, msgs)

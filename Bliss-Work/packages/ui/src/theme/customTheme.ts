@@ -42,13 +42,18 @@ export function customThemeGradient(colors: readonly string[]): string {
  *  guarantees the better of the two never drops below 4.5:1 (WCAG AA) for any
  *  background. Kept in lock-step with the copy in
  */
-export function readableForeground(background: string): string {
+/** WCAG relative luminance of a #rrggbb colour (0 = black, 1 = white). Shared by
+ *  readableForeground below and by customThemeTokens' body-text contrast check. */
+export function relativeLuminance(hex: string): number {
   const [r, g, b] = [1, 3, 5].map((start) => {
-    const channel = parseInt(background.slice(start, start + 2), 16) / 255;
+    const channel = parseInt(hex.slice(start, start + 2), 16) / 255;
     return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
   }) as [number, number, number];
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return luminance > 0.179 ? "#000000" : "#ffffff";
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+export function readableForeground(background: string): string {
+  return relativeLuminance(background) > 0.179 ? "#000000" : "#ffffff";
 }
 
 export function readStoredCustomTheme(): CustomTheme | null {

@@ -2,28 +2,38 @@
  * WorkspaceOverview: open to every authenticated member now (authorization
  * lives server-side — see tasks_analytics.workspace_overview — scoping a
  * non-admin's rows to their own tasks rather than hiding the panel), loading/
- * error/empty states, and that the range tabs / channel filter actually
- * refetch with new query params rather than being decorative.
+ * error/empty states, and that the range tabs / project filter actually
+ * refetch with new query params rather than being decorative. The dashboard
+ * is project-wise — see ProjectPerformanceList — not channel-wise.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ChannelDTO, type WorkspaceOverviewDTO } from "@taskboard/shared";
+import { ProjectDTO, type WorkspaceOverviewDTO } from "@taskboard/shared";
 
-const h = vi.hoisted(() => ({ channels: vi.fn(), workspaceAnalyticsOverview: vi.fn() }));
+const h = vi.hoisted(() => ({ projects: vi.fn(), workspaceAnalyticsOverview: vi.fn() }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h, config: {} }) }));
 
 import { WorkspaceOverview } from "./WorkspaceOverview";
 
-const CHANNEL_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const CHANNEL = ChannelDTO.parse({
-  id: CHANNEL_ID,
+const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const PROJECT = ProjectDTO.parse({
+  id: PROJECT_ID,
   name: "Design",
-  memberCount: 1,
-  lastMessage: null,
-  lastMessageAt: null,
+  channelId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  status: "ACTIVE",
+  canComplete: false,
 });
+
+function kpi(value: number, previousValue: number, sparkline: number[]) {
+  return {
+    value,
+    previousValue,
+    deltaPct: previousValue ? ((value - previousValue) / previousValue) * 100 : null,
+    sparkline,
+  };
+}
 
 const OVERVIEW: WorkspaceOverviewDTO = {
   statusBreakdown: { sent: 1, acknowledged: 0, completed: 2, ignored: 0, left: 0, missed: 1 },
@@ -42,10 +52,22 @@ const OVERVIEW: WorkspaceOverviewDTO = {
   workload: [
     { assigneeId: "u1", assigneeUsername: "alice", assignedCount: 3, completedCount: 2, inProgressCount: 1, completionRate: 66.7 },
   ],
-  channels: [{ channelId: CHANNEL_ID, totalUniqueTasks: 4, completedUniqueTasks: 2, completionRate: 50 }],
+  projectPerformance: [
+    { projectId: PROJECT_ID, name: "Design", totalUniqueTasks: 4, completedUniqueTasks: 2, completionRate: 50, trendPct: 10 },
+  ],
   dailyActivity: [
     { day: "2026-10-01", tasksCreated: 2, tasksCompleted: 1 },
     { day: "2026-10-02", tasksCreated: 2, tasksCompleted: 1 },
+  ],
+  kpis: {
+    totalTasks: kpi(4, 3, [2, 2]),
+    completed: kpi(2, 2, [1, 1]),
+    inProgress: kpi(1, 0, [1, 0]),
+    overdue: kpi(1, 2, [0, 1]),
+  },
+  statusFlow: [
+    { day: "2026-10-01", sent: 1, acknowledged: 0, completed: 1, missed: 0, ignored: 0, left: 0 },
+    { day: "2026-10-02", sent: 0, acknowledged: 0, completed: 1, missed: 1, ignored: 0, left: 0 },
   ],
   rangeFrom: "2026-10-01",
   rangeTo: "2026-10-02",
@@ -57,8 +79,15 @@ const EMPTY_OVERVIEW: WorkspaceOverviewDTO = {
   overdueUniqueTasks: 0,
   inProgressUniqueTasks: 0,
   workload: [],
-  channels: [],
+  projectPerformance: [],
   dailyActivity: [],
+  kpis: {
+    totalTasks: kpi(0, 0, []),
+    completed: kpi(0, 0, []),
+    inProgress: kpi(0, 0, []),
+    overdue: kpi(0, 0, []),
+  },
+  statusFlow: [],
 };
 
 function mount() {
@@ -77,31 +106,31 @@ afterEach(() => {
 
 describe("WorkspaceOverview", () => {
   it("fetches and shows KPI totals — no client-side role gate", async () => {
-    h.channels.mockResolvedValue([CHANNEL]);
+    h.projects.mockResolvedValue([PROJECT]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
     mount();
 
     const totalLabel = await screen.findByText("Total Tasks");
     const kpiGrid = totalLabel.closest(".grid");
     expect(kpiGrid).not.toBeNull();
-    const kpi = within(kpiGrid as HTMLElement);
-    expect(kpi.getByText("Total Tasks").parentElement).toHaveTextContent("4");
-    expect(kpi.getByText("Completed").parentElement).toHaveTextContent("2");
-    expect(kpi.getByText("In Progress").parentElement).toHaveTextContent("1");
-    expect(kpi.getByText("Overdue").parentElement).toHaveTextContent("1");
+    const kpiScope = within(kpiGrid as HTMLElement);
+    expect(kpiScope.getByText("Total Tasks").parentElement).toHaveTextContent("4");
+    expect(kpiScope.getByText("Completed").parentElement).toHaveTextContent("2");
+    expect(kpiScope.getByText("In Progress").parentElement).toHaveTextContent("1");
+    expect(kpiScope.getByText("Overdue").parentElement).toHaveTextContent("1");
   });
 
-  it("resolves channel names from the channels list, not raw ids", async () => {
-    h.channels.mockResolvedValue([CHANNEL]);
+  it("shows project names from the project performance ranking", async () => {
+    h.projects.mockResolvedValue([PROJECT]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
     mount();
 
-    const channelSection = (await screen.findByText("Channel Performance")).closest("section");
-    expect(within(channelSection as HTMLElement).getByText("Design")).toBeInTheDocument();
+    const projectSection = (await screen.findByText("Project Performance")).closest("div");
+    expect(within(projectSection as HTMLElement).getByText("Design")).toBeInTheDocument();
   });
 
   it("shows the empty state when there are no tasks in range", async () => {
-    h.channels.mockResolvedValue([]);
+    h.projects.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount();
 
@@ -109,7 +138,7 @@ describe("WorkspaceOverview", () => {
   });
 
   it("shows a retry control on error", async () => {
-    h.channels.mockResolvedValue([]);
+    h.projects.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockRejectedValue(new Error("boom"));
     mount();
 
@@ -118,30 +147,30 @@ describe("WorkspaceOverview", () => {
   });
 
   it("refetches with a new date range when a range tab is clicked", async () => {
-    h.channels.mockResolvedValue([]);
+    h.projects.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
     mount();
     await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalledTimes(1));
-    const firstCall = h.workspaceAnalyticsOverview.mock.calls[0][0];
+    const firstCall = h.workspaceAnalyticsOverview.mock.calls[0]?.[0];
 
     await userEvent.click(screen.getByRole("tab", { name: /last 7 days/i }));
 
     await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalledTimes(2));
-    const secondCall = h.workspaceAnalyticsOverview.mock.calls[1][0];
+    const secondCall = h.workspaceAnalyticsOverview.mock.calls[1]?.[0];
     expect(secondCall.from).not.toBe(firstCall.from);
   });
 
-  it("refetches scoped to one channel when the channel filter changes", async () => {
-    h.channels.mockResolvedValue([CHANNEL]);
+  it("refetches scoped to one project when the project filter changes", async () => {
+    h.projects.mockResolvedValue([PROJECT]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
     mount();
     await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalledTimes(1));
 
-    await userEvent.selectOptions(await screen.findByRole("combobox"), CHANNEL_ID);
+    await userEvent.selectOptions(await screen.findByRole("combobox"), PROJECT_ID);
 
     await waitFor(() =>
       expect(h.workspaceAnalyticsOverview).toHaveBeenLastCalledWith(
-        expect.objectContaining({ channelId: CHANNEL_ID }),
+        expect.objectContaining({ projectId: PROJECT_ID }),
       ),
     );
   });

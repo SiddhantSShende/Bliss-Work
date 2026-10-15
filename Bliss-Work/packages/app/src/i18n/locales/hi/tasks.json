@@ -441,25 +441,26 @@
     "taskHint": "किसी खास टास्क का एनालिटिक्स देखना चाहते हैं? उसे Mail से खोलें।",
     "openMail": "Mail खोलें",
     "overview": {
-      "subtitle": "हर चैनल में टास्क गतिविधि का वर्कस्पेस-व्यापी दृश्य।",
-      "allChannels": "सभी चैनल",
-      "channelFilterLabel": "चैनल",
-      "privateChannel": "निजी चैनल",
+      "subtitle": "हर प्रोजेक्ट में टास्क गतिविधि का वर्कस्पेस-व्यापी दृश्य।",
+      "allProjects": "सभी प्रोजेक्ट",
+      "projectFilterLabel": "प्रोजेक्ट",
       "kpis": {
         "total": "कुल टास्क",
         "completed": "पूर्ण",
         "inProgress": "प्रगति में",
-        "overdue": "समय-सीमा चूक"
+        "overdue": "समय-सीमा चूक",
+        "vsPreviousPeriod": "पिछली अवधि की तुलना में",
+        "noPreviousPeriod": "पिछली अवधि के लिए कोई डेटा नहीं"
       },
       "sections": {
-        "channelPerformance": "चैनल प्रदर्शन",
+        "projectPerformance": "प्रोजेक्ट प्रदर्शन",
         "personWorkload": "व्यक्ति कार्यभार",
         "workloadVsCompletion": "कार्यभार बनाम पूर्णता",
         "statusDistribution": "स्थिति वितरण",
         "statusFlow": "स्थिति प्रवाह",
         "activityPulse": "गतिविधि पल्स"
       },
-      "statusFlowHint": "चुनी गई अवधि के लिए स्थिति मिश्रण।",
+      "statusFlowHint": "चुनी गई अवधि के लिए प्रतिदिन स्थिति बदलाव।",
       "workloadTable": {
         "person": "व्यक्ति",
         "assigned": "सौंपे गए",

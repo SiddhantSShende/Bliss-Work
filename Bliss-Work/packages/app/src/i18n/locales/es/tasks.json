@@ -453,25 +453,26 @@
     "taskHint": "¿Buscas las analíticas de una tarea específica? Ábrela desde Correo.",
     "openMail": "Abrir Correo",
     "overview": {
-      "subtitle": "Una vista general de la actividad de tareas en todos los canales del espacio de trabajo.",
-      "allChannels": "Todos los canales",
-      "channelFilterLabel": "Canal",
-      "privateChannel": "Canal privado",
+      "subtitle": "Una vista general de la actividad de tareas en todos los proyectos del espacio de trabajo.",
+      "allProjects": "Todos los proyectos",
+      "projectFilterLabel": "Proyecto",
       "kpis": {
         "total": "Tareas totales",
         "completed": "Completadas",
         "inProgress": "En curso",
-        "overdue": "Vencidas"
+        "overdue": "Vencidas",
+        "vsPreviousPeriod": "vs. período anterior",
+        "noPreviousPeriod": "Sin datos del período anterior"
       },
       "sections": {
-        "channelPerformance": "Rendimiento por canal",
+        "projectPerformance": "Rendimiento por proyecto",
         "personWorkload": "Carga de trabajo por persona",
         "workloadVsCompletion": "Carga vs. finalización",
         "statusDistribution": "Distribución de estados",
         "statusFlow": "Flujo de estados",
         "activityPulse": "Pulso de actividad"
       },
-      "statusFlowHint": "Mezcla de estados del período seleccionado.",
+      "statusFlowHint": "Transiciones de estado por día para el período seleccionado.",
       "workloadTable": {
         "person": "Persona",
         "assigned": "Asignadas",

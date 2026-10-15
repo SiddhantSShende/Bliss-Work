@@ -90,6 +90,7 @@
     "errors": {
       "access_denied": "You declined the Microsoft sign-in request. Connect again when you're ready.",
       "not_configured": "Microsoft 365 isn't set up for this workspace yet. Ask an admin to add the Microsoft app credentials.",
+      "plan_required": "External Integrations requires the enterprise plan. Ask a workspace admin to upgrade to connect Microsoft 365.",
       "oauth_failed": "We couldn't finish connecting to Microsoft. Please try again.",
       "already_connected_by_teammate": "This Outlook mailbox is already connected by another teammate. Ask them to disconnect it first.",
       "generic": "Something went wrong connecting your Microsoft account. Please try again."
@@ -112,10 +113,33 @@
     "approximateNetwork": "Approximate network",
     "signOut": "Sign out"
   },
+  "changePassword": {
+    "card": {
+      "title": "Change password",
+      "description": "Update the password you use to sign in.",
+      "action": "Change password"
+    },
+    "dialog": {
+      "title": "Change your password"
+    },
+    "currentPasswordLabel": "Current password",
+    "confirmPasswordLabel": "Confirm new password",
+    "submit": "Change password",
+    "errors": {
+      "currentPasswordIncorrect": "That password is incorrect.",
+      "confirmMismatch": "Passwords don't match."
+    },
+    "toasts": {
+      "success": "Password changed",
+      "tooManyAttemptsTitle": "Too many attempts. Please wait before trying again.",
+      "failedTitle": "Couldn't change your password",
+      "failedDescription": "Please try again."
+    }
+  },
   "mfaSettings": {
     "header": {
-      "title": "Two-factor authentication",
-      "subtitle": "Add a second step to signing in with an authenticator app."
+      "title": "Security",
+      "subtitle": "Manage your two-factor authentication and password."
     },
     "enrolled": {
       "status": {

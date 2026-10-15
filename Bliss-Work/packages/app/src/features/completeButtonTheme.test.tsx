@@ -2,11 +2,11 @@
  * The Complete action follows the theme's accent instead of a hardcoded green.
  *
  * jsdom does not resolve Tailwind, so what can be pinned is which tokens the
- * button is built from: `bg-accent` / `text-accent-fg` are CSS variables that
- * ThemeProvider rewrites when the theme changes (a preset switches the
- * variables through its class; the custom theme sets them inline), so a button
- * built from them retargets with no re-render of its own. A hardcoded
- * `bg-success` does not — it is green in every theme.
+ * button is built from: the brand-gradient utilities and `text-accent-fg` are
+ * CSS variables that ThemeProvider rewrites when the theme changes (a preset
+ * switches the variables through its class; the custom theme sets them
+ * inline), so a button built from them retargets with no re-render of its
+ * own. A hardcoded `bg-success` does not — it is green in every theme.
  */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -33,13 +33,13 @@ describe("Complete button", () => {
   it("is built from the accent tokens, not the fixed success green", () => {
     render(<StickyWidget task={task} onAction={vi.fn()} />);
     const complete = screen.getByRole("button", { name: /complete/i });
-    expect(complete).toHaveClass("bg-accent", "text-accent-fg");
+    expect(complete).toHaveClass("from-brand-from", "to-brand-to", "text-accent-fg");
     expect(complete.className).not.toMatch(/success|green|emerald|text-white/);
   });
 
   it("matches the Acknowledge button it replaces in the flow (same tokens)", () => {
     render(<StickyWidget task={{ ...task, myStatus: "SENT", actions: ["ACKNOWLEDGE", "IGNORE"] }} onAction={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /acknowledge/i })).toHaveClass("bg-accent", "text-accent-fg");
+    expect(screen.getByRole("button", { name: /acknowledge/i })).toHaveClass("from-brand-from", "to-brand-to", "text-accent-fg");
   });
 
   it("shows Add member for an active assigned card even when its participant array is empty", () => {

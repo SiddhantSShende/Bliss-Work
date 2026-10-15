@@ -309,10 +309,18 @@ export function DMView() {
     // conversation's own, already-membership-checked peer — never a
     // client-supplied id — so this can only tag the user's own sends in the
     // conversation they are actually in.
+    //
+    // isSelf is its own branch rather than falling into the one above: a
+    // self-assigned task's peer IS the caller, and sendTaskDiscussionMessage
+    // (like openTaskDiscussion) rejects peerId === caller outright — see
+    // useOpenTaskDiscussion.ts. shareTaskToSelfChat is the self-chat
+    // equivalent that tags the same taskId without that guard.
     mutationFn: ({ body, replyToId }) =>
-      focusTaskId && conv
-        ? api.sendTaskDiscussionMessage(focusTaskId, body, undefined, { peerId: conv.peerId }, replyToId)
-        : api.reply(conversationId, body, undefined, replyToId),
+      focusTaskId && conv && isSelf
+        ? api.shareTaskToSelfChat(focusTaskId, body, undefined, replyToId)
+        : focusTaskId && conv
+          ? api.sendTaskDiscussionMessage(focusTaskId, body, undefined, { peerId: conv.peerId }, replyToId)
+          : api.reply(conversationId, body, undefined, replyToId),
     // SENT is the whole point of the 201, and it has to be written here: the
     // optimistic row carries no status (it has not reached the server yet) and
     // `pending` stops being true the moment the real id lands. Without it the

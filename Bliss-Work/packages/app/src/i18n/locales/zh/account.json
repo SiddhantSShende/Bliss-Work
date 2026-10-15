@@ -88,6 +88,7 @@
     "errors": {
       "access_denied": "You declined the Microsoft sign-in request. Connect again when you're ready.",
       "not_configured": "Microsoft 365 isn't set up for this workspace yet. Ask an admin to add the Microsoft app credentials.",
+      "plan_required": "External Integrations requires the enterprise plan. Ask a workspace admin to upgrade to connect Microsoft 365.",
       "oauth_failed": "We couldn't finish connecting to Microsoft. Please try again.",
       "already_connected_by_teammate": "This Outlook mailbox is already connected by another teammate. Ask them to disconnect it first.",
       "generic": "Something went wrong connecting your Microsoft account. Please try again."
@@ -110,10 +111,33 @@
     "approximateNetwork": "大致网络位置",
     "signOut": "退出登录"
   },
+  "changePassword": {
+    "card": {
+      "title": "修改密码",
+      "description": "更新你用于登录的密码。",
+      "action": "修改密码"
+    },
+    "dialog": {
+      "title": "修改密码"
+    },
+    "currentPasswordLabel": "当前密码",
+    "confirmPasswordLabel": "确认新密码",
+    "submit": "修改密码",
+    "errors": {
+      "currentPasswordIncorrect": "密码不正确。",
+      "confirmMismatch": "两次输入的密码不一致。"
+    },
+    "toasts": {
+      "success": "密码已修改",
+      "tooManyAttemptsTitle": "尝试次数过多，请稍后再试。",
+      "failedTitle": "无法修改密码",
+      "failedDescription": "请重试。"
+    }
+  },
   "mfaSettings": {
     "header": {
-      "title": "双重验证",
-      "subtitle": "使用验证器应用，为登录增加第二道验证。"
+      "title": "安全",
+      "subtitle": "管理您的双重验证和密码。"
     },
     "enrolled": {
       "status": {

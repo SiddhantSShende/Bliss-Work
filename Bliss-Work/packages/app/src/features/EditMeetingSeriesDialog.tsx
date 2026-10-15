@@ -164,7 +164,7 @@ function EditForm({ series, onClose }: { series: MeetingSeriesDTO; onClose: () =
             type="button"
             onClick={submit}
             disabled={save.isPending}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-brand-from via-brand-mid to-brand-to px-4 py-2 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-60"
           >
             <Save size={15} aria-hidden />
             {save.isPending ? t("series.edit.saving") : t("series.edit.save")}

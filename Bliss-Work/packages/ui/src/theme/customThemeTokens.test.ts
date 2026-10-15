@@ -93,6 +93,86 @@ describe("the colours the person chose are preserved", () => {
   });
 });
 
+/** WCAG contrast ratio between two #rrggbb colours — computed independently of
+ *  customThemeTokens.ts so a bug in the implementation can't pass its own check. */
+function contrastRatio(a: string, b: string): number {
+  const luminance = (hex: string) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
+describe("the primary text colour tracks the 2nd/3rd pick", () => {
+  it.each([false, true])("one colour keeps the fixed neutral (dark=%s)", (dark) => {
+    const neutral = (dark ? CUSTOM_NEUTRALS.dark : CUSTOM_NEUTRALS.light)["--color-fg"];
+    expect(customThemeStyle({ colors: ["#336699"] }, dark)["--color-fg"]).toBe(neutral);
+  });
+
+  it.each([false, true])("two colours use the 2nd pick, when it's already readable (dark=%s)", (dark) => {
+    // A near-black (light) / near-white (dark) 2nd pick already clears 4.5:1 unadjusted.
+    const colors = dark ? ["#2563eb", "#f5f5f5"] : ["#2563eb", "#1a1a1a"];
+    expect(customThemeStyle({ colors }, dark)["--color-fg"]).toBe(colors[1]);
+  });
+
+  it.each([false, true])("three colours use the 3rd pick, when it's already readable (dark=%s)", (dark) => {
+    const colors = dark ? ["#2563eb", "#06b6d4", "#f5f5f5"] : ["#2563eb", "#06b6d4", "#1a1a1a"];
+    expect(customThemeStyle({ colors }, dark)["--color-fg"]).toBe(colors[2]);
+  });
+
+  it("changing the picks changes the text colour, with no change to the stored colours", () => {
+    const theme = { colors: ["#2563eb", "#06b6d4", "#1a1a1a"] };
+    const before = customThemeStyle(theme)["--color-fg"];
+    const after = customThemeStyle({ colors: ["#2563eb", "#06b6d4", "#2a2a2a"] })["--color-fg"];
+    expect(after).not.toBe(before);
+    expect(theme.colors).toEqual(["#2563eb", "#06b6d4", "#1a1a1a"]); // input never mutated
+  });
+
+  it("a low-contrast pick is nudged, not left unreadable, and the pick itself is untouched by the nudge", () => {
+    // Cyan on the light surface/bg is well under 4.5:1 unadjusted.
+    const picked = "#67e8f9";
+    const style = customThemeStyle({ colors: ["#2563eb", picked] });
+    expect(style["--color-fg"]).not.toBe(picked);
+    expect(contrastRatio(style["--color-fg"]!, "#fafafa")).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(style["--color-fg"]!, "#ffffff")).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("every two-colour pick, however poor its own contrast, ends up at or above 4.5:1", () => {
+    const palette = ["#ffee00", "#67e8f9", "#f472b6", "#111111", "#ffffff", "#84cc16", "#001f5c", "#a855f7"];
+    for (const dark of [false, true]) {
+      const [bg, surface] = dark
+        ? [CUSTOM_NEUTRALS.dark["--color-bg"], CUSTOM_NEUTRALS.dark["--color-surface"]]
+        : ["#fafafa", CUSTOM_NEUTRALS.light["--color-surface"]];
+      for (const a of palette) {
+        for (const b of palette) {
+          if (a === b) continue;
+          const fg = customThemeStyle({ colors: [a, b] }, dark)["--color-fg"]!;
+          expect(contrastRatio(fg, bg), `[${a},${b}] dark=${dark} bg`).toBeGreaterThanOrEqual(4.5);
+          expect(contrastRatio(fg, surface), `[${a},${b}] dark=${dark} surface`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  it("the same holds for the 3rd pick of a three-colour theme", () => {
+    const thirdPicks = ["#ffee00", "#67e8f9", "#f472b6", "#84cc16"];
+    for (const dark of [false, true]) {
+      const [bg, surface] = dark
+        ? [CUSTOM_NEUTRALS.dark["--color-bg"], CUSTOM_NEUTRALS.dark["--color-surface"]]
+        : ["#fafafa", CUSTOM_NEUTRALS.light["--color-surface"]];
+      for (const third of thirdPicks) {
+        const fg = customThemeStyle({ colors: ["#2563eb", "#a855f7", third] }, dark)["--color-fg"]!;
+        expect(contrastRatio(fg, bg), `third=${third} dark=${dark} bg`).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(fg, surface), `third=${third} dark=${dark} surface`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+});
+
 describe("no custom-only styling remains", () => {
   const SRC = new URL("../../..", import.meta.url).pathname; // packages/
   const walk = (dir: string): string[] =>

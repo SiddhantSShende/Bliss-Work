@@ -12,14 +12,17 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from ..db import engine
 from ..logging_config import log
 from ..schemas import (
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     MessageResponse,
     ResetPasswordRequest,
     TokenVerifyResponse,
 )
+from ..security.auth_dep import Principal, get_principal
 from ..security.origin import enforce_origin
 from .account_service import (
     PURPOSE_RESET,
+    change_password_tx,
     create_password_reset_tx,
     peek_token_valid,
     reset_password_tx,
@@ -62,5 +65,26 @@ async def reset_password(
     async with engine.begin() as conn:
         await reset_password_tx(conn, body.token, body.password, request)
     log.info("password_reset_completed")
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
+
+
+@router.post(
+    "/change",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(enforce_origin)],
+)
+async def change_password(
+    body: ChangePasswordRequest,
+    response: Response,
+    request: Request,
+    principal: Principal = Depends(get_principal),
+) -> Response:
+    """Authenticated self-service password change — current password only,
+    no second factor (see change_password_tx's docstring)."""
+    await change_password_tx(
+        principal.user_id, principal.org_id, body.currentPassword, body.newPassword, request
+    )
+    log.info("password_changed", user_id=principal.user_id)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response

@@ -27,10 +27,8 @@ export function LocationBubble({
 
   return (
     <div
-      className={`flex w-[min(20rem,80vw)] flex-col overflow-hidden rounded-2xl text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
-        mine
-          ? "rounded-br-md bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
-          : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
+      className={`flex w-[min(20rem,80vw)] flex-col overflow-hidden rounded-2xl text-sm text-fg shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ring-1 ring-border/60 ${
+        mine ? "rounded-br-md bg-bubble-sent" : "rounded-bl-md bg-bubble-received"
       }`}
     >
       {url ? (
@@ -58,17 +56,13 @@ export function LocationBubble({
 
       <div className="flex items-center gap-2.5 px-3.5 py-2.5">
         {!url && (
-          <div
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-              mine ? "bg-accent-fg/15" : "bg-accent-soft text-accent"
-            }`}
-          >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
             <MapPin size={18} />
           </div>
         )}
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{title}</div>
-          <div className={`truncate text-xs ${mine ? "text-accent-fg/70" : "text-muted"}`}>
+          <div className="truncate text-xs text-muted">
             {formatCoords(env.lat, env.lng)}
             {env.accuracy !== undefined && env.accuracy > 0
               ? t("location.accuracySuffix", { accuracy: Math.round(env.accuracy) })
@@ -80,9 +74,7 @@ export function LocationBubble({
           target="_blank"
           rel="noopener noreferrer"
           title={t("location.openInMapsTitle")}
-          className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium transition-colors ${
-            mine ? "bg-accent-fg/15 hover:bg-accent-fg/25" : "border border-border text-fg hover:bg-surface-2"
-          }`}
+          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-2 py-1 text-[12px] font-medium text-fg transition-colors hover:bg-surface-2"
         >
           <ExternalLink size={13} /> {t("location.open")}
         </a>

@@ -55,7 +55,7 @@ describe("useOpenTaskDiscussion", () => {
     expect(navigateSpy).not.toHaveBeenCalled();
   });
 
-  it("opens the caller's own self-chat instead of a task discussion when peerId is the caller", async () => {
+  it("opens the caller's own self-chat instead of a task discussion when peerId is the caller, still carrying the taskId", async () => {
     openSelfChat.mockResolvedValue({ conversationId: "self-c1" });
     const { result } = renderHook(() => useOpenTaskDiscussion(), { wrapper });
 
@@ -63,7 +63,11 @@ describe("useOpenTaskDiscussion", () => {
 
     expect(openTaskDiscussion).not.toHaveBeenCalled();
     expect(openSelfChat).toHaveBeenCalledTimes(1);
-    expect(openChat).toHaveBeenCalledWith("self-c1");
+    // Regression: the taskId must be passed through here too, or focusTaskId
+    // never gets set for a self-assigned task's chat, and DMView's composer
+    // silently falls back to the plain (untagged) reply for every message —
+    // the self-assigned task never gets its "Task: …" card in chat.
+    expect(openChat).toHaveBeenCalledWith("self-c1", { taskId: "t1" });
   });
 
   it("navigates to the channel with ?taskId= for the channel case", async () => {

@@ -90,7 +90,7 @@ describe("CallMembers tile sizing", () => {
     expect(slots(container)).toHaveLength(0);
     expect(container.querySelectorAll(".absolute.inset-0")).not.toHaveLength(0);
     // the one tile is really there (avatar + name label), just not sized by the layout
-    expect(container.querySelector(".rounded-full.bg-accent-soft")).not.toBeNull();
+    expect(container.querySelector(".rounded-full.from-brand-from")).not.toBeNull();
   });
 
   it("draws nothing until the area has a size, rather than tiles of the wrong one", () => {

@@ -24,8 +24,8 @@
     }
   },
   "twoFactor": {
-    "title": "Authentification à deux facteurs",
-    "description": "Ajoutez une application d'authentification comme seconde étape de connexion."
+    "title": "Sécurité",
+    "description": "Gérez l'authentification à deux facteurs et votre mot de passe."
   },
   "activeSessions": {
     "title": "Connexions actuelles",

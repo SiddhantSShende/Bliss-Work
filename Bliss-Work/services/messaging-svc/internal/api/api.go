@@ -636,6 +636,20 @@ func (s *Server) mapErrR(w http.ResponseWriter, r *http.Request, err error) {
 	if status >= 500 {
 		s.log.Error("request failed", "err", err, "request_id", rid)
 	}
+	// TEMPORARY: diagnostic for the "403 Forbidden on conversation reply /
+	// channel message / reaction" investigation. mapStoreError's ErrForbidden
+	// case is the ONLY branch that returns http.StatusForbidden, so this is
+	// the single chokepoint for every such 403 — and jwtauth.Middleware (see
+	// its own "authdiag" log) never returns 403 at all, so a request logged
+	// here necessarily passed authentication: whatever is wrong is an
+	// AUTHORIZATION refusal (not a conversation member, cross-org resource,
+	// or a blocked pair), not a missing/invalid bearer token. Correlate by
+	// request_id with the client's matching "[authDiag:response]" line and
+	// jwtauth's "authdiag" line. Logs only the route and the id — never the
+	// error message, request body, or token. Remove once root-caused.
+	if status == http.StatusForbidden && r != nil {
+		s.log.Info("authdiag", "method", r.Method, "path", r.URL.Path, "request_id", rid, "status", status)
+	}
 	if r != nil {
 		writeAPIError(w, r, status, code, msg)
 		return
@@ -811,6 +825,8 @@ type shareTaskToSelfChatReq struct {
 	TaskID      string `json:"taskId"`
 	Body        string `json:"body"`
 	ClientMsgID string `json:"clientMsgId"`
+	// ReplyToID quotes another message in the caller's self-chat ("" = none).
+	ReplyToID string `json:"replyToId"`
 }
 
 // shareTaskToSelfChat serves the "Share to Notes to Self" action on a task
@@ -833,7 +849,11 @@ func (s *Server) shareTaskToSelfChat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errBodyTooLong)
 		return
 	}
-	res, err := s.store.ShareTaskToSelfChat(r.Context(), claims.OrgID, claims.UserID, req.TaskID, req.Body, req.ClientMsgID)
+	if req.ReplyToID != "" && !validUUID(req.ReplyToID) {
+		writeErr(w, http.StatusBadRequest, "invalid replyToId")
+		return
+	}
+	res, err := s.store.ShareTaskToSelfChat(r.Context(), claims.OrgID, claims.UserID, req.TaskID, req.Body, req.ClientMsgID, req.ReplyToID)
 	if err != nil {
 		s.mapErr(w, err)
 		return
@@ -943,7 +963,11 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) {
 		res, err = s.store.Reply(r.Context(), claims.OrgID, claims.UserID, convID, req.Body, req.ClientMsgID, req.ReplyToID)
 	}
 	if err != nil {
-		s.mapErr(w, err)
+		// mapErrR, not mapErr: carries r so the TEMPORARY authdiag log below
+		// (triggered on a 403) can report the method/path/request_id of THIS
+		// request. Same response body either way — see mapErrR's header
+		// fallback — so this is a no-op for every caller except that log line.
+		s.mapErrR(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, res)

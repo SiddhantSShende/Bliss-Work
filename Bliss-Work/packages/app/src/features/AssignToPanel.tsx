@@ -81,7 +81,9 @@ export function AssignToPanel({
             aria-controls={`${baseId}-panel-${id}`}
             onClick={() => select(id)}
             className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
-              tab === id ? "border-accent/40 bg-accent-soft text-accent" : "border-transparent text-muted hover:text-fg"
+              tab === id
+                ? "border-accent/40 bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent"
+                : "border-transparent text-muted hover:text-fg"
             }`}
           >
             {icon}
@@ -200,7 +202,7 @@ function ChannelList({
     >
       {project && lockedChannelId === project.channelId && (
         <li>
-          <label className="flex items-center gap-3 rounded-lg bg-accent-soft px-2.5 py-1.5 text-accent">
+          <label className="flex items-center gap-3 rounded-lg bg-gradient-to-br from-brand-from/15 to-brand-to/15 px-2.5 py-1.5 text-accent">
             <input
               type="checkbox"
               checked={selected.has(project.channelId)}
@@ -209,7 +211,7 @@ function ChannelList({
               aria-label={`#${project.name} — ${t("projects.channel")}`}
               className="h-4 w-4 shrink-0 accent-[var(--color-accent)]"
             />
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-from/10 to-brand-to/10">
               <Hash size={16} aria-hidden />
             </span>
             <span className="min-w-0 flex-1 truncate text-sm font-medium">#{project.name}</span>
@@ -220,7 +222,7 @@ function ChannelList({
       )}
       {list.items.filter((channel) => channel.id !== lockedChannelId).map((c) => (
         <Row key={c.id} checked={selected.has(c.id)} onToggle={() => onToggle(c)}>
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
             <Hash size={16} aria-hidden />
           </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{c.name}</span>
@@ -276,7 +278,11 @@ export function Row({
       <label
         title={via}
         className={`flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-1.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/40 ${
-          checked ? (via ? "bg-accent-soft/60" : "bg-accent-soft") : "hover:bg-surface-2"
+          checked
+            ? via
+              ? "bg-gradient-to-r from-brand-from/9 to-brand-to/9"
+              : "bg-gradient-to-r from-brand-from/15 to-brand-to/15"
+            : "hover:bg-surface-2"
         }`}
       >
         {children}

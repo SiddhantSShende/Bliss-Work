@@ -331,7 +331,9 @@ function AppearanceOption({
       aria-checked={active}
       onClick={onClick}
       className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition-colors ${
-        active ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-2 hover:text-fg"
+        active
+          ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+          : "text-muted hover:bg-surface-2 hover:text-fg"
       }`}
     >
       {icon}

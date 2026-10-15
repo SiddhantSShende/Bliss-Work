@@ -453,25 +453,26 @@
     "taskHint": "Vous cherchez les analyses d’une tâche précise ? Ouvrez-la depuis Mail.",
     "openMail": "Ouvrir Mail",
     "overview": {
-      "subtitle": "Une vue d'ensemble de l'activité des tâches sur tous les canaux de l'espace de travail.",
-      "allChannels": "Tous les canaux",
-      "channelFilterLabel": "Canal",
-      "privateChannel": "Canal privé",
+      "subtitle": "Une vue d'ensemble de l'activité des tâches sur tous les projets de l'espace de travail.",
+      "allProjects": "Tous les projets",
+      "projectFilterLabel": "Projet",
       "kpis": {
         "total": "Tâches totales",
         "completed": "Terminées",
         "inProgress": "En cours",
-        "overdue": "En retard"
+        "overdue": "En retard",
+        "vsPreviousPeriod": "vs période précédente",
+        "noPreviousPeriod": "Aucune donnée pour la période précédente"
       },
       "sections": {
-        "channelPerformance": "Performance par canal",
+        "projectPerformance": "Performance par projet",
         "personWorkload": "Charge de travail par personne",
         "workloadVsCompletion": "Charge vs. taux d'achèvement",
         "statusDistribution": "Répartition des statuts",
         "statusFlow": "Flux des statuts",
         "activityPulse": "Pouls d'activité"
       },
-      "statusFlowHint": "Répartition des statuts pour la période sélectionnée.",
+      "statusFlowHint": "Transitions de statut par jour pour la période sélectionnée.",
       "workloadTable": {
         "person": "Personne",
         "assigned": "Assignées",

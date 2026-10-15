@@ -10,6 +10,7 @@ package jwtauth
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -93,21 +94,53 @@ func (v *Verifier) parse(ctx context.Context, raw string) (*Claims, error) {
 	return c, nil
 }
 
+// authDiagHeader is the client-supplied (or server-minted — see
+// middleware/requestid.go) correlation id, read directly off the request
+// rather than through that package, to avoid a shared→service import for
+// what is meant to be a short-lived diagnostic.
+const authDiagHeader = "X-Request-Id"
+
 // Middleware enforces a valid Bearer token; on success it stores Claims in the context.
 // Forged x-org-id / x-user-id headers are never trusted.
+//
+// TEMPORARY: the slog.Info calls below are diagnostics for the "missing bearer
+// token" investigation (messaging channel/reaction/conversation requests
+// 401ing while others on the same page succeed) — never log the token itself,
+// only whether a well-formed `Bearer ` header arrived. Correlate with the
+// matching "authDiag" lines the shared TS ApiClient logs client-side for the
+// same X-Request-Id. Remove once root-caused.
 func (v *Verifier) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authz := r.Header.Get("Authorization")
-		if !strings.HasPrefix(authz, "Bearer ") {
+		bearerPresent := strings.HasPrefix(authz, "Bearer ")
+		if !bearerPresent {
+			slog.Info("authdiag",
+				"method", r.Method, "path", r.URL.Path,
+				"request_id", r.Header.Get(authDiagHeader),
+				"bearer_present", false, "status", http.StatusUnauthorized,
+			)
 			http.Error(w, `{"error":"missing bearer token"}`, http.StatusUnauthorized)
 			return
 		}
 		raw := strings.TrimSpace(strings.TrimPrefix(authz, "Bearer "))
 		claims, err := v.parse(r.Context(), raw)
 		if err != nil {
+			slog.Info("authdiag",
+				"method", r.Method, "path", r.URL.Path,
+				"request_id", r.Header.Get(authDiagHeader),
+				"bearer_present", true, "status", http.StatusUnauthorized, "parse_error", true,
+			)
 			http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 			return
 		}
+		// "status" here is deliberately omitted: auth PASSED, but the handler
+		// downstream decides the actual response code, which this middleware
+		// never sees.
+		slog.Info("authdiag",
+			"method", r.Method, "path", r.URL.Path,
+			"request_id", r.Header.Get(authDiagHeader),
+			"bearer_present", true, "auth_result", "ok",
+		)
 		ctx := context.WithValue(r.Context(), claimsKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

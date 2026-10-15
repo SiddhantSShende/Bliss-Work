@@ -177,7 +177,7 @@ func TestShareTaskToSelfChat(t *testing.T) {
 	// No prior OpenSelfChat call — this is also the "share a task before
 	// Notes to Self has ever been opened" path, and must create it.
 	clientMsgID := uuid.Must(uuid.NewV7()).String()
-	res, err := s.ShareTaskToSelfChat(ctx, orgID, caller, taskID, "Shared a task", clientMsgID)
+	res, err := s.ShareTaskToSelfChat(ctx, orgID, caller, taskID, "Shared a task", clientMsgID, "")
 	if err != nil {
 		t.Fatalf("ShareTaskToSelfChat: %v", err)
 	}
@@ -196,11 +196,41 @@ func TestShareTaskToSelfChat(t *testing.T) {
 	// Sharing a second task into the SAME self-chat must not open a second
 	// conversation.
 	taskID2 := uuid.Must(uuid.NewV7()).String()
-	res2, err := s.ShareTaskToSelfChat(ctx, orgID, caller, taskID2, "Shared another task", uuid.Must(uuid.NewV7()).String())
+	res2, err := s.ShareTaskToSelfChat(ctx, orgID, caller, taskID2, "Shared another task", uuid.Must(uuid.NewV7()).String(), "")
 	if err != nil {
 		t.Fatalf("ShareTaskToSelfChat (second task): %v", err)
 	}
 	if res2.ConversationID != res.ConversationID {
 		t.Fatalf("second share opened conversation %q, want the same %q", res2.ConversationID, res.ConversationID)
+	}
+
+	// A self-assigned task's composer quotes a prior message exactly like an
+	// ordinary reply does — this is what the "Chat" button on a self-assigned
+	// task routes its whole composer through (see useOpenTaskDiscussion.ts /
+	// DMView.tsx), not just the one-off "Share to Notes to Self" action, so
+	// replyToID must thread through to the stored message.
+	taskID3 := uuid.Must(uuid.NewV7()).String()
+	res3, err := s.ShareTaskToSelfChat(ctx, orgID, caller, taskID3, "quoting the first note", uuid.Must(uuid.NewV7()).String(), msgs[0].ID)
+	if err != nil {
+		t.Fatalf("ShareTaskToSelfChat (with replyToId): %v", err)
+	}
+	all, err := s.ListMessages(ctx, orgID, caller, res.ConversationID, 0, 10)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	var quoting *MessageDTO
+	for i := range all {
+		if all[i].ID == res3.MessageID {
+			quoting = &all[i]
+		}
+	}
+	if quoting == nil {
+		t.Fatalf("could not find message %q in history", res3.MessageID)
+	}
+	if quoting.TaskID != taskID3 {
+		t.Fatalf("message taskId = %q, want %q", quoting.TaskID, taskID3)
+	}
+	if quoting.ReplyToID != msgs[0].ID {
+		t.Fatalf("message replyToId = %q, want %q", quoting.ReplyToID, msgs[0].ID)
 	}
 }

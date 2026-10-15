@@ -429,25 +429,26 @@
     "taskHint": "특정 작업의 분석을 확인하고 싶으신가요? Mail에서 해당 작업을 여세요.",
     "openMail": "Mail 열기",
     "overview": {
-      "subtitle": "모든 채널에 걸친 작업 활동의 워크스페이스 전체 보기입니다.",
-      "allChannels": "모든 채널",
-      "channelFilterLabel": "채널",
-      "privateChannel": "비공개 채널",
+      "subtitle": "모든 프로젝트에 걸친 작업 활동의 워크스페이스 전체 보기입니다.",
+      "allProjects": "모든 프로젝트",
+      "projectFilterLabel": "프로젝트",
       "kpis": {
         "total": "전체 작업",
         "completed": "완료",
         "inProgress": "진행 중",
-        "overdue": "기한 초과"
+        "overdue": "기한 초과",
+        "vsPreviousPeriod": "이전 기간 대비",
+        "noPreviousPeriod": "이전 기간 데이터 없음"
       },
       "sections": {
-        "channelPerformance": "채널별 성과",
+        "projectPerformance": "프로젝트별 성과",
         "personWorkload": "담당자별 업무량",
         "workloadVsCompletion": "업무량 대비 완료율",
         "statusDistribution": "상태 분포",
         "statusFlow": "상태 흐름",
         "activityPulse": "활동 추이"
       },
-      "statusFlowHint": "선택한 기간의 상태 구성입니다.",
+      "statusFlowHint": "선택한 기간의 일별 상태 전환입니다.",
       "workloadTable": {
         "person": "담당자",
         "assigned": "할당됨",

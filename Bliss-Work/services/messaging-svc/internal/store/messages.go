@@ -192,12 +192,19 @@ func (s *Store) Reply(ctx context.Context, orgID, senderID, convID, body, client
 // themselves see later is already impossible: this endpoint only ever
 // shares into the CALLER'S own self-chat, so the sharer and the viewer are
 // the same person and the same authorization check applies to both.
-func (s *Store) ShareTaskToSelfChat(ctx context.Context, orgID, callerID, taskID, body, clientMsgID string) (*SendResult, error) {
+//
+// replyToID quotes another message in the same self-chat, exactly like
+// Reply's own replyToID — a self-assigned task's "Chat" button routes its
+// ENTIRE composer through this entry point (not just the one-off "Share to
+// Notes to Self" action), since SendTaskDiscussionMessage rejects
+// peerID == callerID; every message typed there needs to keep the quote
+// feature working too.
+func (s *Store) ShareTaskToSelfChat(ctx context.Context, orgID, callerID, taskID, body, clientMsgID, replyToID string) (*SendResult, error) {
 	convID, err := s.OpenSelfChat(ctx, orgID, callerID)
 	if err != nil {
 		return nil, err
 	}
-	return s.replyImpl(ctx, orgID, callerID, convID, "", "", body, clientMsgID, "", true, "", "", taskID)
+	return s.replyImpl(ctx, orgID, callerID, convID, "", "", body, clientMsgID, replyToID, true, "", "", taskID)
 }
 
 // ReplyAttachmentActivity appends a MessageKindAttachmentOpened/Downloaded

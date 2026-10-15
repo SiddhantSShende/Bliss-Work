@@ -106,7 +106,7 @@ export function Profile() {
                 aria-label={
                   user.avatarUrl ? t("account:profile.photo.changePhotoAria") : t("account:profile.photo.addPhotoAria")
                 }
-                className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-accent-fg shadow-soft ring-2 ring-surface transition hover:brightness-105 disabled:pointer-events-none disabled:opacity-60"
+                className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg shadow-soft ring-2 ring-surface transition hover:brightness-105 disabled:pointer-events-none disabled:opacity-60"
               >
                 {uploadPhoto.isPending ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
               </button>

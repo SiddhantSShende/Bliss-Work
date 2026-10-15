@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { linePath } from "./scale";
 
 /**
@@ -15,7 +16,10 @@ export function StatTile({
 }: {
   label: string;
   value: string;
-  hint?: string;
+  /** Plain text, or a small node (e.g. a colored vs-previous-period delta) —
+   *  widened from `string` so callers can color part of the hint without a
+   *  second component. */
+  hint?: ReactNode;
   /** Up to ~12 points. Drawn in the de-emphasis hue: it is context for the
    *  number, not a second thing to read. */
   trend?: number[];

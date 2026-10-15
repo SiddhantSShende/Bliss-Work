@@ -13,7 +13,7 @@ const button = cva(
         secondary:
           "bg-surface text-fg border border-border hover:bg-surface-2 hover:border-muted/40",
         ghost: "text-fg hover:bg-surface-2",
-        subtle: "bg-accent-soft text-accent hover:brightness-[0.97]",
+        subtle: "bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent hover:brightness-[0.97]",
         danger: "bg-danger text-white shadow-soft hover:brightness-110",
         success: "bg-success text-white shadow-soft hover:brightness-110",
       },

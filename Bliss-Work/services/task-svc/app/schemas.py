@@ -628,7 +628,8 @@ class ProjectAnalyticsDTO(BaseModel):
     tasksTotal: int
 
 
-# ── Workspace-wide overview (org_admin only; see tasks_analytics.workspace_overview) ──
+# ── Workspace-wide overview (open to every member, row-scoped for non-admins;
+# see tasks_analytics.workspace_overview) ──────────────────────────────────
 
 
 class WorkloadBreakdownDTO(BaseModel):
@@ -640,17 +641,57 @@ class WorkloadBreakdownDTO(BaseModel):
     completionRate: float  # 0..100; 0 when assignedCount == 0
 
 
-class ChannelPerformanceDTO(BaseModel):
-    channelId: str
-    totalUniqueTasks: int
-    completedUniqueTasks: int
-    completionRate: float  # 0..100; 0 when totalUniqueTasks == 0
-
-
 class DailyActivityPointDTO(BaseModel):
     day: str  # YYYY-MM-DD, local to the org's rollup — see _parse_overview_range
     tasksCreated: int
     tasksCompleted: int
+
+
+class ProjectPerformanceDTO(BaseModel):
+    projectId: str
+    name: str
+    totalUniqueTasks: int
+    completedUniqueTasks: int
+    completionRate: float  # 0..100; 0 when totalUniqueTasks == 0
+    # completionRate minus the same project's completionRate over the
+    # immediately preceding, equal-length period. None when the project had
+    # no tasks at all in that prior window (nothing to compare against —
+    # never fabricated as 0).
+    trendPct: float | None = None
+
+
+# A KPI's headline value for the selected range, alongside what the same
+# measure was over the immediately preceding, equal-length window, and a
+# day-bucketed series of real event counts (never a smoothed/invented curve)
+# for the card's sparkline.
+class KpiTrendDTO(BaseModel):
+    value: int
+    previousValue: int
+    deltaPct: float | None = None  # None when previousValue == 0
+    sparkline: list[int]
+
+
+class WorkspaceKpiTrendsDTO(BaseModel):
+    totalTasks: KpiTrendDTO
+    completed: KpiTrendDTO
+    inProgress: KpiTrendDTO
+    overdue: KpiTrendDTO
+
+
+# One calendar day's count of assignee rows that ENTERED each status that day
+# (keyed by that status's own timestamp column — assigned_at/acknowledged_at/
+# completed_at/missed_at/ignored_at/left_at). This is an event-flow view, not
+# a point-in-time snapshot: "Status Flow" shows how much work moved into each
+# status per day, the same per-event-day bucketing dailyActivity already uses
+# for created/completed.
+class StatusDayPointDTO(BaseModel):
+    day: str
+    sent: int
+    acknowledged: int
+    completed: int
+    missed: int
+    ignored: int
+    left: int
 
 
 class WorkspaceOverviewDTO(BaseModel):
@@ -659,7 +700,9 @@ class WorkspaceOverviewDTO(BaseModel):
     overdueUniqueTasks: int
     inProgressUniqueTasks: int
     workload: list[WorkloadBreakdownDTO]
-    channels: list[ChannelPerformanceDTO]
+    projectPerformance: list[ProjectPerformanceDTO]
     dailyActivity: list[DailyActivityPointDTO]
+    kpis: WorkspaceKpiTrendsDTO
+    statusFlow: list[StatusDayPointDTO]
     rangeFrom: str
     rangeTo: str

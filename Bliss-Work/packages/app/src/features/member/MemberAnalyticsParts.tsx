@@ -5,6 +5,7 @@ import { formatMs } from "../../i18n/format";
 import type { ActivitySummaryDTO, NamedCount, TimelineEntry } from "@taskboard/shared";
 import { actionLabel, formatDuration } from "./activityLabels";
 import { resolveAppName } from "./appNames";
+import { getAppIcon } from "./appIcons";
 
 /** One headline number: icon, label, value and a line of small supporting text.
  *  `change` is a real % versus the previous period, or null/undefined to omit it. */
@@ -123,8 +124,8 @@ function Legend({ color, label, value, hint }: { color: string; label: string; v
 }
 
 /** Most-used applications as plain horizontal bars. `apps` is the summary's
- *  `topApps`; each row is led by a neutral initial tile (no per-app icon source
- *  exists in the client). */
+ *  `topApps`; each row is led by a real brand icon when one exists for that
+ *  executable (see appIcons.ts), falling back to the neutral initial tile. */
 export function TopAppsBody({ apps }: { apps: NamedCount[] }) {
   const { t } = useTranslation("members");
   const rows = apps.filter((a) => a.valueMs > 0).slice(0, 5);
@@ -134,11 +135,18 @@ export function TopAppsBody({ apps }: { apps: NamedCount[] }) {
     <ul className="m-0 list-none space-y-4 p-0">
       {rows.map((a) => {
         const name = resolveAppName(a.key);
+        const AppIcon = getAppIcon(a.key);
         return (
           <li key={a.key} className="flex items-center gap-3">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-xs font-semibold text-muted">
-              {name.charAt(0).toUpperCase()}
-            </span>
+            {AppIcon ? (
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center">
+                <AppIcon size={24} />
+              </span>
+            ) : (
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-xs font-semibold text-muted">
+                {name.charAt(0).toUpperCase()}
+              </span>
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2 text-sm">
                 <span className="truncate text-fg" title={name}>{name}</span>

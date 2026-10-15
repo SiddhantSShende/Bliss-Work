@@ -24,8 +24,8 @@
     }
   },
   "twoFactor": {
-    "title": "Zwei-Faktor-Authentifizierung",
-    "description": "Fügen Sie eine Authenticator-App als zweiten Anmeldeschritt hinzu."
+    "title": "Sicherheit",
+    "description": "Verwalten Sie die Zwei-Faktor-Authentifizierung und Ihr Passwort."
   },
   "activeSessions": {
     "title": "Aktuelle Anmeldungen",

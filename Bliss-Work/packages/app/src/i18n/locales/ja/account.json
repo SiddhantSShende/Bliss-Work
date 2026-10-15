@@ -88,6 +88,7 @@
     "errors": {
       "access_denied": "You declined the Microsoft sign-in request. Connect again when you're ready.",
       "not_configured": "Microsoft 365 isn't set up for this workspace yet. Ask an admin to add the Microsoft app credentials.",
+      "plan_required": "External Integrations requires the enterprise plan. Ask a workspace admin to upgrade to connect Microsoft 365.",
       "oauth_failed": "We couldn't finish connecting to Microsoft. Please try again.",
       "already_connected_by_teammate": "This Outlook mailbox is already connected by another teammate. Ask them to disconnect it first.",
       "generic": "Something went wrong connecting your Microsoft account. Please try again."
@@ -110,10 +111,33 @@
     "approximateNetwork": "おおよそのネットワーク",
     "signOut": "ログアウト"
   },
+  "changePassword": {
+    "card": {
+      "title": "パスワードを変更",
+      "description": "ログインに使うパスワードを更新します。",
+      "action": "パスワードを変更"
+    },
+    "dialog": {
+      "title": "パスワードを変更"
+    },
+    "currentPasswordLabel": "現在のパスワード",
+    "confirmPasswordLabel": "新しいパスワード(確認)",
+    "submit": "パスワードを変更",
+    "errors": {
+      "currentPasswordIncorrect": "パスワードが正しくありません。",
+      "confirmMismatch": "パスワードが一致しません。"
+    },
+    "toasts": {
+      "success": "パスワードを変更しました",
+      "tooManyAttemptsTitle": "試行回数が多すぎます。しばらく待ってから再試行してください。",
+      "failedTitle": "パスワードを変更できませんでした",
+      "failedDescription": "もう一度お試しください。"
+    }
+  },
   "mfaSettings": {
     "header": {
-      "title": "二要素認証",
-      "subtitle": "認証アプリを使って、ログインに第2段階を追加します。"
+      "title": "セキュリティ",
+      "subtitle": "二要素認証とパスワードを管理します。"
     },
     "enrolled": {
       "status": {

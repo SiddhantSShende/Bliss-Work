@@ -24,8 +24,8 @@
     }
   },
   "twoFactor": {
-    "title": "二要素認証",
-    "description": "認証アプリをログインの第2段階として追加します。"
+    "title": "セキュリティ",
+    "description": "二要素認証とパスワードを管理します。"
   },
   "activeSessions": {
     "title": "現在のログイン",

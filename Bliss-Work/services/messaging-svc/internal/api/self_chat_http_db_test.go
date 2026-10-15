@@ -146,4 +146,79 @@ func TestShareTaskToSelfChat_ThroughTheAPI(t *testing.T) {
 		map[string]any{"taskId": "not-a-uuid", "body": "x", "clientMsgId": uuid.Must(uuid.NewV7()).String()}); code != 400 {
 		t.Fatalf("malformed taskId = %d: %s", code, body)
 	}
+	if code, body := host("POST", "/api/v1/conversations/self/share-task",
+		map[string]any{
+			"taskId": taskID, "body": "x", "clientMsgId": uuid.Must(uuid.NewV7()).String(),
+			"replyToId": "not-a-uuid",
+		}); code != 400 {
+		t.Fatalf("malformed replyToId = %d: %s", code, body)
+	}
+
+	// A self-assigned task's composer (see useOpenTaskDiscussion.ts /
+	// DMView.tsx) routes every message through this endpoint rather than
+	// /reply, so quoting another message must thread through exactly as it
+	// does on an ordinary DM.
+	firstMessageID := msgs0IDOf(t, host, res.ConversationID)
+	taskID2 := uuid.Must(uuid.NewV7()).String()
+	code, body = host("POST", "/api/v1/conversations/self/share-task",
+		map[string]any{
+			"taskId": taskID2, "body": "quoting the first one",
+			"clientMsgId": uuid.Must(uuid.NewV7()).String(), "replyToId": firstMessageID,
+		})
+	if code != 201 {
+		t.Fatalf("share-task with replyToId = %d: %s", code, body)
+	}
+	var res2 struct {
+		MessageID string `json:"messageId"`
+	}
+	if err := json.Unmarshal(body, &res2); err != nil {
+		t.Fatalf("decode: %v (%s)", err, body)
+	}
+
+	code, body = host("GET", "/api/v1/conversations/"+res.ConversationID+"/messages", nil)
+	if code != 200 {
+		t.Fatalf("list = %d: %s", code, body)
+	}
+	var msgs2 []struct {
+		ID        string `json:"id"`
+		TaskID    string `json:"taskId"`
+		ReplyToID string `json:"replyToId"`
+	}
+	_ = json.Unmarshal(body, &msgs2)
+	var quoting *struct {
+		ID        string `json:"id"`
+		TaskID    string `json:"taskId"`
+		ReplyToID string `json:"replyToId"`
+	}
+	for i := range msgs2 {
+		if msgs2[i].ID == res2.MessageID {
+			quoting = &msgs2[i]
+		}
+	}
+	if quoting == nil {
+		t.Fatalf("message %s not found in %+v", res2.MessageID, msgs2)
+	}
+	if quoting.TaskID != taskID2 {
+		t.Fatalf("taskId = %q, want %q", quoting.TaskID, taskID2)
+	}
+	if quoting.ReplyToID != firstMessageID {
+		t.Fatalf("replyToId = %q, want %q", quoting.ReplyToID, firstMessageID)
+	}
+}
+
+// msgs0IDOf fetches convID's message history and returns the first message's
+// id — a small helper so the replyToId case above can quote a real message.
+func msgs0IDOf(t *testing.T, host func(method, path string, body any) (int, []byte), convID string) string {
+	t.Helper()
+	code, body := host("GET", "/api/v1/conversations/"+convID+"/messages", nil)
+	if code != 200 {
+		t.Fatalf("list = %d: %s", code, body)
+	}
+	var msgs []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &msgs); err != nil || len(msgs) == 0 {
+		t.Fatalf("decode/empty: %v (%s)", err, body)
+	}
+	return msgs[0].ID
 }

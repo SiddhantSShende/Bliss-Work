@@ -24,8 +24,8 @@
     }
   },
   "twoFactor": {
-    "title": "Autenticación en dos pasos",
-    "description": "Agrega una aplicación de autenticación como segundo paso al iniciar sesión."
+    "title": "Seguridad",
+    "description": "Administra la autenticación en dos pasos y tu contraseña."
   },
   "activeSessions": {
     "title": "Inicios de sesión actuales",

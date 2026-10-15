@@ -24,8 +24,8 @@
     }
   },
   "twoFactor": {
-    "title": "Autenticação em dois fatores",
-    "description": "Adicione um app autenticador como segunda etapa de login."
+    "title": "Segurança",
+    "description": "Gerencie a autenticação em dois fatores e sua senha."
   },
   "activeSessions": {
     "title": "Logins atuais",

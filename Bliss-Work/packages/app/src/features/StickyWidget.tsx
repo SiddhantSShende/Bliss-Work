@@ -463,7 +463,7 @@ function ActionBtn({
   disabled?: boolean;
 }) {
   const tones = {
-    accent: "bg-accent text-accent-fg hover:bg-accent-strong shadow-soft",
+    accent: "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg hover:brightness-105 shadow-soft",
     ghost: "border border-border text-fg hover:bg-surface-2",
     danger: "bg-danger text-white hover:brightness-110 shadow-soft",
   };

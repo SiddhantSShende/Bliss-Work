@@ -93,7 +93,7 @@ export function MeetingScheduledDialog({
               onStarted?.(call);
               onClose();
             }}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition hover:brightness-105"
+            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-brand-from via-brand-mid to-brand-to px-4 py-2 text-sm font-medium text-accent-fg transition hover:brightness-105"
           >
             <Video size={15} />
             {t("newMeeting.confirmation.startNow")}

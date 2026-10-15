@@ -96,7 +96,9 @@ export function Tasks() {
               to={`/app/tasks/projects/${project.id}`}
               className={({ isActive }) =>
                 `max-w-52 shrink-0 truncate rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                  isActive ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
+                  isActive
+                    ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+                    : "bg-surface-2 text-muted hover:text-fg"
                 }`
               }
             >
@@ -113,7 +115,9 @@ export function Tasks() {
               to={`/app/tasks/projects/${project.id}`}
               className={({ isActive }) =>
                 `max-w-52 shrink-0 truncate rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                  isActive ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
+                  isActive
+                    ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+                    : "bg-surface-2 text-muted hover:text-fg"
                 }`
               }
             >
@@ -129,7 +133,9 @@ export function Tasks() {
             to={`/app/tasks/${bucketView}`}
             className={({ isActive }) =>
               `shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                isActive ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
+                isActive
+                  ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+                  : "bg-surface-2 text-muted hover:text-fg"
               }`
             }
 

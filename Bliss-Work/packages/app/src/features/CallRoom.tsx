@@ -855,7 +855,7 @@ export function CallRoom({
   if (endedBeforeJoin || (status === "failed" && failStage === "ended")) {
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
           <AlertCircle size={24} />
         </div>
         <div className="max-w-sm">
@@ -940,7 +940,7 @@ export function CallRoom({
                   />
                   {!previewCamOn && !previewError && (
                     <div className="text-center text-muted">
-                      <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-accent-soft text-2xl font-semibold text-accent">
+                      <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-2xl font-semibold text-accent-fg">
                         {myName.slice(0, 2).toUpperCase()}
                       </div>
                       <div className="text-sm">{t("preJoin.cameraOffPlaceholder")}</div>
@@ -1044,7 +1044,7 @@ export function CallRoom({
     // can normally be in.
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
           <Clock size={24} />
         </div>
         <div className="max-w-sm">
@@ -1090,7 +1090,7 @@ export function CallRoom({
   if (status === "switch_required") {
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
           <AlertCircle size={24} />
         </div>
         <div className="max-w-sm">

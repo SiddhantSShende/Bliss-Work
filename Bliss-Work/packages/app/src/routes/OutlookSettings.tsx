@@ -5,7 +5,7 @@ import { Mail, CheckCircle2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button, EmptyState, PageHeader, Spinner } from "@taskboard/ui";
-import type { IntegrationConnectionDTO } from "@taskboard/shared";
+import { ApiError, type IntegrationConnectionDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useGoBack } from "../lib/useGoBack";
 import { qk } from "../lib/queryKeys";
@@ -75,8 +75,17 @@ export function OutlookSettings() {
       }
       // Shouldn't happen for an OAuth provider, but don't strand the button.
       setConnecting(false);
-    } catch {
-      toast.error(t("account:outlookSettings.errors.generic"));
+    } catch (err) {
+      // connect/start's two documented failures (routes/integrations.py) are
+      // both actionable, not transient — tell the member what actually
+      // happened instead of a one-size-fits-all "try again".
+      toast.error(
+        err instanceof ApiError && err.status === 403
+          ? t("account:outlookSettings.errors.plan_required")
+          : err instanceof ApiError && err.status === 409
+            ? t("account:outlookSettings.errors.not_configured")
+            : t("account:outlookSettings.errors.generic"),
+      );
       setConnecting(false);
     }
   };

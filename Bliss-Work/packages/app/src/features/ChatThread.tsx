@@ -105,7 +105,7 @@ function quoted(m: ThreadMessage, byId: Map<string, ThreadMessage>, t: TFunction
   return (
     <div className="mb-1 border-l-2 border-current/40 pl-2 text-xs opacity-75">
       {src?.senderName && <div className="font-medium">{src.senderName}</div>}
-      <div className="line-clamp-2 break-words">{text}</div>
+      <div className="line-clamp-2 [overflow-wrap:anywhere]">{text}</div>
     </div>
   );
 }
@@ -688,12 +688,12 @@ export function ChatThread({
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.16 }}
-                  className={`flex flex-1 items-end gap-2 ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}
+                  className={`flex min-w-0 flex-1 items-end gap-2 ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}
                 >
                   {!mine && showSenderNames && (
                     <div className="w-7 shrink-0">{!grouped && <Avatar name={m.senderName || "?"} size="sm" />}</div>
                   )}
-                  <div className={`flex ${custom ? "max-w-[85%]" : "max-w-[72%]"} flex-col ${mine ? "items-end" : "items-start"}`}>
+                  <div className={`flex min-w-0 ${custom ? "max-w-[85%]" : "max-w-[72%]"} flex-col ${mine ? "items-end" : "items-start"}`}>
                     {!mine && showSenderNames && !grouped && (
                       <div className="mb-0.5 ml-1 text-xs font-medium text-muted">{m.senderName}</div>
                     )}
@@ -777,10 +777,10 @@ export function ChatThread({
                       ) : (
                         <div
                           className={(emojiOnly
-                            ? `whitespace-pre-wrap break-words text-4xl leading-none ${m.pending ? "opacity-60" : ""}`
-                            : `whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${mine
-                              ? "rounded-br-md bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
-                              : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
+                            ? `whitespace-pre-wrap text-4xl leading-none ${m.pending ? "opacity-60" : ""}`
+                            : `whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl px-3.5 py-2 text-sm text-fg shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ring-1 ring-border/60 ${mine
+                              ? "rounded-br-md bg-bubble-sent"
+                              : "rounded-bl-md bg-bubble-received"
                               } ${m.pending ? "opacity-60" : ""}`) + (selecting ? " pointer-events-none select-none" : "")}
                         >
                           {quoted(m, byId, t)}

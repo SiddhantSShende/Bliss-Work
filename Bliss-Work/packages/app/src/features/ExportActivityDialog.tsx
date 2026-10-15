@@ -98,7 +98,9 @@ export function ExportActivityDialog({
               key={r.key}
               onClick={() => setRange(r.key)}
               className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                range === r.key ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
+                range === r.key
+                  ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+                  : "bg-surface-2 text-muted hover:text-fg"
               }`}
             >
               {r.label}

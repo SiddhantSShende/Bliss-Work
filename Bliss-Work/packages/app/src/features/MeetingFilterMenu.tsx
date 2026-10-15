@@ -55,7 +55,7 @@ export function MeetingFilterMenu({
         aria-expanded={open}
         className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm font-medium transition-colors ${
           active
-            ? "border-accent/40 bg-accent-soft text-accent"
+            ? "border-accent/40 bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent"
             : "border-border bg-surface text-fg hover:bg-surface-2"
         }`}
       >

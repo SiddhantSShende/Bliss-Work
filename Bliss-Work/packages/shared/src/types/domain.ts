@@ -1112,9 +1112,9 @@ export const ProjectAnalyticsDTO = z.object({
 });
 export type ProjectAnalyticsDTO = z.infer<typeof ProjectAnalyticsDTO>;
 
-// ── Workspace-wide overview (org_admin only; GET /tasks/analytics/overview) ──
-// Aggregates every channel and every member in the org, unlike the three DTOs
-// above which each scope to something the caller is already a party to.
+// ── Workspace-wide overview (GET /tasks/analytics/overview) ──────────────────
+// Open to every member; non-admins are row-scoped server-side to tasks they
+// are already a party to. Aggregates every project and every in-scope member.
 
 export const WorkloadBreakdownDTO = z.object({
   assigneeId: z.string().uuid(),
@@ -1127,15 +1127,6 @@ export const WorkloadBreakdownDTO = z.object({
 });
 export type WorkloadBreakdownDTO = z.infer<typeof WorkloadBreakdownDTO>;
 
-export const ChannelPerformanceDTO = z.object({
-  channelId: z.string().uuid(),
-  totalUniqueTasks: z.number().int(),
-  completedUniqueTasks: z.number().int(),
-  /** 0..100; 0 when totalUniqueTasks is 0. */
-  completionRate: z.number(),
-});
-export type ChannelPerformanceDTO = z.infer<typeof ChannelPerformanceDTO>;
-
 export const DailyActivityPointDTO = z.object({
   /** YYYY-MM-DD, UTC calendar day. */
   day: z.string(),
@@ -1144,14 +1135,64 @@ export const DailyActivityPointDTO = z.object({
 });
 export type DailyActivityPointDTO = z.infer<typeof DailyActivityPointDTO>;
 
+export const ProjectPerformanceDTO = z.object({
+  projectId: z.string().uuid(),
+  name: z.string(),
+  totalUniqueTasks: z.number().int(),
+  completedUniqueTasks: z.number().int(),
+  /** 0..100; 0 when totalUniqueTasks is 0. */
+  completionRate: z.number(),
+  /** completionRate minus the same project's completionRate over the
+   *  immediately preceding, equal-length period. null when that project had
+   *  no tasks at all in the prior window — never fabricated as 0. */
+  trendPct: z.number().nullable().optional(),
+});
+export type ProjectPerformanceDTO = z.infer<typeof ProjectPerformanceDTO>;
+
+/** A KPI's headline value for the selected range, the same measure over the
+ *  immediately preceding equal-length window, and a day-bucketed series of
+ *  real event counts (never smoothed/invented) for the card's sparkline. */
+export const KpiTrendDTO = z.object({
+  value: z.number().int(),
+  previousValue: z.number().int(),
+  /** null when previousValue is 0 — nothing to compare against. */
+  deltaPct: z.number().nullable().optional(),
+  sparkline: z.array(z.number().int()),
+});
+export type KpiTrendDTO = z.infer<typeof KpiTrendDTO>;
+
+export const WorkspaceKpiTrendsDTO = z.object({
+  totalTasks: KpiTrendDTO,
+  completed: KpiTrendDTO,
+  inProgress: KpiTrendDTO,
+  overdue: KpiTrendDTO,
+});
+export type WorkspaceKpiTrendsDTO = z.infer<typeof WorkspaceKpiTrendsDTO>;
+
+/** One calendar day's count of assignee rows that ENTERED each status that
+ *  day (keyed by that status's own timestamp column) — an event-flow view,
+ *  not a point-in-time snapshot. */
+export const StatusDayPointDTO = z.object({
+  day: z.string(),
+  sent: z.number().int(),
+  acknowledged: z.number().int(),
+  completed: z.number().int(),
+  missed: z.number().int(),
+  ignored: z.number().int(),
+  left: z.number().int(),
+});
+export type StatusDayPointDTO = z.infer<typeof StatusDayPointDTO>;
+
 export const WorkspaceOverviewDTO = z.object({
   statusBreakdown: StatusBreakdownDTO,
   completion: CompletionMetricsDTO,
   overdueUniqueTasks: z.number().int(),
   inProgressUniqueTasks: z.number().int(),
   workload: z.array(WorkloadBreakdownDTO),
-  channels: z.array(ChannelPerformanceDTO),
+  projectPerformance: z.array(ProjectPerformanceDTO),
   dailyActivity: z.array(DailyActivityPointDTO),
+  kpis: WorkspaceKpiTrendsDTO,
+  statusFlow: z.array(StatusDayPointDTO),
   rangeFrom: z.string(),
   rangeTo: z.string(),
 });

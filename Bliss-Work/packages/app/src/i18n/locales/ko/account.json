@@ -88,6 +88,7 @@
     "errors": {
       "access_denied": "You declined the Microsoft sign-in request. Connect again when you're ready.",
       "not_configured": "Microsoft 365 isn't set up for this workspace yet. Ask an admin to add the Microsoft app credentials.",
+      "plan_required": "External Integrations requires the enterprise plan. Ask a workspace admin to upgrade to connect Microsoft 365.",
       "oauth_failed": "We couldn't finish connecting to Microsoft. Please try again.",
       "already_connected_by_teammate": "This Outlook mailbox is already connected by another teammate. Ask them to disconnect it first.",
       "generic": "Something went wrong connecting your Microsoft account. Please try again."
@@ -110,10 +111,33 @@
     "approximateNetwork": "대략적인 네트워크",
     "signOut": "로그아웃"
   },
+  "changePassword": {
+    "card": {
+      "title": "비밀번호 변경",
+      "description": "로그인에 사용하는 비밀번호를 업데이트하세요.",
+      "action": "비밀번호 변경"
+    },
+    "dialog": {
+      "title": "비밀번호 변경"
+    },
+    "currentPasswordLabel": "현재 비밀번호",
+    "confirmPasswordLabel": "새 비밀번호 확인",
+    "submit": "비밀번호 변경",
+    "errors": {
+      "currentPasswordIncorrect": "비밀번호가 올바르지 않아요.",
+      "confirmMismatch": "비밀번호가 일치하지 않아요."
+    },
+    "toasts": {
+      "success": "비밀번호를 변경했어요",
+      "tooManyAttemptsTitle": "시도 횟수가 너무 많아요. 잠시 후 다시 시도해 주세요.",
+      "failedTitle": "비밀번호를 변경하지 못했어요",
+      "failedDescription": "다시 시도해 주세요."
+    }
+  },
   "mfaSettings": {
     "header": {
-      "title": "2단계 인증",
-      "subtitle": "인증 앱으로 로그인에 두 번째 단계를 추가하세요."
+      "title": "보안",
+      "subtitle": "2단계 인증과 비밀번호를 관리하세요."
     },
     "enrolled": {
       "status": {

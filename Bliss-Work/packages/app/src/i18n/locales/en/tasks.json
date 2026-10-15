@@ -444,25 +444,26 @@
     "taskHint": "Looking for one task's analytics? Open it from Mail.",
     "openMail": "Open Mail",
     "overview": {
-      "subtitle": "A workspace-wide view of task activity across every channel.",
-      "allChannels": "All channels",
-      "channelFilterLabel": "Channel",
-      "privateChannel": "Private channel",
+      "subtitle": "A workspace-wide view of task activity across every project.",
+      "allProjects": "All projects",
+      "projectFilterLabel": "Project",
       "kpis": {
         "total": "Total Tasks",
         "completed": "Completed",
         "inProgress": "In Progress",
-        "overdue": "Overdue"
+        "overdue": "Overdue",
+        "vsPreviousPeriod": "vs previous period",
+        "noPreviousPeriod": "No data for the previous period"
       },
       "sections": {
-        "channelPerformance": "Channel Performance",
+        "projectPerformance": "Project Performance",
         "personWorkload": "Person Workload",
         "workloadVsCompletion": "Workload vs Completion",
         "statusDistribution": "Status Distribution",
         "statusFlow": "Status Flow",
         "activityPulse": "Activity Pulse"
       },
-      "statusFlowHint": "Status mix for the selected range.",
+      "statusFlowHint": "Task status transitions per day for the selected range.",
       "workloadTable": {
         "person": "Person",
         "assigned": "Assigned",

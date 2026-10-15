@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .. import service
 from ..config import settings
+from ..db import engine
 from crypto import cryptor
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..net import request_context
@@ -26,6 +27,7 @@ from ..security.passwords import (
     PASSWORD_POLICY_MESSAGE,
     hash_password_async,
     password_meets_policy,
+    verify_password_async,
 )
 from . import session_events
 from .invites_service import iso_z
@@ -225,6 +227,93 @@ async def reset_password_tx(
         target=user_id,
         meta=session_events.context_meta(ip=ip, user_agent=user_agent, request_id=request_id),
     )
+
+
+async def change_password_tx(
+    user_id: str, org_id: str, current_password: str, new_password: str, request: Request
+) -> None:
+    """Authenticated self-service password change: the current password alone
+    (never a second factor, even when MFA is enrolled — the caller already
+    holds a valid session and is only proving they still know the password,
+    unlike the MFA-disable/backup-codes step-up) gates setting a new,
+    policy-checked one.
+
+    Deliberately does NOT reuse mfa_service.py's step-up helpers
+    (verify_step_up/require_identity_step_up): besides requiring a second
+    factor, their failure path (_step_up_failed) constructs a
+    `service.FailedAttempt` and expects `service.record_failed_attempts()` to
+    count it — neither of which exists in this codebase (see the callers in
+    auth.py/invites.py/mfa_totp.py/mfa_challenge.py, all of which would raise
+    AttributeError if that path were ever hit). Instead this mirrors
+    `/auth/login`'s own proven lockout accounting: the failed-attempt counter
+    must COMMIT even though the request ultimately fails, so the transaction
+    is owned here (not passed in like reset_password_tx's `conn`) and the
+    auth error is raised only after it exits.
+    """
+    if not password_meets_policy(new_password):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, PASSWORD_POLICY_MESSAGE)
+    generic = HTTPException(status.HTTP_401_UNAUTHORIZED, "current password is incorrect")
+    now = datetime.now(timezone.utc)
+    ip, user_agent, request_id = request_context(request)
+    failed = False
+    locked_secs = 0
+    async with engine.begin() as conn:
+        # Identity-wide: the credential (and its lockout counter) is shared
+        # across every org membership, same as reset_password_tx.
+        await service.set_bypass_rls(conn)
+        iid = await service.identity_id_for_user(conn, user_id)
+        ident = None
+        if iid is not None:
+            ident = (
+                await conn.execute(
+                    text(
+                        "SELECT id, password_hash, failed_login_count, locked_until "
+                        "FROM identities WHERE id = :iid"
+                    ),
+                    {"iid": iid},
+                )
+            ).first()
+        if ident is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot change password")
+        if ident.locked_until is not None and ident.locked_until > now:
+            retry = max(1, int((ident.locked_until - now).total_seconds()))
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "account temporarily locked due to failed attempts; try again later",
+                headers={"Retry-After": str(retry)},
+            )
+        if not await verify_password_async(ident.password_hash, current_password):
+            locked_secs = await service.register_failed_login(conn, ident)
+            await service.write_audit(
+                conn,
+                org_id=org_id,
+                actor_id=user_id,
+                action="password.change_failed",
+                target=user_id,
+                meta=session_events.context_meta(ip=ip, user_agent=user_agent, request_id=request_id),
+            )
+            failed = True  # commit the increment, then raise below
+        else:
+            new_hash = await hash_password_async(new_password)
+            await service.set_identity_password(conn, iid, new_hash)
+            await service.reset_identity_lockout(conn, iid)
+            await service.revoke_all_identity_tokens(conn, iid)
+            await service.write_audit(
+                conn,
+                org_id=org_id,
+                actor_id=user_id,
+                action="password.changed",
+                target=user_id,
+                meta=session_events.context_meta(ip=ip, user_agent=user_agent, request_id=request_id),
+            )
+    if failed:
+        if locked_secs:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "account temporarily locked due to failed attempts; try again later",
+                headers={"Retry-After": str(locked_secs)},
+            )
+        raise generic
 
 
 # ── Email verification ───────────────────────────────────────────────────────

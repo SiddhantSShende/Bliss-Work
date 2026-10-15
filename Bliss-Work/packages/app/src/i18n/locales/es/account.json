@@ -92,6 +92,7 @@
     "errors": {
       "access_denied": "You declined the Microsoft sign-in request. Connect again when you're ready.",
       "not_configured": "Microsoft 365 isn't set up for this workspace yet. Ask an admin to add the Microsoft app credentials.",
+      "plan_required": "External Integrations requires the enterprise plan. Ask a workspace admin to upgrade to connect Microsoft 365.",
       "oauth_failed": "We couldn't finish connecting to Microsoft. Please try again.",
       "already_connected_by_teammate": "This Outlook mailbox is already connected by another teammate. Ask them to disconnect it first.",
       "generic": "Something went wrong connecting your Microsoft account. Please try again."
@@ -114,10 +115,33 @@
     "approximateNetwork": "Red aproximada",
     "signOut": "Cerrar sesión"
   },
+  "changePassword": {
+    "card": {
+      "title": "Cambiar contraseña",
+      "description": "Actualiza la contraseña que usas para iniciar sesión.",
+      "action": "Cambiar contraseña"
+    },
+    "dialog": {
+      "title": "Cambia tu contraseña"
+    },
+    "currentPasswordLabel": "Contraseña actual",
+    "confirmPasswordLabel": "Confirma la nueva contraseña",
+    "submit": "Cambiar contraseña",
+    "errors": {
+      "currentPasswordIncorrect": "Esa contraseña es incorrecta.",
+      "confirmMismatch": "Las contraseñas no coinciden."
+    },
+    "toasts": {
+      "success": "Contraseña actualizada",
+      "tooManyAttemptsTitle": "Demasiados intentos. Espera antes de volver a intentarlo.",
+      "failedTitle": "No se pudo cambiar tu contraseña",
+      "failedDescription": "Inténtalo de nuevo."
+    }
+  },
   "mfaSettings": {
     "header": {
-      "title": "Autenticación en dos pasos",
-      "subtitle": "Agrega un segundo paso al inicio de sesión con una aplicación de autenticación."
+      "title": "Seguridad",
+      "subtitle": "Administra tu autenticación en dos pasos y tu contraseña."
     },
     "enrolled": {
       "status": {

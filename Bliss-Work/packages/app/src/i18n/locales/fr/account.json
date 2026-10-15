@@ -92,6 +92,7 @@
     "errors": {
       "access_denied": "You declined the Microsoft sign-in request. Connect again when you're ready.",
       "not_configured": "Microsoft 365 isn't set up for this workspace yet. Ask an admin to add the Microsoft app credentials.",
+      "plan_required": "External Integrations requires the enterprise plan. Ask a workspace admin to upgrade to connect Microsoft 365.",
       "oauth_failed": "We couldn't finish connecting to Microsoft. Please try again.",
       "already_connected_by_teammate": "This Outlook mailbox is already connected by another teammate. Ask them to disconnect it first.",
       "generic": "Something went wrong connecting your Microsoft account. Please try again."
@@ -114,10 +115,33 @@
     "approximateNetwork": "Réseau approximatif",
     "signOut": "Se déconnecter"
   },
+  "changePassword": {
+    "card": {
+      "title": "Changer le mot de passe",
+      "description": "Mettez à jour le mot de passe que vous utilisez pour vous connecter.",
+      "action": "Changer le mot de passe"
+    },
+    "dialog": {
+      "title": "Changer votre mot de passe"
+    },
+    "currentPasswordLabel": "Mot de passe actuel",
+    "confirmPasswordLabel": "Confirmer le nouveau mot de passe",
+    "submit": "Changer le mot de passe",
+    "errors": {
+      "currentPasswordIncorrect": "Ce mot de passe est incorrect.",
+      "confirmMismatch": "Les mots de passe ne correspondent pas."
+    },
+    "toasts": {
+      "success": "Mot de passe modifié",
+      "tooManyAttemptsTitle": "Trop de tentatives. Veuillez patienter avant de réessayer.",
+      "failedTitle": "Impossible de modifier votre mot de passe",
+      "failedDescription": "Veuillez réessayer."
+    }
+  },
   "mfaSettings": {
     "header": {
-      "title": "Authentification à deux facteurs",
-      "subtitle": "Ajoutez une seconde étape à la connexion avec une application d'authentification."
+      "title": "Sécurité",
+      "subtitle": "Gérez votre authentification à deux facteurs et votre mot de passe."
     },
     "enrolled": {
       "status": {

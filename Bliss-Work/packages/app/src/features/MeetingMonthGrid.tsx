@@ -119,7 +119,7 @@ function DayCell({
         title={t("monthGrid.openThisWeek")}
         className={`mb-1 flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold transition-colors ${
           today
-            ? "bg-accent text-accent-fg"
+            ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
             : inMonth
               ? "text-fg hover:bg-surface-2"
               : "text-muted hover:bg-surface-2"

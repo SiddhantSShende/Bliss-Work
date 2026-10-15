@@ -50,7 +50,10 @@ export function Wordmark({
     <span className={cn("inline-flex items-center gap-2.5", className)}>
       {showIcon && <Logo size={size} />}
       <span className={cn("text-[17px] font-semibold tracking-tight text-fg", textClassName)}>
-        Bliss<span className="text-accent">Work</span>
+        Bliss
+        <span className="bg-gradient-to-br from-brand-from via-brand-mid to-brand-to bg-clip-text text-transparent">
+          Work
+        </span>
       </span>
     </span>
   );

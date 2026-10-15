@@ -24,8 +24,8 @@
     }
   },
   "twoFactor": {
-    "title": "双重验证",
-    "description": "添加验证器应用，作为登录的第二道验证。"
+    "title": "安全",
+    "description": "管理双重验证和您的密码。"
   },
   "activeSessions": {
     "title": "当前登录",

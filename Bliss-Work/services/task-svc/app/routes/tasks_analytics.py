@@ -13,17 +13,20 @@ from ..db import session, set_org_context
 from ..schemas import (
     AssigneeWorkloadDTO,
     ChannelAnalyticsDTO,
-    ChannelPerformanceDTO,
     CompletionMetricsDTO,
     DailyActivityPointDTO,
+    KpiTrendDTO,
     ProjectAnalyticsDTO,
+    ProjectPerformanceDTO,
     ProjectTaskAssigneeDTO,
     ProjectTaskStatus,
     ProjectTaskSummaryDTO,
     StatusBreakdownDTO,
+    StatusDayPointDTO,
     TaskAnalyticsAssigneeDTO,
     TaskAnalyticsDTO,
     WorkloadBreakdownDTO,
+    WorkspaceKpiTrendsDTO,
     WorkspaceOverviewDTO,
 )
 from .helpers import iso
@@ -36,7 +39,7 @@ _DEFAULT_TASKS_LIMIT = 20
 _MAX_TASKS_LIMIT = 100
 _DEFAULT_OVERVIEW_DAYS = 30
 _MAX_OVERVIEW_RANGE_DAYS = 400
-_OVERVIEW_CHANNELS_LIMIT = 10
+_OVERVIEW_PROJECTS_LIMIT = 10
 _OVERVIEW_WORKLOAD_LIMIT = 20
 
 # Rows never left/ignored their assignment — the ones that can still make a
@@ -50,6 +53,30 @@ def _unique_task_completion(total_unique: int, completed_unique: int, abandoned_
 
 def _rate(numerator: int, denominator: int) -> float:
     return (numerator / denominator * 100) if denominator else 0.0
+
+
+def _delta_pct(current: int, previous: int) -> float | None:
+    """None (never 0 or Infinity) when there is nothing to compare against —
+    a previous period with zero activity doesn't make "the trend" fabricated
+    data."""
+    return ((current - previous) / previous * 100) if previous else None
+
+
+# The four unique-task aggregates every overview/project/channel endpoint
+# derives from a `per_task_rows`-shaped result set (task_id, remaining,
+# remaining_incomplete, missed_count) — factored out so workspace_overview can
+# apply it to both the selected range and the immediately preceding one.
+def _task_aggregates(rows: list) -> tuple[int, int, int, int, int]:
+    total_unique = len(rows)
+    completed_unique = sum(1 for r in rows if r.remaining > 0 and r.remaining_incomplete == 0)
+    abandoned_unique = sum(1 for r in rows if r.remaining == 0)
+    remaining_unique = total_unique - completed_unique - abandoned_unique
+    overdue_unique = sum(1 for r in rows if r.missed_count > 0)
+    # Always a subset of remaining_unique: a MISSED row keeps remaining_incomplete
+    # > 0 (MISSED is in _REMAINING_STATUSES and is never COMPLETED), so an
+    # overdue task can be neither "completed" nor "abandoned".
+    in_progress_unique = remaining_unique - overdue_unique
+    return total_unique, completed_unique, overdue_unique, in_progress_unique, abandoned_unique
 
 
 @router.get("/tasks/{task_id}/analytics", response_model=TaskAnalyticsDTO)
@@ -529,34 +556,40 @@ async def workspace_overview(
     principal: Principal = PrincipalDep,
     from_: str | None = Query(default=None, alias="from"),
     to: str | None = Query(default=None),
-    channelId: str | None = Query(default=None),
+    projectId: str | None = Query(default=None),
 ) -> WorkspaceOverviewDTO:
-    """Workspace-wide rollup: KPI totals, a per-channel completion ranking,
-    per-person workload, and a day-bucketed activity series — the data behind
-    the Analytics page's overview dashboard.
+    """Workspace-wide rollup: KPI totals (each with a vs-previous-period delta
+    and a day-bucketed sparkline), a per-project completion ranking, per-person
+    workload, a day-bucketed activity series, and a day×status "flow" series —
+    the data behind the Analytics page's overview dashboard.
 
     Open to any authenticated member, but non-admins only ever see tasks they
     are already a party to (sender or assignee) — the same "am I a party to
     this" rule task_analytics/channel_analytics/project_analytics enforce
     above, just applied as a row filter instead of a single lookup, since this
     endpoint aggregates rather than fetching one task/channel/project. Members
-    never see another member's channels, workload, or activity this way.
+    never see another member's projects, workload, or activity this way.
 
     org_admin keeps the original unrestricted, org-wide rollup (including
-    channels/members the caller never joined) — the same elevated view
+    projects/members the caller never joined) — the same elevated view
     telemetry-svc's GET /telemetry/org/summary grants admins for the same
     reason.
+
+    `tasks.project_id` is a plain nullable FK (a task belongs to at most one
+    project), unlike the many-channels join table — so, unlike the retired
+    channel filter, scoping by project needs no extra JOIN, just a WHERE.
     """
     org_id, me = principal.org_id, principal.user_id
     is_admin = "org_admin" in principal.roles
     start_day, end_day = _overview_range(from_, to)
     start = datetime.combine(start_day, time.min, tzinfo=timezone.utc)
     end = datetime.combine(end_day + timedelta(days=1), time.min, tzinfo=timezone.utc)
+    # The immediately preceding, equal-length window — the baseline every KPI
+    # and project trend is compared against. Never shown as its own range.
+    prev_end = start
+    prev_start = start - (end - start)
 
-    channel_join = (
-        "JOIN task_channels tc ON tc.task_id = t.id AND tc.org_id = t.org_id" if channelId else ""
-    )
-    channel_where = "AND tc.channel_id = :channel_id" if channelId else ""
+    project_where = "AND t.project_id = :project_id" if projectId else ""
     member_where = (
         ""
         if is_admin
@@ -568,8 +601,45 @@ async def workspace_overview(
         )
     )
     params: dict[str, object] = {"org": org_id, "start": start, "end": end, "me": me}
-    if channelId:
-        params["channel_id"] = channelId
+    prev_params: dict[str, object] = {"org": org_id, "start": prev_start, "end": prev_end, "me": me}
+    if projectId:
+        params["project_id"] = projectId
+        prev_params["project_id"] = projectId
+
+    # Same per-task "remaining / remaining_incomplete / missed_count" rule as
+    # project_analytics above, scoped org-wide (or to one project) instead of
+    # to a single project's own route.
+    per_task_sql = text(
+        "SELECT ta.task_id, "
+        "       COUNT(*) FILTER (WHERE ta.status NOT IN ('LEFT','IGNORED')) AS remaining, "
+        "       COUNT(*) FILTER ("
+        "           WHERE ta.status NOT IN ('LEFT','IGNORED') AND ta.status <> 'COMPLETED'"
+        "       ) AS remaining_incomplete, "
+        "       COUNT(*) FILTER (WHERE ta.status = 'MISSED') AS missed_count "
+        "FROM tasks t "
+        "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
+        "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
+        f"{project_where} {member_where} "
+        "GROUP BY ta.task_id"
+    )
+    # Per (project, task) — always grouped by project_id (it IS the ranking
+    # key), independent of the optional single-project filter above. Tasks
+    # with no project are excluded from the ranking (there is nothing to
+    # name), the same way the retired per-channel ranking only ever covered
+    # tasks attached to a channel.
+    per_project_sql = text(
+        "SELECT t.project_id, t.id AS task_id, "
+        "       COUNT(*) FILTER (WHERE ta.status NOT IN ('LEFT','IGNORED')) AS remaining, "
+        "       COUNT(*) FILTER ("
+        "           WHERE ta.status NOT IN ('LEFT','IGNORED') AND ta.status <> 'COMPLETED'"
+        "       ) AS remaining_incomplete "
+        "FROM tasks t "
+        "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
+        "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
+        "AND t.project_id IS NOT NULL "
+        f"{project_where} {member_where} "
+        "GROUP BY t.project_id, t.id"
+    )
 
     async with session() as db:
         # RLS: bind org context before any statement.
@@ -581,57 +651,18 @@ async def workspace_overview(
                     "SELECT ta.status, COUNT(*) AS n "
                     "FROM tasks t "
                     "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
-                    f"{channel_join} "
                     "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"{channel_where} {member_where} "
+                    f"{project_where} {member_where} "
                     "GROUP BY ta.status"
                 ),
                 params,
             )
         ).all()
 
-        # Same per-task "remaining / remaining_incomplete / missed_count" rule
-        # as project_analytics above, scoped org-wide instead of per-project.
-        per_task_rows = (
-            await db.execute(
-                text(
-                    "SELECT ta.task_id, "
-                    "       COUNT(*) FILTER (WHERE ta.status NOT IN ('LEFT','IGNORED')) AS remaining, "
-                    "       COUNT(*) FILTER ("
-                    "           WHERE ta.status NOT IN ('LEFT','IGNORED') AND ta.status <> 'COMPLETED'"
-                    "       ) AS remaining_incomplete, "
-                    "       COUNT(*) FILTER (WHERE ta.status = 'MISSED') AS missed_count "
-                    "FROM tasks t "
-                    "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
-                    f"{channel_join} "
-                    "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"{channel_where} {member_where} "
-                    "GROUP BY ta.task_id"
-                ),
-                params,
-            )
-        ).all()
-
-        # Per (channel, task) — always joins task_channels (it IS the grouping
-        # key), independent of the optional single-channel filter above.
-        per_channel_rows = (
-            await db.execute(
-                text(
-                    "SELECT tc.channel_id, t.id AS task_id, "
-                    "       COUNT(*) FILTER (WHERE ta.status NOT IN ('LEFT','IGNORED')) AS remaining, "
-                    "       COUNT(*) FILTER ("
-                    "           WHERE ta.status NOT IN ('LEFT','IGNORED') AND ta.status <> 'COMPLETED'"
-                    "       ) AS remaining_incomplete "
-                    "FROM tasks t "
-                    "JOIN task_channels tc ON tc.task_id = t.id AND tc.org_id = t.org_id "
-                    "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
-                    "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"{channel_where} {member_where} "
-                    "GROUP BY tc.channel_id, t.id"
-                ),
-                params,
-            )
-        ).all()
+        per_task_rows = (await db.execute(per_task_sql, params)).all()
+        prev_task_rows = (await db.execute(per_task_sql, prev_params)).all()
+        per_project_rows = (await db.execute(per_project_sql, params)).all()
+        prev_project_rows = (await db.execute(per_project_sql, prev_params)).all()
 
         workload_rows = (
             await db.execute(
@@ -644,9 +675,8 @@ async def workspace_overview(
                     "JOIN task_assignees ta ON ta.task_id = t.id AND ta.org_id = t.org_id "
                     "LEFT JOIN user_projection up "
                     "       ON up.user_id = ta.assignee_id AND up.org_id = ta.org_id "
-                    f"{channel_join} "
                     "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"{channel_where} {member_where} "
+                    f"{project_where} {member_where} "
                     "GROUP BY ta.assignee_id, up.username "
                     "ORDER BY assigned DESC, ta.assignee_id "
                     "LIMIT :workload_limit"
@@ -657,6 +687,15 @@ async def workspace_overview(
 
         # One row per calendar day in range (UTC, matching the >= start / <
         # end scope above), zero-filled where nothing happened that day.
+        # `created`/`completed` are TASK-level (COUNT DISTINCT task_id) and
+        # feed dailyActivity + the totalTasks/completed KPI sparklines, which
+        # are themselves task-level counts. The six `*_e` CTEs are
+        # ASSIGNEE-ROW-level event counts (one row per status transition,
+        # matching StatusBreakdownDTO's own row-count semantics) and feed
+        # statusFlow; `acknowledged_e`/`missed_e` additionally double as the
+        # inProgress/overdue KPI sparklines — a real daily event count, not a
+        # true per-day in-progress/overdue snapshot (task-svc has no status
+        # history table to reconstruct one from).
         daily_rows = (
             await db.execute(
                 text(
@@ -666,29 +705,121 @@ async def workspace_overview(
                     "), created AS ("
                     "    SELECT (t.created_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS n "
                     "    FROM tasks t "
-                    f"    {channel_join} "
                     "    WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"    {channel_where} {member_where} "
+                    f"    {project_where} {member_where} "
                     "    GROUP BY 1"
                     "), completed AS ("
                     "    SELECT (ta.completed_at AT TIME ZONE 'UTC')::date AS day, "
                     "           COUNT(DISTINCT ta.task_id) AS n "
                     "    FROM task_assignees ta "
                     "    JOIN tasks t ON t.id = ta.task_id AND t.org_id = ta.org_id "
-                    f"    {channel_join} "
                     "    WHERE t.org_id = :org AND ta.completed_at >= :start AND ta.completed_at < :end "
-                    f"    {channel_where} {member_where} "
+                    f"    {project_where} {member_where} "
+                    "    GROUP BY 1"
+                    "), sent_e AS ("
+                    "    SELECT (ta.assigned_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS n "
+                    "    FROM task_assignees ta "
+                    "    JOIN tasks t ON t.id = ta.task_id AND t.org_id = ta.org_id "
+                    "    WHERE t.org_id = :org AND ta.assigned_at >= :start AND ta.assigned_at < :end "
+                    f"    {project_where} {member_where} "
+                    "    GROUP BY 1"
+                    "), acknowledged_e AS ("
+                    "    SELECT (ta.acknowledged_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS n "
+                    "    FROM task_assignees ta "
+                    "    JOIN tasks t ON t.id = ta.task_id AND t.org_id = ta.org_id "
+                    "    WHERE t.org_id = :org AND ta.acknowledged_at >= :start AND ta.acknowledged_at < :end "
+                    f"    {project_where} {member_where} "
+                    "    GROUP BY 1"
+                    "), completed_e AS ("
+                    "    SELECT (ta.completed_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS n "
+                    "    FROM task_assignees ta "
+                    "    JOIN tasks t ON t.id = ta.task_id AND t.org_id = ta.org_id "
+                    "    WHERE t.org_id = :org AND ta.completed_at >= :start AND ta.completed_at < :end "
+                    f"    {project_where} {member_where} "
+                    "    GROUP BY 1"
+                    "), missed_e AS ("
+                    "    SELECT (ta.missed_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS n "
+                    "    FROM task_assignees ta "
+                    "    JOIN tasks t ON t.id = ta.task_id AND t.org_id = ta.org_id "
+                    "    WHERE t.org_id = :org AND ta.missed_at >= :start AND ta.missed_at < :end "
+                    f"    {project_where} {member_where} "
+                    "    GROUP BY 1"
+                    "), ignored_e AS ("
+                    "    SELECT (ta.ignored_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS n "
+                    "    FROM task_assignees ta "
+                    "    JOIN tasks t ON t.id = ta.task_id AND t.org_id = ta.org_id "
+                    "    WHERE t.org_id = :org AND ta.ignored_at >= :start AND ta.ignored_at < :end "
+                    f"    {project_where} {member_where} "
+                    "    GROUP BY 1"
+                    "), left_e AS ("
+                    "    SELECT (ta.left_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS n "
+                    "    FROM task_assignees ta "
+                    "    JOIN tasks t ON t.id = ta.task_id AND t.org_id = ta.org_id "
+                    "    WHERE t.org_id = :org AND ta.left_at >= :start AND ta.left_at < :end "
+                    f"    {project_where} {member_where} "
                     "    GROUP BY 1"
                     ") "
-                    "SELECT days.day, COALESCE(created.n, 0) AS created_n, COALESCE(completed.n, 0) AS completed_n "
+                    "SELECT days.day, "
+                    "       COALESCE(created.n, 0) AS created_n, "
+                    "       COALESCE(completed.n, 0) AS completed_n, "
+                    "       COALESCE(sent_e.n, 0) AS sent_n, "
+                    "       COALESCE(acknowledged_e.n, 0) AS acknowledged_n, "
+                    "       COALESCE(completed_e.n, 0) AS completed_e_n, "
+                    "       COALESCE(missed_e.n, 0) AS missed_n, "
+                    "       COALESCE(ignored_e.n, 0) AS ignored_n, "
+                    "       COALESCE(left_e.n, 0) AS left_n "
                     "FROM days "
                     "LEFT JOIN created ON created.day = days.day "
                     "LEFT JOIN completed ON completed.day = days.day "
+                    "LEFT JOIN sent_e ON sent_e.day = days.day "
+                    "LEFT JOIN acknowledged_e ON acknowledged_e.day = days.day "
+                    "LEFT JOIN completed_e ON completed_e.day = days.day "
+                    "LEFT JOIN missed_e ON missed_e.day = days.day "
+                    "LEFT JOIN ignored_e ON ignored_e.day = days.day "
+                    "LEFT JOIN left_e ON left_e.day = days.day "
                     "ORDER BY days.day"
                 ),
                 {**params, "start_day": start_day, "end_day": end_day},
             )
         ).all()
+
+        # Names for the top-ranked projects only (decided below, before
+        # decrypting) — never fetched for every project ever touched in range.
+        totals_by_project: dict[str, dict[str, int]] = {}
+        for r in per_project_rows:
+            bucket = totals_by_project.setdefault(str(r.project_id), {"total": 0, "completed": 0})
+            bucket["total"] += 1
+            if r.remaining > 0 and r.remaining_incomplete == 0:
+                bucket["completed"] += 1
+        ranked_ids = sorted(
+            totals_by_project, key=lambda pid: totals_by_project[pid]["total"], reverse=True
+        )[:_OVERVIEW_PROJECTS_LIMIT]
+
+        name_rows = []
+        if ranked_ids:
+            name_rows = (
+                await db.execute(
+                    text("SELECT id, name_enc FROM projects WHERE org_id = :org AND id = ANY(:ids)"),
+                    {"org": org_id, "ids": ranked_ids},
+                )
+            ).all()
+            ciphertexts = [r.name_enc for r in name_rows]
+            versions = {v for v in (cryptor().peek_version(blob) for blob in ciphertexts) if v is not None}
+            await cryptor().warm_dek_versions(db, org_id, versions)
+
+    project_names = {}
+    if name_rows:
+        decrypted = await asyncio.to_thread(
+            cryptor().decrypt_batch_cached, org_id, [r.name_enc for r in name_rows]
+        )
+        project_names = {str(r.id): (name or "") for r, name in zip(name_rows, decrypted, strict=True)}
+
+    prev_totals_by_project: dict[str, dict[str, int]] = {}
+    for r in prev_project_rows:
+        bucket = prev_totals_by_project.setdefault(str(r.project_id), {"total": 0, "completed": 0})
+        bucket["total"] += 1
+        if r.remaining > 0 and r.remaining_incomplete == 0:
+            bucket["completed"] += 1
 
     breakdown = StatusBreakdownDTO()
     total_assignments = 0
@@ -699,15 +830,12 @@ async def workspace_overview(
             completed_assignments = r.n
         setattr(breakdown, r.status.lower(), r.n)
 
-    total_unique = len(per_task_rows)
-    completed_unique = sum(1 for r in per_task_rows if r.remaining > 0 and r.remaining_incomplete == 0)
-    abandoned_unique = sum(1 for r in per_task_rows if r.remaining == 0)
-    remaining_unique = total_unique - completed_unique - abandoned_unique
-    overdue_unique = sum(1 for r in per_task_rows if r.missed_count > 0)
-    # Always a subset of remaining_unique: a MISSED row keeps remaining_incomplete
-    # > 0 (MISSED is in _REMAINING_STATUSES and is never COMPLETED), so an
-    # overdue task can be neither "completed" nor "abandoned" above.
-    in_progress_unique = remaining_unique - overdue_unique
+    total_unique, completed_unique, overdue_unique, in_progress_unique, abandoned_unique = _task_aggregates(
+        per_task_rows
+    )
+    prev_total, prev_completed, prev_overdue, prev_in_progress, _prev_abandoned = _task_aggregates(
+        prev_task_rows
+    )
 
     completion = CompletionMetricsDTO(
         totalAssignments=total_assignments,
@@ -716,30 +844,26 @@ async def workspace_overview(
         totalUniqueTasks=total_unique,
         completedUniqueTasks=completed_unique,
         abandonedUniqueTasks=abandoned_unique,
-        remainingUniqueTasks=remaining_unique,
+        remainingUniqueTasks=total_unique - completed_unique - abandoned_unique,
         uniqueTaskCompletionRate=_unique_task_completion(total_unique, completed_unique, abandoned_unique),
     )
 
-    per_channel_totals: dict[str, dict[str, int]] = {}
-    for r in per_channel_rows:
-        bucket = per_channel_totals.setdefault(str(r.channel_id), {"total": 0, "completed": 0})
-        bucket["total"] += 1
-        if r.remaining > 0 and r.remaining_incomplete == 0:
-            bucket["completed"] += 1
-
-    channels = sorted(
-        (
-            ChannelPerformanceDTO(
-                channelId=cid,
-                totalUniqueTasks=bucket["total"],
-                completedUniqueTasks=bucket["completed"],
-                completionRate=_rate(bucket["completed"], bucket["total"]),
-            )
-            for cid, bucket in per_channel_totals.items()
-        ),
-        key=lambda c: c.totalUniqueTasks,
-        reverse=True,
-    )[:_OVERVIEW_CHANNELS_LIMIT]
+    project_performance = [
+        ProjectPerformanceDTO(
+            projectId=pid,
+            name=project_names.get(pid, ""),
+            totalUniqueTasks=totals_by_project[pid]["total"],
+            completedUniqueTasks=totals_by_project[pid]["completed"],
+            completionRate=_rate(totals_by_project[pid]["completed"], totals_by_project[pid]["total"]),
+            trendPct=(
+                _rate(totals_by_project[pid]["completed"], totals_by_project[pid]["total"])
+                - _rate(prev_totals_by_project[pid]["completed"], prev_totals_by_project[pid]["total"])
+                if prev_totals_by_project.get(pid, {}).get("total")
+                else None
+            ),
+        )
+        for pid in ranked_ids
+    ]
 
     workload = [
         WorkloadBreakdownDTO(
@@ -757,6 +881,45 @@ async def workspace_overview(
         DailyActivityPointDTO(day=r.day.isoformat(), tasksCreated=r.created_n, tasksCompleted=r.completed_n)
         for r in daily_rows
     ]
+    status_flow = [
+        StatusDayPointDTO(
+            day=r.day.isoformat(),
+            sent=r.sent_n,
+            acknowledged=r.acknowledged_n,
+            completed=r.completed_e_n,
+            missed=r.missed_n,
+            ignored=r.ignored_n,
+            left=r.left_n,
+        )
+        for r in daily_rows
+    ]
+
+    kpis = WorkspaceKpiTrendsDTO(
+        totalTasks=KpiTrendDTO(
+            value=total_unique,
+            previousValue=prev_total,
+            deltaPct=_delta_pct(total_unique, prev_total),
+            sparkline=[r.created_n for r in daily_rows],
+        ),
+        completed=KpiTrendDTO(
+            value=completed_unique,
+            previousValue=prev_completed,
+            deltaPct=_delta_pct(completed_unique, prev_completed),
+            sparkline=[r.completed_n for r in daily_rows],
+        ),
+        inProgress=KpiTrendDTO(
+            value=in_progress_unique,
+            previousValue=prev_in_progress,
+            deltaPct=_delta_pct(in_progress_unique, prev_in_progress),
+            sparkline=[r.acknowledged_n for r in daily_rows],
+        ),
+        overdue=KpiTrendDTO(
+            value=overdue_unique,
+            previousValue=prev_overdue,
+            deltaPct=_delta_pct(overdue_unique, prev_overdue),
+            sparkline=[r.missed_n for r in daily_rows],
+        ),
+    )
 
     return WorkspaceOverviewDTO(
         statusBreakdown=breakdown,
@@ -764,8 +927,10 @@ async def workspace_overview(
         overdueUniqueTasks=overdue_unique,
         inProgressUniqueTasks=in_progress_unique,
         workload=workload,
-        channels=channels,
+        projectPerformance=project_performance,
         dailyActivity=daily_activity,
+        kpis=kpis,
+        statusFlow=status_flow,
         rangeFrom=start_day.isoformat(),
         rangeTo=end_day.isoformat(),
     )

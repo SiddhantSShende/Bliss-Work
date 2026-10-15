@@ -708,7 +708,7 @@ function ActionButton({
   title: string;
 }) {
   const tones = {
-    accent: "bg-accent text-accent-fg hover:bg-accent-strong",
+    accent: "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg hover:brightness-105",
     danger: "bg-danger text-white hover:brightness-110",
     ghost: "border border-border text-fg hover:bg-surface-2",
   } as const;

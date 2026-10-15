@@ -92,6 +92,7 @@
     "errors": {
       "access_denied": "You declined the Microsoft sign-in request. Connect again when you're ready.",
       "not_configured": "Microsoft 365 isn't set up for this workspace yet. Ask an admin to add the Microsoft app credentials.",
+      "plan_required": "External Integrations requires the enterprise plan. Ask a workspace admin to upgrade to connect Microsoft 365.",
       "oauth_failed": "We couldn't finish connecting to Microsoft. Please try again.",
       "already_connected_by_teammate": "This Outlook mailbox is already connected by another teammate. Ask them to disconnect it first.",
       "generic": "Something went wrong connecting your Microsoft account. Please try again."
@@ -114,10 +115,33 @@
     "approximateNetwork": "Rede aproximada",
     "signOut": "Sair"
   },
+  "changePassword": {
+    "card": {
+      "title": "Alterar senha",
+      "description": "Atualize a senha que você usa para entrar.",
+      "action": "Alterar senha"
+    },
+    "dialog": {
+      "title": "Altere sua senha"
+    },
+    "currentPasswordLabel": "Senha atual",
+    "confirmPasswordLabel": "Confirme a nova senha",
+    "submit": "Alterar senha",
+    "errors": {
+      "currentPasswordIncorrect": "Essa senha está incorreta.",
+      "confirmMismatch": "As senhas não coincidem."
+    },
+    "toasts": {
+      "success": "Senha alterada",
+      "tooManyAttemptsTitle": "Muitas tentativas. Aguarde antes de tentar novamente.",
+      "failedTitle": "Não foi possível alterar sua senha",
+      "failedDescription": "Tente novamente."
+    }
+  },
   "mfaSettings": {
     "header": {
-      "title": "Autenticação em dois fatores",
-      "subtitle": "Adicione uma segunda etapa ao login com um app autenticador."
+      "title": "Segurança",
+      "subtitle": "Gerencie sua autenticação em dois fatores e sua senha."
     },
     "enrolled": {
       "status": {

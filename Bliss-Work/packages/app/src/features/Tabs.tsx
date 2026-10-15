@@ -51,7 +51,9 @@ export function Tabs<K extends string>({
             aria-selected={on}
             onClick={() => onChange(t.key)}
             className={`inline-flex shrink-0 items-center rounded-full font-medium transition-colors ${pillClasses} ${
-              on ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
+              on
+                ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+                : "bg-surface-2 text-muted hover:text-fg"
             }`}
           >
             {t.icon}

@@ -368,7 +368,7 @@ export function NewMeetingDialog({
         type="button"
         onClick={submit}
         disabled={create.isPending || startInPast}
-        className="flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg shadow-sm transition hover:brightness-105 disabled:opacity-60"
+        className="flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-br from-brand-from via-brand-mid to-brand-to px-4 py-2 text-sm font-semibold text-accent-fg shadow-sm transition hover:brightness-105 disabled:opacity-60"
       >
         <Video size={15} />
         {scheduled

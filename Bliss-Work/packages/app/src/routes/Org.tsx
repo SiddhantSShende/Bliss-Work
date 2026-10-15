@@ -80,7 +80,7 @@ export function Org() {
                   const active = o.orgId === user?.orgId;
                   return (
                     <div key={o.orgId} className="glass flex items-center gap-3 rounded-2xl p-4">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
                         <Building2 size={18} />
                       </div>
                       <div className="min-w-0 flex-1">

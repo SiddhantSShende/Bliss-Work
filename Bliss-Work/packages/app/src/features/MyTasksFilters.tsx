@@ -60,7 +60,9 @@ export function MyTasksFilters({
                 aria-pressed={on}
                 onClick={() => onChange({ ...filter, statuses: toggled(filter.statuses, s) })}
                 className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
-                  on ? "bg-accent text-accent-fg" : "bg-surface-2 text-fg hover:bg-surface-2/70"
+                  on
+                    ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+                    : "bg-surface-2 text-fg hover:bg-surface-2/70"
                 }`}
               >
                 {s.toLowerCase()}

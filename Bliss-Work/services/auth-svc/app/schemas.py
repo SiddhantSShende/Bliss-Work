@@ -131,6 +131,16 @@ class ResetPasswordRequest(BaseModel):
     password: str = Field(min_length=8, max_length=256)
 
 
+class ChangePasswordRequest(BaseModel):
+    """Authenticated self-service password change. No second factor — the
+    caller already holds a valid session; this only proves they still know
+    the password, unlike the MFA-disable/backup-codes step-up (MfaStepUpRequest)
+    which guards against a merely-stolen access token."""
+
+    currentPassword: str = Field(min_length=1, max_length=256)
+    newPassword: str = Field(min_length=8, max_length=256)
+
+
 class VerifyEmailRequest(BaseModel):
     token: str = Field(min_length=1, max_length=512)
 

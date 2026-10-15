@@ -1,11 +1,14 @@
 import { useTranslation } from "react-i18next";
 import type {
-  ChannelPerformanceDTO,
   DailyActivityPointDTO,
+  KpiTrendDTO,
+  ProjectPerformanceDTO,
   StatusBreakdownDTO,
+  StatusDayPointDTO,
   WorkloadBreakdownDTO,
 } from "@taskboard/shared";
-import { KpiTile, STATUS_COLORS } from "./TaskAnalyticsParts";
+import { StatTile } from "@taskboard/ui";
+import { STATUS_COLORS } from "./TaskAnalyticsParts";
 
 const STATUS_ORDER = Object.keys(STATUS_COLORS) as (keyof StatusBreakdownDTO)[];
 
@@ -13,48 +16,87 @@ function pct(n: number, d: number): number {
   return d > 0 ? (n / d) * 100 : 0;
 }
 
-/** Ranked list of channels by task volume, name resolved by the caller (task-svc
- *  only knows channel ids — see WorkspaceOverview's nameOf). Same row layout as
- *  TaskAnalyticsParts' WorkloadBars: label, progress bar, trailing fraction. */
-export function ChannelPerformanceList({
-  channels,
-  nameOf,
+/** A rounded percentage-point delta, colored by whether that direction is
+ *  good for THIS metric (e.g. a rising "Overdue" is bad, a rising
+ *  "Completed" is good) — shared by the KPI cards and the project ranking's
+ *  trend indicator so both read the same way. */
+function TrendDelta({
+  deltaPct,
+  goodDirection,
+}: {
+  deltaPct: number | null | undefined;
+  goodDirection: "up" | "down";
+}) {
+  if (deltaPct == null) return null;
+  const rounded = Math.round(deltaPct);
+  const flat = rounded === 0;
+  const good = !flat && (rounded > 0) === (goodDirection === "up");
+  const color = flat ? "var(--color-muted)" : good ? "var(--color-success)" : "var(--color-danger)";
+  const arrow = flat ? "→" : rounded > 0 ? "▲" : "▼";
+  return (
+    <span className="tabular-nums" style={{ color }}>
+      {arrow} {Math.abs(rounded)}%
+    </span>
+  );
+}
+
+/** A KPI card's hint: the delta vs the immediately preceding, equal-length
+ *  period, or an explicit "nothing to compare" note — never a fabricated 0%. */
+function KpiTrendHint({ kpi, goodDirection }: { kpi: KpiTrendDTO; goodDirection: "up" | "down" }) {
+  const { t } = useTranslation("tasks");
+  if (kpi.deltaPct == null) {
+    return <span>{t("tasks:analyticsHub.overview.kpis.noPreviousPeriod")}</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <TrendDelta deltaPct={kpi.deltaPct} goodDirection={goodDirection} />
+      <span className="text-muted">{t("tasks:analyticsHub.overview.kpis.vsPreviousPeriod")}</span>
+    </span>
+  );
+}
+
+/** Ranked list of projects by task volume — name, completed/total, completion
+ *  rate (progress bar) and a trend indicator (this project's completion rate
+ *  vs the preceding period). Replaces the retired channel-wise ranking: the
+ *  server now ranks real projects (tasks.projectId), never channels. */
+export function ProjectPerformanceList({
+  projects,
   emptyHint,
 }: {
-  channels: ChannelPerformanceDTO[];
-  nameOf: (channelId: string) => string;
+  projects: ProjectPerformanceDTO[];
   emptyHint: string;
 }) {
-  if (channels.length === 0) return <p className="py-3 text-sm text-muted">{emptyHint}</p>;
+  if (projects.length === 0) return <p className="py-3 text-sm text-muted">{emptyHint}</p>;
   return (
     <ul className="m-0 list-none space-y-3 p-0">
-      {channels.map((c) => {
-        const name = nameOf(c.channelId);
-        return (
-          <li key={c.channelId} className="flex items-center gap-3">
-            <span className="w-28 shrink-0 truncate text-sm text-fg" title={name}>
-              {name}
-            </span>
-            <div className="min-w-0 flex-1">
+      {projects.map((p, i) => (
+        <li key={p.projectId} className="flex items-center gap-3">
+          <span className="w-4 shrink-0 text-xs tabular-nums text-muted">{i + 1}</span>
+          <span className="w-24 shrink-0 truncate text-sm text-fg" title={p.name}>
+            {p.name}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div
+              className="h-2 w-full overflow-hidden rounded-full"
+              style={{ background: "var(--color-chart-grid)" }}
+            >
               <div
-                className="h-2 w-full overflow-hidden rounded-full"
-                style={{ background: "var(--color-chart-grid)" }}
-              >
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${Math.max(3, c.completionRate)}%`,
-                    background: "var(--color-chart-ink)",
-                  }}
-                />
-              </div>
+                className="h-full rounded-full"
+                style={{
+                  width: `${Math.max(3, p.completionRate)}%`,
+                  background: "var(--color-chart-ink)",
+                }}
+              />
             </div>
-            <span className="shrink-0 text-xs tabular-nums text-muted">
-              {c.completedUniqueTasks}/{c.totalUniqueTasks} ({Math.round(c.completionRate)}%)
-            </span>
-          </li>
-        );
-      })}
+          </div>
+          <span className="shrink-0 text-xs tabular-nums text-muted">
+            {p.completedUniqueTasks}/{p.totalUniqueTasks} ({Math.round(p.completionRate)}%)
+          </span>
+          <span className="w-10 shrink-0 text-right text-[11px]">
+            <TrendDelta deltaPct={p.trendPct} goodDirection="up" />
+          </span>
+        </li>
+      ))}
     </ul>
   );
 }
@@ -95,7 +137,7 @@ export function WorkloadMatrixTable({
             const name = nameOf(w.assigneeId);
             return (
               <tr key={w.assigneeId} className="border-b border-border/40 last:border-0">
-                <td className="px-3 py-2 text-fg" title={name}>
+                <td className="max-w-[9rem] truncate px-3 py-2 text-fg" title={name}>
                   {name}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-muted">{w.assignedCount}</td>
@@ -322,26 +364,153 @@ export function ActivityPulseChart({ points }: { points: DailyActivityPointDTO[]
   );
 }
 
-/** The four KPI cards, built from the same KpiTile ChannelAnalyticsPanel uses
- *  — no second "label + value in a card" implementation. */
+/** The four KPI cards — headline value, a sparkline of real daily event
+ *  counts, and a colored delta against the preceding period. Built on the
+ *  shared StatTile/Sparkline (packages/ui) rather than TaskAnalyticsParts'
+ *  plain KpiTile, since this is the one place in the app a KPI needs a trend
+ *  line; ChannelAnalyticsPanel/ProjectAnalyticsPanel keep using KpiTile. */
 export function OverviewKpiGrid({
-  total,
+  totalTasks,
   completed,
   inProgress,
   overdue,
 }: {
-  total: number;
-  completed: number;
-  inProgress: number;
-  overdue: number;
+  totalTasks: KpiTrendDTO;
+  completed: KpiTrendDTO;
+  inProgress: KpiTrendDTO;
+  overdue: KpiTrendDTO;
 }) {
   const { t } = useTranslation("tasks");
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <KpiTile label={t("tasks:analyticsHub.overview.kpis.total")} value={String(total)} />
-      <KpiTile label={t("tasks:analyticsHub.overview.kpis.completed")} value={String(completed)} />
-      <KpiTile label={t("tasks:analyticsHub.overview.kpis.inProgress")} value={String(inProgress)} />
-      <KpiTile label={t("tasks:analyticsHub.overview.kpis.overdue")} value={String(overdue)} />
+      <StatTile
+        label={t("tasks:analyticsHub.overview.kpis.total")}
+        value={String(totalTasks.value)}
+        trend={totalTasks.sparkline}
+        hint={<KpiTrendHint kpi={totalTasks} goodDirection="up" />}
+      />
+      <StatTile
+        label={t("tasks:analyticsHub.overview.kpis.completed")}
+        value={String(completed.value)}
+        trend={completed.sparkline}
+        hint={<KpiTrendHint kpi={completed} goodDirection="up" />}
+      />
+      <StatTile
+        label={t("tasks:analyticsHub.overview.kpis.inProgress")}
+        value={String(inProgress.value)}
+        trend={inProgress.sparkline}
+        hint={<KpiTrendHint kpi={inProgress} goodDirection="up" />}
+      />
+      <StatTile
+        label={t("tasks:analyticsHub.overview.kpis.overdue")}
+        value={String(overdue.value)}
+        trend={overdue.sparkline}
+        hint={<KpiTrendHint kpi={overdue} goodDirection="down" />}
+      />
     </div>
+  );
+}
+
+const FLOW_W = 560;
+const FLOW_H = 190;
+const FLOW_PAD = { left: 30, right: 10, top: 10, bottom: 24 };
+
+/** A stacked timeline of the six status categories, one bar per day — the
+ *  over-time counterpart to StatusDonut's single-snapshot totals. Each bar
+ *  segment is a count of assignee rows that ENTERED that status that day
+ *  (see StatusDayPointDTO), reusing the exact STATUS_COLORS every other
+ *  status visualization in this app keys off. */
+export function StatusFlowChart({ points }: { points: StatusDayPointDTO[] }) {
+  const { t, i18n } = useTranslation("tasks");
+  if (points.length === 0) return null;
+  const totals = points.map((p) => STATUS_ORDER.reduce((sum, k) => sum + p[k], 0));
+  const max = Math.max(1, ...totals);
+  const innerW = FLOW_W - FLOW_PAD.left - FLOW_PAD.right;
+  const innerH = FLOW_H - FLOW_PAD.top - FLOW_PAD.bottom;
+  const slot = innerW / points.length;
+  const barW = Math.max(1, slot - 2);
+  const x = (i: number) => FLOW_PAD.left + i * slot;
+  const y = (v: number) => FLOW_PAD.top + (1 - v / max) * innerH;
+  const yTicks = [0, 0.5, 1];
+  const peakIdx = totals.reduce((best, v, i) => (v > (totals[best] ?? 0) ? i : best), 0);
+  const labelDay = (day: string) => {
+    const [y_, m, d] = day.split("-").map(Number);
+    return new Date(y_ ?? 1970, (m ?? 1) - 1, d ?? 1).toLocaleDateString(i18n.language, {
+      day: "numeric",
+      month: "short",
+    });
+  };
+
+  return (
+    <figure className="m-0">
+      <figcaption className="mb-2 flex flex-wrap items-center justify-end gap-3 text-[11px] text-muted">
+        {STATUS_ORDER.map((k) => (
+          <span key={k} className="inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS_COLORS[k] }} />
+            {t(`tasks:analytics.statuses.${k}`)}
+          </span>
+        ))}
+      </figcaption>
+      <svg
+        viewBox={`0 0 ${FLOW_W} ${FLOW_H}`}
+        className="block h-auto w-full"
+        role="img"
+        aria-label={t("tasks:analyticsHub.overview.sections.statusFlow")}
+      >
+        {yTicks.map((f) => (
+          <g key={f}>
+            <line
+              x1={FLOW_PAD.left}
+              x2={FLOW_W - FLOW_PAD.right}
+              y1={y(max * f)}
+              y2={y(max * f)}
+              stroke="var(--color-chart-grid)"
+              strokeWidth={1}
+            />
+            <text
+              x={FLOW_PAD.left - 6}
+              y={y(max * f) + 3}
+              textAnchor="end"
+              fontSize={10}
+              fill="currentColor"
+              className="text-muted"
+            >
+              {Math.round(max * f)}
+            </text>
+          </g>
+        ))}
+        {points.map((p, i) => {
+          let cursor = FLOW_PAD.top + innerH;
+          return (
+            <g key={p.day}>
+              {STATUS_ORDER.filter((k) => p[k] > 0).map((k) => {
+                const h = (p[k] / max) * innerH;
+                cursor -= h;
+                return (
+                  <rect key={k} x={x(i)} y={cursor} width={barW} height={h} fill={STATUS_COLORS[k]}>
+                    <title>{`${labelDay(p.day)} — ${t(`tasks:analytics.statuses.${k}`)}: ${p[k]}`}</title>
+                  </rect>
+                );
+              })}
+            </g>
+          );
+        })}
+        {points.map((p, i) =>
+          i === 0 || i === points.length - 1 || i === peakIdx ? (
+            <text
+              key={p.day}
+              x={x(i) + barW / 2}
+              y={FLOW_H - 6}
+              textAnchor="middle"
+              fontSize={10}
+              fill="currentColor"
+              className="text-muted"
+            >
+              {labelDay(p.day)}
+            </text>
+          ) : null,
+        )}
+      </svg>
+    </figure>
   );
 }
