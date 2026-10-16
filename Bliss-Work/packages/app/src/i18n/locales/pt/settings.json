@@ -31,10 +31,6 @@
     "title": "Logins atuais",
     "description": "Veja todos os dispositivos conectados à sua conta no momento e desconecte qualquer um deles remotamente."
   },
-  "outlook": {
-    "title": "Microsoft 365 / Outlook",
-    "description": "Connect your Outlook mailbox to send and sync mail from BlissWork."
-  },
   "activity": {
     "title": "Sua atividade",
     "description": "Veja tudo o que o {{brand}} registra sobre como você trabalha — o mesmo registro que os administradores do seu espaço de trabalho veem."

@@ -45,15 +45,6 @@ def test_web_return_is_a_302_into_the_spa():
     assert resp.headers["location"].endswith("/app/integrations?connected=gmail")
 
 
-def test_outlook_web_return_lands_on_its_own_settings_page():
-    # Outlook is the one provider with a real connect/disconnect UI
-    # (OutlookSettings.tsx) — every other provider still falls back to the
-    # (currently unreachable, no UI to start one) generic hub path above.
-    resp = _finish("outlook", "/app/integrations", "?connected=outlook")
-    assert resp.status_code == 302
-    assert resp.headers["location"].endswith("/app/settings/outlook?connected=outlook")
-
-
 def test_desktop_return_is_an_html_interstitial_not_a_redirect():
     # Browsers routinely refuse to auto-navigate a 3xx into a custom scheme,
     # and the user needs an end-of-flow signal in a tab the app can't close.

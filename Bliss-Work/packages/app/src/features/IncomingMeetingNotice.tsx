@@ -36,6 +36,7 @@ import {
 } from "../lib/MeetingSession";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { createRingtone } from "../lib/ringtone";
 
 interface Incoming {
   callId: string;
@@ -43,6 +44,13 @@ interface Incoming {
   /** Set when this is an ad-hoc call somebody was added to: worded as a call,
    *  and there is no organiser to name. */
   adhoc?: AdhocIncoming;
+  /** Set when a call.ring has actually fired for this invite — meaning it has
+   *  a real server-side deadline and a real Decline, not just a plain FYI
+   *  that a meeting started (call.started/call.waiting). An ad-hoc ring is
+   *  always `ringing`; a MEETING/CHANNEL invite starts as a plain FYI and is
+   *  upgraded in place the moment its own call.ring arrives — see the
+   *  announced-listener below, which never lets this regress back to false. */
+  ringing?: boolean;
 }
 
 /** 12s — inside the requested 10-15s window. Matches an incoming phone call:
@@ -74,10 +82,20 @@ export function IncomingMeetingNotice() {
 
   useEffect(
     () =>
-      onIncomingMeetingAnnounced((callId, title, adhoc) => {
-        if (seenRef.current.has(callId)) return;
+      onIncomingMeetingAnnounced((callId, title, adhoc, ringing) => {
+        if (seenRef.current.has(callId)) {
+          // A repeat announcement for the card already on screen — except a
+          // call.ring landing just after the call.started FYI it rides
+          // behind for a MEETING/CHANNEL invite, which upgrades that same
+          // card into a real, declinable ring rather than being dropped as
+          // a duplicate. Never regresses an already-ringing card back down.
+          if (ringing) {
+            setIncoming((prev) => (prev && prev.callId === callId && !prev.ringing ? { ...prev, ringing: true } : prev));
+          }
+          return;
+        }
         seenRef.current.add(callId);
-        setIncoming({ callId, title, adhoc });
+        setIncoming({ callId, title, adhoc, ringing });
       }),
     [],
   );
@@ -103,6 +121,23 @@ export function IncomingMeetingNotice() {
       }),
     [config],
   );
+
+  // Ring for as long as a card (meeting invite OR ad-hoc call) is on screen —
+  // the same "incoming" voice useCall.tsx plays for a 1:1 DIRECT ring, so a
+  // recipient hears the identical tone whichever kind of call is reaching
+  // them. Keyed on the callId's identity, not just truthiness, so a genuinely
+  // new invite replacing the one on screen restarts the ring rather than
+  // silently continuing it. Stops immediately on accept/decline/dismiss or a
+  // server-driven resolution — all of those already clear `incoming` via
+  // setIncoming/dismiss above — which this effect's cleanup picks up.
+  useEffect(() => {
+    if (!incoming) return;
+    const ring = createRingtone("incoming", () => {
+      toast(t("notify.ringtoneMuted"), { description: t("notify.ringtoneMutedDescription") });
+    });
+    ring.start();
+    return () => ring.stop();
+  }, [incoming, t]);
 
   // The Electron popup window's own Video/Voice click (main/meeting-invite-
   // manager.ts's window has no React Query / MeetingSession context of its
@@ -146,7 +181,7 @@ export function IncomingMeetingNotice() {
   // those, so the blind timeout IS the mechanism there, unchanged.
   useEffect(() => {
     if (!incoming) return;
-    const ms = incoming.adhoc ? ADHOC_RING_BACKSTOP_MS : AUTO_DISMISS_MS;
+    const ms = incoming.ringing ? ADHOC_RING_BACKSTOP_MS : AUTO_DISMISS_MS;
     const timer = setTimeout(() => setIncoming(null), ms);
     return () => clearTimeout(timer);
   }, [incoming]);
@@ -179,10 +214,18 @@ export function IncomingMeetingNotice() {
   // updates the SAME window's content rather than opening a second one, so
   // the popup can appear instantly (title only) and fill in the organizer a
   // moment later, instead of waiting on the extra round trip.
+  const ringing = !!incoming?.ringing;
   useEffect(() => {
     if (!incoming || !config.showMeetingInvitePopup) return;
-    config.showMeetingInvitePopup(incoming.callId, heading, organizer, adhoc);
-  }, [incoming, heading, organizer, adhoc, config]);
+    config.showMeetingInvitePopup(
+      incoming.callId,
+      heading,
+      organizer,
+      adhoc,
+      adhoc ? (call?.media === "audio" ? "voice" : "video") : undefined,
+      ringing,
+    );
+  }, [incoming, heading, organizer, adhoc, ringing, call?.media, config]);
 
   if (!incoming || config.showMeetingInvitePopup) return null;
 
@@ -191,14 +234,22 @@ export function IncomingMeetingNotice() {
     requestMeetingJoin(incoming.callId, media);
     dismiss();
   };
-  // An ad-hoc ring gets a real "no" told to the server (so the caller's room
-  // reads "declined" rather than silently ringing out — see CallRoom's
-  // callResolution); a MEETING/CHANNEL invite has no decline concept and
-  // keeps its plain, local-only dismiss.
+  // A real ring — ad-hoc, or a MEETING/CHANNEL invite once its own call.ring
+  // has arrived — gets a real "no" told to the server, so the inviter's/
+  // organizer's side reads "declined" rather than silently ringing out (see
+  // CallRoom's callResolution). A plain FYI with no ring behind it yet has
+  // no invitation to decline, so it keeps a local-only dismiss.
   const decline = () => {
     declineCall(incoming.callId);
     dismiss();
   };
+  // A call's own type was fixed when it was placed — the recipient accepts
+  // or rejects it, never picks voice vs. video themselves (that would risk
+  // silently turning a video call into a voice one, or vice versa). `call`
+  // is the same roster fetch already warmed above; it is near-instant from
+  // cache in practice, but fall back to video rather than block Accept on
+  // the request if it is somehow still in flight.
+  const acceptCall = () => join(call?.media === "audio" ? "voice" : "video");
 
   return (
     <div
@@ -219,27 +270,67 @@ export function IncomingMeetingNotice() {
         )}
       </div>
       <div className="mt-4 flex items-center justify-center gap-5">
-        <NoticeAction
-          icon={<Video size={18} />}
-          label={t("incomingNotice.video")}
-          title={t("incomingNotice.joinWithCamera")}
-          tone="accent"
-          onClick={() => join("video")}
-        />
-        <NoticeAction
-          icon={<Phone size={18} />}
-          label={t("incomingNotice.voice")}
-          title={t("incomingNotice.joinVoiceOnly")}
-          tone="accent"
-          onClick={() => join("voice")}
-        />
-        <NoticeAction
-          icon={<X size={18} />}
-          label={adhoc ? t("incomingNotice.decline") : t("incomingNotice.leave")}
-          title={adhoc ? t("incomingNotice.decline") : t("common:buttons.dismiss")}
-          tone="danger"
-          onClick={adhoc ? decline : dismiss}
-        />
+        {adhoc ? (
+          // A call rings the recipient with exactly two choices — accept it
+          // as placed, or reject it. There is no device picker here: the
+          // call's own media type (see acceptCall above) decides what gets
+          // initialized once it connects.
+          <>
+            <NoticeAction
+              icon={<Phone size={18} />}
+              label={t("incomingNotice.accept")}
+              title={t("incomingNotice.accept")}
+              tone="accent"
+              onClick={acceptCall}
+            />
+            <NoticeAction
+              icon={<X size={18} />}
+              label={t("incomingNotice.decline")}
+              title={t("incomingNotice.decline")}
+              tone="danger"
+              onClick={decline}
+            />
+          </>
+        ) : (
+          <>
+            <NoticeAction
+              icon={<Video size={18} />}
+              label={t("incomingNotice.video")}
+              title={t("incomingNotice.joinWithCamera")}
+              tone="accent"
+              onClick={() => join("video")}
+            />
+            <NoticeAction
+              icon={<Phone size={18} />}
+              label={t("incomingNotice.voice")}
+              title={t("incomingNotice.joinVoiceOnly")}
+              tone="accent"
+              onClick={() => join("voice")}
+            />
+            {ringing ? (
+              // A real invitation is open on the server (ring_expires_at) —
+              // Decline tells it "no" rather than merely hiding the card.
+              <NoticeAction
+                icon={<X size={18} />}
+                label={t("incomingNotice.decline")}
+                title={t("incomingNotice.decline")}
+                tone="danger"
+                onClick={decline}
+              />
+            ) : (
+              // No ring behind this card yet (a plain call.started/
+              // call.waiting FYI) — nothing to decline, so this only hides
+              // the card locally.
+              <NoticeAction
+                icon={<X size={18} />}
+                label={t("incomingNotice.leave")}
+                title={t("common:buttons.dismiss")}
+                tone="danger"
+                onClick={dismiss}
+              />
+            )}
+          </>
+        )}
       </div>
     </div>
   );

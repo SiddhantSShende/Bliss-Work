@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { AttachmentScope, ChannelMessageDTO } from "@taskboard/shared";
+import { logger, type AttachmentScope, type ChannelMessageDTO } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { useSession } from "../store/session";
 import { getSessionId } from "./telemetrySession";
@@ -166,7 +166,7 @@ export function useAttachmentActivity(
           });
           qc.invalidateQueries({ queryKey: qk.channels });
         })
-        .catch((err) => console.error("[attachment-activity] failed to post", err))
+        .catch((err) => logger.error("[attachment-activity] failed to post", err))
         .finally(clear);
     },
     [api, channelLocked, config.kind, contextName, meId, qc, scope, scopeId, user],

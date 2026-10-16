@@ -98,6 +98,13 @@
   --color-status-acknowledged: oklch(0.55 0.2 295);
   --color-status-sent: oklch(0.62 0.22 340);
 
+  /* Categorical colors for Workspace Analytics workload quadrants. These
+     semantic identities stay stable across theme families. */
+  --color-scatter-high-high: oklch(0.5 0.13 190);
+  --color-scatter-high-low: oklch(0.49 0.15 75);
+  --color-scatter-low-high: oklch(0.49 0.16 260);
+  --color-scatter-low-low: oklch(0.5 0.16 25);
+
   --shadow-soft: 0 1px 2px rgba(40, 30, 90, 0.04), 0 8px 24px rgba(40, 30, 90, 0.07);
   --shadow-card: 0 1px 3px rgba(40, 30, 90, 0.06), 0 16px 40px rgba(40, 30, 90, 0.1);
   --shadow-widget: 0 18px 50px rgba(20, 12, 60, 0.28);
@@ -151,6 +158,11 @@
      same hues. */
   --color-status-acknowledged: oklch(0.62 0.19 295);
   --color-status-sent: oklch(0.6 0.2 340);
+
+  --color-scatter-high-high: oklch(0.78 0.13 190);
+  --color-scatter-high-low: oklch(0.82 0.14 78);
+  --color-scatter-low-high: oklch(0.76 0.14 260);
+  --color-scatter-low-low: oklch(0.73 0.16 25);
 
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45);

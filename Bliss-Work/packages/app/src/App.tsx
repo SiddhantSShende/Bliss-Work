@@ -93,7 +93,6 @@ const Profile = lazyRoute(() => import("./routes/Profile"), "Profile");
 const Settings = lazyRoute(() => import("./routes/Settings"), "Settings");
 const MfaSettings = lazyRoute(() => import("./routes/MfaSettings"), "MfaSettings");
 const ActiveSessions = lazyRoute(() => import("./routes/ActiveSessions"), "ActiveSessions");
-const OutlookSettings = lazyRoute(() => import("./routes/OutlookSettings"), "OutlookSettings");
 const Org = lazyRoute(() => import("./routes/Org"), "Org");
 const Analytics = lazyRoute(() => import("./routes/Analytics"), "Analytics");
 // The Mail layout owns the message column; the routes below it are what shows
@@ -363,7 +362,6 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="settings/activity" element={<MyActivity />} />
                     <Route path="settings/security" element={<MfaSettings />} />
                     <Route path="settings/sessions" element={<ActiveSessions />} />
-                    <Route path="settings/outlook" element={<OutlookSettings />} />
                     <Route path="org" element={<Org />} />
                     <Route path="analytics" element={<Analytics />} />
                     <Route path="analytics/projects/:projectId" element={<Analytics />} />

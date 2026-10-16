@@ -4,6 +4,7 @@
     "assigned": "Asignada",
     "deadline": "Fecha límite",
     "missedOn": "Vencida",
+    "deadlineProgress": "Ha transcurrido el {{pct}}% del tiempo hasta la fecha límite",
     "collapseToPill": "Contraer en una cápsula",
     "unpinNoteTitle": "Dejar de fijar (la tarea se conserva)",
     "unpin": "Desfijar",
@@ -63,7 +64,8 @@
       "voiceTitle": "Unirse solo con voz",
       "leave": "Salir",
       "dismiss": "Descartar",
-      "decline": "Rechazar"
+      "decline": "Rechazar",
+      "accept": "Aceptar"
     },
     "titles": {
       "task": "Tarea",

@@ -38,6 +38,7 @@
     "lookupFailed": "No se pudo buscar el proyecto. Vuelve a intentarlo o continúa creando la tarea.",
     "unavailable": "No se encontró este proyecto o no tienes acceso.",
     "syncFailed": "La tarea se guardó, pero no se pudo actualizar la pertenencia al canal del proyecto.",
+    "completedBadge": "Completado",
     "completeProject": {
       "button": "Completar proyecto",
       "confirmDialog": {
@@ -76,7 +77,8 @@
       "left": "Abandonadas",
       "ignored": "Ignoradas",
       "missed": "Vencidas",
-      "default": "Tareas"
+      "default": "Tareas",
+      "completedProjects": "Proyectos completados"
     },
     "buckets": {
       "allocated": "Asignadas",
@@ -92,6 +94,15 @@
       "button": "Exportar"
     },
     "newTask": "Nueva tarea",
+    "completedToggle": {
+      "tasks": "Tareas completadas",
+      "projects": "Proyectos completados",
+      "retry": "Reintentar",
+      "empty": {
+        "title": "No hay proyectos completados",
+        "hint": "Los proyectos aparecen aquí una vez marcados como completados."
+      }
+    },
     "empty": {
       "title": "No hay nada aquí",
       "hint": "Las tareas aparecen aquí a medida que llegan.",

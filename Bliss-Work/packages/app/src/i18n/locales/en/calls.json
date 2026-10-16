@@ -71,7 +71,7 @@
     "privateOption": "{{name}} (private)",
     "attachmentsUnsupported": "Attachments aren't supported in meeting chat",
     "privatePlaceholder": "Private message to {{name}}…",
-    "everyonePlaceholder": "Message everyone…",
+    "everyonePlaceholder": "Message",
     "privateAriaLabel": "Private message to {{name}}",
     "everyoneAriaLabel": "Message everyone",
     "send": "Send",
@@ -167,7 +167,8 @@
     "addedYou": "{{name}} added you to a conference call",
     "ariaLabelCall": "Incoming call: {{title}}",
     "decline": "Decline",
-    "declineFailed": "Couldn't decline the call. Please try again."
+    "declineFailed": "Couldn't decline the call. Please try again.",
+    "accept": "Accept"
   },
   "scheduledNotice": {
     "untitledMeeting": "Meeting",

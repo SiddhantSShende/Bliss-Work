@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Plus, ListTodo, Download } from "lucide-react";
-import { Button, GlassCard, EmptyState } from "@taskboard/ui";
-import { actionsFor, canPinTask, type StickyTaskDTO, type TaskAction, type UserDTO } from "@taskboard/shared";
+import { Plus, ListTodo, Download, Folder } from "lucide-react";
+import { Button, GlassCard, EmptyState, Spinner } from "@taskboard/ui";
+import { actionsFor, canPinTask, type ProjectDTO, type StickyTaskDTO, type TaskAction, type UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
@@ -22,6 +22,7 @@ import { TASK_CARD_GRID } from "../features/taskCardLayout";
 import { TaskPinToggle } from "../features/TaskPinToggle";
 import { useOpenTaskDiscussion } from "../lib/useOpenTaskDiscussion";
 import { useProjects } from "../features/useProjects";
+import { ProjectCard } from "../features/ProjectCard";
 
 const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> = {
   ACKNOWLEDGE: "acknowledge", COMPLETE: "complete", IGNORE: "ignore", LEAVE: "leave",
@@ -41,6 +42,15 @@ export function Tasks() {
   const [createOpen, setCreateOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [preselect, setPreselect] = useState<UserDTO[]>([]);
+  // Which card grid the Completed category shows — completed tasks (default)
+  // or completed projects. Local state, not a route param: it's a display
+  // toggle within one category, not a destination worth bookmarking, and
+  // resetting it on leaving "completed" keeps a later visit starting on tasks.
+  const [completedView, setCompletedView] = useState<"tasks" | "projects">("tasks");
+  useEffect(() => {
+    if (view !== "completed") setCompletedView("tasks");
+  }, [view]);
+  const showCompletedProjects = view === "completed" && completedView === "projects";
 
   // CreateTaskDialog seeds its assignee set from `preselect` in an effect keyed
   // on `open` alone, so the preselect must be committed in the SAME render pass
@@ -74,42 +84,54 @@ export function Tasks() {
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/60 px-4 py-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-2">
-          <h1 className="text-base font-semibold tracking-tight text-fg">{titleByView[view] ?? t("tasksPage.titles.default")}</h1>
+          <h1 className="text-base font-semibold tracking-tight text-fg">
+            {showCompletedProjects ? t("tasksPage.titles.completedProjects") : (titleByView[view] ?? t("tasksPage.titles.default"))}
+          </h1>
           {view === "mine" && <MyTasksCount />}
         </div>
         <div className="flex items-center gap-2">
-          {/* Export emits task rows — nothing to export from a people roster. */}
-          {view !== "available" && (
+          {view === "completed" && (
+            <div className="flex items-center rounded-full bg-surface-2 p-0.5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setCompletedView("tasks")}
+                className={`rounded-full px-3 py-1.5 transition-colors ${
+                  completedView === "tasks"
+                    ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+                    : "text-muted hover:text-fg"
+                }`}
+              >
+                {t("tasksPage.completedToggle.tasks")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCompletedView("projects")}
+                className={`rounded-full px-3 py-1.5 transition-colors ${
+                  completedView === "projects"
+                    ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
+                    : "text-muted hover:text-fg"
+                }`}
+              >
+                {t("tasksPage.completedToggle.projects")}
+              </button>
+            </div>
+          )}
+          {/* Export emits task rows — nothing to export from a people roster or a project grid. */}
+          {view !== "available" && !showCompletedProjects && (
             <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)} title={t("tasksPage.export.title")}>
               <Download size={15} /> {t("tasksPage.export.button")}
             </Button>
           )}
-          <Button size="sm" onClick={() => openCreate()}><Plus size={15} /> {t("tasksPage.newTask")}</Button>
+          {/* New Task creates a task, not a project — hide it on the projects grid. */}
+          {!showCompletedProjects && (
+            <Button size="sm" onClick={() => openCreate()}><Plus size={15} /> {t("tasksPage.newTask")}</Button>
+          )}
         </div>
       </header>
       <ExportTasksDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       {activeProjects.length > 0 && (
         <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2 md:hidden">
           {activeProjects.map((project) => (
-            <NavLink
-              key={project.id}
-              to={`/app/tasks/projects/${project.id}`}
-              className={({ isActive }) =>
-                `max-w-52 shrink-0 truncate rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-gradient-to-br from-brand-from via-brand-mid to-brand-to text-accent-fg"
-                    : "bg-surface-2 text-muted hover:text-fg"
-                }`
-              }
-            >
-              {project.name}
-            </NavLink>
-          ))}
-        </div>
-      )}
-      {view === "completed" && completedProjects.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2 md:hidden">
-          {completedProjects.map((project) => (
             <NavLink
               key={project.id}
               to={`/app/tasks/projects/${project.id}`}
@@ -147,7 +169,15 @@ export function Tasks() {
       <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-5">
         {view === "mine" ? <MyTasksBoard />
           : view === "available" ? <AvailablePeople onAssign={(u) => openCreate([u])} />
-            : <AssignedBucket view={view} />}
+            : showCompletedProjects ? (
+              <CompletedProjectsGrid
+                projects={completedProjects}
+                isLoading={projects.isLoading}
+                isError={projects.isError}
+                onRetry={() => projects.refetch()}
+              />
+            )
+              : <AssignedBucket view={view} />}
       </div>
       <CreateTaskDialog open={createOpen} onClose={() => setCreateOpen(false)} preselect={preselect} />
     </div>
@@ -163,6 +193,57 @@ function MyTasksCount() {
     <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted">
       {sent.hasNextPage ? t("tasksPage.countMore", { count: tasks.length }) : t("tasksPage.count", { count: tasks.length })}
     </span>
+  );
+}
+
+function CompletedProjectsGrid({
+  projects,
+  isLoading,
+  isError,
+  onRetry,
+}: {
+  projects: ProjectDTO[];
+  isLoading: boolean;
+  isError: boolean;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation("tasks");
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center p-6">
+        <Spinner />
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="space-y-2">
+        <EmptyState icon={<Folder size={22} />} title={t("projects.unavailable")} hint="" />
+        <div className="flex justify-center">
+          <Button variant="subtle" size="sm" onClick={onRetry}>
+            {t("tasksPage.completedToggle.retry")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  if (projects.length === 0) {
+    return (
+      <EmptyState
+        icon={<Folder size={24} />}
+        title={t("tasksPage.completedToggle.empty.title")}
+        hint={t("tasksPage.completedToggle.empty.hint")}
+      />
+    );
+  }
+
+  return (
+    <div className={TASK_CARD_GRID}>
+      {projects.map((project) => (
+        <ProjectCard key={project.id} project={project} />
+      ))}
+    </div>
   );
 }
 

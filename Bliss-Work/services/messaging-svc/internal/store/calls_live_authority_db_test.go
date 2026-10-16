@@ -257,7 +257,7 @@ func TestLiveAuthority_TokenGateRefusesALapsedOrEndedCallButAdmitsAnActiveOne(t 
 		}
 	}
 	// The other doors guard the same fact.
-	if _, _, err := s.StartCall(ctx, org, host, lapsed, nil); !errors.Is(err, ErrCallEnded) {
+	if _, _, _, err := s.StartCall(ctx, org, host, lapsed, nil); !errors.Is(err, ErrCallEnded) {
 		t.Errorf("StartCall on a lapsed call = %v, want ErrCallEnded", err)
 	}
 }

@@ -11,7 +11,7 @@
  * they sync across devices.
  */
 import { useEffect, useState } from "react";
-import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon, Mail } from "lucide-react";
+import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button, PageHeader, useTheme, THEMES, customThemeGradient, themeName, darkCounterpart, type CustomTheme, type ThemeDef, type ThemeId } from "@taskboard/ui";
@@ -81,17 +81,6 @@ export function Settings() {
             action={
               <Link to="/app/settings/sessions">
                 <Button variant="subtle" size="sm">{t("common:buttons.view")}</Button>
-              </Link>
-            }
-          />
-
-          <SettingRow
-            icon={<Mail size={18} />}
-            title={t("settings:outlook.title")}
-            description={t("settings:outlook.description")}
-            action={
-              <Link to="/app/settings/outlook">
-                <Button variant="subtle" size="sm">{t("common:buttons.manage")}</Button>
               </Link>
             }
           />

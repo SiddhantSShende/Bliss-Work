@@ -167,7 +167,8 @@
     "addedYou": "{{name}} 已将你加入电话会议",
     "ariaLabelCall": "来电：{{title}}",
     "decline": "拒绝",
-    "declineFailed": "无法拒绝此通话。请重试。"
+    "declineFailed": "无法拒绝此通话。请重试。",
+    "accept": "接受"
   },
   "scheduledNotice": {
     "untitledMeeting": "会议",

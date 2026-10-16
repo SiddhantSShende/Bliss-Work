@@ -17,7 +17,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ApiError } from "@taskboard/shared";
+import { ApiError, isDevelopmentBuild, logger } from "@taskboard/shared";
 
 interface Props {
   children: ReactNode;
@@ -41,9 +41,8 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    // Always log so the dev console shows the trace; report if configured.
-     
-    console.error("[ErrorBoundary]", error, info.componentStack);
+    logger.error("[ErrorBoundary]", error);
+    if (isDevelopmentBuild) logger.debug("[ErrorBoundary] component stack", info.componentStack);
     this.props.onError?.(error, info);
   }
 

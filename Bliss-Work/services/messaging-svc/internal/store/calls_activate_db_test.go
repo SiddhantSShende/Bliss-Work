@@ -103,9 +103,9 @@ func startedAtOf(t *testing.T, s *Store, callID string) *time.Time {
 	return sa
 }
 
-func startedContains(started []*CallDTO, id string) bool {
-	for _, c := range started {
-		if c != nil && c.ID == id {
+func startedContains(started []ActivatedCall, id string) bool {
+	for _, a := range started {
+		if a.Call != nil && a.Call.ID == id {
 			return true
 		}
 	}

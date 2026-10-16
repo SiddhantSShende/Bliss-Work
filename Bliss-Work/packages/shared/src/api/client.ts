@@ -4,6 +4,7 @@
  * by a getter so it can live in memory (web) or the Electron secure store.
  */
 import { z } from "zod";
+import { logger } from "../logging";
 import {
   AttachmentDTO,
   AttachmentLinkDTO,
@@ -168,16 +169,6 @@ export interface ApiConfig {
  * Remove this block (and the `x-request-id`/clientId plumbing around it in
  * `req()`) once the root cause is confirmed — it is not meant to ship long-term.
  */
-const AUTH_DIAG = true;
-function authDiagLog(
-  phase: "request" | "response",
-  fields: { requestId: string; method: string; path: string; clientId?: string; bearerPresent?: boolean; status?: number },
-) {
-  if (!AUTH_DIAG) return;
-  // eslint-disable-next-line no-console
-  console.info(`[authDiag:${phase}]`, fields);
-}
-
 /** Shared `?from=&to=` builder. Dates are ABSOLUTE and computed by the client in
  *  the viewer's timezone — the server never interprets "last week", because only
  *  the client knows where the user is. Same rule as the tasks export. */
@@ -264,6 +255,36 @@ const TASK_LIST_PAGE_SIZE = 100;
 /** 2,000 tasks; past that the list is truncated rather than fetched without end. */
 const TASK_LIST_MAX_PAGES = 20;
 
+/**
+ * Ids get spliced straight into request paths (`/auth/members/${userId}`,
+ * `/api/v1/calls/${callId}`, ...). A crafted id containing a dot-segment —
+ * raw, percent-encoded, or backslash-separated (http(s) URL parsing treats a
+ * backslash as "/") — must not be able to redirect the request to a
+ * different endpoint on the same origin. `req()` checks every outgoing path
+ * here rather than trusting each of the ~100 id-interpolated methods above
+ * to sanitize its own argument.
+ *
+ * Only the path portion (before `?`/`#`) is checked, and only whole segments
+ * are rejected — a legitimate id containing dots (`a..b`) or a query string
+ * with dots is untouched.
+ */
+function assertSafeRequestPath(path: string): void {
+  const pathname = path.split(/[?#]/, 1)[0] ?? path;
+  for (const segment of pathname.split(/[/\\]/)) {
+    if (segment === "") continue;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      // Malformed percent-encoding is itself untrusted-looking input.
+      throw new ApiError(400, "invalid request path segment");
+    }
+    if (decoded === "." || decoded === "..") {
+      throw new ApiError(400, "invalid request path segment");
+    }
+  }
+}
+
 export class ApiClient {
   constructor(private readonly cfg: ApiConfig) {}
 
@@ -279,6 +300,7 @@ export class ApiClient {
     schema?: z.ZodType<T, z.ZodTypeDef, unknown>,
     retried = false,
   ): Promise<T> {
+    assertSafeRequestPath(path);
     const token = await this.cfg.getToken();
     const headers: Record<string, string> = {
       "content-type": "application/json",
@@ -286,22 +308,12 @@ export class ApiClient {
     };
     if (token) headers["authorization"] = `Bearer ${token}`;
 
-    // TEMPORARY, see authDiagLog's doc comment. Reuses an id the caller already
-    // set on retry (same request, second attempt) rather than minting a new one,
-    // so one failed+retried request is still one correlation id end to end.
-    const diagRequestId =
+    // Preserve the support-correlation id across auth retries without logging
+    // request metadata or payloads in the browser console.
+    const requestId =
       (init.headers as Record<string, string> | undefined)?.["x-request-id"] ??
       (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
-    if (AUTH_DIAG) {
-      headers["x-request-id"] = diagRequestId;
-      authDiagLog("request", {
-        requestId: diagRequestId,
-        method: init.method ?? "GET",
-        path,
-        clientId: this.cfg.clientId,
-        bearerPresent: headers["authorization"]?.startsWith("Bearer ") ?? false,
-      });
-    }
+    headers["x-request-id"] = requestId;
 
     // Abort a hung request after timeoutMs (default 30s). Without this a stalled
     // TCP connection blocks the promise — and any UI waiting on it — indefinitely.
@@ -324,9 +336,6 @@ export class ApiClient {
     } finally {
       clearTimeout(timer);
     }
-    if (AUTH_DIAG) {
-      authDiagLog("response", { requestId: diagRequestId, method: init.method ?? "GET", path, status: res.status });
-    }
     // Access tokens expire after ~15 min. When an AUTHED request 401s, silently
     // refresh once and retry so an expired token self-heals instead of
     // cascading 401s across every screen. Guard on `token` so a genuinely
@@ -341,13 +350,8 @@ export class ApiClient {
     if (res.status === 401 && token && !retried && this.cfg.refreshToken) {
       const fresh = await this.cfg.refreshToken();
       if (fresh) {
-        // Carry the SAME diagnostic request id into the retry, so the retry's
-        // own request/response log lines still read as one correlation id
-        // rather than minting a second, unrelated one. TEMPORARY, see
-        // authDiagLog's doc comment.
-        const retryInit = AUTH_DIAG
-          ? { ...init, headers: { ...(init.headers as Record<string, string>), "x-request-id": diagRequestId } }
-          : init;
+        // Carry the same support-correlation id into the retry.
+        const retryInit = { ...init, headers: { ...(init.headers as Record<string, string>), "x-request-id": requestId } };
         return this.req<T>(base, path, retryInit, schema, true);
       }
     }
@@ -358,7 +362,7 @@ export class ApiClient {
     if (schema) {
       const parsed = schema.safeParse(await res.json());
       if (!parsed.success) {
-        console.warn("response validation failed", path, parsed.error.issues);
+        logger.warn("response validation failed", { issueCount: parsed.error.issues.length });
         throw new ApiError(502, "invalid response from server", { code: undefined });
       }
       return parsed.data;
@@ -412,12 +416,19 @@ export class ApiClient {
     if (envelope.errors?.length) {
       // Partial: something is degraded but the screen can still draw. Surface it
       // for diagnosis without breaking the render.
-      console.warn("graphql partial result", operationName, envelope.errors);
+      logger.warn("graphql partial result", {
+        operationName,
+        errorCount: envelope.errors.length,
+        errorCodes: envelope.errors.map((error) => asErrorCode(error.extensions?.code)).filter(Boolean),
+      });
     }
 
     const parsed = schema.safeParse(envelope.data);
     if (!parsed.success) {
-      console.warn("graphql response validation failed", operationName, parsed.error.issues);
+      logger.warn("graphql response validation failed", {
+        operationName,
+        issueCount: parsed.error.issues.length,
+      });
       throw new ApiError(502, "invalid response from the GraphQL gateway");
     }
     return parsed.data;
@@ -1518,7 +1529,7 @@ export class ApiClient {
 
     const parsed = AttachmentDTO.safeParse(res.body);
     if (!parsed.success) {
-      console.warn("upload response validation failed", parsed.error.issues);
+      logger.warn("upload response validation failed", { issueCount: parsed.error.issues.length });
       throw new ApiError(502, "invalid response from server");
     }
     return parsed.data;
@@ -2173,7 +2184,7 @@ export class ApiClient {
       z.unknown(),
     );
   }
-  // ── integrations (connected external accounts — Settings > Microsoft 365) ──
+  // ── integrations (connected external accounts — Settings > Integrations) ──
   /** Every connection visible to the caller (their own, plus any org-wide
    *  ones) — never includes tokens. Empty array when integrationsBase is not
    *  configured, same "feature unavailable" posture as the sticky methods. */
@@ -2186,7 +2197,7 @@ export class ApiClient {
       z.array(IntegrationConnectionDTO),
     );
   }
-  /** Start connecting a provider. For an OAuth provider (outlook) this
+  /** Start connecting a provider. For an OAuth provider (e.g. teams) this
    *  returns an authorizeUrl to redirect the browser to; the connection
    *  itself is created by the provider's callback, not by this call.
    *  `returnTo: "desktop"` asks the callback to hand back to the
@@ -2836,6 +2847,15 @@ export class ApiClient {
    *  another organisation. */
   myCalls() {
     return this.req(this.cfg.messagingBase, "/api/v1/calls", {}, z.array(CallDTO));
+  }
+
+  /** Any call the caller is RIGHT NOW being rung for — an open, unexpired
+   *  invitation on a LIVE call. Called once per fresh WS connection to
+   *  recover a ring that started, or is still open, while the client was
+   *  offline (the gateway's event replay deliberately does not re-announce
+   *  a ring — see queryBridge's own reconnect handling). */
+  myRingingCalls() {
+    return this.req(this.cfg.messagingBase, "/api/v1/calls/ringing", {}, z.array(CallDTO));
   }
 
   call(callId: string) {

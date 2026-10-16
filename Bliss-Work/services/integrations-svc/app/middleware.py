@@ -22,12 +22,6 @@ HEADER_REQUEST_ID = "X-Request-Id"
 # additionally bounded by the reverse-proxy body limit in prod.
 MAX_BODY_BYTES = 1 << 20  # 1 MiB
 
-# /internal/mail/send carries attachments as base64 JSON. providers/microsoft.py's
-# MAX_INLINE_ATTACHMENT_BYTES caps the raw attachment total at 3 MiB; base64 inflates
-# that by ~4/3 (~4 MiB), and the surrounding MailSendReq JSON (subject/recipients/etc.)
-# adds a little more, so 5 MiB gives headroom without opening the cap up generally.
-MAIL_SEND_MAX_BODY_BYTES = 5 * 1024 * 1024  # 5 MiB
-
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     """Reject requests whose declared Content-Length exceeds the cap with 413.

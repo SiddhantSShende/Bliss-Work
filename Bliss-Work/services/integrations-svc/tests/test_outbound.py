@@ -103,40 +103,6 @@ async def test_mail_without_a_subject_gets_a_default(crypt, monkeypatch):
     assert outbound.DEFAULT_SUBJECT in decoded
 
 
-async def test_outlook_external_id_is_the_internet_message_id(crypt, monkeypatch):
-    """send_mail is draft-then-send (see microsoft.py): it returns the
-    Graph-assigned internetMessageId, which is what gets recorded as this
-    activity's external_id — a stable, cross-mailbox identifier, unlike the
-    mailbox-scoped Graph `id` the same call also returns."""
-    crypt()
-
-    async def fake_send_mail(_token, *, to, subject, body):
-        return "msg-1", "<abc123@graph.microsoft.com>"
-
-    monkeypatch.setattr(outbound.ms, "send_mail", fake_send_mail)
-    res = await outbound.send_via_connection(
-        None, "org", _Row("outlook"), target="a@b.com", text="body"
-    )
-    assert res.external_id == "<abc123@graph.microsoft.com>"
-    assert res.kind == "email"
-
-
-async def test_outlook_external_id_is_none_when_graph_omits_it(crypt, monkeypatch):
-    # Belt-and-suspenders: an empty string from a stubbed/odd response must
-    # still become None, not an empty-but-truthy external id.
-    crypt()
-
-    async def fake_send_mail(_token, *, to, subject, body):
-        return "msg-1", ""
-
-    monkeypatch.setattr(outbound.ms, "send_mail", fake_send_mail)
-    res = await outbound.send_via_connection(
-        None, "org", _Row("outlook"), target="a@b.com", text="body"
-    )
-    assert res.external_id is None
-    assert res.kind == "email"
-
-
 async def test_teams_posts_to_the_chat(crypt, monkeypatch):
     crypt()
 
@@ -218,10 +184,10 @@ async def test_microsoft_failures_classify_correctly(crypt, monkeypatch, exc, re
     async def boom(*_a, **_kw):
         raise exc
 
-    monkeypatch.setattr(outbound.ms, "send_mail", boom)
+    monkeypatch.setattr(outbound.ms, "send_chat_message", boom)
     with pytest.raises(outbound.OutboundError) as ei:
         await outbound.send_via_connection(
-            None, "org", _Row("outlook"), target="a@b.com", text="x"
+            None, "org", _Row("teams"), target="chat1", text="x"
         )
     assert ei.value.retryable is retryable
 
@@ -234,10 +200,10 @@ async def test_ambiguous_graph_delivery_is_not_represented_as_definite_failure(
     async def boom(*_a, **_kw):
         raise ms.MicrosoftAmbiguousDelivery("504: gateway timeout")
 
-    monkeypatch.setattr(outbound.ms, "send_mail", boom)
+    monkeypatch.setattr(outbound.ms, "send_chat_message", boom)
     with pytest.raises(outbound.OutboundError) as ei:
         await outbound.send_via_connection(
-            None, "org", _Row("outlook"), target="a@b.com", text="x"
+            None, "org", _Row("teams"), target="chat1", text="x"
         )
     assert ei.value.ambiguous is True
     assert ei.value.retryable is False
@@ -247,7 +213,6 @@ async def test_ambiguous_graph_delivery_is_not_represented_as_definite_failure(
     "provider,exc",
     [
         ("gmail", gmail.GmailAuthError("expired")),
-        ("outlook", ms.MicrosoftAuthError("expired")),
         ("teams", ms.MicrosoftAuthError("expired")),
     ],
 )
@@ -257,9 +222,7 @@ async def test_a_401_at_send_time_is_flagged_as_an_auth_error(crypt, monkeypatch
     # rather than waiting out the token's original expiry — routes/internal.py
     # only does that when this flag is set.
     crypt()
-    send_attr = {"gmail": "send_message", "outlook": "send_mail", "teams": "send_chat_message"}[
-        provider
-    ]
+    send_attr = {"gmail": "send_message", "teams": "send_chat_message"}[provider]
 
     async def boom(*_a, **_kw):
         raise exc
@@ -276,20 +239,21 @@ async def test_a_401_at_send_time_is_flagged_as_an_auth_error(crypt, monkeypatch
     "provider,exc",
     [
         ("gmail", gmail.GmailRateLimited("slow down", 30)),
-        ("outlook", ms.MicrosoftRateLimited("throttled", 60)),
-        ("outlook", ms.MicrosoftError("400: bad recipient")),
+        ("teams", ms.MicrosoftRateLimited("throttled", 60)),
+        ("teams", ms.MicrosoftError("400: bad recipient")),
     ],
 )
 async def test_a_non_auth_failure_is_never_flagged_as_an_auth_error(crypt, monkeypatch, provider, exc):
     crypt()
-    send_attr = "send_message" if provider == "gmail" else "send_mail"
+    send_attr = "send_message" if provider == "gmail" else "send_chat_message"
+    target = "a@b.com" if provider == "gmail" else "chat1"
 
     async def boom(*_a, **_kw):
         raise exc
 
     monkeypatch.setattr(getattr(outbound, "gmail" if provider == "gmail" else "ms"), send_attr, boom)
     with pytest.raises(outbound.OutboundError) as ei:
-        await outbound.send_via_connection(None, "org", _Row(provider), target="a@b.com", text="x")
+        await outbound.send_via_connection(None, "org", _Row(provider), target=target, text="x")
     assert ei.value.is_auth_error is False
 
 

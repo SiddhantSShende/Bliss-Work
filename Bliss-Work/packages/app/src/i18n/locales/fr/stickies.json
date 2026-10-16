@@ -4,6 +4,7 @@
     "assigned": "Attribuée",
     "deadline": "Échéance",
     "missedOn": "Manquée",
+    "deadlineProgress": "{{pct}} % du délai avant l'échéance s'est écoulé",
     "collapseToPill": "Réduire en pastille",
     "unpinNoteTitle": "Désépingler (la tâche reste)",
     "unpin": "Désépingler",
@@ -63,7 +64,8 @@
       "voiceTitle": "Rejoindre en audio uniquement",
       "leave": "Quitter",
       "dismiss": "Ignorer",
-      "decline": "Refuser"
+      "decline": "Refuser",
+      "accept": "Accepter"
     },
     "titles": {
       "task": "Tâche",

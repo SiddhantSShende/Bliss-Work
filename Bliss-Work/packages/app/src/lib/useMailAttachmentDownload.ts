@@ -1,4 +1,5 @@
 import { useCallback, useRef } from "react";
+import { logger } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { downloadAttachment } from "./download";
 
@@ -45,7 +46,7 @@ export function useMailAttachmentDownload(mailId: string) {
       downloadAttachment(url, item.name);
       api
         .recordMailAttachmentDownload(mailId, item.id)
-        .catch((err) => console.error("[mail-attachment-download] failed to record", err));
+        .catch((err) => logger.error("[mail-attachment-download] failed to record", err));
     },
     [api, mailId],
   );

@@ -31,10 +31,6 @@
     "title": "현재 로그인",
     "description": "내 계정에 로그인된 모든 기기를 확인하고, 원격으로 로그아웃할 수 있어요."
   },
-  "outlook": {
-    "title": "Microsoft 365 / Outlook",
-    "description": "Connect your Outlook mailbox to send and sync mail from BlissWork."
-  },
   "activity": {
     "title": "내 활동",
     "description": "{{brand}}가 기록하는 내 업무 활동을 모두 확인하세요. 워크스페이스 관리자가 보는 기록과 같아요."

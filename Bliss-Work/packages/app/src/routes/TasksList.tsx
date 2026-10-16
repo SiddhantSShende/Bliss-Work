@@ -31,8 +31,9 @@ export function TasksList() {
   // Server-authoritative: a project's own status decides which list it's in,
   // so completing/reopening a project (which invalidates qk.projects) moves
   // it between sections on the next refetch with no extra client state.
+  // Completed projects are not listed here — they surface as cards in the
+  // Completed Projects view on the Tasks page instead (see Tasks.tsx).
   const activeProjects = projects.data?.filter((p) => p.status === "ACTIVE") ?? [];
-  const completedProjects = projects.data?.filter((p) => p.status === "COMPLETED") ?? [];
   // Same hook the pane uses, so the badge and the grid can never disagree —
   // TanStack dedupes the underlying queries, so this costs no extra network.
   const { roster } = useAvailability();
@@ -104,20 +105,6 @@ export function TasksList() {
                   <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold text-muted">{n}</span>
                 )}
               </NavLink>
-              {c.view === "completed" && completedProjects.length > 0 && (
-                <div className="ml-7 space-y-0.5 border-l border-border/60 pl-2">
-                  {completedProjects.map((project) => (
-                    <NavLink
-                      key={project.id}
-                      to={`/app/tasks/projects/${project.id}`}
-                      className={({ isActive }) => rowClass(isActive)}
-                    >
-                      <NavIconTile><Folder size={15} /></NavIconTile>
-                      <span className="min-w-0 flex-1 truncate text-sm text-muted">{project.name}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              )}
             </Fragment>
           );
         })}

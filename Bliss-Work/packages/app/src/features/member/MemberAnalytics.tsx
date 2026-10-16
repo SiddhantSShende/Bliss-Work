@@ -20,7 +20,7 @@ import { qk } from "../../lib/queryBridge";
 import { relativeTime } from "../../lib/relativeTime";
 import { Tabs } from "../Tabs";
 import { activityRanges, computeRange, type RangeKey } from "../../lib/dateRange";
-import { ActivityTrendChart, WorkHeatmap } from "./MemberAnalyticsCharts";
+import { ActivityTrendChart, MiniSparkline, WorkHeatmap } from "./MemberAnalyticsCharts";
 import {
   ActivityOverviewBody,
   RecentActivityBody,
@@ -92,6 +92,17 @@ export function MemberAnalytics({
   const lastActiveAt = entries[0]?.occurredAt;
   const change = (cur: number, before: number | undefined) =>
     previous ? percentChange(cur, before ?? 0) : null;
+  // Chronological per-day series for the KPI cards' sparklines — real rollup
+  // data for the selected member and range, never fabricated. Days without a
+  // rollup row are 0, not skipped, so the bars still read left-to-right as time.
+  const sortedDays = [...data.days].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  const activeMsSeries = sortedDays.map((d) => d.activeMs);
+  const sessionsSeries = sortedDays.map((d) => d.sessions);
+  const eventsSeries = sortedDays.map((d) => d.events);
+  // "Last Active" has no magnitude of its own to chart — only recency — so its
+  // sparkline instead shows which of those same days had any activity at all,
+  // the frequency pattern behind the "N minutes ago" headline.
+  const activeDaySeries = sortedDays.map((d) => (d.activeMs > 0 ? 1 : 0));
 
   return (
     <div className="space-y-5">
@@ -104,6 +115,7 @@ export function MemberAnalytics({
           value={formatMs(data.totalActiveMs)}
           hint={t("members:analytics.summary.acrossDays", { count: activeDays })}
           change={change(data.totalActiveMs, previous?.totalActiveMs)}
+          sparkline={<MiniSparkline values={activeMsSeries} color="var(--color-chart-ink)" title={t("members:analytics.summary.activeTime")} />}
         />
         <SummaryCard
           icon={<LogIn size={16} />}
@@ -111,6 +123,7 @@ export function MemberAnalytics({
           value={String(data.sessions)}
           hint={t("members:analytics.summary.sessionsHint")}
           change={change(data.sessions, previous?.sessions)}
+          sparkline={<MiniSparkline values={sessionsSeries} color="var(--color-chart-ink)" title={t("members:analytics.summary.sessions")} />}
         />
         <SummaryCard
           icon={<Zap size={16} />}
@@ -118,6 +131,7 @@ export function MemberAnalytics({
           value={String(data.events)}
           hint={t("members:analytics.summary.eventsHint")}
           change={change(data.events, previous?.events)}
+          sparkline={<MiniSparkline values={eventsSeries} color="var(--color-chart-ink)" title={t("members:analytics.summary.events")} />}
         />
         <SummaryCard
           icon={<History size={16} />}
@@ -128,6 +142,7 @@ export function MemberAnalytics({
               ? new Date(lastActiveAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
               : t("members:analytics.summary.lastActiveNone")
           }
+          sparkline={<MiniSparkline values={activeDaySeries} color="var(--color-chart-context)" title={t("members:analytics.summary.lastActive")} />}
         />
       </div>
 
@@ -138,7 +153,7 @@ export function MemberAnalytics({
           title={t("members:analytics.overview.title")}
           hint={t("members:analytics.overview.hint")}
         >
-          <ActivityOverviewBody data={data} />
+          <ActivityOverviewBody data={data} from={from} to={to} />
         </SectionCard>
         <SectionCard
           icon={<LayoutGrid size={17} />}

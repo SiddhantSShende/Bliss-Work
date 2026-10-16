@@ -43,6 +43,7 @@
  * instead of the tab closing.
  */
 import { useCallback, useEffect, useState } from "react";
+import { logger } from "@taskboard/shared";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
@@ -105,15 +106,15 @@ export function CallWindow() {
   // (App.tsx) have already resolved a session — there is no unauthenticated
   // path into this component.
   useEffect(() => {
-    console.debug("[CALL WINDOW] Session initialized");
+    logger.debug("[CALL WINDOW] Session initialized");
   }, []);
 
   useEffect(() => {
-    if (callId) console.debug("[CALL WINDOW] Loading call:", callId);
+    if (callId) logger.debug("[CALL WINDOW] Loading call:", callId);
   }, [callId]);
 
   useEffect(() => {
-    if (call) console.debug("[CALL WINDOW] Call loaded");
+    if (call) logger.debug("[CALL WINDOW] Call loaded");
   }, [call]);
 
   // The tab's own title says which meeting, because a person in three of these
@@ -190,7 +191,7 @@ export function CallWindow() {
     );
   }
 
-  console.debug("[CALL WINDOW] Rendering CallRoom directly");
+  logger.debug("[CALL WINDOW] Rendering CallRoom directly");
   return (
     <MeetingSessionContext.Provider value={null}>
       <CallRoom call={call} onClose={close} />

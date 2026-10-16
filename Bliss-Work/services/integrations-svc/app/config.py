@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     port: int = 8005
 
     # This service's OWN internal-endpoint secret — validates callers of
-    # /internal/messages/send and /internal/mail/send (e.g. messaging-svc
+    # /internal/messages/send (e.g. messaging-svc
     # asking us to deliver an outbound-to-external forward). NOT the same
     # value used to call OUT to messaging-svc below — see
     # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2: every service now has a

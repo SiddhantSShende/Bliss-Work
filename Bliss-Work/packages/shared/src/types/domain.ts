@@ -219,9 +219,6 @@ export const IntegrationConnectionDTO = z.object({
   webhookUrl: z.string().nullable().default(null),
   createdAt: z.string(),
   updatedAt: z.string(),
-  // Most recent mail_sync_worker activity — null for a connection that has
-  // never completed a sync sweep (e.g. just connected, or not a mail provider).
-  lastSyncedAt: z.string().nullable().default(null),
 });
 export type IntegrationConnectionDTO = z.infer<typeof IntegrationConnectionDTO>;
 

@@ -1,14 +1,15 @@
-"""Per-org OAuth app credentials — the setup step before anyone can connect.
+"""Org-configurable OAuth app credentials.
 
 Endpoints (all under /api/v1, JWT-verified, org-scoped via RLS):
   GET    /integrations/app-credentials           → every vendor's setup state
   PUT    /integrations/app-credentials/{vendor}  → save/rotate an org's app
   DELETE /integrations/app-credentials/{vendor}  → remove it
 
-Integrations are user-driven: an org registers its OWN Google Cloud / Entra
-app and pastes the client id + secret here. The secret is encrypted with the
-per-org envelope Cryptor before it touches the database and is NEVER returned
-to a client — not even to the admin who set it. Rotation is a re-PUT.
+Google credentials may be configured per org. Microsoft credentials are
+centrally managed by the BlissWork deployment operator and cannot be uploaded
+through this API. Stored secrets are encrypted with the per-org envelope
+Cryptor before they touch the database and are NEVER returned to a client.
+Rotation is a re-PUT for supported vendors.
 
 NOTE — do NOT add `@limiter.limit` decorators to the PUT below. Under
 `from __future__ import annotations` slowapi's decorator breaks FastAPI's body
@@ -34,8 +35,7 @@ def _redirect_uris(vendor: str) -> list[str]:
 
     One per provider, because Google and Microsoft both match the redirect_uri
     EXACTLY — a trailing slash or a missing path is `redirect_uri_mismatch`,
-    which is by far the most common setup failure. Microsoft needs two (outlook
-    and teams) from the one app registration.
+    which is by far the most common setup failure.
     """
     base = settings.public_base_url.rstrip("/")
     return [f"{base}/ext/{p}/oauth/callback" for p in app_credentials.providers_for(vendor)]
@@ -71,6 +71,14 @@ async def put_app_credentials(
     if "org_admin" not in principal.roles:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="org_admin role required")
     _require_vendor(vendor)
+    if vendor == "microsoft":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Microsoft OAuth credentials are centrally managed by the "
+                "BlissWork deployment operator and cannot be configured per workspace"
+            ),
+        )
 
     client_id = body.clientId.strip()
     client_secret = body.clientSecret.strip()

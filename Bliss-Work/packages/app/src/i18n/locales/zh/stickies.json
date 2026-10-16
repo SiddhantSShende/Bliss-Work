@@ -4,6 +4,7 @@
     "assigned": "分配时间",
     "deadline": "截止时间",
     "missedOn": "已错过",
+    "deadlineProgress": "距截止日期的时间已过去 {{pct}}%",
     "collapseToPill": "收起为胶囊",
     "unpinNoteTitle": "取消置顶（任务保留）",
     "unpin": "取消置顶",
@@ -63,7 +64,8 @@
       "voiceTitle": "仅语音加入",
       "leave": "退出",
       "dismiss": "关闭",
-      "decline": "拒绝"
+      "decline": "拒绝",
+      "accept": "接受"
     },
     "titles": {
       "task": "任务",

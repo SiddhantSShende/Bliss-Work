@@ -41,7 +41,7 @@ async def _seed(refresh_plain: str = "old-refresh") -> tuple[str, bytes]:
                 INSERT INTO integration_connections
                     (id, org_id, owner_user_id, created_by, scope_kind, provider, status,
                      display_label, access_token_enc, refresh_token_enc, token_expires_at)
-                VALUES (:id, :o, :u, :u, 'user', 'outlook', 'connected', 'work',
+                VALUES (:id, :o, :u, :u, 'user', 'teams', 'connected', 'work',
                         :a, :r, now() + interval '1 minute')
                 """
             ),
@@ -97,7 +97,7 @@ async def test_an_uninterrupted_refresh_still_stores_the_new_tokens(db_app, work
         AsyncMock(return_value={"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}),
     )
 
-    await w._refresh_one(conn_id, ORG, "outlook", rt_enc)  # noqa: SLF001
+    await w._refresh_one(conn_id, ORG, "teams", rt_enc)  # noqa: SLF001
 
     row = await _row(conn_id)
     assert row.status == "connected" and row.refresh_claimed_at is None
@@ -114,7 +114,7 @@ async def test_a_disconnect_during_the_refresh_is_not_undone(db_app, worker, mon
 
     monkeypatch.setattr(rw.oauth, "refresh_access_token", _provider)
 
-    await w._refresh_one(conn_id, ORG, "outlook", rt_enc)  # noqa: SLF001
+    await w._refresh_one(conn_id, ORG, "teams", rt_enc)  # noqa: SLF001
 
     row = await _row(conn_id)
     assert row.status == "revoked", "disconnected connection must stay disconnected"
@@ -131,7 +131,7 @@ async def test_a_terminal_refresh_error_does_not_overwrite_a_disconnect(db_app, 
 
     monkeypatch.setattr(rw.oauth, "refresh_access_token", _provider)
 
-    await w._refresh_one(conn_id, ORG, "outlook", rt_enc)  # noqa: SLF001
+    await w._refresh_one(conn_id, ORG, "teams", rt_enc)  # noqa: SLF001
 
     row = await _row(conn_id)
     assert row.status == "revoked" and row.last_error is None
@@ -159,7 +159,7 @@ async def test_a_reconnect_during_the_refresh_keeps_the_new_credentials(db_app, 
 
     monkeypatch.setattr(rw.oauth, "refresh_access_token", _provider)
 
-    await w._refresh_one(conn_id, ORG, "outlook", rt_enc)  # noqa: SLF001
+    await w._refresh_one(conn_id, ORG, "teams", rt_enc)  # noqa: SLF001
 
     row = await _row(conn_id)
     assert bytes(row.refresh_token_enc) == bytes(fresh["rt"]), "tokens from the old grant must not replace the new ones"
@@ -184,7 +184,7 @@ async def test_a_transient_failure_storing_the_tokens_is_retried(db_app, worker,
 
     monkeypatch.setattr(rw.RefreshWorker, "_persist_tokens", _flaky)
 
-    await w._refresh_one(conn_id, ORG, "outlook", rt_enc)  # noqa: SLF001
+    await w._refresh_one(conn_id, ORG, "teams", rt_enc)  # noqa: SLF001
 
     assert calls["n"] == 2
     assert bytes((await _row(conn_id)).refresh_token_enc) != rt_enc, "the rotated token was not lost"

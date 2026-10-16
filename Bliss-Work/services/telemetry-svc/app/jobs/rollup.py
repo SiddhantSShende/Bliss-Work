@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import text
@@ -176,6 +177,68 @@ async def rollup_day(day: date) -> None:
         await db.execute(_EVENT_ROLLUP, {"day": day, "mirror": sorted(SECURITY_MIRROR_ACTIONS)})
         await db.commit()
     log.info("rollup_complete", day=day.isoformat(), timezone=_TZ)
+
+
+# Advisory-lock key for the in-process roller, analogous to sessions._SWEEP_LOCK
+# and in the same keyspace — an arbitrary constant distinct from that one.
+_ROLL_LOCK = 0x801B_0110
+
+
+class Roller:
+    """Keeps activity_daily warm by re-running rollup_day for today and
+    yesterday on a timer, so the heatmap and other rollup-fed charts have data
+    without depending on an external cron ever having been wired up.
+
+    Both days are idempotent upserts, so running them every tick, from every
+    replica, is redundant work rather than a correctness risk — the
+    try-lock below just avoids every replica doing that work at once.
+    """
+
+    def __init__(self) -> None:
+        self._task: asyncio.Task | None = None
+        self._stop = asyncio.Event()
+
+    async def start(self) -> None:
+        self._stop.clear()
+        self._task = asyncio.create_task(self._run(), name="activity-roller")
+        log.info("roller_started", interval_s=settings.rollup_interval_seconds)
+
+    async def stop(self) -> None:
+        self._stop.set()
+        if self._task is not None:
+            try:
+                await asyncio.wait_for(self._task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._task.cancel()
+        log.info("roller_stopped")
+
+    async def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                await self.roll_once()
+            except Exception:  # noqa: BLE001 — a bad tick must not kill the loop
+                log.exception("roll_failed")
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), timeout=settings.rollup_interval_seconds)
+
+    async def roll_once(self) -> None:
+        today = datetime.now(timezone.utc).date()
+        async with session() as db:
+            await set_bypass_rls(db)
+            # Held for the whole tick (XACT-scoped, released on commit/rollback
+            # below), not just the check — the point is to stop every replica
+            # rolling up at once, not merely to observe that one of them is.
+            got = await db.scalar(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": _ROLL_LOCK})
+            if not got:
+                await db.rollback()
+                return
+            for day in (today - timedelta(days=1), today):
+                await db.execute(_SESSION_ROLLUP, {"day": day})
+                await db.execute(_EVENT_ROLLUP, {"day": day, "mirror": sorted(SECURITY_MIRROR_ACTIONS)})
+            await db.commit()
+
+
+roller = Roller()
 
 
 async def _main(days: list[date]) -> None:

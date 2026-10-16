@@ -23,6 +23,10 @@ import i18n from "../i18n";
 export interface NoteEntry {
   /** Unique across the room. The dedupe key when two clients sync. */
   id: string;
+  /** Writer's room identity — which IS their BlissWork user id. Lets a
+   *  viewer tell "mine" from "someone else's", the same way chat does, for
+   *  the unread count — see unreadNotesSince. */
+  from: string;
   /** Display name of whoever wrote it, captured at the time. */
   author: string;
   text: string;
@@ -52,6 +56,9 @@ export function isNoteEntry(v: unknown): v is NoteEntry {
     typeof n.id === "string" &&
     n.id.length > 0 &&
     n.id.length <= 64 &&
+    typeof n.from === "string" &&
+    n.from.length > 0 &&
+    n.from.length <= 64 &&
     typeof n.author === "string" &&
     n.author.length <= 120 &&
     typeof n.text === "string" &&
@@ -76,6 +83,18 @@ export function isNoteEntry(v: unknown): v is NoteEntry {
  */
 export function mergeNotes(held: NoteEntry[], incoming: NoteEntry[]): NoteEntry[] {
   return mergeById(held, incoming.filter(isNoteEntry), NOTES_MAX);
+}
+
+/** Notes the viewer has not seen yet — everything after the mark. Mirrors
+ *  lib/callChat's unreadSince, for the same badge on the Notes tab. */
+export function unreadNotesSince(notes: readonly NoteEntry[], seenAt: number, me: string): number {
+  let n = 0;
+  for (const note of notes) {
+    // Your own note is not news to you.
+    if (note.from === me) continue;
+    if (note.at > seenAt) n++;
+  }
+  return n;
 }
 
 /** The exported file: plain text, because it has to be readable by whoever it

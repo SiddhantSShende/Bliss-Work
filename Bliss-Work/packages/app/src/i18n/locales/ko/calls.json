@@ -167,7 +167,8 @@
     "addedYou": "{{name}}님이 회원님을 컨퍼런스 통화에 추가했어요",
     "ariaLabelCall": "수신 통화: {{title}}",
     "decline": "거절",
-    "declineFailed": "통화를 거절하지 못했습니다. 다시 시도해 주세요."
+    "declineFailed": "통화를 거절하지 못했습니다. 다시 시도해 주세요.",
+    "accept": "수락"
   },
   "scheduledNotice": {
     "untitledMeeting": "미팅",

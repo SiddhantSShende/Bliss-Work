@@ -524,11 +524,19 @@ const DueSweepLimit = 50
 // ExpireOverdueCalls: FOR UPDATE SKIP LOCKED claims each row exclusively, and
 // the UPDATE's own `status = 'SCHEDULED'` guard means only the sweeper that
 // actually claimed a row reports having started it.
-func (s *Store) ActivateDueCalls(ctx context.Context, limit int) ([]*CallDTO, error) {
+// ActivatedCall is one call ActivateDueCalls started, along with the
+// invitees it rang — see activateCallRowTx's own doc comment on why the
+// HOST is never among them.
+type ActivatedCall struct {
+	Call *CallDTO
+	Rung []string
+}
+
+func (s *Store) ActivateDueCalls(ctx context.Context, limit int) ([]ActivatedCall, error) {
 	if limit <= 0 {
 		limit = DueSweepLimit
 	}
-	var started []*CallDTO
+	var started []ActivatedCall
 	err := s.withBypass(ctx, func(tx pgx.Tx) error {
 		ids, err := callIDsTx(ctx, tx, `
 			SELECT id FROM calls
@@ -542,12 +550,12 @@ func (s *Store) ActivateDueCalls(ctx context.Context, limit int) ([]*CallDTO, er
 			return err
 		}
 		for _, id := range ids {
-			c, err := activateCallTx(ctx, tx, id)
+			c, rung, err := activateCallTx(ctx, tx, id)
 			if err != nil {
 				return err
 			}
 			if c != nil {
-				started = append(started, c)
+				started = append(started, ActivatedCall{Call: c, Rung: rung})
 			}
 		}
 		return nil
@@ -567,15 +575,19 @@ func (s *Store) ActivateDueCalls(ctx context.Context, limit int) ([]*CallDTO, er
 // canStartCallTx check here because there is no caller to authorise: this
 // only ever runs from ActivateDueCalls, over a row the sweep itself already
 // claimed with FOR UPDATE SKIP LOCKED.
-func activateCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) {
-	started, _, err := activateCallRowTx(ctx, tx, callID, nil)
+func activateCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, []string, error) {
+	started, _, rung, err := activateCallRowTx(ctx, tx, callID, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !started {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return getCallTx(ctx, tx, callID)
+	c, err := getCallTx(ctx, tx, callID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return c, rung, nil
 }
 
 // RingExpirySweepLimit bounds one pass of the ring-expiry sweep — same
@@ -641,7 +653,7 @@ func (s *Store) ExpireRingingInvitations(ctx context.Context, limit int) ([]Expi
 	var out []ExpiredRing
 	err := s.withBypass(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT cp.call_id, cp.user_id, cp.invited_by
+			SELECT cp.call_id, cp.user_id, cp.invited_by, c.kind
 			FROM call_participants cp
 			JOIN calls c ON c.id = cp.call_id
 			WHERE c.status = 'LIVE'
@@ -656,11 +668,11 @@ func (s *Store) ExpireRingingInvitations(ctx context.Context, limit int) ([]Expi
 		if err != nil {
 			return err
 		}
-		type ringClaim struct{ callID, userID, invitedBy string }
+		type ringClaim struct{ callID, userID, invitedBy, kind string }
 		var claims []ringClaim
 		for rows.Next() {
 			var c ringClaim
-			if serr := rows.Scan(&c.callID, &c.userID, &c.invitedBy); serr != nil {
+			if serr := rows.Scan(&c.callID, &c.userID, &c.invitedBy, &c.kind); serr != nil {
 				rows.Close()
 				return serr
 			}
@@ -685,31 +697,40 @@ func (s *Store) ExpireRingingInvitations(ctx context.Context, limit int) ([]Expi
 			if ct.RowsAffected() == 0 {
 				continue // answered, declined, or already resolved since the claim above
 			}
-			var othersJoined bool
-			if err := tx.QueryRow(ctx, `
-				SELECT EXISTS (
-					SELECT 1 FROM call_participants
-					WHERE call_id = $1 AND user_id <> $2
-					  AND role <> 'HOST' AND joined_at IS NOT NULL)`,
-				c.callID, c.userID).Scan(&othersJoined); err != nil {
-				return err
-			}
 			exp := ExpiredRing{CallID: c.callID, InviterID: c.invitedBy, InviteeID: c.userID}
-			if !othersJoined {
-				ended, err := endCallTx(ctx, tx, c.callID)
-				if err != nil {
+			// A MEETING or CHANNEL call's own roster can hold any number of
+			// invitees independently ringing; one of them not answering must
+			// never end it out from under everyone else — it is simply a
+			// missed invitation. Only a DIRECT call (a 1:1, or an ad-hoc
+			// conference, both "kind=DIRECT") can end from this: there, the
+			// ring IS the call, and nobody else having joined means nobody
+			// is left to be talking to.
+			if c.kind == CallDirect {
+				var othersJoined bool
+				if err := tx.QueryRow(ctx, `
+					SELECT EXISTS (
+						SELECT 1 FROM call_participants
+						WHERE call_id = $1 AND user_id <> $2
+						  AND role <> 'HOST' AND joined_at IS NOT NULL)`,
+					c.callID, c.userID).Scan(&othersJoined); err != nil {
 					return err
 				}
-				exp.Ended = ended
-				if ended != nil {
-					if _, err := tx.Exec(ctx, `
-						UPDATE call_participants
-						SET ring_expires_at = NULL
-						WHERE call_id = $1 AND user_id <> $2
-						  AND joined_at IS NULL AND left_at IS NULL
-						  AND declined_at IS NULL AND missed_at IS NULL`,
-						c.callID, c.userID); err != nil {
+				if !othersJoined {
+					ended, err := endCallTx(ctx, tx, c.callID)
+					if err != nil {
 						return err
+					}
+					exp.Ended = ended
+					if ended != nil {
+						if _, err := tx.Exec(ctx, `
+							UPDATE call_participants
+							SET ring_expires_at = NULL
+							WHERE call_id = $1 AND user_id <> $2
+							  AND joined_at IS NULL AND left_at IS NULL
+							  AND declined_at IS NULL AND missed_at IS NULL`,
+							c.callID, c.userID); err != nil {
+							return err
+						}
 					}
 				}
 			}

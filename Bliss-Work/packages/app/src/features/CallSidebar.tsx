@@ -72,6 +72,7 @@ export function CallSidebar({
   unreadChat,
   onToggleChat,
   notesActive,
+  unreadNotes,
   onToggleNotes,
   isHost,
   recordingSupported,
@@ -122,6 +123,7 @@ export function CallSidebar({
   unreadChat: number;
   onToggleChat: () => void;
   notesActive: boolean;
+  unreadNotes: number;
   onToggleNotes: () => void;
   isHost: boolean;
   recordingSupported: boolean;
@@ -185,7 +187,13 @@ export function CallSidebar({
           title={canAddPeople ? t("sidebar.addPeople") : addPeopleTitle}
         />
         <SidebarButton icon={<MessageSquare size={20} />} label={t("sidebar.chats")} onClick={onToggleChat} active={chatActive} badge={unreadChat} />
-        <SidebarButton icon={<NotebookPen size={20} />} label={t("sidebar.notes")} onClick={onToggleNotes} active={notesActive} />
+        <SidebarButton
+          icon={<NotebookPen size={20} />}
+          label={t("sidebar.notes")}
+          onClick={onToggleNotes}
+          active={notesActive}
+          badge={unreadNotes}
+        />
         {isHost && (
           <SidebarButton
             icon={<Disc size={20} className={recording ? "fill-current" : undefined} />}

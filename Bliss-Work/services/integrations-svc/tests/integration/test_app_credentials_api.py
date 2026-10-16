@@ -1,12 +1,13 @@
-"""Per-org OAuth app credentials + per-connection webhook tokens, end to end.
+"""Workspace credential management and per-connection webhook tokens.
 
-The properties that actually matter here are isolation ones — a credential set
-belongs to exactly one org, the secret never comes back out, and a webhook token
-resolves exactly one connection — and none of them can be proven without a real
-database with RLS enabled.
+The properties that matter here are isolation ones — Google credential sets
+belong to exactly one org, Microsoft credentials are centrally managed, secrets
+never come back out, and a webhook token resolves exactly one connection.
 """
 
 from __future__ import annotations
+
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
@@ -20,15 +21,19 @@ OTHER_ORG = "22222222-2222-2222-2222-222222222222"
 ME = "33333333-3333-3333-3333-333333333333"
 
 
-def _principal(user_id=ME, org_id=ORG, plan="enterprise"):
+def _principal(user_id=ME, org_id=ORG, plan="enterprise", roles=None):
     from app.auth import Principal
 
     # Every fixture in this file predates the plan gate and exercises the
     # connect flow, so default to "enterprise" here — the free-plan case is
     # exercised explicitly, by name, in the connect-gating tests below.
-    # The real role string put_/delete_app_credentials check for is "org_admin"
-    # (app/routes/app_creds.py) — every route this file exercises requires it.
-    return Principal(user_id=user_id, org_id=org_id, roles=["org_admin"], username="me", plan=plan)
+    return Principal(
+        user_id=user_id,
+        org_id=org_id,
+        roles=roles if roles is not None else ["org_admin"],
+        username="me",
+        plan=plan,
+    )
 
 
 async def _client(principal=None):
@@ -80,9 +85,7 @@ async def test_response_hands_over_the_exact_redirect_uris(db_app, monkeypatch):
         assert by_vendor["google"]["redirectUris"] == [
             "https://bliss.example/ext/gmail/oauth/callback"
         ]
-        # One Microsoft app, two providers — both URIs must be registered on it.
-        assert sorted(by_vendor["microsoft"]["redirectUris"]) == [
-            "https://bliss.example/ext/outlook/oauth/callback",
+        assert by_vendor["microsoft"]["redirectUris"] == [
             "https://bliss.example/ext/teams/oauth/callback",
         ]
 
@@ -120,25 +123,26 @@ async def test_put_is_idempotent_and_rotates_in_place(db_app):
 async def test_delete_removes_it(db_app):
     async with await _client() as c:
         await c.put(
-            "/api/v1/integrations/app-credentials/microsoft",
-            json={"clientId": "ms-id", "clientSecret": "ms-secret"},
+            "/api/v1/integrations/app-credentials/google",
+            json={"clientId": "google-id", "clientSecret": "google-secret"},
         )
-        assert (await c.delete("/api/v1/integrations/app-credentials/microsoft")).status_code == 204
+        assert (await c.delete("/api/v1/integrations/app-credentials/google")).status_code == 204
         # Second delete has nothing to remove.
-        assert (await c.delete("/api/v1/integrations/app-credentials/microsoft")).status_code == 404
+        assert (await c.delete("/api/v1/integrations/app-credentials/google")).status_code == 404
 
-        ms = next(
+        google = next(
             v for v in (await c.get("/api/v1/integrations/app-credentials")).json()
-            if v["vendor"] == "microsoft"
+            if v["vendor"] == "google"
         )
-        assert ms["configured"] is False
+        assert google["configured"] is False
 
 
 # ── validation ────────────────────────────────────────────────────────────────
-async def test_unknown_vendor_is_404(db_app):
+@pytest.mark.parametrize("vendor", ["slack", "teams"])
+async def test_non_vendor_credential_path_is_404(db_app, vendor):
     async with await _client() as c:
         r = await c.put(
-            "/api/v1/integrations/app-credentials/slack",
+            f"/api/v1/integrations/app-credentials/{vendor}",
             json={"clientId": "a", "clientSecret": "b"},
         )
         assert r.status_code == 404
@@ -181,12 +185,6 @@ async def test_vendor_specific_fields_are_enforced(db_app):
         )
         assert r.status_code == 400
 
-        r = await c.put(
-            "/api/v1/integrations/app-credentials/microsoft",
-            json={"clientId": "a", "clientSecret": "b", "pubsubTopic": "projects/x/topics/y"},
-        )
-        assert r.status_code == 400
-
 
 # ── isolation ─────────────────────────────────────────────────────────────────
 async def test_another_org_cannot_see_or_use_these_credentials(db_app):
@@ -215,6 +213,34 @@ async def test_another_org_cannot_see_or_use_these_credentials(db_app):
         assert google["configured"] is True
 
 
+async def test_workspace_admin_cannot_upload_microsoft_credentials(db_app, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ms_client_id", "")
+    monkeypatch.setattr(settings, "ms_client_secret", "")
+
+    async with await _client(_principal(org_id=ORG)) as c:
+        upload = await c.put(
+            "/api/v1/integrations/app-credentials/microsoft",
+            json={"clientId": "org-a-ms-id", "clientSecret": "org-a-ms-secret"},
+        )
+        assert upload.status_code == 400
+        assert "deployment operator" in upload.json()["error"]["message"].lower()
+        status = await c.get("/api/v1/integrations/app-credentials")
+        assert "org-a-ms-id" not in status.text
+        assert "org-a-ms-secret" not in status.text
+        microsoft = next(v for v in status.json() if v["vendor"] == "microsoft")
+        assert microsoft["configured"] is False
+
+    async with await _client(_principal(org_id=OTHER_ORG)) as c:
+        status = await c.get("/api/v1/integrations/app-credentials")
+        microsoft = next(v for v in status.json() if v["vendor"] == "microsoft")
+        assert microsoft["configured"] is False
+        connect = await c.post("/api/v1/integrations/teams/connect/start", json={})
+        assert connect.status_code == 409
+        assert "isn't set up for this workspace yet" in connect.json()["error"]["message"].lower()
+
+
 # ── connect gating ────────────────────────────────────────────────────────────
 async def test_connect_start_refuses_until_credentials_exist(db_app):
     async with await _client() as c:
@@ -222,6 +248,21 @@ async def test_connect_start_refuses_until_credentials_exist(db_app):
         assert r.status_code == 409
         # The message has to say what to DO, not just that it failed.
         assert "google" in r.json()["error"]["message"].lower()
+
+
+async def test_teams_connect_start_refuses_until_microsoft_credentials_exist(
+    db_app, monkeypatch
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ms_client_id", "")
+    monkeypatch.setattr(settings, "ms_client_secret", "")
+
+    async with await _client(_principal()) as c:
+        r = await c.post("/api/v1/integrations/teams/connect/start", json={})
+
+    assert r.status_code == 409
+    assert "isn't set up for this workspace yet" in r.json()["error"]["message"].lower()
 
 
 async def test_connect_start_works_once_credentials_exist(db_app):
@@ -268,60 +309,34 @@ async def test_connect_start_is_forbidden_for_a_non_enterprise_org(db_app):
     assert n == 0
 
 
-async def test_connect_start_outlook_is_exempt_from_the_enterprise_gate(db_app):
-    # Product decision: every authenticated org may connect Outlook regardless
-    # of plan. Teams shares the SAME Entra app registration (app_credentials's
-    # vendor_for maps both to 'microsoft') but is a DIFFERENT provider and must
-    # stay gated — proving the exemption is keyed off `provider`, not `vendor`.
-    async with await _client(_principal(plan="enterprise")) as c:
-        await c.put(
-            "/api/v1/integrations/app-credentials/microsoft",
-            json={"clientId": "ms-live-id", "clientSecret": "ms-live-secret"},
-        )
-
-    async with await _client(_principal(plan="free")) as c:
-        r = await c.post("/api/v1/integrations/outlook/connect/start", json={})
-        assert r.status_code == 200, r.text
-        assert "client_id=ms-live-id" in r.json()["authorizeUrl"]
-
-        r = await c.post("/api/v1/integrations/teams/connect/start", json={})
-        assert r.status_code == 403, r.text
-        assert "enterprise" in r.json()["error"]["message"].lower()
-
-
-async def test_connect_start_outlook_uses_the_central_server_app_with_no_org_setup(
+async def test_connect_start_teams_uses_the_central_server_app_with_no_org_setup(
     db_app, monkeypatch
 ):
-    # The product requirement is that a member can connect their own Microsoft
-    # account without their ORG ever registering an Entra app or pasting a
-    # client secret. app_credentials._env_fallback() is what makes that
-    # possible: with no per-org row, load() falls back to these three
-    # service-level settings — a single app BlissWork operates for everyone.
-    # No PUT /integrations/app-credentials call happens anywhere in this test.
+    # Members do not need workspace credentials. A central app serves every
+    # workspace, including members without an org_admin role.
     from app.config import settings
 
     monkeypatch.setattr(settings, "ms_client_id", "central-app-id")
     monkeypatch.setattr(settings, "ms_client_secret", "central-app-secret")
     monkeypatch.setattr(settings, "ms_tenant", "common")
 
-    async with await _client(_principal(plan="free")) as c:
-        r = await c.post("/api/v1/integrations/outlook/connect/start", json={})
+    async with await _client(_principal(plan="enterprise", roles=[])) as c:
+        r = await c.post("/api/v1/integrations/teams/connect/start", json={})
         assert r.status_code == 200, r.text
-        url = r.json()["authorizeUrl"]
-        # The shared app's client id drives the flow, against the multi-audience
-        # /common authority (required for both personal and work/school
-        # accounts to sign in through the same registration)...
-        assert "client_id=central-app-id" in url
-        assert "https://login.microsoftonline.com/common/oauth2/v2.0/authorize" in url
-        # ...and the secret never travels in the browser-followed URL.
-        assert "central-app-secret" not in url
+        query = parse_qs(urlsplit(r.json()["authorizeUrl"]).query)
+        assert query["client_id"] == ["central-app-id"]
+        assert urlsplit(r.json()["authorizeUrl"]).netloc == "login.microsoftonline.com"
+        assert urlsplit(r.json()["authorizeUrl"]).path == "/common/oauth2/v2.0/authorize"
+        assert "central-app-secret" not in r.json()["authorizeUrl"]
 
     # A SECOND, unrelated org gets the exact same treatment — proving this
     # isn't a credential some earlier test/row left behind for THIS org.
-    async with await _client(_principal(org_id=OTHER_ORG, plan="free")) as c:
-        r = await c.post("/api/v1/integrations/outlook/connect/start", json={})
+    async with await _client(_principal(org_id=OTHER_ORG, plan="enterprise", roles=[])) as c:
+        r = await c.post("/api/v1/integrations/teams/connect/start", json={})
         assert r.status_code == 200, r.text
-        assert "client_id=central-app-id" in r.json()["authorizeUrl"]
+        assert parse_qs(urlsplit(r.json()["authorizeUrl"]).query)["client_id"] == [
+            "central-app-id"
+        ]
 
 
 async def test_the_oauth_state_is_pinned_to_the_credential_row(db_app):

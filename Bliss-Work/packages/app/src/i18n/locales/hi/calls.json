@@ -167,7 +167,8 @@
     "addedYou": "{{name}} ने आपको एक कॉन्फ़्रेंस कॉल में जोड़ा",
     "ariaLabelCall": "आने वाली कॉल: {{title}}",
     "decline": "अस्वीकार करें",
-    "declineFailed": "कॉल अस्वीकार नहीं हो सकी। कृपया फिर से प्रयास करें।"
+    "declineFailed": "कॉल अस्वीकार नहीं हो सकी। कृपया फिर से प्रयास करें।",
+    "accept": "स्वीकार करें"
   },
   "scheduledNotice": {
     "untitledMeeting": "मीटिंग",

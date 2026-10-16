@@ -67,8 +67,9 @@ export function applyDocumentLanguage(locale: string): void {
  */
 export function buildInitOptions(
   english: Record<string, object>,
-  opts: { dev?: boolean } = {},
+  opts: { dev?: boolean; warn?: (...args: unknown[]) => void } = {},
 ): InitOptions {
+  const warn = opts.warn;
   return {
     resources: { en: english },
     lng: DEFAULT_LOCALE,
@@ -80,8 +81,8 @@ export function buildInitOptions(
     interpolation: { escapeValue: false }, // React already escapes rendered output
     returnNull: false,
     saveMissing: opts.dev === true,
-    missingKeyHandler: opts.dev
-      ? (langs, ns, key) => console.warn(`[i18n] missing key "${ns}:${key}" for locale(s)`, langs)
+    missingKeyHandler: opts.dev && warn
+      ? (langs, ns, key) => warn(`[i18n] missing key "${ns}:${key}" for locale(s)`, langs)
       : undefined,
   };
 }

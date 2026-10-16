@@ -1,6 +1,6 @@
 """OAuth token-refresh worker.
 
-Periodically refreshes OAuth access tokens (Gmail / Outlook / Teams) before they
+Periodically refreshes OAuth access tokens (Gmail / Teams) before they
 expire, using the stored refresh token, so long-lived connections keep working
 without user interaction. A definitive refresh failure (e.g. the user revoked
 access → invalid_grant) flips the connection to `status='error'` with a
@@ -29,7 +29,7 @@ _CONCURRENCY = 5
 # Phase C (storing refreshed tokens) is retried: see _refresh_one.
 _PERSIST_ATTEMPTS = 3
 _PERSIST_BACKOFF = 0.5  # seconds, doubled per retry
-_OAUTH_PROVIDERS = ("gmail", "outlook", "teams")
+_OAUTH_PROVIDERS = ("gmail", "teams")
 
 
 class RefreshWorker:
@@ -179,7 +179,7 @@ class RefreshWorker:
                            AND (refresh_next_attempt_at IS NULL OR refresh_next_attempt_at <= now())
                            AND (refresh_claimed_at IS NULL
                                 OR refresh_claimed_at < now() - interval '2 minutes')
-                        RETURNING refresh_token_enc
+                        RETURNING refresh_token_enc, oauth_app_credential_id
                         """
                     ),
                     {"id": conn_id},
@@ -199,16 +199,16 @@ class RefreshWorker:
             rt_enc = bytes(claimed.refresh_token_enc)
 
             vendor = app_credentials.vendor_for(provider)
-            creds = await app_credentials.load(db, org_id, vendor) if vendor else None
+            credential_id = claimed.oauth_app_credential_id
+            if credential_id is not None:
+                creds = await app_credentials.load_by_id(db, org_id, str(credential_id))
+            else:
+                creds = await app_credentials.load(db, org_id, vendor) if vendor else None
             cfg = oauth.config_for(provider, creds)
             if cfg is None:
-                # The org's own app credentials were deleted/rotated out and
-                # there is no server-env fallback configured for this
-                # provider — app_credentials.delete()'s docstring promises
-                # this surfaces as status='error' "through the normal path",
-                # but nothing else on this route ever writes it. Without this,
-                # the connection stays 'connected' forever with no signal to
-                # reconnect, while every future send keeps failing silently.
+                # OAuth app credentials are unavailable and no server
+                # environment fallback is configured. Surface this instead of
+                # leaving the connection marked connected while sends fail.
                 await db.execute(
                     text(
                         "UPDATE integration_connections SET status='error', "

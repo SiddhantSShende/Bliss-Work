@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@taskboard/ui";
 import { formatMs } from "../../i18n/format";
-import type { WeekdayPoint } from "./memberAnalyticsData";
+import { parseLocalDay } from "../../lib/dateRange";
+import type { ActivityBucket, WeekdayPoint } from "./memberAnalyticsData";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** Working-day hours the heatmap shows: 9 AM through 6 PM. */
@@ -88,9 +89,130 @@ export function WorkHeatmap({ grid }: { grid: number[][] }) {
   );
 }
 
+/**
+ * Tiny bar sparkline for a KPI summary card: one bar per value, no axes or
+ * gridlines, sized to sit beside the card's text rather than compete with it.
+ * Renders nothing for fewer than 2 points — a single bar would just be a
+ * block of solid color, not a trend — so the card falls back to text alone.
+ */
+export function MiniSparkline({
+  values,
+  color,
+  title,
+}: {
+  values: number[];
+  color: string;
+  title?: string;
+}) {
+  if (values.length < 2) return null;
+  const w = 72;
+  const h = 32;
+  const max = Math.max(1, ...values);
+  const gap = 1.5;
+  const barW = Math.max(1.5, (w - gap * (values.length - 1)) / values.length);
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      className="block h-8 w-[4.5rem] shrink-0"
+      role={title ? "img" : "presentation"}
+      aria-label={title}
+    >
+      {values.map((v, i) => {
+        const barH = Math.max(1, (v / max) * h);
+        return (
+          <rect
+            key={i}
+            x={i * (barW + gap)}
+            y={h - barH}
+            width={barW}
+            height={barH}
+            rx={0.75}
+            fill={color}
+            opacity={v > 0 ? 1 : 0.25}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 const W = 560;
 const H = 190;
 const PAD = { left: 34, right: 10, top: 10, bottom: 24 };
+
+/**
+ * Active vs idle time per time bucket, stacked — the same chart style as
+ * Workspace Analytics' StatusFlowChart (same viewBox, grid, legend-on-top and
+ * first/last/peak axis labels), applied to activity instead of task status.
+ * Colors reuse --color-chart-ink/-context, the same tokens ActivityOverviewBody's
+ * legend dots already use, so the chart and the numbers beside it agree.
+ */
+export function ActivityStackedChart({ buckets }: { buckets: ActivityBucket[] }) {
+  const { t, i18n } = useTranslation("members");
+  if (buckets.length === 0) return null;
+  const totals = buckets.map((b) => b.active + b.idle);
+  const max = Math.max(1, ...totals);
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+  const slot = innerW / buckets.length;
+  const barW = Math.max(1, slot - 2);
+  const x = (i: number) => PAD.left + i * slot;
+  const y = (v: number) => PAD.top + (1 - v / max) * innerH;
+  const yTicks = [0, 0.5, 1];
+  const peakIdx = totals.reduce((best, v, i) => (v > (totals[best] ?? 0) ? i : best), 0);
+  const labelDay = (day: string) => parseLocalDay(day).toLocaleDateString(i18n.language, { day: "numeric", month: "short" });
+  const label = (b: ActivityBucket) => (b.key === b.end ? labelDay(b.key) : `${labelDay(b.key)}–${labelDay(b.end)}`);
+  const series: { key: "active" | "idle"; color: string }[] = [
+    { key: "active", color: "var(--color-chart-ink)" },
+    { key: "idle", color: "var(--color-chart-context)" },
+  ];
+
+  return (
+    <figure className="m-0">
+      <figcaption className="mb-2 flex flex-wrap items-center justify-end gap-3 text-[11px] text-muted">
+        {series.map((s) => (
+          <span key={s.key} className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+            {t(`members:analytics.overview.${s.key}`)}
+          </span>
+        ))}
+      </figcaption>
+      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label={t("members:analytics.overview.title")}>
+        {yTicks.map((f) => (
+          <g key={f}>
+            <line x1={PAD.left} x2={W - PAD.right} y1={y(max * f)} y2={y(max * f)} stroke="var(--color-chart-grid)" strokeWidth={1} />
+            <text x={PAD.left - 6} y={y(max * f) + 3} textAnchor="end" fontSize={10} fill="currentColor" className="text-muted">
+              {formatMs(max * f)}
+            </text>
+          </g>
+        ))}
+        {buckets.map((b, i) => {
+          let cursor = PAD.top + innerH;
+          return (
+            <g key={b.key}>
+              {series.filter((s) => b[s.key] > 0).map((s) => {
+                const h = Math.max((b[s.key] / max) * innerH, 1.5);
+                cursor -= h;
+                return (
+                  <rect key={s.key} x={x(i)} y={cursor + 0.5} width={barW} height={Math.max(h - 1, 0.5)} fill={s.color}>
+                    <title>{`${label(b)} — ${t(`members:analytics.overview.${s.key}`)}: ${formatMs(b[s.key])}`}</title>
+                  </rect>
+                );
+              })}
+            </g>
+          );
+        })}
+        {buckets.map((b, i) =>
+          i === 0 || i === buckets.length - 1 || i === peakIdx ? (
+            <text key={b.key} x={x(i) + barW / 2} y={H - 6} textAnchor="middle" fontSize={10} fill="currentColor" className="text-muted">
+              {label(b)}
+            </text>
+          ) : null,
+        )}
+      </svg>
+    </figure>
+  );
+}
 
 /** Two thin lines — Active and Idle — over the seven weekdays. */
 export function ActivityTrendChart({ points }: { points: WeekdayPoint[] }) {

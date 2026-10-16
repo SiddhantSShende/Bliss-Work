@@ -7,7 +7,7 @@
  * `report` body for Sentry.captureException — keeping it pluggable here.
  */
 import { toast } from "sonner";
-import { ApiError } from "@taskboard/shared";
+import { ApiError, logger } from "@taskboard/shared";
 import i18n from "../i18n";
 
 let installed = false;
@@ -30,8 +30,7 @@ export function installGlobalErrorHandlers(): void {
 }
 
 function report(error: unknown, source: string): void {
-   
-  console.error(`[${source}]`, error);
+  logger.error(`[${source}]`, error);
 
   // Don't toast on the common case of an ApiError that the React Query
   // mutation handler already toasted. We assume any thrown ApiError is

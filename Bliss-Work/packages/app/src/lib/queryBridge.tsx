@@ -210,7 +210,19 @@ export function WsEventBridge() {
     const off = source ? source.subscribe(handle) : ws.on(handle);
     // Web only: the Electron renderer is handed events, not socket status, so
     // its utilityProcess socket's reconnects are not visible here.
-    const offResync = source ? undefined : watchReconnectResync(ws, qc);
+    const offResync = source
+      ? undefined
+      : watchReconnectResync(ws, qc, undefined, () => {
+          // Recover a ring that started, or is still open, while this client
+          // was offline — the gateway's own replay deliberately never
+          // re-announces one (see the CallRing case above), so this is the
+          // only way a reconnecting client learns about it.
+          void api.myRingingCalls().then((calls) => {
+            for (const c of calls) {
+              announceIncomingMeeting(c.id, c.title || "", undefined, true);
+            }
+          });
+        });
 
     return () => {
       off();
@@ -341,15 +353,21 @@ function handleCallEvent(e: CallLifecycle, ctx: EventHandlerContext) {
     case EventType.CallRing: {
       invalidate(qk.calls);
       // A ring is only meaningful live. Replaying it would ring the user
-      // for a call that was answered or abandoned hours ago.
+      // for a call that was answered or abandoned hours ago — a reconnect
+      // instead recovers a still-open ring via listMyRingingCalls (see the
+      // WS-open handler below).
       if (live && e.actorId !== me) {
         // With somewhere to go: this is how someone pulled into a call in
-        // progress gets there, and "you were added to a call" with no way
-        // to join it is a dead end.
+        // progress, or invited to a meeting that just went live, gets
+        // there — "you were added to a call" with no way to join it is a
+        // dead end. `ringing: true` is what lets the popup offer a real
+        // Decline (and dismiss on the server's own resolution) rather than
+        // the plain local-only dismiss a call.started FYI gets.
         announceIncomingMeeting(
           e.callId,
           meetingTitle(e),
           isAdhocCall(e) ? { actorName: e.actorName } : undefined,
+          true,
         );
       }
       break;

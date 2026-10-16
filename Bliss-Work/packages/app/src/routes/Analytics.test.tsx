@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import {
@@ -125,16 +126,30 @@ afterEach(() => {
 });
 
 describe("Analytics route", () => {
-  it("renders the channel list under the unified Projects section", async () => {
+  it("exposes channel selection in the header dropdown", async () => {
     h.channels.mockResolvedValue([CHANNEL]);
     h.projects.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount("/app/analytics");
-    expect(await screen.findByRole("link", { name: /design/i })).toHaveAttribute(
-      "href",
-      `/app/analytics/${CHANNEL_ID}`,
+    const selector = await screen.findByRole("combobox", { name: "Projects" });
+    expect(await within(selector).findByRole("option", { name: "Design" })).toHaveValue(
+      `channel:${CHANNEL_ID}`,
     );
     expect(h.channelAnalytics).not.toHaveBeenCalled();
+  });
+
+  it("navigates to a selected channel through the header dropdown", async () => {
+    h.channels.mockResolvedValue([CHANNEL]);
+    h.channelAnalytics.mockResolvedValue(ANALYTICS);
+    h.projects.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
+    mount("/app/analytics");
+
+    const selector = await screen.findByRole("combobox", { name: "Projects" });
+    await within(selector).findByRole("option", { name: "Design" });
+    await userEvent.selectOptions(selector, `channel:${CHANNEL_ID}`);
+
+    await waitFor(() => expect(h.channelAnalytics).toHaveBeenCalledWith(CHANNEL_ID));
   });
 
   it("loads selected-channel analytics through the real panel", async () => {
@@ -157,18 +172,19 @@ describe("Analytics route", () => {
     mount("/app/analytics");
 
     await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalled());
-    expect(screen.getByRole("link", { name: /overview/i })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("combobox", { name: "Projects" })).toHaveValue("");
+    expect(screen.getByRole("option", { name: "Overview" })).toHaveValue("");
   });
 
-  it("renders the project list", async () => {
+  it("exposes project selection in the header dropdown", async () => {
     h.channels.mockResolvedValue([]);
     h.projects.mockResolvedValue([PROJECT]);
     h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount("/app/analytics");
 
-    expect(await screen.findByRole("link", { name: /launch plan/i })).toHaveAttribute(
-      "href",
-      `/app/analytics/projects/${PROJECT_ID}`,
+    const selector = await screen.findByRole("combobox", { name: "Projects" });
+    expect(await within(selector).findByRole("option", { name: "Launch Plan" })).toHaveValue(
+      `project:${PROJECT_ID}`,
     );
     expect(h.projectAnalytics).not.toHaveBeenCalled();
   });
@@ -179,12 +195,9 @@ describe("Analytics route", () => {
     h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount("/app/analytics");
 
-    expect(await screen.findByRole("link", { name: /launch plan/i })).toHaveAttribute(
-      "href",
-      `/app/analytics/projects/${PROJECT_ID}`,
-    );
-    expect(screen.getAllByRole("link", { name: /launch plan/i })).toHaveLength(1);
-    expect(screen.getByRole("link", { name: /design/i })).toBeInTheDocument();
+    const selector = await screen.findByRole("combobox", { name: "Projects" });
+    expect(await within(selector).findAllByRole("option", { name: /launch plan/i })).toHaveLength(1);
+    expect(within(selector).getByRole("option", { name: "Design" })).toHaveValue(`channel:${CHANNEL_ID}`);
   });
 
   it("loads the selected project's dashboard through the real panel, identifying the project", async () => {
@@ -202,12 +215,12 @@ describe("Analytics route", () => {
     expect(h.workspaceAnalyticsOverview).not.toHaveBeenCalled();
   });
 
-  it("shows an empty-projects state when there are no accessible projects or channels", async () => {
+  it("shows the workspace empty activity state when no accessible projects or channels exist", async () => {
     h.channels.mockResolvedValue([]);
     h.projects.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount("/app/analytics");
 
-    expect(await screen.findByText("Nothing to show yet")).toBeInTheDocument();
+    expect(await screen.findByText("No activity yet")).toBeInTheDocument();
   });
 });

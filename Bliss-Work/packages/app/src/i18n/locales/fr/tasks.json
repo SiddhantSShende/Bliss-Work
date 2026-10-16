@@ -38,6 +38,7 @@
     "lookupFailed": "La recherche du projet a échoué. Réessayez ou continuez la création de la tâche.",
     "unavailable": "Ce projet est introuvable ou vous n’y avez pas accès.",
     "syncFailed": "La tâche a été enregistrée, mais l’appartenance au canal du projet n’a pas pu être mise à jour.",
+    "completedBadge": "Terminé",
     "completeProject": {
       "button": "Terminer le projet",
       "confirmDialog": {
@@ -76,7 +77,8 @@
       "left": "Abandonnées",
       "ignored": "Ignorées",
       "missed": "Manquées",
-      "default": "Tâches"
+      "default": "Tâches",
+      "completedProjects": "Projets terminés"
     },
     "buckets": {
       "allocated": "Attribuées",
@@ -92,6 +94,15 @@
       "button": "Exporter"
     },
     "newTask": "Nouvelle tâche",
+    "completedToggle": {
+      "tasks": "Tâches terminées",
+      "projects": "Projets terminés",
+      "retry": "Réessayer",
+      "empty": {
+        "title": "Aucun projet terminé",
+        "hint": "Les projets apparaissent ici une fois marqués comme terminés."
+      }
+    },
     "empty": {
       "title": "Rien ici",
       "hint": "Les tâches apparaissent ici à mesure qu'elles arrivent.",

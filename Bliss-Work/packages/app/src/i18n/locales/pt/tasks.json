@@ -38,6 +38,7 @@
     "lookupFailed": "Não foi possível buscar o projeto. Tente novamente ou continue criando a tarefa.",
     "unavailable": "Este projeto não foi encontrado ou você não tem acesso.",
     "syncFailed": "A tarefa foi salva, mas não foi possível atualizar a participação no canal do projeto.",
+    "completedBadge": "Concluído",
     "completeProject": {
       "button": "Concluir projeto",
       "confirmDialog": {
@@ -76,7 +77,8 @@
       "left": "Abandonadas",
       "ignored": "Ignoradas",
       "missed": "Vencidas",
-      "default": "Tarefas"
+      "default": "Tarefas",
+      "completedProjects": "Projetos concluídos"
     },
     "buckets": {
       "allocated": "Atribuídas",
@@ -92,6 +94,15 @@
       "button": "Exportar"
     },
     "newTask": "Nova tarefa",
+    "completedToggle": {
+      "tasks": "Tarefas concluídas",
+      "projects": "Projetos concluídos",
+      "retry": "Tentar novamente",
+      "empty": {
+        "title": "Nenhum projeto concluído",
+        "hint": "Os projetos aparecem aqui quando são marcados como concluídos."
+      }
+    },
     "empty": {
       "title": "Nada aqui",
       "hint": "As tarefas aparecem aqui conforme chegam.",

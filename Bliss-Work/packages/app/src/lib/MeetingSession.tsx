@@ -90,8 +90,15 @@ export function onMeetingJoinRequest(listener: (callId: string, media?: AutoJoin
  * bridge that raises this (lib/queryBridge) has no reason to sit inside the
  * meeting session's own provider tree.
  */
-export function announceIncomingMeeting(callId: string, title: string, adhoc?: AdhocIncoming) {
-  window.dispatchEvent(new CustomEvent(INCOMING_MEETING_EVENT, { detail: { callId, title, adhoc } }));
+export function announceIncomingMeeting(
+  callId: string,
+  title: string,
+  adhoc?: AdhocIncoming,
+  ringing?: boolean,
+) {
+  window.dispatchEvent(
+    new CustomEvent(INCOMING_MEETING_EVENT, { detail: { callId, title, adhoc, ringing } }),
+  );
 }
 
 /** Present when the announced call is an ad-hoc call (a conference somebody was
@@ -102,16 +109,17 @@ export interface AdhocIncoming {
 }
 
 export function onIncomingMeetingAnnounced(
-  listener: (callId: string, title: string, adhoc?: AdhocIncoming) => void,
+  listener: (callId: string, title: string, adhoc?: AdhocIncoming, ringing?: boolean) => void,
 ) {
   const handle = (event: Event) => {
-    const detail = (event as CustomEvent<{ callId?: unknown; title?: unknown; adhoc?: unknown }>).detail;
+    const detail = (event as CustomEvent<{ callId?: unknown; title?: unknown; adhoc?: unknown; ringing?: unknown }>)
+      .detail;
     if (typeof detail?.callId !== "string" || !detail.callId) return;
     const adhoc =
       detail.adhoc && typeof detail.adhoc === "object"
         ? { actorName: typeof (detail.adhoc as AdhocIncoming).actorName === "string" ? (detail.adhoc as AdhocIncoming).actorName : undefined }
         : undefined;
-    listener(detail.callId, typeof detail.title === "string" ? detail.title : "", adhoc);
+    listener(detail.callId, typeof detail.title === "string" ? detail.title : "", adhoc, detail.ringing === true);
   };
   window.addEventListener(INCOMING_MEETING_EVENT, handle);
   return () => window.removeEventListener(INCOMING_MEETING_EVENT, handle);

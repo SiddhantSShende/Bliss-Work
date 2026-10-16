@@ -588,38 +588,12 @@ silently, and the in-app copy still carries every one. Raise the budget only as
 far as your provider and your recipients' will accept — a message over the limit
 is rejected at the far end, not truncated.
 
-#### Sending a member's mail AS that member
+#### Sending a member's mail
 
-There are two ways a member's mail leaves, and email-worker prefers the first.
-
-**Through the member's own mailbox.** Once `MS_CLIENT_ID`/`MS_CLIENT_SECRET` are
-set and a member has connected Outlook under **Integrations**, their composed
-mail is sent through that mailbox with Graph `/me/sendMail`. Nothing about the
-identity has to be arranged, because it is not being asserted: the `From:`
-address is theirs because the mailbox is theirs, their own provider signs it
-with their domain's DKIM key so it is DMARC-aligned, and the copy is filed in
-their **Sent** folder where they expect to find it. This is also the only
-configuration in which a recipient on a corporate mail system reliably sees the
-mail in their Inbox rather than their Junk folder.
-
-The Entra app registration needs the delegated **Mail.Send** permission
-alongside `Mail.Read` (already required for the inbox mirror below).
-
-One send covers every external recipient of a mail, because a mailbox provider
-has no envelope/header split — it delivers to exactly the addresses it is given.
-Bcc survives as a real Bcc. Members of the org are deliberately left OFF that
-send: they already have the mail in their BlissWork Inbox, and a provider
-delivering to them as well would put a duplicate in front of them.
-
-Attachments ride inline and Graph caps the whole request at 4 MB, so a mail
-carrying more than ~3 MB of files falls back to the relay rather than being sent
-truncated.
-
-**Over the SMTP relay** — the fallback, and what every member without a
-connected mailbox uses. Also the ONLY path for mail the product itself sends
-(invites, password resets, notifications), which is not from a person and must
-not claim to be. Getting relayed mail *accepted* is a DNS question, because it
-goes out under the member's identity while being authenticated by yours:
+Every mail a member composes, and every mail the product itself sends (invites,
+password resets, notifications), goes out over the SMTP relay. Getting relayed
+mail *accepted* is a DNS question, because it goes out under the member's
+identity while being authenticated by yours:
 
 | | invite / reset / notification mail | mail a member composed |
 |---|---|---|
@@ -695,41 +669,7 @@ against `messagingdb`.
 There are two ways mail gets INTO a BlissWork inbox, and a deployment can use
 either, both, or neither. A deployment does not terminate SMTP itself.
 
-#### 1. Mirroring a connected mailbox (no infrastructure)
-
-When a member connects Outlook under **Integrations**, integrations-svc already
-walks their inbox for mention detection. Every mail that is new to it is now also
-delivered into their BlissWork inbox — see `app/mail_bridge.py`. The mail stays
-in Outlook exactly as before; BlissWork receives a copy.
-
-What an operator has to do:
-
-1. **Register a Microsoft Entra app for the org** and enter its client id/secret
-   under Integrations → app credentials. Each org brings its own app; there is no
-   central BlissWork app to consent to. The Outlook connection requests
-   `Mail.Read` and `Mail.Send`.
-2. **Have each member connect Outlook.** The mirror is per-connection: it can
-   only read a mailbox somebody has authorised.
-
-Then it runs on its own — the push subscription wakes the sweep, and the sweep
-reconciles anything a missed notification would have dropped.
-
-Notes:
-
-- **Dedup is on the RFC 5322 `Message-ID`**, not the per-mailbox Graph id. Two
-  colleagues who both connect Outlook and were both on one mail get ONE
-  conversation in BlissWork, delivered to both.
-- **Mail addressed to nobody in the org is dropped** (messaging-svc answers 422
-  and the bridge logs it at info). Most of a real mailbox is exactly that, so
-  this is the ordinary path, not an error.
-- **Gmail is not mirrored yet.** The Gmail connection ingests for mentions as
-  before. Graph hands us a parsed message; Gmail returns a raw MIME payload that
-  has to be decoded first, which is the piece still to write.
-- A mail that cannot be delivered is logged and skipped, never retried into a
-  stall — it is still in the member's real mailbox, and blocking the sweep would
-  hold up every message behind it.
-
-#### 2. Terminating SMTP yourself (whole domain, no per-user OAuth)
+#### Terminating SMTP yourself (whole domain, no per-user OAuth)
 
 Point a domain's MX at whatever parses mail for you and have it POST the parsed
 result to the ingestion endpoint below. This is what to use when BlissWork should

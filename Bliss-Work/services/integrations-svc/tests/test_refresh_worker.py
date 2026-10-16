@@ -30,6 +30,9 @@ class _FakeResult:
     def all(self):
         return self._rows
 
+    def first(self):
+        return self._rows[0] if self._rows else None
+
 
 class _FakeRow:
     def __init__(self, id_: str, org_id: str, provider: str, refresh_token_enc: bytes) -> None:
@@ -39,19 +42,30 @@ class _FakeRow:
         self.refresh_token_enc = refresh_token_enc
 
 
+class _ClaimedRefresh:
+    def __init__(self, credential_id: str | None) -> None:
+        self.refresh_token_enc = b"rt"
+        self.oauth_app_credential_id = credential_id
+
+
 class _FakeDb:
     """Records every execute() call; SELECT returns canned rows, everything
     else (UPDATE) returns an empty result. Never touches real SQL/Postgres."""
 
-    def __init__(self, select_rows: list | None = None) -> None:
+    def __init__(
+        self, select_rows: list | None = None, credential_id: str | None = None
+    ) -> None:
         self.executed: list[tuple[str, dict | None]] = []
         self._select_rows = select_rows or []
+        self._credential_id = credential_id
 
     async def execute(self, stmt, params=None):
         sql = str(stmt)
         self.executed.append((sql, params))
         if sql.strip().upper().startswith("SELECT"):
             return _FakeResult(self._select_rows)
+        if "RETURNING refresh_token_enc, oauth_app_credential_id" in sql:
+            return _FakeResult([_ClaimedRefresh(self._credential_id)])
         return _FakeResult([])
 
     async def commit(self) -> None:
@@ -171,8 +185,9 @@ async def test_missing_app_credentials_marks_the_connection_error(monkeypatch):
     await worker._refresh_one("conn-1", "org-1", "gmail", b"rt")
 
     updates = [sql for sql, _ in fake_db.executed if sql.strip().upper().startswith("UPDATE")]
-    assert len(updates) == 1
-    assert "status='error'" in updates[0]
+    assert len(updates) == 2
+    assert "refresh_claimed_at = now()" in updates[0]
+    assert "status='error'" in updates[1]
 
 
 async def test_a_working_refresh_never_touches_status(monkeypatch):
@@ -202,6 +217,34 @@ async def test_a_working_refresh_never_touches_status(monkeypatch):
     await worker._refresh_one("conn-1", "org-1", "gmail", b"rt")
 
     updates = [sql for sql, _ in fake_db.executed if sql.strip().upper().startswith("UPDATE")]
-    assert len(updates) == 1
-    assert "status = 'connected'" in updates[0]
-    assert "status='error'" not in updates[0]
+    assert len(updates) == 2
+    assert "refresh_claimed_at = now()" in updates[0]
+    assert "status = 'connected'" in updates[1]
+    assert "status='error'" not in updates[1]
+
+
+async def test_refresh_uses_legacy_connection_app_id_when_pinned(monkeypatch):
+    fake_db = _FakeDb(credential_id="legacy-app-id")
+    monkeypatch.setattr(rw_module, "session", lambda: _FakeSession(fake_db))
+    monkeypatch.setattr(rw_module.app_credentials, "vendor_for", lambda _p: "microsoft")
+    legacy_credentials = AsyncMock(return_value=object())
+    monkeypatch.setattr(rw_module.app_credentials, "load_by_id", legacy_credentials)
+    monkeypatch.setattr(rw_module.oauth, "config_for", lambda _provider, _creds: object())
+
+    class _FakeCryptor:
+        async def decrypt(self, _db, _org, _blob):
+            return "refresh-token"
+
+        async def encrypt(self, _db, _org, _value):
+            return b"enc"
+
+    monkeypatch.setattr(rw_module, "cryptor", lambda: _FakeCryptor())
+    monkeypatch.setattr(
+        rw_module.oauth,
+        "refresh_access_token",
+        AsyncMock(return_value={"access_token": "new-token", "expires_in": 3600}),
+    )
+
+    await RefreshWorker()._refresh_one("conn-1", "org-1", "teams", b"rt")
+
+    legacy_credentials.assert_awaited_once_with(fake_db, "org-1", "legacy-app-id")

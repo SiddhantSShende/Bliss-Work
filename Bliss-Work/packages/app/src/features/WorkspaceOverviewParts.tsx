@@ -185,7 +185,7 @@ export function WorkloadMatrixTable({
 
 const SCATTER_W = 480;
 const SCATTER_H = 230;
-const SCATTER_PAD = { left: 34, right: 14, top: 16, bottom: 26 };
+const SCATTER_PAD = { left: 34, right: 10, top: 10, bottom: 24 };
 
 /** Assigned workload (x) against completion rate (y, fixed 0..100), one point
  *  per person — the same `workload` array WorkloadMatrixTable renders as a
@@ -216,11 +216,30 @@ export function WorkloadScatterChart({
   const completionLabel = t("tasks:analyticsHub.overview.scatter.yLabel");
   const completedLabel = t("tasks:analyticsHub.overview.workloadTable.completed");
 
-  const quadrantLabelStyle = { fontSize: 9, fill: "currentColor", opacity: 0.6 } as const;
+  const midY = y(50);
+  const quadrantLabelStyle = {
+    fontSize: 9,
+    fill: "var(--color-fg)",
+    paintOrder: "stroke",
+    stroke: "var(--color-surface)",
+    strokeWidth: 4,
+    strokeLinejoin: "round",
+  } as const;
+  const plotLeft = SCATTER_PAD.left;
+  const plotRight = SCATTER_W - SCATTER_PAD.right;
+  const plotBottom = SCATTER_H - SCATTER_PAD.bottom;
+  const scatterColor = (w: WorkloadBreakdownDTO) => {
+    const highLoad = w.assignedCount >= maxAssigned / 2;
+    const highCompletion = w.completionRate >= 50;
+    if (highLoad && highCompletion) return "var(--color-scatter-high-high)";
+    if (highLoad) return "var(--color-scatter-high-low)";
+    if (highCompletion) return "var(--color-scatter-low-high)";
+    return "var(--color-scatter-low-low)";
+  };
 
   return (
     <figure className="m-0">
-      <div className="flex gap-1">
+      <div className="flex min-w-0 gap-1">
         <div className="flex w-3 shrink-0 items-center justify-center">
           <span
             className="origin-center whitespace-nowrap text-[10px] text-muted"
@@ -231,10 +250,42 @@ export function WorkloadScatterChart({
         </div>
         <svg
           viewBox={`0 0 ${SCATTER_W} ${SCATTER_H}`}
-          className="block h-auto min-w-0 flex-1"
+          className="block h-auto w-full min-w-0 flex-1"
           role="img"
           aria-label={t("tasks:analyticsHub.overview.scatter.hint")}
         >
+          <rect
+            x={plotLeft}
+            y={SCATTER_PAD.top}
+            width={midX - plotLeft}
+            height={midY - SCATTER_PAD.top}
+            fill="var(--color-scatter-low-high)"
+            fillOpacity={0.07}
+          />
+          <rect
+            x={midX}
+            y={SCATTER_PAD.top}
+            width={plotRight - midX}
+            height={midY - SCATTER_PAD.top}
+            fill="var(--color-scatter-high-high)"
+            fillOpacity={0.07}
+          />
+          <rect
+            x={plotLeft}
+            y={midY}
+            width={midX - plotLeft}
+            height={plotBottom - midY}
+            fill="var(--color-scatter-low-low)"
+            fillOpacity={0.07}
+          />
+          <rect
+            x={midX}
+            y={midY}
+            width={plotRight - midX}
+            height={plotBottom - midY}
+            fill="var(--color-scatter-high-low)"
+            fillOpacity={0.07}
+          />
           {yTicks.map((tick) => (
             <g key={`y${tick}`}>
               <line
@@ -263,20 +314,35 @@ export function WorkloadScatterChart({
               {tick}
             </text>
           ))}
-          {/* Quadrant dividers (dashed, decorative) and labels — drawn before
-              the points so the data marks always render on top. */}
-          <line x1={midX} x2={midX} y1={SCATTER_PAD.top} y2={SCATTER_H - SCATTER_PAD.bottom} stroke="var(--color-chart-grid)" strokeWidth={1} strokeDasharray="3 3" />
+          <line
+            x1={midX}
+            x2={midX}
+            y1={SCATTER_PAD.top}
+            y2={plotBottom}
+            stroke="var(--color-muted)"
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+          />
+          <line
+            x1={plotLeft}
+            x2={plotRight}
+            y1={midY}
+            y2={midY}
+            stroke="var(--color-muted)"
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+          />
           <g pointerEvents="none">
-            <text x={SCATTER_PAD.left + 4} y={SCATTER_PAD.top + 10} textAnchor="start" {...quadrantLabelStyle}>
+            <text x={midX / 2 + plotLeft / 2} y={SCATTER_PAD.top + 14} textAnchor="middle" {...quadrantLabelStyle}>
               {t("tasks:analyticsHub.overview.scatter.quadrants.highEffLowLoad")}
             </text>
-            <text x={SCATTER_W - SCATTER_PAD.right - 4} y={SCATTER_PAD.top + 10} textAnchor="end" {...quadrantLabelStyle}>
+            <text x={(midX + plotRight) / 2} y={SCATTER_PAD.top + 14} textAnchor="middle" {...quadrantLabelStyle}>
               {t("tasks:analyticsHub.overview.scatter.quadrants.highEffHighLoad")}
             </text>
-            <text x={SCATTER_PAD.left + 4} y={SCATTER_H - SCATTER_PAD.bottom - 6} textAnchor="start" {...quadrantLabelStyle}>
+            <text x={midX / 2 + plotLeft / 2} y={plotBottom - 7} textAnchor="middle" {...quadrantLabelStyle}>
               {t("tasks:analyticsHub.overview.scatter.quadrants.lowEffLowLoad")}
             </text>
-            <text x={SCATTER_W - SCATTER_PAD.right - 4} y={SCATTER_H - SCATTER_PAD.bottom - 6} textAnchor="end" {...quadrantLabelStyle}>
+            <text x={(midX + plotRight) / 2} y={plotBottom - 7} textAnchor="middle" {...quadrantLabelStyle}>
               {t("tasks:analyticsHub.overview.scatter.quadrants.lowEffHighLoad")}
             </text>
           </g>
@@ -286,7 +352,7 @@ export function WorkloadScatterChart({
               cx={x(w.assignedCount)}
               cy={y(w.completionRate)}
               r={4.5}
-              fill="var(--color-accent)"
+              fill={scatterColor(w)}
               fillOpacity={0.85}
               stroke="var(--color-surface)"
               strokeWidth={1.5}
@@ -312,8 +378,13 @@ export function StatusDonut({ breakdown }: { breakdown: StatusBreakdownDTO }) {
   const c = 2 * Math.PI * DONUT_R;
   let offset = 0;
   return (
-    <div className="flex flex-wrap items-center justify-center gap-5">
-      <svg viewBox="0 0 100 100" width={168} height={168} role="img" aria-label={t("tasks:analyticsHub.overview.sections.statusDistribution")}>
+    <div className="flex min-w-0 items-center justify-center gap-3 sm:gap-4">
+      <svg
+        viewBox="0 0 100 100"
+        className="aspect-square w-[38%] min-w-24 max-w-48 shrink-0"
+        role="img"
+        aria-label={t("tasks:analyticsHub.overview.sections.statusDistribution")}
+      >
         <circle cx={50} cy={50} r={DONUT_R} fill="none" stroke="var(--color-chart-grid)" strokeWidth={DONUT_STROKE} />
         {total > 0 &&
           STATUS_ORDER.filter((k) => breakdown[k] > 0).map((k) => {
@@ -345,12 +416,14 @@ export function StatusDonut({ breakdown }: { breakdown: StatusBreakdownDTO }) {
           {t("tasks:analyticsHub.overview.donutTotalLabel")}
         </text>
       </svg>
-      <dl className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+      <dl className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs">
         {STATUS_ORDER.map((k) => (
-          <div key={k} className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: OVERVIEW_STATUS_COLORS[k] }} />
-            <dt className="text-muted">{t(`tasks:analytics.statuses.${k}`)}</dt>
-            <dd className="font-medium tabular-nums text-fg">
+          <div key={k} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2">
+            <dt className="flex min-w-0 items-center gap-1.5">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: OVERVIEW_STATUS_COLORS[k] }} />
+              <span className="truncate text-muted">{t(`tasks:analytics.statuses.${k}`)}</span>
+            </dt>
+            <dd className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
               {breakdown[k]} ({Math.round(pct(breakdown[k], total))}%)
             </dd>
           </div>
@@ -451,29 +524,33 @@ export function OverviewKpiGrid({
 }) {
   const { t } = useTranslation("tasks");
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatTile
         label={t("tasks:analyticsHub.overview.kpis.total")}
         value={String(totalTasks.value)}
         trend={totalTasks.sparkline}
+        trendPlacement="right"
         hint={<KpiTrendHint kpi={totalTasks} goodDirection="up" />}
       />
       <StatTile
         label={t("tasks:analyticsHub.overview.kpis.completed")}
         value={String(completed.value)}
         trend={completed.sparkline}
+        trendPlacement="right"
         hint={<KpiTrendHint kpi={completed} goodDirection="up" />}
       />
       <StatTile
         label={t("tasks:analyticsHub.overview.kpis.inProgress")}
         value={String(inProgress.value)}
         trend={inProgress.sparkline}
+        trendPlacement="right"
         hint={<KpiTrendHint kpi={inProgress} goodDirection="up" />}
       />
       <StatTile
         label={t("tasks:analyticsHub.overview.kpis.overdue")}
         value={String(overdue.value)}
         trend={overdue.sparkline}
+        trendPlacement="right"
         hint={<KpiTrendHint kpi={overdue} goodDirection="down" />}
       />
     </div>

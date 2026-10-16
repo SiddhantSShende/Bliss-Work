@@ -32,6 +32,7 @@
     "lookupFailed": "프로젝트를 찾지 못했습니다. 다시 시도하거나 작업 생성을 계속하세요.",
     "unavailable": "프로젝트를 찾을 수 없거나 접근 권한이 없습니다.",
     "syncFailed": "작업은 저장했지만 프로젝트 채널 멤버십을 업데이트하지 못했습니다.",
+    "completedBadge": "완료됨",
     "completeProject": {
       "button": "프로젝트 완료",
       "confirmDialog": {
@@ -68,7 +69,8 @@
       "left": "나감",
       "ignored": "무시함",
       "missed": "기한 초과",
-      "default": "태스크"
+      "default": "태스크",
+      "completedProjects": "완료된 프로젝트"
     },
     "buckets": {
       "allocated": "할당됨",
@@ -84,6 +86,15 @@
       "button": "내보내기"
     },
     "newTask": "새 태스크",
+    "completedToggle": {
+      "tasks": "완료된 작업",
+      "projects": "완료된 프로젝트",
+      "retry": "다시 시도",
+      "empty": {
+        "title": "완료된 프로젝트 없음",
+        "hint": "프로젝트가 완료로 표시되면 여기에 표시됩니다."
+      }
+    },
     "empty": {
       "title": "아무것도 없어요",
       "hint": "태스크가 도착하면 여기에 표시돼요.",

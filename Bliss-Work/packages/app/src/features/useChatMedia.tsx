@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { logger } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import type { AttachmentScope } from "@taskboard/shared";
@@ -328,7 +329,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
   const runFiles = useCallback(
     (files: FileList | File[]) => {
       void onFiles(files).catch((err: unknown) => {
-        console.error("[chat-media] attach failed", err);
+        logger.error("[chat-media] attach failed", err);
         toast.error(t("attachments.attachFailedGeneric"));
       });
     },

@@ -4,6 +4,7 @@
     "assigned": "Atribuída",
     "deadline": "Prazo",
     "missedOn": "Vencida",
+    "deadlineProgress": "{{pct}}% do tempo até o prazo já passou",
     "collapseToPill": "Recolher em formato compacto",
     "unpinNoteTitle": "Desafixar (a tarefa permanece)",
     "unpin": "Desafixar",
@@ -63,7 +64,8 @@
       "voiceTitle": "Entrar somente com voz",
       "leave": "Sair",
       "dismiss": "Dispensar",
-      "decline": "Recusar"
+      "decline": "Recusar",
+      "accept": "Aceitar"
     },
     "titles": {
       "task": "Tarefa",

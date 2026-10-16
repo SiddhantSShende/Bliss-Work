@@ -50,10 +50,9 @@ def _webhook_url(provider: str, token: str | None) -> str | None:
 
 
 def _row_to_out(r) -> ConnectionOut:
-    # webhook_token and last_synced_at are only selected on some queries; treat
-    # their absence as None rather than requiring every SELECT to carry them.
+    # webhook_token is only selected on some queries; treat its absence as
+    # None rather than requiring every SELECT to carry it.
     token = getattr(r, "webhook_token", None)
-    last_synced_at = getattr(r, "last_synced_at", None)
     return ConnectionOut(
         id=str(r.id),
         provider=r.provider,
@@ -65,7 +64,6 @@ def _row_to_out(r) -> ConnectionOut:
         webhookUrl=_webhook_url(r.provider, token),
         createdAt=r.created_at.isoformat(),
         updatedAt=r.updated_at.isoformat(),
-        lastSyncedAt=last_synced_at.isoformat() if last_synced_at else None,
     )
 
 
@@ -99,14 +97,8 @@ async def list_integrations(principal: Principal = PrincipalDep) -> list[Connect
             text(
                 """
                 SELECT c.id, c.provider, c.status, c.scope_kind, c.display_label, c.scopes,
-                       c.last_error, c.webhook_token, c.metadata_enc, c.created_at, c.updated_at,
-                       s.last_synced_at
+                       c.last_error, c.webhook_token, c.metadata_enc, c.created_at, c.updated_at
                   FROM integration_connections c
-                  LEFT JOIN LATERAL (
-                      SELECT max(last_synced_at) AS last_synced_at
-                        FROM mail_sync_links
-                       WHERE connection_id = c.id
-                  ) s ON true
                  WHERE c.status <> 'revoked'
                    AND (c.owner_user_id = :uid OR c.owner_user_id IS NULL)
                  ORDER BY c.created_at DESC
@@ -282,9 +274,7 @@ async def connect_start(
     # OAuth callback cannot complete without the oauth_states row only this
     # branch inserts, so refusing it here closes both paths.
     #
-    # Outlook is carved out: every authenticated org may connect it regardless
-    # of plan, by product decision. Gmail/Slack/Teams stay enterprise-gated.
-    if provider != "outlook" and principal.plan != "enterprise":
+    if principal.plan != "enterprise":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="External Integrations requires the enterprise plan",
@@ -300,10 +290,8 @@ async def connect_start(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid body")
 
     if spec.auth_kind == "oauth2_code":
-        # Authorization-code + PKCE against THIS ORG'S OWN OAuth app. The org
-        # registers its credentials first (PUT /integrations/app-credentials);
-        # if they're missing, say so precisely rather than emitting a redirect
-        # that dies at the provider with an error the user can't act on.
+        # Authorization-code + PKCE. Teams uses BlissWork's centrally
+        # configured Microsoft app; Google may use this org's own app.
         vendor = app_credentials.vendor_for(provider)
         verifier, challenge = oauth.new_pkce()
         state = secrets.token_urlsafe(32)
@@ -321,12 +309,13 @@ async def connect_start(
             creds = await app_credentials.load(db, principal.org_id, vendor) if vendor else None
             cfg = oauth.config_for(provider, creds)
             if cfg is None:
+                detail = (
+                    f"{spec.label} isn't set up for this workspace yet. "
+                    f"Add your {vendor or 'provider'} OAuth app credentials first."
+                )
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=(
-                        f"{spec.label} isn't set up for this workspace yet. "
-                        f"Add your {vendor or 'provider'} OAuth app credentials first."
-                    ),
+                    detail=detail,
                 )
             verifier_enc = await cryptor().encrypt(db, principal.org_id, verifier)
             # Snapshot the credentials actually resolved for THIS flow, not
@@ -355,10 +344,8 @@ async def connect_start(
                     "p": provider,
                     "v": verifier_enc,
                     "r": redirect_after,
-                    # Kept for audit/debugging (which credential row this flow
-                    # started against) — no longer what the callback relies on
-                    # to redeem the code. NULL for the server-env fallback,
-                    # which has no row.
+                    # Copied to the resulting connection for refresh-token
+                    # compatibility with existing workspace app registrations.
                     "ac": creds.id if creds else None,
                     "cid": client_id_enc,
                     "csec": client_secret_enc,

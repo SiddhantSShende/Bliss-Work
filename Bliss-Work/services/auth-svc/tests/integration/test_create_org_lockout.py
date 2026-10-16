@@ -37,6 +37,8 @@ from app.schemas import CreateOrgRequest
 from app.security.passwords import hash_password_async
 from crypto import cryptor, init_cryptor
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture(autouse=True)
 def _init_crypto():

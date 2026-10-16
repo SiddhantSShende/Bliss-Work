@@ -61,14 +61,6 @@ async def test_gmail_send_message_attempts_exactly_once_on_read_timeout(mock_asy
     assert mock_async_client.calls == 1
 
 
-async def test_microsoft_send_mail_attempts_exactly_once_on_read_timeout(mock_async_client):
-    with pytest.raises(httpx.ReadTimeout):
-        await microsoft.send_mail(
-            "tok", to="a@example.com", subject="Hi", body="hello"
-        )
-    assert mock_async_client.calls == 1
-
-
 async def test_microsoft_send_chat_message_attempts_exactly_once_on_read_timeout(mock_async_client):
     with pytest.raises(httpx.ReadTimeout):
         await microsoft.send_chat_message("tok", "chat-1", "hello")

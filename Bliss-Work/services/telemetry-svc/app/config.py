@@ -93,6 +93,14 @@ class Settings(BaseSettings):
     session_timeout_seconds: int = 180
     sweeper_interval_seconds: int = 60
 
+    # Nothing else runs `app.jobs.rollup` (it's a standalone CLI, meant for a
+    # cron/backfill) — without this, activity_daily.by_hour (the "When They
+    # Work" heatmap's only source) never gets populated at all. Rolling up
+    # today and yesterday every tick is cheap (idempotent upsert) and self-heals
+    # any downtime; it doesn't replace a real nightly cron for the >90-day
+    # history prune.py refuses to drop without a rollup row.
+    rollup_interval_seconds: int = 900
+
     # Rollups key on a `date`, which is only unambiguous once you name a zone.
     # Default UTC; set to the org's working timezone so "Monday" in the charts
     # means what an admin in that timezone expects. Changing this later requires

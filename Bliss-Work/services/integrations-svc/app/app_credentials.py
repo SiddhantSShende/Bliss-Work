@@ -1,9 +1,10 @@
-"""Per-org OAuth app credentials.
+"""OAuth app credentials.
 
-Each org brings its OWN Google / Microsoft OAuth app rather than authorizing a
-central Bliss-Work one. This module is the only place that reads or writes
-`provider_app_credentials`; `providers/oauth.py` stays a pure config builder and
-takes the resolved credentials as an argument.
+Google OAuth credentials may be configured per org. Microsoft OAuth always
+uses the centrally managed BlissWork application from service settings. This
+module is the only place that reads or writes `provider_app_credentials`;
+`providers/oauth.py` stays a pure config builder and takes resolved credentials
+as an argument.
 
 SECURITY — read before adding a query here
 ──────────────────────────────────────────
@@ -14,10 +15,10 @@ lookup into a cross-tenant credential read.
 
 VENDOR vs PROVIDER
 ──────────────────
-Credentials are keyed by VENDOR ('google' | 'microsoft'), while connections are
-keyed by PROVIDER ('gmail' | 'outlook' | 'teams'). outlook and teams are the
-same Entra app registration, so an org registers Microsoft once and both light
-up. `vendor_for` is the mapping.
+Connections are keyed by PROVIDER ('gmail' | 'teams'). Gmail
+credentials can be configured per org; Teams uses the centrally
+managed Microsoft app from service settings. `vendor_for` maps each OAuth
+provider to its vendor.
 """
 from __future__ import annotations
 
@@ -33,7 +34,6 @@ from crypto import cryptor
 #: (slack is token-paste).
 _VENDOR_FOR: dict[str, str] = {
     "gmail": "google",
-    "outlook": "microsoft",
     "teams": "microsoft",
 }
 
@@ -52,8 +52,7 @@ def providers_for(vendor: str) -> list[str]:
 
 @dataclass(frozen=True)
 class AppCredentials:
-    """One org's OAuth app. `id` is None for the server-env fallback, which has
-    no row to pin an oauth_state to."""
+    """Resolved OAuth app. `id` is None for server-configured credentials."""
 
     client_id: str
     client_secret: str
@@ -63,10 +62,10 @@ class AppCredentials:
 
 
 def _env_fallback(vendor: str) -> AppCredentials | None:
-    """Server-level credentials, if configured.
+    """Return centrally configured credentials, if available.
 
-    Retained so a self-hosted single-tenant deployment can supply one central
-    app for everyone. An org's own row always wins over this.
+    Google uses this as a fallback when an org has no app. Microsoft uses this
+    as its only supported credential source.
     """
     if vendor == "google" and settings.google_client_id and settings.google_client_secret:
         return AppCredentials(
@@ -85,9 +84,12 @@ def _env_fallback(vendor: str) -> AppCredentials | None:
 async def load(db, org_id: str, vendor: str) -> AppCredentials | None:
     """Resolve the credentials to use for (org, vendor).
 
-    Order: the org's own row, then the server-env fallback, then None — which
-    callers surface as "not configured yet" rather than a broken redirect.
+    Microsoft credentials are always centrally managed and never read from an
+    org row. Google uses its org row first, then the server environment.
     """
+    if vendor == "microsoft":
+        return _env_fallback(vendor)
+
     row = (
         await db.execute(
             text(
@@ -122,10 +124,10 @@ async def load(db, org_id: str, vendor: str) -> AppCredentials | None:
 
 
 async def load_by_id(db, org_id: str, credential_id: str) -> AppCredentials | None:
-    """Load the exact credential row an in-flight OAuth state was pinned to.
+    """Load the exact credential row an existing connection was pinned to.
 
-    Used at callback time so a secret rotated mid-consent doesn't fail the code
-    exchange with an opaque `invalid_client`.
+    Used by refresh for connections created before Microsoft credentials became
+    centrally managed, so their refresh tokens remain paired with their issuer.
     """
     row = (
         await db.execute(
@@ -249,6 +251,20 @@ async def describe_all(db, org_id: str) -> list[dict]:
     for vendor in VENDORS:
         row = by_vendor.get(vendor)
         fallback = _env_fallback(vendor)
+        if vendor == "microsoft":
+            out.append(
+                {
+                    "vendor": vendor,
+                    "configured": fallback is not None,
+                    "source": "server" if fallback else None,
+                    "clientId": fallback.client_id if fallback else "",
+                    "tenant": fallback.tenant if fallback else None,
+                    "pubsubTopic": None,
+                    "updatedAt": None,
+                    "providers": providers_for(vendor),
+                }
+            )
+            continue
         if row is not None:
             client_id = await cryptor().decrypt(db, org_id, bytes(row.client_id_enc))
             out.append(

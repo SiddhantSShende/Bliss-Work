@@ -16,6 +16,7 @@ import {
   isFileAction,
   sourceLabel,
 } from "./activityLabels";
+import { getActivityIcon } from "./activityIcons";
 import { LoadOlderFooter } from "./LoadOlderFooter";
 
 type Filter = "all" | "auth" | "engagement" | "navigation" | "outside" | "security";
@@ -131,9 +132,10 @@ function Row({ entry }: { entry: TimelineEntry }) {
         : undefined;
   // For a chat or channel file, a second, quieter line: which chat or channel.
   const where = fileContextLabel(entry, t);
+  const Icon = getActivityIcon(entry);
 
   return (
-    <li className="flex items-start gap-3 rounded-xl px-2 py-2 hover:bg-surface-2">
+    <li className="group flex items-start gap-3 rounded-xl px-2 py-2 hover:bg-surface-2">
       <time
         className="w-16 shrink-0 pt-0.5 text-xs tabular-nums text-muted"
         dateTime={entry.occurredAt}
@@ -145,8 +147,24 @@ function Row({ entry }: { entry: TimelineEntry }) {
       </time>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span
+            className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface-2 text-muted"
+            aria-hidden="true"
+          >
+            <Icon size={14} />
+          </span>
           <span className="text-sm text-fg">{actionLabel(entry, t)}</span>
-          {duration && <Badge tone="neutral">{duration}</Badge>}
+          {duration && (
+            // Hidden until hover or keyboard focus — tabIndex makes it reachable
+            // on its own, opacity (not display) keeps its layout space reserved
+            // so revealing it never shifts the row.
+            <span
+              tabIndex={0}
+              className="rounded opacity-0 outline-none transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <Badge tone="neutral">{duration}</Badge>
+            </span>
+          )}
           {src.verified && (
             // Server-observed rows are derived from what the services actually
             // did. Marking them is not decoration: everything unmarked is the

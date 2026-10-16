@@ -121,6 +121,84 @@ describe("WorkspaceOverview", () => {
     expect(kpiScope.getByText("Overdue").parentElement).toHaveTextContent("1");
   });
 
+  it("places each KPI sparkline beside its text on wide layouts", async () => {
+    h.projects.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    h.directory.mockResolvedValue([]);
+    mount();
+
+    const label = await screen.findByText("Total Tasks");
+    const content = label.parentElement?.parentElement;
+    expect(content).toHaveClass("flex", "flex-col", "lg:flex-row");
+    expect(content?.querySelector("svg")).toHaveClass("m-0", "shrink-0");
+  });
+
+  it("keeps the status donut beside a vertically aligned legend and reuses its colors in status flow", async () => {
+    h.projects.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    h.directory.mockResolvedValue([]);
+    mount();
+
+    const statusTitle = await screen.findByText("Status Distribution");
+    const statusCard = statusTitle.parentElement;
+    const layout = statusCard?.querySelector("h3 + div");
+    const donut = layout?.querySelector("svg");
+    const legend = layout?.querySelector("dl");
+    expect(layout).toHaveClass("flex", "items-center");
+    expect(donut).toHaveClass("aspect-square", "shrink-0");
+    expect(legend).toHaveClass("flex-col");
+
+    const legendColors = new Set(
+      Array.from(legend?.querySelectorAll("dt > span:first-child") ?? []).map(
+        (marker) => (marker as HTMLElement).style.background,
+      ),
+    );
+    const donutColors = Array.from(donut?.querySelectorAll("circle[stroke-dasharray]") ?? []).map(
+      (segment) => segment.getAttribute("stroke"),
+    );
+    for (const color of donutColors) expect(legendColors).toContain(color);
+
+    const flowCard = screen.getByText("Status Flow").parentElement;
+    const flowColors = Array.from(flowCard?.querySelectorAll("rect") ?? []).map((segment) =>
+      segment.getAttribute("fill"),
+    );
+    for (const color of flowColors) expect(legendColors).toContain(color);
+  });
+
+  it("colors workload points by quadrant and shows the horizontal and vertical divisions", async () => {
+    h.projects.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue({
+      ...OVERVIEW,
+      workload: [
+        { assigneeId: "low-high", assigneeUsername: "one", assignedCount: 1, completedCount: 1, inProgressCount: 0, completionRate: 80 },
+        { assigneeId: "low-low", assigneeUsername: "two", assignedCount: 2, completedCount: 0, inProgressCount: 2, completionRate: 20 },
+        { assigneeId: "high-high", assigneeUsername: "three", assignedCount: 4, completedCount: 3, inProgressCount: 1, completionRate: 80 },
+        { assigneeId: "high-low", assigneeUsername: "four", assignedCount: 5, completedCount: 1, inProgressCount: 4, completionRate: 20 },
+      ],
+    });
+    h.directory.mockResolvedValue([]);
+    mount();
+
+    const chart = await screen.findByRole("img", {
+      name: "Each point is one person: assigned workload against their completion rate.",
+    });
+    const pointColors = Array.from(chart.querySelectorAll("circle")).map((point) => point.getAttribute("fill"));
+    expect(new Set(pointColors)).toEqual(
+      new Set([
+        "var(--color-scatter-low-high)",
+        "var(--color-scatter-low-low)",
+        "var(--color-scatter-high-high)",
+        "var(--color-scatter-high-low)",
+      ]),
+    );
+    expect(chart.querySelectorAll("rect")).toHaveLength(4);
+    expect(chart.querySelectorAll("line[stroke-dasharray]")).toHaveLength(2);
+    expect(screen.getByText("High efficiency / Low load")).toBeInTheDocument();
+    expect(screen.getByText("High efficiency / High load")).toBeInTheDocument();
+    expect(screen.getByText("Low efficiency / Low load")).toBeInTheDocument();
+    expect(screen.getByText("Low efficiency / High load")).toBeInTheDocument();
+  });
+
   it("shows project names from the project performance ranking", async () => {
     h.projects.mockResolvedValue([PROJECT]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);

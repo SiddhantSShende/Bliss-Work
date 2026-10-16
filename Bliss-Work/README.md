@@ -10,7 +10,7 @@ from one shared React codebase:
   sticky notes that sit behind every app until you show the desktop.
 - **Calls & file transfer** — WebRTC audio/video plus peer-to-peer file
   transfer (streamed to disk on desktop, coturn for NAT traversal).
-- **External integrations** — connect Slack, Gmail, Outlook and Teams
+- **External integrations** — connect Slack, Gmail and Teams
   with **your own** OAuth apps. The Hub surfaces only messages that *tagged you*,
   each with Claim (→ a task assigned to you) and Ignore.
 - **Members & activity** — org admins change roles, suspend and remove members,

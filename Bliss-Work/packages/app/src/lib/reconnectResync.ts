@@ -59,6 +59,7 @@ export function watchReconnectResync(
   ws: StatusSource,
   qc: Pick<QueryClient, "invalidateQueries">,
   delayMs: number = RESYNC_DELAY_MS,
+  onReconnected?: () => void,
 ): () => void {
   let everOpen = false;
   let wasDown = false;
@@ -76,6 +77,7 @@ export function watchReconnectResync(
     everOpen = true;
     wasDown = false;
     if (!reconnected) return;
+    onReconnected?.();
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;

@@ -132,6 +132,19 @@ describe("applyDocumentLanguage", () => {
 describe("buildInitOptions: English fallback", () => {
   const english = { common: { hello: "Hello", items_one: "{{count}} item", items_other: "{{count}} items" } };
 
+  it("routes development missing-key diagnostics through the configured logger", () => {
+    const warn = vi.fn();
+    const options = buildInitOptions(english, { dev: true, warn });
+
+    const missingKeyHandler = options.missingKeyHandler;
+    expect(typeof missingKeyHandler).toBe("function");
+    if (typeof missingKeyHandler === "function") {
+      missingKeyHandler(["en"], "common", "missing", "missing", false, {});
+    }
+
+    expect(warn).toHaveBeenCalledWith('[i18n] missing key "common:missing" for locale(s)', ["en"]);
+  });
+
   async function make(extra?: Record<string, Record<string, object>>) {
     const inst = createInstance();
     await inst.init(buildInitOptions(english));

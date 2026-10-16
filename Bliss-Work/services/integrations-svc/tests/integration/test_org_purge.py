@@ -32,20 +32,11 @@ async def _seed_connection(db_app) -> None:
                     (id, org_id, owner_user_id, created_by, scope_kind, provider,
                      status, display_label, access_token_enc)
                 VALUES
-                    (gen_random_uuid(), :o, :u, :u, 'user', 'outlook',
-                     'connected', 'work outlook', :a)
+                    (gen_random_uuid(), :o, :u, :u, 'user', 'teams',
+                     'connected', 'work teams', :a)
                 """
             ),
             {"o": ORG, "u": USER, "a": access_enc},
-        )
-        await db.execute(
-            text(
-                """
-                INSERT INTO mail_send_attempts (mail_id, org_id, status)
-                VALUES (gen_random_uuid(), :o, 'sending')
-                """
-            ),
-            {"o": ORG},
         )
         await db.execute(
             text(
@@ -76,19 +67,12 @@ async def test_purge_org_does_not_raise_and_removes_the_connection(db_app):
             )
         ).one()
         assert remaining.n == 0
-        mail_attempts = (
-            await db.execute(
-                text("SELECT count(*) AS n FROM mail_send_attempts WHERE org_id = :o"),
-                {"o": ORG},
-            )
-        ).one()
         message_attempts = (
             await db.execute(
                 text("SELECT count(*) AS n FROM message_send_attempts WHERE org_id = :o"),
                 {"o": ORG},
             )
         ).one()
-        assert mail_attempts.n == 0
         assert message_attempts.n == 0
 
 

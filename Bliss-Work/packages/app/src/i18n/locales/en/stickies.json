@@ -4,6 +4,7 @@
     "assigned": "Assigned",
     "deadline": "Deadline",
     "missedOn": "Missed",
+    "deadlineProgress": "{{pct}}% of the time to the deadline has passed",
     "collapseToPill": "Collapse to a pill",
     "unpinNoteTitle": "Unpin (the task stays)",
     "unpin": "Unpin",
@@ -63,7 +64,8 @@
       "voiceTitle": "Join with voice only",
       "leave": "Leave",
       "dismiss": "Dismiss",
-      "decline": "Decline"
+      "decline": "Decline",
+      "accept": "Accept"
     },
     "titles": {
       "task": "Task",

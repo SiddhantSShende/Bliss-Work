@@ -4,6 +4,7 @@
     "assigned": "Zugewiesen",
     "deadline": "Frist",
     "missedOn": "Verpasst",
+    "deadlineProgress": "{{pct}}% der Zeit bis zur Frist sind vergangen",
     "collapseToPill": "Zu einem Chip verkleinern",
     "unpinNoteTitle": "Loslösen (die Aufgabe bleibt)",
     "unpin": "Loslösen",
@@ -63,7 +64,8 @@
       "voiceTitle": "Nur mit Audio beitreten",
       "leave": "Verlassen",
       "dismiss": "Schließen",
-      "decline": "Ablehnen"
+      "decline": "Ablehnen",
+      "accept": "Annehmen"
     },
     "titles": {
       "task": "Aufgabe",

@@ -1,4 +1,5 @@
 import { TrackEvent, type LocalAudioTrack } from "livekit-client";
+import { logger } from "@taskboard/shared";
 import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
 
 /**
@@ -77,8 +78,7 @@ export function logMicProcessing(where: string, track: MediaStreamTrack | undefi
   if (!track) return;
   const report = inspectMicProcessing(track);
   if (!report) return;
-  const log = report.notApplied.length > 0 ? console.warn : console.debug;
-  log(`[MIC] ${where}`, report);
+  logger.debug(`[MIC] ${where}`, report);
 }
 
 const watched = new WeakSet<LocalAudioTrack>();

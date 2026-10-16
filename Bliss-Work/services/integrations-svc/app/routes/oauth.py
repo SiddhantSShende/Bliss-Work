@@ -32,17 +32,15 @@ router = APIRouter()
 _DESKTOP_RETURN = "taskboard://oauth"
 
 
-#: Where each provider's connect/disconnect UI actually lives. Outlook is the
-#: only provider with a real Settings page today (packages/app/src/routes/
-#: OutlookSettings.tsx) — the generic multi-provider "Integrations" hub this
-#: used to redirect to was deleted along with its only consumer (commit
-#: 7add122) and never rebuilt, so every OTHER provider falls back to that now
-#: nonexistent path. That fallback is harmless in practice: with no UI to
-#: start a connect flow for gmail/teams/slack, their OAuth callback is not
-#: reachable today either — but it is kept rather than deleted so a future
-#: provider's launch is "add one line here", not "first notice the redirect
-#: is broken".
-_APP_PATH_FOR_PROVIDER = {"outlook": "/app/settings/outlook"}
+#: Where each provider's connect/disconnect UI actually lives. The generic
+#: multi-provider "Integrations" hub this redirects to was deleted along with
+#: its only consumer (commit 7add122) and never rebuilt, so every provider
+#: falls back to this now nonexistent path. That fallback is harmless in
+#: practice: with no UI to start a connect flow for gmail/teams/slack, their
+#: OAuth callback is not reachable today either — but it is kept rather than
+#: deleted so a future provider's launch is "add one line here", not "first
+#: notice the redirect is broken".
+_APP_PATH_FOR_PROVIDER: dict[str, str] = {}
 _DEFAULT_APP_PATH = "/app/integrations"
 
 
@@ -154,7 +152,8 @@ async def oauth_callback(provider: str, request: Request) -> Response:
                 text(
                     """
                     SELECT org_id, owner_user_id, provider, code_verifier_enc, expires_at,
-                           redirect_after, client_id_enc, client_secret_enc, tenant,
+                           redirect_after, app_credential_id, client_id_enc,
+                           client_secret_enc, tenant,
                            browser_session_hash
                       FROM oauth_states WHERE state = :s
                     """
@@ -231,10 +230,11 @@ async def oauth_callback(provider: str, request: Request) -> Response:
                 INSERT INTO integration_connections
                     (id, org_id, owner_user_id, created_by, scope_kind, provider, status,
                      display_label, access_token_enc, refresh_token_enc,
+                     oauth_app_credential_id,
                      external_account_id_enc, external_account_id_bidx, token_expires_at, scopes)
                 VALUES
                     (:id, :o, :owner, :owner, 'user', :p, 'connected', :label, :a, :rf,
-                     :ee, :eb,
+                     :ac, :ee, :eb,
                      CASE WHEN :exp > 0 THEN now() + (:exp * interval '1 second') ELSE NULL END,
                      :sc)
                 ON CONFLICT (org_id, provider, external_account_id_bidx)
@@ -242,6 +242,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
                 DO UPDATE SET
                     access_token_enc  = EXCLUDED.access_token_enc,
                     refresh_token_enc = COALESCE(EXCLUDED.refresh_token_enc, integration_connections.refresh_token_enc),
+                    oauth_app_credential_id = EXCLUDED.oauth_app_credential_id,
                     display_label     = EXCLUDED.display_label,
                     token_expires_at  = EXCLUDED.token_expires_at,
                     status            = 'connected',
@@ -268,6 +269,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
                 "label": label,
                 "a": access_enc,
                 "rf": refresh_enc,
+                "ac": st.app_credential_id,
                 "ee": ext_enc,
                 "eb": ext_bidx,
                 "exp": expires_in,

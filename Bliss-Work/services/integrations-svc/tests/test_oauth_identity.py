@@ -39,12 +39,10 @@ def test_gmail_tags_by_email_address(creds):
     assert cfg.identity_handle_fields == (("email", "email"),)
 
 
-@pytest.mark.parametrize("provider", ["outlook", "teams"])
-def test_microsoft_registers_the_aad_object_id_and_the_mailbox(creds, provider):
-    cfg = oauth.config_for(provider, creds)
+def test_teams_registers_the_aad_object_id_and_the_mailbox(creds):
+    cfg = oauth.config_for("teams", creds)
     assert cfg is not None
     kinds = dict((field, kind) for kind, field in cfg.identity_handle_fields)
-    # Teams mentions carry `id`; Outlook mail addresses `mail`/UPN.
     assert kinds["id"] == "account"
     assert kinds["mail"] == "email"
     assert kinds["userPrincipalName"] == "email"
@@ -112,7 +110,7 @@ async def test_fetch_identity_dedupes_mail_and_upn(creds, monkeypatch):
 
 async def test_fetch_identity_skips_missing_fields(creds, monkeypatch):
     _patch_userinfo(monkeypatch, {"id": "aad-oid", "userPrincipalName": "me@acme.com"})
-    ident = await oauth.fetch_identity(oauth.config_for("outlook", creds), "tok")
+    ident = await oauth.fetch_identity(oauth.config_for("teams", creds), "tok")
     assert ident.handles == (("account", "aad-oid"), ("email", "me@acme.com"))
 
 

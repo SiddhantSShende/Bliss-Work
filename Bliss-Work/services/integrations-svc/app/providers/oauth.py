@@ -1,6 +1,6 @@
 """Shared OAuth2 authorization-code flow (PKCE) for Gmail + Microsoft Graph.
 
-Gmail (Google) and Outlook/Teams (Microsoft Graph) both use authorization-code +
+Gmail (Google) and Teams (Microsoft Graph) both use authorization-code +
 PKCE + a confidential client secret. This module builds the authorize URL,
 exchanges the code for tokens, and resolves the connected account's identity. The
 app's own client credentials come from settings; per-user tokens are stored
@@ -101,13 +101,12 @@ def browser_session_matches(expected_hash: str | None, value: str | None) -> boo
 
 # ── Per-provider config ───────────────────────────────────────────────────────
 def config_for(provider: str, creds: AppCredentialsLike | None) -> OAuthConfig | None:
-    """Build the OAuth config for a provider from an org's own app credentials.
+    """Build the OAuth config for a provider from resolved app credentials.
 
-    `creds` comes from `app_credentials.load(db, org_id, vendor)` — the org's own
-    OAuth app, or the server-env fallback, or None. Passing None returns None,
-    which callers surface as "not configured yet" rather than emitting an
-    authorize URL with an empty client_id (which fails at the provider with an
-    error the user cannot act on).
+    `creds` comes from `app_credentials.load(db, org_id, vendor)` — an org's
+    Google app or the centrally configured Microsoft app. Passing None returns
+    None, which callers surface as a configuration error rather than emitting
+    an authorize URL with an empty client_id.
 
     This function stays PURE — no settings lookup, no I/O — so the credential
     source is always visible at the call site.
@@ -134,31 +133,20 @@ def config_for(provider: str, creds: AppCredentialsLike | None) -> OAuthConfig |
             identity_name_field="email",
             identity_handle_fields=(("email", "email"),),
         )
-    if provider in ("outlook", "teams"):
-        # 'common' (multi-tenant) unless the org registered a single-tenant app
-        # and supplied its tenant id. Getting this wrong is a very common Entra
-        # setup failure: a single-tenant app authorized via /common returns
-        # AADSTS50194 rather than anything self-explanatory.
+    if provider == "teams":
         tenant = creds.tenant or "common"
-        # Mail.ReadWrite (alongside Mail.Read/Mail.Send) is what lets a BlissWork-side
-        # read/delete action write back to the connected user's own Outlook message
-        # (mark read, move to Deleted Items) — see mail_sync_worker.py.
-        graph_scopes = {
-            "outlook": ["Mail.Read", "Mail.ReadWrite", "Mail.Send"],
-            "teams": ["Chat.ReadWrite"],
-        }[provider]
         return OAuthConfig(
             name=provider,
             authorize_endpoint=f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
             token_endpoint=f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
             userinfo_endpoint="https://graph.microsoft.com/v1.0/me",
-            scopes=["openid", "email", "offline_access", "User.Read", *graph_scopes],
+            scopes=["openid", "email", "offline_access", "User.Read", "Chat.ReadWrite"],
             client_id=creds.client_id,
             client_secret=creds.client_secret,
             identity_field="mail",
             identity_name_field="userPrincipalName",
-            # Teams mentions reference the AAD object id; Outlook mail addresses
-            # the mailbox. Register both so either style of tag resolves.
+            # Teams mentions reference the AAD object id; register both the
+            # account and email handle styles so either style of tag resolves.
             identity_handle_fields=(
                 ("account", "id"),
                 ("email", "mail"),

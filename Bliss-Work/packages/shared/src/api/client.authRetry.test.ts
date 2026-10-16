@@ -104,7 +104,7 @@ describe("ApiClient.req() under concurrent 401 + refresh", () => {
   });
 });
 
-describe("ApiClient.req()'s TEMPORARY authDiag instrumentation", () => {
+describe("ApiClient.req() request diagnostics", () => {
   const baseCfg = {
     authBase: "http://auth.test",
     taskBase: "http://task.test",
@@ -121,7 +121,7 @@ describe("ApiClient.req()'s TEMPORARY authDiag instrumentation", () => {
       }
     ).req("http://messaging.test", path, { method });
 
-  it("reports bearerPresent=false and attaches no Authorization header when the session has no token — the exact reported symptom", async () => {
+  it("does not log request metadata when the session has no token", async () => {
     const fetchMock = vi.fn(
       async (_url: string, _init?: RequestInit) => new Response('{"error":"missing bearer token"}', { status: 401 }),
     );
@@ -133,9 +133,7 @@ describe("ApiClient.req()'s TEMPORARY authDiag instrumentation", () => {
 
     const sentHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
     expect(sentHeaders.authorization).toBeUndefined();
-
-    const requestLog = infoSpy.mock.calls.find((c) => c[0] === "[authDiag:request]");
-    expect(requestLog?.[1]).toMatchObject({ bearerPresent: false, path: "/api/v1/channels/c1/reactions" });
+    expect(infoSpy).not.toHaveBeenCalled();
   });
 
   it("carries the SAME x-request-id across a 401-triggered retry", async () => {

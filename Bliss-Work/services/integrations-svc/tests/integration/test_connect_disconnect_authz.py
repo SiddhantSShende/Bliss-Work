@@ -7,7 +7,7 @@ ON CONFLICT upsert in _upsert_connection) or revoke one, with no role check at
 all. This mirrors the org_admin gate routes/app_creds.py already has on the
 org's OAuth app credentials.
 
-A user's OWN (owner_user_id = their id) connection — e.g. a personal Outlook
+A user's OWN (owner_user_id = their id) connection — e.g. a personal Teams
 OAuth connection — stays self-service and must NOT require org_admin.
 """
 

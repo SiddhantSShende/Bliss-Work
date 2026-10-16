@@ -177,11 +177,17 @@ func (s *Server) sweepOverdueCalls(ctx context.Context) {
 	if err != nil {
 		s.log.Warn("call sweep failed", "rule", "due", "err", err)
 	}
-	for _, c := range due {
+	for _, a := range due {
+		c := a.Call
 		// No actor: nobody did this, the clock did — same convention the
 		// ending rules below use for actorID, from the other end of a call's
 		// life.
 		s.notifyCall(ctx, c, events.TypeCallStarted, "")
+		// Ring whoever is still invited and hasn't joined — the clock-started
+		// equivalent of startCall's own ringUsers call below. ActorID is the
+		// call's creator (there is no "caller" here), so the invitee's popup
+		// can still say whose meeting is starting.
+		s.ringUsers(ctx, c, a.Rung, events.TypeCallRing, c.CreatedBy)
 		// A call the clock starts records with a deployment that records at
 		// all, exactly like one a host starts by hand (startCall). No response
 		// DTO to attach RecordingStatus to here, unlike startCall's own use of

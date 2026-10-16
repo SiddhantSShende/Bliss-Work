@@ -7,9 +7,7 @@ one of them ends up missing a provider, or missing the activity mirror.
 
 RESULT SHAPE
 ────────────
-`external_id` is None for providers that don't return one. Outlook is the case
-that matters: Graph answers /me/sendMail with 202 and an EMPTY body, so there is
-no message id to record. The partial unique index on
+`external_id` is None for providers that don't return one. The partial unique index on
 `provider_activity.external_id_bidx` only covers non-null values, so a NULL
 there is fine — but callers must not assume an id exists.
 """
@@ -91,8 +89,6 @@ async def send_via_connection(
         return await _send_slack(token, target, text)
     if provider == "gmail":
         return await _send_gmail(token, target, text, subject)
-    if provider == "outlook":
-        return await _send_outlook(token, target, text, subject)
     if provider == "teams":
         return await _send_teams(token, target, text)
 
@@ -135,26 +131,6 @@ async def _send_gmail(token: str, target: str, text: str, subject: str | None) -
     except gmail.GmailError as exc:
         raise OutboundError(str(exc)) from exc
     return SendResult(external_id=res.get("id"), kind="email")
-
-
-async def _send_outlook(token: str, target: str, text: str, subject: str | None) -> SendResult:
-    try:
-        _graph_id, internet_message_id = await ms.send_mail(
-            token, to=target, subject=subject or DEFAULT_SUBJECT, body=text
-        )
-    except ms.MicrosoftAuthError as exc:
-        raise OutboundError(str(exc), retryable=True, is_auth_error=True) from exc
-    except ms.MicrosoftAmbiguousDelivery as exc:
-        raise OutboundError(str(exc), ambiguous=True) from exc
-    except ms.MicrosoftRateLimited as exc:
-        raise OutboundError(str(exc), retryable=True) from exc
-    except ms.MicrosoftError as exc:
-        raise OutboundError(str(exc)) from exc
-    # send_mail now creates-then-sends a draft (see microsoft.py), so there IS
-    # an id to record — internetMessageId (not the mailbox-scoped Graph `id`),
-    # consistent with how every other provider's external_id is a stable,
-    # cross-system identifier rather than something scoped to one mailbox.
-    return SendResult(external_id=internet_message_id or None, kind="email")
 
 
 async def _send_teams(token: str, target: str, text: str) -> SendResult:

@@ -34,5 +34,4 @@ async def test_valid_org_deleted_id_is_normalized_before_purge(monkeypatch):
 
 
 def test_org_purge_table_set_includes_all_send_attempt_rows():
-    assert "mail_send_attempts" in org_consumer._TABLES
     assert "message_send_attempts" in org_consumer._TABLES

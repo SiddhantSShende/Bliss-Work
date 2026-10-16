@@ -167,7 +167,8 @@
     "addedYou": "{{name}} vous a ajouté à un appel en conférence",
     "ariaLabelCall": "Appel entrant : {{title}}",
     "decline": "Refuser",
-    "declineFailed": "Impossible de refuser l’appel. Veuillez réessayer."
+    "declineFailed": "Impossible de refuser l’appel. Veuillez réessayer.",
+    "accept": "Accepter"
   },
   "scheduledNotice": {
     "untitledMeeting": "Réunion",

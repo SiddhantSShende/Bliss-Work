@@ -4,6 +4,7 @@
     "assigned": "असाइन किया",
     "deadline": "समय-सीमा",
     "missedOn": "छूटा",
+    "deadlineProgress": "समय सीमा तक का {{pct}}% समय बीत गया है",
     "collapseToPill": "पिल में समेटें",
     "unpinNoteTitle": "अनपिन करें (टास्क बना रहेगा)",
     "unpin": "अनपिन करें",
@@ -63,7 +64,8 @@
       "voiceTitle": "केवल आवाज़ से जुड़ें",
       "leave": "छोड़ें",
       "dismiss": "खारिज करें",
-      "decline": "अस्वीकार करें"
+      "decline": "अस्वीकार करें",
+      "accept": "स्वीकार करें"
     },
     "titles": {
       "task": "टास्क",

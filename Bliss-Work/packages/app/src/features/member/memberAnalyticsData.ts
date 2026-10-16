@@ -29,6 +29,52 @@ export interface WeekdayPoint {
   idle: number;
 }
 
+export interface ActivityBucket {
+  /** First day of the bucket, `YYYY-MM-DD` — unique, used as the React key. */
+  key: string;
+  /** Last day of the bucket (inclusive); equal to `key` for a one-day bucket. */
+  end: string;
+  active: number;
+  idle: number;
+}
+
+/**
+ * Buckets `days` into contiguous, gap-filled time slices covering the whole
+ * [from, to] range — one bucket per day for 7d/30d, one per week for 90d, so
+ * a 90-day range draws ~13 bars instead of 90 unreadably thin ones.
+ *
+ * Gaps (a day the server never rolled up) become zero-filled buckets rather
+ * than being skipped, so the x-axis stays one tick per real calendar period.
+ */
+export function activityBuckets(days: DayBucket[], from: string, to: string): ActivityBucket[] {
+  const span = daysInRange(from, to);
+  const bucketDays = span > 35 ? 7 : 1;
+  const byDay = new Map(days.map((d) => [d.day, d]));
+
+  const buckets: ActivityBucket[] = [];
+  let cursor = parseLocalDay(from);
+  const end = parseLocalDay(to);
+  while (cursor <= end) {
+    const bucketStart = localDay(cursor);
+    let active = 0;
+    let idle = 0;
+    let last = bucketStart;
+    for (let i = 0; i < bucketDays; i++) {
+      const day = localDay(cursor);
+      if (day > to) break;
+      const row = byDay.get(day);
+      if (row) {
+        active += row.activeMs;
+        idle += row.idleMs;
+      }
+      last = day;
+      cursor = subtractDays(cursor, -1);
+    }
+    buckets.push({ key: bucketStart, end: last, active, idle });
+  }
+  return buckets;
+}
+
 /**
  * Average active / idle ms for each weekday (Monday first) across the range.
  *

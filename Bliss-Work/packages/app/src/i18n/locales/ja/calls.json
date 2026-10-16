@@ -167,7 +167,8 @@
     "addedYou": "{{name}}さんがあなたを会議通話に追加しました",
     "ariaLabelCall": "通話の着信:{{title}}",
     "decline": "拒否",
-    "declineFailed": "通話を拒否できませんでした。もう一度お試しください。"
+    "declineFailed": "通話を拒否できませんでした。もう一度お試しください。",
+    "accept": "応答"
   },
   "scheduledNotice": {
     "untitledMeeting": "ミーティング",

@@ -16,13 +16,24 @@ USER_A = "33333333-3333-3333-3333-333333333333"
 USER_B = "44444444-4444-4444-4444-444444444444"
 
 
-def _principal(user_id: str, org_id: str = ORG, plan: str = "enterprise"):
+def _principal(
+    user_id: str,
+    org_id: str = ORG,
+    plan: str = "enterprise",
+    roles: list[str] | None = None,
+):
     from app.auth import Principal
 
     # The real role string put_/delete_app_credentials check for is "org_admin"
     # (app/routes/app_creds.py) — the app-credentials PUT this file's setup
     # calls requires it.
-    return Principal(user_id=user_id, org_id=org_id, roles=["org_admin"], username="me", plan=plan)
+    return Principal(
+        user_id=user_id,
+        org_id=org_id,
+        roles=roles if roles is not None else ["org_admin"],
+        username="me",
+        plan=plan,
+    )
 
 
 async def _client(principal) -> httpx.AsyncClient:
@@ -38,12 +49,20 @@ def _extract_state(authorize_url: str) -> str:
     return urllib.parse.parse_qs(urllib.parse.urlsplit(authorize_url).query)["state"][0]
 
 
-def _install_provider_stubs(monkeypatch, *, client_secret_seen: list, ext_id: str = "shared@x.test"):
+def _install_provider_stubs(
+    monkeypatch,
+    *,
+    client_secret_seen: list,
+    ext_id: str = "shared@x.test",
+    verifier_seen: list[str] | None = None,
+):
     from app.providers import oauth as oauth_provider
     from app.providers.oauth import Identity
 
     async def fake_exchange_code(cfg, code, verifier, redirect_uri):
         client_secret_seen.append(cfg.client_secret)
+        if verifier_seen is not None:
+            verifier_seen.append(verifier)
         return {"access_token": f"tok-for-{cfg.client_secret}", "expires_in": 3600}
 
     async def fake_fetch_identity(cfg, access_token):
@@ -61,7 +80,9 @@ async def _connection_row(org_id: str, provider: str):
         return (
             await conn.execute(
                 text(
-                    "SELECT owner_user_id, access_token_enc, status FROM integration_connections "
+                    "SELECT id, owner_user_id, access_token_enc, status, "
+                    "oauth_app_credential_id "
+                    "FROM integration_connections "
                     " WHERE org_id = :o AND provider = :p"
                 ),
                 {"o": org_id, "p": provider},
@@ -104,6 +125,78 @@ async def test_a_secret_rotated_mid_consent_does_not_affect_the_in_flight_exchan
     row = await _connection_row(ORG, "gmail")
     assert row is not None
     assert row.status == "connected"
+    assert row.oauth_app_credential_id is not None
+
+
+async def test_central_teams_oauth_isolates_tokens_per_member(db_app, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ms_client_id", "central-client-id")
+    monkeypatch.setattr(settings, "ms_client_secret", "central-client-secret")
+    monkeypatch.setattr(settings, "ms_tenant", "contoso.onmicrosoft.com")
+    # Deliberately NOT https here: a Secure cookie set over this suite's plain
+    # "http://test" ASGI transport is stored by httpx's jar (visible on the
+    # client) but never re-sent on the next request, which the callback below
+    # would read as "invalid state" — a transport-only quirk, not something
+    # the real browser flow (always https in production) hits.
+    monkeypatch.setattr(settings, "public_base_url", "http://bliss.example")
+
+    secrets_seen: list[str] = []
+    verifiers_seen: list[str] = []
+    _install_provider_stubs(
+        monkeypatch,
+        client_secret_seen=secrets_seen,
+        ext_id="member@contoso.example",
+        verifier_seen=verifiers_seen,
+    )
+
+    async with await _client(_principal(USER_A, roles=[])) as member:
+        start = await member.post("/api/v1/integrations/teams/connect/start", json={})
+        assert start.status_code == 200, start.text
+        authorize_url = start.json()["authorizeUrl"]
+        parsed = urllib.parse.urlsplit(authorize_url)
+        query = urllib.parse.parse_qs(parsed.query)
+        assert parsed.netloc == "login.microsoftonline.com"
+        assert parsed.path == "/contoso.onmicrosoft.com/oauth2/v2.0/authorize"
+        assert query["client_id"] == ["central-client-id"]
+        assert query["redirect_uri"] == [
+            "http://bliss.example/ext/teams/oauth/callback"
+        ]
+        assert query["code_challenge_method"] == ["S256"]
+        assert query["code_challenge"][0]
+        assert query["state"][0]
+        assert "central-client-secret" not in authorize_url
+        assert {"Chat.ReadWrite", "User.Read", "offline_access"} <= set(
+            query["scope"][0].split()
+        )
+
+        callback = await member.get(
+            "/ext/teams/oauth/callback"
+            f"?code=mock-code&state={query['state'][0]}"
+        )
+
+    assert callback.status_code in (200, 302), callback.text
+    assert secrets_seen == ["central-client-secret"]
+    assert len(verifiers_seen) == 1 and verifiers_seen[0]
+
+    stored = await _connection_row(ORG, "teams")
+    assert stored is not None
+    assert str(stored.owner_user_id) == USER_A
+    assert stored.status == "connected"
+    assert stored.oauth_app_credential_id is None
+
+    # A different member in the same workspace cannot list or disconnect the
+    # connection, and cannot change its stored token.
+    async with await _client(_principal(USER_B, roles=[])) as other_member:
+        listed = await other_member.get("/api/v1/integrations")
+        assert listed.status_code == 200
+        assert stored.id not in {row["id"] for row in listed.json()}
+        denied = await other_member.delete(f"/api/v1/integrations/{stored.id}")
+        assert denied.status_code == 404
+
+    still_stored = await _connection_row(ORG, "teams")
+    assert bytes(still_stored.access_token_enc) == bytes(stored.access_token_enc)
+    assert str(still_stored.owner_user_id) == USER_A
 
 
 # ── #C: reconnecting an already-connected external account under a

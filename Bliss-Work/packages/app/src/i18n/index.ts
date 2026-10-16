@@ -1,5 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
+import { logger } from "@taskboard/shared";
 import { buildInitOptions } from "./core";
 import { englishResources } from "./catalogs";
 
@@ -19,6 +20,6 @@ const isDev = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV =
 // A side-effect import: App.tsx (via LanguageProvider) and test/setup.ts rely on
 // this running at import time. Only English is registered here; the user's
 // language is loaded and applied by LanguageProvider.
-void i18n.use(initReactI18next).init(buildInitOptions(englishResources, { dev: isDev }));
+void i18n.use(initReactI18next).init(buildInitOptions(englishResources, { dev: isDev, warn: logger.warn }));
 
 export default i18n;

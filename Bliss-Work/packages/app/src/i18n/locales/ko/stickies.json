@@ -4,6 +4,7 @@
     "assigned": "배정됨",
     "deadline": "마감",
     "missedOn": "놓침",
+    "deadlineProgress": "마감일까지 시간의 {{pct}}%가 경과했습니다",
     "collapseToPill": "알약 모양으로 접기",
     "unpinNoteTitle": "고정 해제(태스크는 유지돼요)",
     "unpin": "고정 해제",
@@ -63,7 +64,8 @@
       "voiceTitle": "음성으로만 참여",
       "leave": "나가기",
       "dismiss": "닫기",
-      "decline": "거절"
+      "decline": "거절",
+      "accept": "수락"
     },
     "titles": {
       "task": "태스크",

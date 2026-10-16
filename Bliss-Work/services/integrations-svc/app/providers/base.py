@@ -4,7 +4,7 @@ Each provider declares how a user connects it (token-paste vs OAuth), which
 credential fields to collect, and — in later phases — how to verify inbound
 webhooks and send outbound messages. Phase 1 wires the token-paste connect flow
 (Slack) end-to-end with encrypted-at-rest credential storage; OAuth
-providers (Gmail, Outlook, Teams) are declared here and connect once their app
+providers (Gmail, Teams) are declared here and connect once their app
 credentials + flows land.
 """
 from __future__ import annotations
@@ -73,12 +73,6 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "https://www.googleapis.com/auth/gmail.send",
             "https://www.googleapis.com/auth/gmail.readonly",
         ),
-    ),
-    "outlook": ProviderSpec(
-        name="outlook",
-        label="Outlook",
-        auth_kind="oauth2_code",
-        default_scopes=("Mail.Read", "Mail.ReadWrite", "Mail.Send", "offline_access"),
     ),
     "teams": ProviderSpec(
         name="teams",

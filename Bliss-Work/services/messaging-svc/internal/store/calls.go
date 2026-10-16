@@ -1614,6 +1614,44 @@ func (s *Store) ListMyCalls(ctx context.Context, orgID, callerID string, limit i
 	return out, nil
 }
 
+// ListMyRingingCalls returns the calls the caller is RIGHT NOW being rung
+// for — an open, unexpired invitation on a LIVE call they have neither
+// joined, declined, nor missed.
+//
+// Exists for reconnect catch-up: the ws-gateway's replay of missed events
+// deliberately does not re-announce a ring on reconnect (clients gate
+// "announce" on `!meta.replayed`, since re-ringing every pending invite on
+// every reconnect would be its own bug), so a client that was offline when
+// a ring started and comes back while it is still open has nothing to tell
+// it the ring exists — this is that: a one-shot, caller-initiated check
+// rather than a replayed event, so it only ever reports a ring that is
+// still genuinely answerable at the moment it is asked.
+func (s *Store) ListMyRingingCalls(ctx context.Context, orgID, callerID string) ([]CallDTO, error) {
+	out := []CallDTO{}
+	err := s.withCaller(ctx, orgID, callerID, func(tx pgx.Tx) error {
+		ids, err := callIDsTx(ctx, tx, `
+			SELECT cp.call_id
+			FROM call_participants cp
+			JOIN calls c ON c.id = cp.call_id
+			WHERE cp.user_id = $1
+			  AND c.status = 'LIVE'
+			  AND cp.ring_expires_at IS NOT NULL
+			  AND cp.ring_expires_at > now()
+			  AND cp.joined_at IS NULL
+			  AND cp.left_at IS NULL
+			  AND cp.declined_at IS NULL
+			  AND cp.missed_at IS NULL`, callerID)
+		if err != nil {
+			return err
+		}
+		return appendCallsTx(ctx, tx, ids, &out)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func callIDsTx(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]string, error) {
 	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {

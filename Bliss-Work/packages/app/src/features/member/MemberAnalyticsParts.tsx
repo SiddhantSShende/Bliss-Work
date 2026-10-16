@@ -6,40 +6,50 @@ import type { ActivitySummaryDTO, NamedCount, TimelineEntry } from "@taskboard/s
 import { actionLabel, formatDuration } from "./activityLabels";
 import { resolveAppName } from "./appNames";
 import { getAppIcon } from "./appIcons";
+import { ActivityStackedChart } from "./MemberAnalyticsCharts";
+import { activityBuckets } from "./memberAnalyticsData";
 
-/** One headline number: icon, label, value and a line of small supporting text.
- *  `change` is a real % versus the previous period, or null/undefined to omit it. */
+/** One headline number: icon, label, value and a line of small supporting text,
+ *  with an optional compact chart vertically centered to its right. `change` is
+ *  a real % versus the previous period, or null/undefined to omit it. */
 export function SummaryCard({
   icon,
   label,
   value,
   hint,
   change,
+  sparkline,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   hint?: string;
   change?: number | null;
+  /** A small chart (e.g. MiniSparkline) placed beside the text, centered on the
+   *  card's height. Omitted when there isn't enough real data to draw one. */
+  sparkline?: React.ReactNode;
 }) {
   const { t } = useTranslation("members");
   return (
-    <Card className="flex flex-col gap-1.5 p-5">
-      <div className="flex items-center gap-2 text-muted">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-          {icon}
-        </span>
-        <span className="text-sm font-medium">{label}</span>
-      </div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums text-fg">{value}</div>
-      {hint && <div className="text-xs text-muted">{hint}</div>}
-      {change != null && change !== 0 && (
-        <div className={`flex items-center gap-1 text-xs ${change > 0 ? "text-success" : "text-danger"}`}>
-          {change > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-          <span className="font-medium tabular-nums">{Math.abs(change)}%</span>
-          <span className="text-muted">{t("members:analytics.summary.vsPrevious")}</span>
+    <Card className="flex items-center justify-between gap-3 p-5">
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="flex items-center gap-2 text-muted">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+            {icon}
+          </span>
+          <span className="text-sm font-medium">{label}</span>
         </div>
-      )}
+        <div className="mt-1 text-2xl font-semibold tabular-nums text-fg">{value}</div>
+        {hint && <div className="text-xs text-muted">{hint}</div>}
+        {change != null && change !== 0 && (
+          <div className={`flex items-center gap-1 text-xs ${change > 0 ? "text-success" : "text-danger"}`}>
+            {change > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+            <span className="font-medium tabular-nums">{Math.abs(change)}%</span>
+            <span className="text-muted">{t("members:analytics.summary.vsPrevious")}</span>
+          </div>
+        )}
+      </div>
+      {sparkline && <div className="flex shrink-0 items-center self-center">{sparkline}</div>}
     </Card>
   );
 }
@@ -74,29 +84,21 @@ export function SectionCard({
   );
 }
 
-/** Active vs idle for the period, drawn as one horizontal bar. Only the two
- *  durations the summary records — there is no "away" figure to show. */
-export function ActivityOverviewBody({ data }: { data: ActivitySummaryDTO }) {
+/** Active vs idle for the period: headline totals, then a stacked bar chart
+ *  of active/idle per time bucket (same style as Workspace Analytics' Status
+ *  Flow chart) showing how that split moves across the range. */
+export function ActivityOverviewBody({ data, from, to }: { data: ActivitySummaryDTO; from: string; to: string }) {
   const { t } = useTranslation("members");
   const signedIn = data.totalActiveMs + data.totalIdleMs;
   const share = signedIn > 0 ? Math.round((data.totalActiveMs / signedIn) * 100) : 0;
+  const buckets = activityBuckets(data.days, from, to);
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <div className="flex items-end justify-between gap-3">
-          <div className="text-3xl font-semibold tabular-nums text-fg">{formatMs(data.totalActiveMs)}</div>
-          <div className="text-sm tabular-nums text-muted">{signedIn > 0 ? `${share}%` : "—"}</div>
-        </div>
-        <div
-          className="mt-3 h-2.5 w-full overflow-hidden rounded-full"
-          style={{ background: "var(--color-chart-grid)" }}
-          role="img"
-          aria-label={`${share}% ${t("members:analytics.overview.activeOfSignedIn")}`}
-        >
-          <div className="h-full rounded-full" style={{ width: `${share}%`, background: "var(--color-chart-ink)" }} />
-        </div>
-        <p className="mt-2 text-xs text-muted">{t("members:analytics.overview.activeOfSignedIn")}</p>
+    <div className="flex flex-col gap-4">
+      <div className="flex items-end justify-between gap-3">
+        <div className="text-3xl font-semibold tabular-nums text-fg">{formatMs(data.totalActiveMs)}</div>
+        <div className="text-sm tabular-nums text-muted">{signedIn > 0 ? `${share}%` : "—"}</div>
       </div>
+      <ActivityStackedChart buckets={buckets} />
       <dl className="grid grid-cols-2 gap-4 border-t border-border/60 pt-4">
         <Legend color="var(--color-chart-ink)" label={t("members:analytics.overview.active")} value={formatMs(data.totalActiveMs)} />
         <Legend

@@ -45,7 +45,7 @@ import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, ScreenShare, Video, Vid
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Avatar, Button, cn } from "@taskboard/ui";
-import { isAdhocCall, type CallDTO } from "@taskboard/shared";
+import { isAdhocCall, logger, type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -63,6 +63,7 @@ import {
   notesFilename,
   notesToText,
   saveNotes,
+  unreadNotesSince,
   type NoteEntry,
 } from "../lib/callNotes";
 import {
@@ -276,6 +277,8 @@ export function CallRoom({
   /** Everything up to this moment has been read. Moved forward while the chat
    *  panel is open, so the badge counts only what arrived behind your back. */
   const [chatSeenAt, setChatSeenAt] = useState(() => Date.now());
+  /** Same mark, for Notes — see chatSeenAt. */
+  const [notesSeenAt, setNotesSeenAt] = useState(() => Date.now());
   /** Who the room is listening to, filtered so a cough cannot take the stage. */
   const [speakers, setSpeakers] = useState<SpeakerState>(initialSpeakerState);
   /** THE ROOM is being recorded — by whoever pressed the button, which is not
@@ -357,7 +360,7 @@ export function CallRoom({
   const localRec = useLocalRecording(participants, title);
 
   useEffect(() => {
-    console.debug("[CALL ROOM] Mounted");
+    logger.debug("[CALL ROOM] Mounted");
   }, []);
 
   useEffect(() => {
@@ -639,6 +642,9 @@ export function CallRoom({
   useEffect(() => {
     if (panel === "chat") setChatSeenAt(Date.now());
   }, [panel, chat.length]);
+  useEffect(() => {
+    if (panel === "notes") setNotesSeenAt(Date.now());
+  }, [panel, notes.length]);
 
   /** Everything other participants say to this room. */
   useEffect(
@@ -654,6 +660,9 @@ export function CallRoom({
             });
             break;
           case "note":
+            // Same second lock as "chat" below — see lib/callChat — so a
+            // participant cannot claim to be someone else's identity.
+            if (msg.note.from !== from) break;
             setNotes((prev) => mergeNotes(prev, [msg.note]));
             break;
           case "notes-request":
@@ -770,7 +779,7 @@ export function CallRoom({
   const keep = (what: "chat" | "note", entry: { id: string; text: string; at: number }) => {
     const save = what === "chat" ? api.saveCallChat(call.id, entry) : api.saveCallNote(call.id, entry);
     void save.catch((err: unknown) => {
-      console.warn(`[meeting] could not keep this ${what} in the record`, err);
+      logger.warn(`[meeting] could not keep this ${what} in the record`, err);
     });
   };
 
@@ -779,6 +788,7 @@ export function CallRoom({
       // Unique without coordination: whose client wrote it, when, and a little
       // randomness for two points written inside the same millisecond.
       id: `${identity || "me"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      from: identity || "me",
       author: myName,
       text,
       at: Date.now(),
@@ -1195,9 +1205,12 @@ export function CallRoom({
     );
   }
 
-  // Already on the roster, plus ourselves — nobody the picker offers should be
-  // someone the server would refuse or silently ignore.
-  const onTheCall = new Set(call.participants.map((p) => p.userId));
+  // Currently connected to the call, plus ourselves — nobody the picker offers
+  // should be someone the server would refuse or silently ignore. Participants
+  // who left (leftAt set) must stay eligible so they can be added back.
+  const onTheCall = new Set(
+    call.participants.filter((p) => !p.leftAt).map((p) => p.userId),
+  );
   if (me) onTheCall.add(me.id);
 
   const externals = call.participants.filter((p) => p.external).length;
@@ -1215,6 +1228,7 @@ export function CallRoom({
   // this is the second lock (see lib/callChat).
   const visibleChat = identity ? chat.filter((c) => visibleToMe(c, identity)) : chat;
   const unread = panel === "chat" ? 0 : unreadSince(visibleChat, chatSeenAt, identity);
+  const unreadNotes = panel === "notes" ? 0 : unreadNotesSince(notes, notesSeenAt, identity);
 
   return (
     <>
@@ -1276,6 +1290,7 @@ export function CallRoom({
           unreadChat={unread}
           onToggleChat={() => setPanel((p) => (p === "chat" ? null : "chat"))}
           notesActive={panel === "notes"}
+          unreadNotes={unreadNotes}
           onToggleNotes={() => setPanel((p) => (p === "notes" ? null : "notes"))}
           isHost={isHost}
           recordingSupported={localRec.supported}
@@ -1459,6 +1474,7 @@ export function CallRoom({
                 }
                 onClose={() => setPanel(null)}
                 unreadChat={unread}
+                unreadNotes={unreadNotes}
                 className={cn(SIDE_PANEL_TRANSITION_BASE, panelEntered ? SIDE_PANEL_OPEN : SIDE_PANEL_CLOSED)}
               >
                 {effectivePanel === "chat" ? (

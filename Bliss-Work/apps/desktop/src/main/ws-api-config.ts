@@ -15,7 +15,7 @@ type ApiConfig = ConstructorParameters<typeof ApiClient>[0];
 
 export function buildApiConfig(
   cfg: Endpoints,
-  auth: Pick<ApiConfig, "getToken" | "refreshToken" | "clientId">,
+  auth: Pick<ApiConfig, "getToken" | "refreshToken">,
 ): ApiConfig {
   return {
     authBase: cfg.authBase,

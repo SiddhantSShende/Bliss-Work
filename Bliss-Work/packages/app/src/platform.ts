@@ -201,8 +201,25 @@ export interface PlatformConfig {
    * wording either way (IncomingMeetingNotice computes it); this is what lets
    * the popup's own OS-level window title say "call" rather than "meeting"
    * too, since that is a separate string the body text does not cover.
+   *
+   * `media`, given only when `adhoc` is true, is the call's own actual type
+   * (audio/video, fixed by whoever placed it) — the popup's single Accept
+   * action joins with THAT, never a choice re-offered to the recipient.
+   *
+   * `ringing` is true once a real call.ring has fired for this invite — an
+   * ad-hoc call always has one; a MEETING/CHANNEL invite starts without one
+   * (a plain FYI) and is upgraded in place the moment its own ring arrives.
+   * It is what lets the popup offer a real Decline for a MEETING/CHANNEL
+   * invite too, not just ad-hoc — see renderer/meeting-invite.tsx.
    */
-  showMeetingInvitePopup?: (callId: string, title: string, organizer: string, adhoc?: boolean) => void;
+  showMeetingInvitePopup?: (
+    callId: string,
+    title: string,
+    organizer: string,
+    adhoc?: boolean,
+    media?: "video" | "voice",
+    ringing?: boolean,
+  ) => void;
   /**
    * Present only in Electron: the invite popup's Video Call / Voice Call
    * button was clicked (in the SEPARATE popup window, not this one) — join
@@ -213,9 +230,9 @@ export interface PlatformConfig {
   onMeetingInviteAction?: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
   /**
    * Present only in Electron: the invite popup's Decline button was clicked
-   * (ad-hoc rings only — see renderer/meeting-invite.tsx, which only offers
-   * this for `adhoc` invites). The popup window has no api/React Query of
-   * its own, so this is what lets IncomingMeetingNotice make the actual
+   * — for an ad-hoc ring, or a MEETING/CHANNEL invite once `ringing` (see
+   * showMeetingInvitePopup above). The popup window has no api/React Query
+   * of its own, so this is what lets IncomingMeetingNotice make the actual
    * declineCall() POST on its behalf, same reasoning as onMeetingInviteAction
    * above. Absent on web, where the in-page card's own Decline button calls
    * declineCall() directly.

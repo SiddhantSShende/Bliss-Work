@@ -35,6 +35,7 @@
     "lookupFailed": "Die Projektsuche ist fehlgeschlagen. Versuche es erneut oder erstelle die Aufgabe trotzdem.",
     "unavailable": "Dieses Projekt wurde nicht gefunden oder du hast keinen Zugriff.",
     "syncFailed": "Die Aufgabe wurde gespeichert, aber die Projektkanal-Mitgliedschaft konnte nicht aktualisiert werden.",
+    "completedBadge": "Abgeschlossen",
     "completeProject": {
       "button": "Projekt abschließen",
       "confirmDialog": {
@@ -72,7 +73,8 @@
       "left": "Verlassen",
       "ignored": "Ignoriert",
       "missed": "Verpasst",
-      "default": "Aufgaben"
+      "default": "Aufgaben",
+      "completedProjects": "Abgeschlossene Projekte"
     },
     "buckets": {
       "allocated": "Zugewiesen",
@@ -88,6 +90,15 @@
       "button": "Exportieren"
     },
     "newTask": "Neue Aufgabe",
+    "completedToggle": {
+      "tasks": "Abgeschlossene Aufgaben",
+      "projects": "Abgeschlossene Projekte",
+      "retry": "Erneut versuchen",
+      "empty": {
+        "title": "Keine abgeschlossenen Projekte",
+        "hint": "Projekte erscheinen hier, sobald sie als abgeschlossen markiert wurden."
+      }
+    },
     "empty": {
       "title": "Nichts hier",
       "hint": "Aufgaben erscheinen hier, sobald sie eintreffen.",

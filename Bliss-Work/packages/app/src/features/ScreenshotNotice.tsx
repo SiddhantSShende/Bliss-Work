@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from "react";
+import { logger } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -141,7 +142,7 @@ export function ScreenshotNotice() {
             });
             qc.invalidateQueries({ queryKey: qk.conversations });
           })
-          .catch((err) => console.error("[security] failed to post screenshot notice", err));
+          .catch((err) => logger.error("[security] failed to post screenshot notice", err));
         return;
       }
 
@@ -166,7 +167,7 @@ export function ScreenshotNotice() {
           });
           qc.invalidateQueries({ queryKey: qk.channels });
         })
-        .catch((err) => console.error("[security] failed to post screenshot notice", err));
+        .catch((err) => logger.error("[security] failed to post screenshot notice", err));
     },
     [api, authed, config.kind, qc, t, user],
   );

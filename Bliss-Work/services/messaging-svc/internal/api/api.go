@@ -405,6 +405,10 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// its status. Registered BEFORE /calls/{id} for the same reason
 			// as on-call and history.
 			r.Get("/calls/range", s.listMyCallsInRange)
+			// Reconnect catch-up for a ring that started, or is still open,
+			// while this caller was offline. Registered BEFORE /calls/{id}
+			// for the same reason as on-call, history and range.
+			r.Get("/calls/ringing", s.listMyRingingCalls)
 			r.Get("/calls", s.listMyCalls)
 			r.Get("/calls/{id}", s.getCall)
 			r.Post("/calls/{id}/participants", s.addCallParticipant)

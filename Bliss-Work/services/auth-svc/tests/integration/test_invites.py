@@ -25,6 +25,8 @@ from app.security.auth_dep import Principal
 from crypto import cryptor, init_cryptor
 from app.config import settings
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture(autouse=True)
 def _init_crypto():

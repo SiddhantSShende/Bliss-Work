@@ -20,14 +20,11 @@ from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
 from .middleware import (
-    MAIL_SEND_MAX_BODY_BYTES,
     BodySizeLimitMiddleware,
     PrincipalMiddleware,
     RequestIDMiddleware,
     SecurityHeadersMiddleware,
 )
-from .mail_sync_worker import worker as mail_sync_worker
-from .mail_write_back_consumer import consumer as mail_write_back_consumer
 from .org_consumer import consumer as org_consumer
 from .outbox import poller
 from .providers import httpclient
@@ -36,7 +33,6 @@ from .refresh_worker import worker as refresh_worker
 from .routes import router
 from .routes.internal import router as internal_router
 from .routes.oauth import router as oauth_router
-from .routes.push import router as push_router
 from .tracing import setup_tracing
 from tracing import shutdown_tracing
 
@@ -55,14 +51,8 @@ async def lifespan(app: FastAPI):
     await poller.start()
     # Refresh OAuth access tokens (Gmail/Microsoft) before they expire.
     await refresh_worker.start()
-    # Outlook inbound delta walk (Inbox + Sent Items) and push-subscription
-    # renewal. See app/mail_sync_worker.py.
-    await mail_sync_worker.start()
-    # Mirrors a BlissWork-side mail read/delete action into the acting user's
-    # own connected Outlook mailbox. See app/mail_write_back_consumer.py.
-    await mail_write_back_consumer.start()
     # The one thing this service consumes: org.deleted. It holds OAuth refresh
-    # tokens against Gmail/Outlook/Teams/Slack, so a deleted workspace has to
+    # tokens against Gmail/Teams/Slack, so a deleted workspace has to
     # reach them. See app/org_consumer.py.
     await org_consumer.start()
     log.info("integrations_svc_started", port=settings.port)
@@ -70,8 +60,6 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await org_consumer.stop()
-        await mail_write_back_consumer.stop()
-        await mail_sync_worker.stop()
         await refresh_worker.stop()
         await poller.stop()
         # Every provider/OAuth call (Slack, Gmail, Microsoft, refresh_worker's
@@ -105,7 +93,7 @@ app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(PrincipalMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(BodySizeLimitMiddleware, path_overrides={"/internal/mail/send": MAIL_SEND_MAX_BODY_BYTES})
+app.add_middleware(BodySizeLimitMiddleware)
 # CORS allowlist: web origin (exact) + Electron desktop origins in every env;
 # loopback only outside production. Mirrors task-svc. NOTE: the public webhook /
 # OAuth-callback routes (added with the provider layer) are server-to-server and
@@ -155,5 +143,3 @@ app.include_router(router)
 app.include_router(internal_router, prefix="/internal")
 # Public OAuth authorization-code callbacks (state/PKCE authenticated).
 app.include_router(oauth_router, prefix="/ext")
-# Public Graph change-notification receiver (clientState authenticated).
-app.include_router(push_router, prefix="/ext")

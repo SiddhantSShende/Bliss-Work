@@ -13,6 +13,8 @@ const api = {
   title: params.get("title") ?? "",
   organizer: params.get("organizer") ?? "",
   adhoc: params.get("adhoc") === "1",
+  media: params.get("media") === "voice" ? "voice" : params.get("media") === "video" ? "video" : undefined,
+  ringing: params.get("ringing") === "1",
 
   /** Main pushed a refreshed title/organizer for the SAME callId — see
    *  MeetingInviteManager.show()'s early-return branch. */
@@ -31,8 +33,9 @@ const api = {
   ready: () => ipcRenderer.send("meeting-invite:ready", api.callId),
 
   /** Video / Voice joins the call and closes the popup; Leave only closes it;
-   *  Decline (ad-hoc rings only — see meeting-invite.tsx) also tells the
-   *  server "no" via the main window before closing. */
+   *  Decline (any real ring — ad-hoc, or a MEETING/CHANNEL invite once
+   *  `ringing` — see meeting-invite.tsx) also tells the server "no" via the
+   *  main window before closing. */
   act: (action: "video" | "voice" | "leave" | "decline") =>
     ipcRenderer.send("meeting-invite:act", { callId: api.callId, action }),
 };

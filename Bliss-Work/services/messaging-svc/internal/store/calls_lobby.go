@@ -139,25 +139,53 @@ func clearLobbyTx(ctx context.Context, tx pgx.Tx, callID string) ([]string, erro
 // distinguishable from activateCallTx's previous "leave it alone".
 func activateCallRowTx(
 	ctx context.Context, tx pgx.Tx, callID string, startedBy *string,
-) (started bool, admitted []string, err error) {
+) (started bool, admitted []string, rung []string, err error) {
 	ct, err := tx.Exec(ctx, `
 		UPDATE calls
 		SET status = 'LIVE', started_at = COALESCE(started_at, now()), started_by = $2
 		WHERE id = $1 AND status = 'SCHEDULED'`, callID, startedBy)
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
 	if ct.RowsAffected() == 0 {
-		return false, nil, nil
+		return false, nil, nil, nil
 	}
 	// Empty the lobby in one statement. This is the whole admission step —
 	// there is no second pass deciding which of them to let through, which is
 	// why it can be unconditional over the call.
 	admitted, err = clearLobbyTx(ctx, tx, callID)
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
-	return true, admitted, nil
+	// Ring every invitee who has not yet joined, declined, or missed a
+	// previous ring — the same deadline an ad-hoc call's own peers get at
+	// creation (DirectRingTimeout), given here instead at the moment a
+	// MEETING/CHANNEL call's own invite becomes answerable. The HOST is
+	// excluded: the caller always has their own seat and must never be rung
+	// for a meeting they are the one starting.
+	rows, err := tx.Query(ctx, `
+		UPDATE call_participants
+		SET ring_expires_at = now() + $2::interval
+		WHERE call_id = $1 AND role <> 'HOST'
+		  AND joined_at IS NULL AND left_at IS NULL
+		  AND declined_at IS NULL AND missed_at IS NULL
+		RETURNING user_id`, callID, DirectRingTimeout)
+	if err != nil {
+		return false, nil, nil, err
+	}
+	for rows.Next() {
+		var uid string
+		if serr := rows.Scan(&uid); serr != nil {
+			rows.Close()
+			return false, nil, nil, serr
+		}
+		rung = append(rung, uid)
+	}
+	if rerr := rows.Err(); rerr != nil {
+		return false, nil, nil, rerr
+	}
+	rows.Close()
+	return true, admitted, rung, nil
 }
 
 // StartCall opens a scheduled call and admits everyone waiting for it.
@@ -179,10 +207,11 @@ func activateCallRowTx(
 // between the UPDATE and the notification is not left behind.
 func (s *Store) StartCall(
 	ctx context.Context, orgID, callerID, callID string, claimRoles []string,
-) (*CallDTO, []string, error) {
+) (*CallDTO, []string, []string, error) {
 	var (
 		out      *CallDTO
 		admitted []string
+		rung     []string
 	)
 	err := s.withCaller(ctx, orgID, callerID, func(tx pgx.Tx) error {
 		c, seat, err := getCallAndSeatTx(ctx, tx, callID, callerID)
@@ -200,7 +229,7 @@ func (s *Store) StartCall(
 			return ErrForbidden
 		}
 		if c.status == CallScheduled {
-			_, admitted, err = activateCallRowTx(ctx, tx, callID, &callerID)
+			_, admitted, rung, err = activateCallRowTx(ctx, tx, callID, &callerID)
 			if err != nil {
 				return err
 			}
@@ -209,9 +238,9 @@ func (s *Store) StartCall(
 		return err
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return out, admitted, nil
+	return out, admitted, rung, nil
 }
 
 // CallStarterIDs lists the people who could start this call and so are worth

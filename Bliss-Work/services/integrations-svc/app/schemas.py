@@ -25,11 +25,6 @@ class ConnectionOut(BaseModel):
     #: knowing the per-connection webhook URL.
     createdAt: str
     updatedAt: str
-    #: Most recent mail_sync_worker activity for this connection (Outlook only
-    #: today) — NULL for a connection that has never completed a sync sweep.
-    #: Surfaced in Settings so a member can tell "connected" apart from
-    #: "connected and actually syncing".
-    lastSyncedAt: str | None = None
 
 
 class ConnectStartOut(BaseModel):
@@ -122,7 +117,7 @@ class AppCredentialOut(BaseModel):
     tenant: str | None = None
     pubsubTopic: str | None = None
     updatedAt: str | None = None
-    #: Which providers these credentials unlock (microsoft → outlook + teams).
+    #: Which providers these credentials unlock (microsoft → teams).
     providers: list[str] = []
     #: The exact redirect URI to register in the vendor's console. Getting this
     #: wrong is the single most common OAuth setup failure, so we hand over the

@@ -27,7 +27,14 @@ declare global {
       onMeetingDeepLink: (cb: (token: string) => void) => () => void;
       onNotificationClick: (cb: (click: { notificationId: string; path: string | null }) => void) => () => void;
       onTaskChatOpen: (cb: (open: { taskId: string }) => void) => () => void;
-      showMeetingInvitePopup: (callId: string, title: string, organizer: string, adhoc?: boolean) => void;
+      showMeetingInvitePopup: (
+        callId: string,
+        title: string,
+        organizer: string,
+        adhoc?: boolean,
+        media?: "video" | "voice",
+        ringing?: boolean,
+      ) => void;
       dismissMeetingInvitePopup: (callId: string) => void;
       onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
       windowControlsSide: "left" | "right";
@@ -199,8 +206,8 @@ const config: PlatformConfig = {
   openMicrophoneSettings: bridge.openMicrophoneSettings
     ? () => bridge.openMicrophoneSettings!()
     : undefined,
-  showMeetingInvitePopup: (callId, title, organizer, adhoc) =>
-    bridge.showMeetingInvitePopup(callId, title, organizer, adhoc),
+  showMeetingInvitePopup: (callId, title, organizer, adhoc, media, ringing) =>
+    bridge.showMeetingInvitePopup(callId, title, organizer, adhoc, media, ringing),
   dismissMeetingInvitePopup: (callId) => bridge.dismissMeetingInvitePopup(callId),
   onMeetingInviteAction: (cb) => bridge.onMeetingInviteAction(cb),
   onNotificationClick: (cb) => notificationClicks.subscribe(cb),

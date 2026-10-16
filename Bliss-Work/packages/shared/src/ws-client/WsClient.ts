@@ -6,6 +6,7 @@
  */
 import { ServerEvent, ControlFrame, type ClientFrame } from "../types/events";
 import { decodeJwtPayload } from "../lib/jwt";
+import { logger } from "../logging";
 
 /**
  * What the client knows about an event beyond the event itself.
@@ -198,7 +199,7 @@ export class WsClient {
       try {
         h(s);
       } catch (err) {
-        console.error("[ws] status handler threw", s, err);
+        logger.error("[ws] status handler threw", s, err);
       }
     }
   }
@@ -400,7 +401,7 @@ export class WsClient {
         try {
           h(control.data);
         } catch (err) {
-          console.error("[ws] control handler threw", control.data.type, err);
+          logger.error("[ws] control handler threw", control.data.type, err);
         }
       }
       return;
@@ -411,7 +412,7 @@ export class WsClient {
       // Neither a control frame nor a valid ServerEvent. This should not happen
       // in production — if it does, a producer/contract drift is silently eating
       // a live update, so surface it loudly instead of dropping in silence.
-      console.warn("[ws] dropped unrecognized frame", parsed, result.error?.issues);
+      logger.warn("[ws] dropped unrecognized frame", { issueCount: result.error.issues.length });
       return;
     }
     const e = result.data;
@@ -444,7 +445,7 @@ export class WsClient {
       try {
         h(e, meta);
       } catch (err) {
-        console.error("[ws] event handler threw", e.type, err);
+        logger.error("[ws] event handler threw", e.type, err);
       }
     }
   }

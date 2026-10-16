@@ -35,6 +35,7 @@
     "lookupFailed": "Project lookup failed. Retry, or continue creating the task.",
     "unavailable": "This project was not found or you do not have access.",
     "syncFailed": "The task was saved, but project channel membership could not be updated.",
+    "completedBadge": "Completed",
     "completeProject": {
       "button": "Complete Project",
       "confirmDialog": {
@@ -72,7 +73,8 @@
       "left": "Left",
       "ignored": "Ignored",
       "missed": "Missed",
-      "default": "Tasks"
+      "default": "Tasks",
+      "completedProjects": "Completed Projects"
     },
     "buckets": {
       "allocated": "Allocated",
@@ -88,6 +90,15 @@
       "button": "Export"
     },
     "newTask": "New task",
+    "completedToggle": {
+      "tasks": "Completed Tasks",
+      "projects": "Completed Projects",
+      "retry": "Retry",
+      "empty": {
+        "title": "No completed projects",
+        "hint": "Projects appear here once they're marked complete."
+      }
+    },
     "empty": {
       "title": "Nothing here",
       "hint": "Tasks appear here as they arrive.",

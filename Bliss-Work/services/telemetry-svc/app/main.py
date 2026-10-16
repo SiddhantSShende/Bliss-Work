@@ -18,6 +18,7 @@ from .consumer import consumer
 from crypto import init_cryptor
 from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
+from .jobs.rollup import roller
 from .logging_setup import configure_logging, log
 from .middleware import BodySizeLimitMiddleware, PrincipalMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .rate_limit import limiter, rate_limit_handler
@@ -42,10 +43,14 @@ async def lifespan(app: FastAPI):
     await consumer.start()
     # Closes sessions nobody said goodbye for (killed tab, closed laptop lid).
     await sweeper.start()
+    # Keeps activity_daily (the heatmap's only data source) warm — nothing
+    # else runs the standalone rollup CLI on a schedule.
+    await roller.start()
     log.info("telemetry_svc_started", port=settings.port)
     try:
         yield
     finally:
+        await roller.stop()
         await sweeper.stop()
         await consumer.stop()
         await close_audit_client()

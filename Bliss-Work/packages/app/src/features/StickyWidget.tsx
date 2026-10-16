@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
 import type { ParticipantTargets } from "./AddParticipantsPicker";
+import { TaskDeadlineProgress } from "./TaskDeadlineProgress";
 import { TaskParticipantAdd, TaskParticipants } from "./TaskParticipants";
 import { TaskTimes } from "./TaskTimes";
 import {
@@ -287,7 +288,18 @@ export function StickyWidget({
     </p>
   ) : null;
 
-  const times = <TaskTimes assignedAt={task.assignedAt} deadlineAt={task.deadlineAt} missedAt={task.missedAt} />;
+  // Beside the time chips, not below them: a deadline-progress ring only
+  // renders when the task actually has both an assignedAt and a deadlineAt
+  // (see TaskDeadlineProgress), so a task with no deadline keeps the plain
+  // chip row it always had.
+  const times = (
+    <div className="flex min-w-0 shrink-0 items-center justify-between gap-2">
+      <TaskTimes assignedAt={task.assignedAt} deadlineAt={task.deadlineAt} missedAt={task.missedAt} />
+      {landscape && (
+        <TaskDeadlineProgress assignedAt={task.assignedAt} deadlineAt={task.deadlineAt} missedAt={task.missedAt} />
+      )}
+    </div>
+  );
 
   const participants =
     !hideParticipants && currentUserId && task.participants.length > 0 ? (

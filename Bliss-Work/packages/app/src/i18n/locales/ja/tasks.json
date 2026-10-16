@@ -32,6 +32,7 @@
     "lookupFailed": "プロジェクトを検索できませんでした。再試行するか、タスクの作成を続けてください。",
     "unavailable": "プロジェクトが見つからないか、アクセス権がありません。",
     "syncFailed": "タスクは保存されましたが、プロジェクトチャンネルのメンバーを更新できませんでした。",
+    "completedBadge": "完了",
     "completeProject": {
       "button": "プロジェクトを完了",
       "confirmDialog": {
@@ -68,7 +69,8 @@
       "left": "辞退",
       "ignored": "無視",
       "missed": "期限切れ",
-      "default": "タスク"
+      "default": "タスク",
+      "completedProjects": "完了したプロジェクト"
     },
     "buckets": {
       "allocated": "割り当て済み",
@@ -84,6 +86,15 @@
       "button": "エクスポート"
     },
     "newTask": "新規タスク",
+    "completedToggle": {
+      "tasks": "完了したタスク",
+      "projects": "完了したプロジェクト",
+      "retry": "再試行",
+      "empty": {
+        "title": "完了したプロジェクトはありません",
+        "hint": "プロジェクトが完了としてマークされるとここに表示されます。"
+      }
+    },
     "empty": {
       "title": "何もありません",
       "hint": "タスクが届くと、ここに表示されます。",

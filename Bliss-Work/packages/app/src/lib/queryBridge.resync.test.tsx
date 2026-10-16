@@ -22,7 +22,7 @@ vi.mock("sonner", () => ({ toast: Object.assign(() => {}, { info: () => {}, erro
 vi.mock("./runtime", () => ({
   useRuntime: () => ({
     config: rt.config,
-    api: {},
+    api: { myRingingCalls: () => Promise.resolve([]) },
     ws: {
       connect: () => Promise.resolve(),
       close: () => {},

@@ -564,6 +564,22 @@ func (s *Server) listMyCalls(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// listMyRingingCalls serves GET /api/v1/calls/ringing.
+//
+// The client's reconnect catch-up: it calls this once per fresh WS
+// connection to recover a ring that started, or is still open, while it was
+// offline — see Store.ListMyRingingCalls's own doc comment for why the
+// ordinary event-replay path cannot cover this.
+func (s *Server) listMyRingingCalls(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	out, err := s.store.ListMyRingingCalls(r.Context(), claims.OrgID, claims.UserID)
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // callTokenResp carries everything the client needs to open the room.
 type callTokenResp struct {
 	// State is always "JOINED" here, and "WAITING" on callWaitingResp. The two
@@ -834,7 +850,7 @@ func (s *Server) startCall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid call id")
 		return
 	}
-	c, admitted, err := s.store.StartCall(
+	c, admitted, rung, err := s.store.StartCall(
 		r.Context(), claims.OrgID, claims.UserID, callID, claims.Roles)
 	if err != nil {
 		s.mapErrR(w, r, err)
@@ -846,6 +862,11 @@ func (s *Server) startCall(w http.ResponseWriter, r *http.Request) {
 	// this, because a client that arrives between the UPDATE and this fan-out
 	// would otherwise never be told.
 	s.notifyCall(r.Context(), c, events.TypeCallStarted, claims.UserID)
+	// Ring whoever is still invited and hasn't joined — same mechanism
+	// addCallParticipant already uses for someone added mid-call, given here
+	// instead to the meeting/channel's own roster at the moment it becomes
+	// answerable.
+	s.ringUsers(r.Context(), c, rung, events.TypeCallRing, claims.UserID)
 	// Recording begins with the call, on a deployment that records at all. The
 	// response is written after it so `recordingStatus` on the call the starter
 	// gets back is already true rather than arriving a refetch later.

@@ -16,8 +16,15 @@ const SCREEN_PAD = 16;
 /** Mirrors IncomingMeetingNotice's own AUTO_DISMISS_MS (features/
  *  IncomingMeetingNotice.tsx) so desktop and web behave identically: an
  *  invite nobody answers stops interrupting after the same window either
- *  way. */
+ *  way. Used for a plain FYI with no ring behind it (see `ringing` below). */
 const AUTO_DISMISS_MS = 12_000;
+
+/** Mirrors IncomingMeetingNotice's own ADHOC_RING_BACKSTOP_MS — a genuine
+ *  ring (ad-hoc, or a MEETING/CHANNEL invite once its own call.ring has
+ *  fired) is normally resolved by the server well before this, via the
+ *  "meeting-invite:dismiss" IPC main/index.ts sends on call.declined/
+ *  no_answer/missed/ended. This is only the backstop for a dropped event. */
+const RINGING_BACKSTOP_MS = 35_000;
 
 export interface MeetingInvite {
   callId: string;
@@ -27,6 +34,15 @@ export interface MeetingInvite {
    *  Meeting. Lets the popup's OS-level window title say "call" rather than
    *  "meeting", a separate string from the body text `title` already covers. */
   adhoc?: boolean;
+  /** The call's own actual media type, present only when `adhoc` is true —
+   *  the popup's single Accept action joins with this, never a device
+   *  choice re-offered to the recipient. */
+  media?: "video" | "voice";
+  /** True once a real call.ring has fired for this invite — see
+   *  PlatformConfig.showMeetingInvitePopup's own doc comment. Lets the popup
+   *  offer a real Decline for a MEETING/CHANNEL invite too, not just ad-hoc,
+   *  and use the longer ring backstop instead of the short FYI timeout. */
+  ringing?: boolean;
 }
 
 /** What the manager's own bookkeeping looks like as plain data — the same
@@ -112,6 +128,14 @@ export class MeetingInviteManager {
     if (action === "update") {
       this.latestInvite = invite;
       this.win!.webContents.send("meeting-invite:update", invite);
+      // A MEETING/CHANNEL invite's own call.ring landing just behind its
+      // call.started FYI upgrades `ringing` in place — re-arm the backstop
+      // at the longer ring duration rather than letting the short FYI timer
+      // it opened with still fire early.
+      if (invite.ringing && this.dismissTimer) {
+        clearTimeout(this.dismissTimer);
+        this.dismissTimer = setTimeout(() => this.dismiss(invite.callId), RINGING_BACKSTOP_MS);
+      }
       return;
     }
     this.announced.add(invite.callId);
@@ -205,7 +229,9 @@ export class MeetingInviteManager {
       `?callId=${encodeURIComponent(invite.callId)}` +
       `&title=${encodeURIComponent(invite.title)}` +
       `&organizer=${encodeURIComponent(invite.organizer)}` +
-      `&adhoc=${invite.adhoc ? "1" : "0"}`;
+      `&adhoc=${invite.adhoc ? "1" : "0"}` +
+      `&media=${encodeURIComponent(invite.media ?? "")}` +
+      `&ringing=${invite.ringing ? "1" : "0"}`;
     if (DEV_URL) void win.loadURL(`${DEV_URL}/meeting-invite.html${query}`);
     else void win.loadFile(join(rendererDir, "meeting-invite.html"), { search: query });
 
@@ -226,7 +252,8 @@ export class MeetingInviteManager {
 
     this.win = win;
     if (this.dismissTimer) clearTimeout(this.dismissTimer);
-    this.dismissTimer = setTimeout(() => this.dismiss(invite.callId), AUTO_DISMISS_MS);
+    const ms = invite.ringing ? RINGING_BACKSTOP_MS : AUTO_DISMISS_MS;
+    this.dismissTimer = setTimeout(() => this.dismiss(invite.callId), ms);
   }
 
   /** Bottom-right of the primary display, matching where the web/in-page

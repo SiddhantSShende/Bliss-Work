@@ -4,6 +4,7 @@
     "assigned": "割り当て日",
     "deadline": "期限",
     "missedOn": "期限切れ",
+    "deadlineProgress": "期限までの時間の{{pct}}%が経過しました",
     "collapseToPill": "ピルに折りたたむ",
     "unpinNoteTitle": "ピン留めを解除(タスクは残ります)",
     "unpin": "ピン留め解除",
@@ -63,7 +64,8 @@
       "voiceTitle": "音声のみで参加",
       "leave": "退出",
       "dismiss": "閉じる",
-      "decline": "拒否"
+      "decline": "拒否",
+      "accept": "応答"
     },
     "titles": {
       "task": "タスク",

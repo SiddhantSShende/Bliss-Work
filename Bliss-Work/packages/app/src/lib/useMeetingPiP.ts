@@ -32,6 +32,7 @@
  * layer — and nothing above it.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { logger } from "@taskboard/shared";
 import type { Track } from "livekit-client";
 import type { RoomParticipant } from "./useCallRoom";
 
@@ -228,7 +229,7 @@ export function useMeetingPiP(track: Track | null, enabled: boolean): MeetingPiP
     // dev-console breadcrumb rather than a wired-up report.
     const fail = (reason: PiPFailureReason): false => {
       if (reason !== "ALREADY_IN_PIP" && reason !== "REQUEST_IN_FLIGHT") {
-        console.debug(`[meeting-pip] enter() declined: ${reason}`);
+        logger.debug(`[meeting-pip] enter() declined: ${reason}`);
       }
       return false;
     };

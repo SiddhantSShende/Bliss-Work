@@ -92,11 +92,16 @@ describe("logMicProcessing", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("warns when a requested setting is definitely off", () => {
+  it("keeps a requested setting mismatch at debug level", () => {
     stubSupported({ noiseSuppression: true });
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     logMicProcessing("call:acquired", track({ ...allOn, noiseSuppression: false }));
-    expect(warn).toHaveBeenCalledWith("[MIC] call:acquired", expect.objectContaining({ notApplied: ["noiseSuppression"] }));
+    expect(debug).toHaveBeenCalledWith(
+      "[MIC] call:acquired",
+      expect.objectContaining({ notApplied: ["noiseSuppression"] }),
+    );
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("stays silent for a missing or uninspectable track", () => {
@@ -129,7 +134,11 @@ describe("watchLivekitMic", () => {
     // rather than the track that was current when the listener was attached.
     lk.mediaStreamTrack = track({ ...allOn, noiseSuppression: false });
     lk.emit(TrackEvent.Restarted);
-    expect(warn).toHaveBeenCalledWith("[MIC] meeting:restarted", expect.objectContaining({ notApplied: ["noiseSuppression"] }));
+    expect(debug).toHaveBeenCalledWith(
+      "[MIC] meeting:restarted",
+      expect.objectContaining({ notApplied: ["noiseSuppression"] }),
+    );
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("attaches only once per track, so a republish does not double every later log", () => {

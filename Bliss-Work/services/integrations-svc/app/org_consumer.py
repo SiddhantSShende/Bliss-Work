@@ -2,7 +2,7 @@
 
 This service is otherwise producer-only — it publishes to its outbox and never
 reads Kafka. It gets a consumer for exactly one event type because of what it
-stores: OAuth refresh tokens for Gmail, Outlook, Teams and Slack. Those are
+stores: OAuth refresh tokens for Gmail, Teams and Slack. Those are
 long-lived credentials against systems that are not ours, so "the workspace was
 deleted" has to reach them.
 
@@ -61,7 +61,6 @@ _TABLES = (
     "oauth_states",
     "integration_connections",
     "provider_app_credentials",
-    "mail_send_attempts",
     "message_send_attempts",
     # Last: see services/telemetry-svc/app/org_purge.py.
     "org_keys",

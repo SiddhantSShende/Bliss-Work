@@ -14,6 +14,13 @@ interface Invite {
    *  to this; `title` itself already carries the right body wording either
    *  way (see IncomingMeetingNotice's own `heading`). */
   adhoc: boolean;
+  /** The call's own actual type, present only when `adhoc` is true — Accept
+   *  joins with this rather than offering a device choice. */
+  media?: "video" | "voice";
+  /** True once a real call.ring has fired for this invite — see
+   *  PlatformConfig.showMeetingInvitePopup's own doc comment. Offers a real
+   *  Decline for a MEETING/CHANNEL invite too, not just ad-hoc. */
+  ringing?: boolean;
 }
 
 declare global {
@@ -23,6 +30,8 @@ declare global {
       title: string;
       organizer: string;
       adhoc: boolean;
+      media?: "video" | "voice";
+      ringing: boolean;
       onUpdate: (cb: (invite: Invite) => void) => () => void;
       ready: () => void;
       act: (action: "video" | "voice" | "leave" | "decline") => void;
@@ -61,6 +70,8 @@ function MeetingInviteApp() {
     title: bridge.title,
     organizer: bridge.organizer,
     adhoc: bridge.adhoc,
+    media: bridge.media,
+    ringing: bridge.ringing,
   });
   // The window's OWN OS-level title (taskbar/alt-tab), distinct from the body
   // text above — "Meeting invite" was always wrong for an ad-hoc call, which
@@ -87,27 +98,63 @@ function MeetingInviteApp() {
       <div className="line-clamp-2 text-sm font-semibold text-fg">{invite.title || t("window.invite.meetingFallback")}</div>
       {invite.organizer && <div className="text-xs text-muted">{t("window.invite.hostedBy", { name: invite.organizer })}</div>}
       <div className="app-no-drag mt-1 flex items-center justify-center gap-5">
-        <InviteAction
-          icon={<Video size={18} />}
-          label={t("window.invite.video")}
-          title={t("window.invite.videoTitle")}
-          tone="accent"
-          onClick={() => bridge.act("video")}
-        />
-        <InviteAction
-          icon={<Phone size={18} />}
-          label={t("window.invite.voice")}
-          title={t("window.invite.voiceTitle")}
-          tone="accent"
-          onClick={() => bridge.act("voice")}
-        />
-        <InviteAction
-          icon={<X size={18} />}
-          label={invite.adhoc ? t("window.invite.decline") : t("window.invite.leave")}
-          title={invite.adhoc ? t("window.invite.decline") : t("window.invite.dismiss")}
-          tone="danger"
-          onClick={() => bridge.act(invite.adhoc ? "decline" : "leave")}
-        />
+        {invite.adhoc ? (
+          // A call rings with exactly two choices — accept it as placed, or
+          // reject it. No device picker: invite.media (the call's own
+          // actual type) decides what gets joined.
+          <>
+            <InviteAction
+              icon={<Phone size={18} />}
+              label={t("window.invite.accept")}
+              title={t("window.invite.accept")}
+              tone="accent"
+              onClick={() => bridge.act(invite.media === "voice" ? "voice" : "video")}
+            />
+            <InviteAction
+              icon={<X size={18} />}
+              label={t("window.invite.decline")}
+              title={t("window.invite.decline")}
+              tone="danger"
+              onClick={() => bridge.act("decline")}
+            />
+          </>
+        ) : (
+          <>
+            <InviteAction
+              icon={<Video size={18} />}
+              label={t("window.invite.video")}
+              title={t("window.invite.videoTitle")}
+              tone="accent"
+              onClick={() => bridge.act("video")}
+            />
+            <InviteAction
+              icon={<Phone size={18} />}
+              label={t("window.invite.voice")}
+              title={t("window.invite.voiceTitle")}
+              tone="accent"
+              onClick={() => bridge.act("voice")}
+            />
+            {invite.ringing ? (
+              // A real invitation is open on the server — Decline tells it
+              // "no" rather than merely closing this window.
+              <InviteAction
+                icon={<X size={18} />}
+                label={t("window.invite.decline")}
+                title={t("window.invite.decline")}
+                tone="danger"
+                onClick={() => bridge.act("decline")}
+              />
+            ) : (
+              <InviteAction
+                icon={<X size={18} />}
+                label={t("window.invite.leave")}
+                title={t("window.invite.dismiss")}
+                tone="danger"
+                onClick={() => bridge.act("leave")}
+              />
+            )}
+          </>
+        )}
       </div>
     </div>
   );

@@ -325,16 +325,16 @@ describe("WsClient mail.delivered", () => {
         orgId: "00000000-0000-4000-8000-000000000002",
         occurredAt: "2026-09-30T09:00:00.000Z",
         senderId: "00000000-0000-4000-8000-000000000004",
+        body: "private message that must not appear in console output",
+        senderEmail: "person@example.test",
         // mailId is missing — this must still be rejected.
       }),
     });
 
     expect(seen).toHaveLength(0);
-    expect(warning).toHaveBeenCalledWith(
-      "[ws] dropped unrecognized frame",
-      expect.anything(),
-      expect.anything(),
-    );
+    expect(warning).toHaveBeenCalledWith("[ws] dropped unrecognized frame", { issueCount: 1 });
+    expect(JSON.stringify(warning.mock.calls)).not.toContain("private message");
+    expect(JSON.stringify(warning.mock.calls)).not.toContain("person@example.test");
     warning.mockRestore();
     client.close();
   });

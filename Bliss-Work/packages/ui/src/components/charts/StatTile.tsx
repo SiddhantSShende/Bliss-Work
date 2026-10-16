@@ -13,6 +13,7 @@ export function StatTile({
   value,
   hint,
   trend,
+  trendPlacement = "below",
 }: {
   label: string;
   value: string;
@@ -20,16 +21,35 @@ export function StatTile({
    *  widened from `string` so callers can color part of the hint without a
    *  second component. */
   hint?: ReactNode;
+  /** Place a trend sparkline beside the text for compact KPI grids. */
+  trendPlacement?: "below" | "right";
   /** Up to ~12 points. Drawn in the de-emphasis hue: it is context for the
    *  number, not a second thing to read. */
   trend?: number[];
 }) {
+  const hasTrend = Boolean(trend && trend.length > 1);
   return (
-    <div className="rounded-xl border border-border/60 p-3">
-      <div className="text-xs text-muted">{label}</div>
-      <div className="mt-0.5 text-xl font-semibold tabular-nums text-fg">{value}</div>
-      {hint && <div className="text-[11px] text-muted">{hint}</div>}
-      {trend && trend.length > 1 && <Sparkline values={trend} />}
+    <div className="h-full rounded-xl border border-border/60 p-3">
+      <div
+        className={
+          trendPlacement === "right" && hasTrend
+            ? "flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-3"
+            : undefined
+        }
+      >
+        <div className={trendPlacement === "right" && hasTrend ? "min-w-0 flex-1" : undefined}>
+          <div className="text-xs text-muted">{label}</div>
+          <div className="mt-0.5 text-xl font-semibold tabular-nums text-fg">{value}</div>
+          {hint && <div className="text-[11px] text-muted">{hint}</div>}
+        </div>
+        {hasTrend && trend && (
+          <Sparkline
+            values={trend}
+            width={84}
+            className={trendPlacement === "right" ? "m-0 shrink-0 self-center" : "mt-1.5"}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -39,16 +59,18 @@ export function Sparkline({
   values,
   width = 96,
   height = 24,
+  className = "mt-1.5",
 }: {
   values: number[];
   width?: number;
   height?: number;
+  className?: string;
 }) {
   const path = linePath(values, width, height - 2);
   if (!path) return null;
   return (
     <svg
-      className="mt-1.5 block"
+      className={`block ${className}`}
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}

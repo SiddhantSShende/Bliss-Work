@@ -13,8 +13,6 @@ provider_activity so it shows up in the unified hub.
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
 
 import httpx
 import uuid6
@@ -24,13 +22,13 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from .. import messaging_client, outbound
+from .. import outbound
 from ..config import settings
 from crypto import cryptor
 from ..db import session, set_org_context
 from ..events import emit_activity_created
 from ..logging_setup import log
-from ..providers import httpclient, microsoft as ms
+from ..providers import httpclient
 from resilience import CircuitOpenError
 
 router = APIRouter()
@@ -41,7 +39,7 @@ class SendReq(BaseModel):
     connectionId: str
     target: str  # channel id / handle / email address on the external platform
     text: str
-    #: Mail providers only (gmail, outlook). Optional so messaging-svc's Go
+    #: Mail providers only (gmail). Optional so messaging-svc's Go
     #: struct needs no change — chat providers ignore it, and mail falls back to
     #: outbound.DEFAULT_SUBJECT rather than sending an empty subject (which is
     #: far more likely to be filtered as spam).
@@ -448,7 +446,7 @@ async def internal_send(
                 "p": row.provider,
                 "peer": peer_enc,
                 "b": body_enc,
-                # 'email' for gmail/outlook, 'message' for chat platforms — the
+                # 'email' for gmail, 'message' for chat platforms — the
                 # hub and the mentions feed both branch on this.
                 "kind": result.kind,
             },
@@ -462,302 +460,3 @@ async def internal_send(
         await db.commit()
 
     return SendResp(status="sent", externalId=external_id, provider=row.provider)
-
-
-class MailAttachment(BaseModel):
-    filename: str
-    mime: str = ""
-    #: Base64 — JSON has no byte type, and the bytes came off a blob volume that
-    #: only messaging-svc mounts, so they arrive over the wire either way.
-    contentBase64: str
-
-
-class MailSendReq(BaseModel):
-    orgId: str
-    #: The member who composed the mail. Their connected mailbox is the one it
-    #: is sent from — this endpoint never falls back to somebody else's.
-    userId: str
-    #: messaging-svc's mail_messages.id — stable across every redelivery of the
-    #: same mail.outbound Kafka event, which is exactly what makes it usable as
-    #: an idempotency key (see 0013_mail_send_idempotency.sql). Optional only so
-    #: a caller mid-rollout without it degrades to the old unprotected
-    #: behaviour rather than failing closed; email-worker always sends it.
-    mailId: str | None = None
-    subject: str = ""
-    bodyText: str = ""
-    bodyHtml: str = ""
-    to: list[str] = []
-    cc: list[str] = []
-    bcc: list[str] = []
-    attachments: list[MailAttachment] = []
-    #: False for the extra copy that carries a Bcc: the Sent folder already has
-    #: the copy filed by the main send, and a second one would show the blind
-    #: recipient's address sitting in the sender's own Sent list.
-    saveToSentItems: bool = True
-
-
-class MailSendResp(BaseModel):
-    status: str
-    provider: str
-
-
-async def _claim_mail_send(db, mail_id: str, org_id: str) -> str:
-    """Claim shape for the mail-send idempotency path — see _claim_send."""
-    return await _claim_send(db, "mail_send_attempts", "mail_id", mail_id, org_id)
-
-
-async def _resolve_mail_send(db, mail_id: str, org_id: str, outcome: str) -> None:
-    """Resolve shape for the mail-send idempotency path — see _resolve_send."""
-    await _resolve_send(
-        db, "mail_send_attempts", "mail_id", mail_id, org_id, outcome,
-        "mail_send_resolve_failed",
-    )
-
-
-@router.post("/mail/send", response_model=MailSendResp)
-async def internal_send_mail(
-    body: MailSendReq, x_internal_token: str | None = Header(default=None)
-) -> MailSendResp:
-    """Relay a member's composed mail through that member's OWN mailbox.
-
-    email-worker asks for this before it reaches for SMTP, and treats a 404 as
-    "this member has no connected mailbox" rather than as a failure — the relay
-    is the fallback, and a deployment with no integrations configured never
-    leaves that fallback. What the connected path buys is everything the relay
-    structurally cannot give: a From: header that is genuinely the member's
-    because the mailbox is theirs, DKIM signed by their own domain (so the mail
-    passes DMARC alignment rather than arriving unauthenticated from a third
-    party), and a copy in their Sent folder.
-
-    Deliberately NOT routed through outbound.send_via_connection: that is the
-    chat-shaped dispatcher (one target, one text) shared by Slack/Teams/Gmail,
-    and mail needs Cc, Bcc, an HTML body and attachments that none of them can
-    carry. The reuse that matters happens one level down — both paths send
-    through the same providers.microsoft.send_mail.
-
-    No provider_activity mirror is written. The unified hub reads that table,
-    and this mail is already IN the hub: messaging-svc wrote the Sent row that
-    produced the event in the first place, so mirroring it would show the member
-    their own mail twice.
-
-    Idempotent on body.mailId (see 0013_mail_send_idempotency.sql): the SAME
-    mail_id is claimed at most once and every repeat call — a Kafka
-    redelivery, two workers racing, a caller retrying after losing the
-    response — replays the recorded outcome instead of sending a second real
-    email. The one case that cannot be resolved this way is a network fault on
-    the sendMail call itself: Graph may have accepted the message before the
-    fault, so the claim is deliberately left in place (never reclaimed
-    automatically) rather than risking a genuine duplicate — see the except
-    clause below and the migration's docstring.
-    """
-    _require_internal(x_internal_token)
-
-    try:
-        files = [
-            (a.filename, a.mime, base64.b64decode(a.contentBase64, validate=True))
-            for a in body.attachments
-        ]
-    except (binascii.Error, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="attachment is not valid base64"
-        ) from exc
-
-    async with session() as db:
-        await set_org_context(db, body.orgId)
-        row = (
-            await db.execute(
-                text(
-                    """
-                    SELECT id, access_token_enc
-                      FROM integration_connections
-                     WHERE org_id = :o AND owner_user_id = :u
-                       AND provider = 'outlook' AND status = 'connected'
-                     ORDER BY updated_at DESC
-                     LIMIT 1
-                    """
-                ),
-                {"o": body.orgId, "u": body.userId},
-            )
-        ).one_or_none()
-        if row is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="no connected mailbox for this member"
-            )
-
-        token = await cryptor().decrypt(
-            db, body.orgId, bytes(row.access_token_enc) if row.access_token_enc else None
-        )
-        if not token:
-            # The refresh worker has not caught up, or the connection was revoked
-            # mid-flight. Retryable — a redelivery after a refresh will work.
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail="connection has no usable token"
-            )
-
-        if body.mailId:
-            claim = await _claim_mail_send(db, body.mailId, body.orgId)
-            if claim == "sent":
-                return MailSendResp(status="sent", provider="outlook")
-            if claim == "in_progress":
-                # 409, not 503: this is never "integrations-svc is unhealthy,
-                # fail fast and fall back" — provider_mail.py must not let a
-                # run of these open its breaker and relay a mail that may
-                # already be on its way through the winning attempt.
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="this mail is already being sent by another attempt",
-                )
-
-        httpclient.reset_request_issued()
-        graph_id = ""
-        internet_message_id = ""
-        try:
-            graph_id, internet_message_id = await ms.send_mail(
-                token,
-                to=body.to,
-                subject=body.subject,
-                body=body.bodyText,
-                cc=body.cc,
-                bcc=body.bcc,
-                html=body.bodyHtml,
-                attachments=files,
-                save_to_sent_items=body.saveToSentItems,
-            )
-        except ms.MicrosoftAmbiguousDelivery as exc:
-            if body.mailId:
-                log.error(
-                    "mail_send_outcome_unknown",
-                    mail_id=body.mailId,
-                    org=body.orgId,
-                    error=str(exc),
-                )
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="mail send outcome unknown; needs manual review",
-            ) from exc
-        except (ms.MicrosoftAuthError, ms.MicrosoftRateLimited) as exc:
-            # Definitive answers from Graph BEFORE it accepted anything — safe
-            # to let a later attempt reclaim and retry this mailId.
-            if body.mailId:
-                await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
-            if isinstance(exc, ms.MicrosoftAuthError):
-                # Documented in microsoft.py: NOT a broken connection — re-arm
-                # token_expires_at so refresh_worker's next sweep (within 60s)
-                # renews it, instead of waiting out the token's original,
-                # now-wrong expiry. _resolve_mail_send's commit above reset
-                # the transaction-local app.org_id GUC, so it's set again here.
-                await set_org_context(db, body.orgId)
-                await db.execute(
-                    text("UPDATE integration_connections SET token_expires_at = now() WHERE id = :id"),
-                    {"id": str(row.id)},
-                )
-                await db.commit()
-            # 502 means "ask again": a refreshed token or an expired throttle
-            # window makes this exact request work.
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-        except ms.MicrosoftError as exc:
-            # Definitive — including the mail being too large to send inline.
-            # The caller relays this copy over SMTP instead of losing it.
-            if body.mailId:
-                await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        except CircuitOpenError as exc:
-            # The breaker short-circuits BEFORE any request is made — Graph was
-            # definitely not contacted this time, so this is safe to mark
-            # 'failed' and let a later attempt reclaim, same as the two
-            # branches above.
-            if body.mailId:
-                await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-        except (httpx.HTTPError, OSError) as exc:
-            if _provider_refused_or_never_reached(exc):
-                # Graph answered with an HTTP error status (e.g. a plain 500)
-                # or the request never left — definitive. Resolve 'failed' so
-                # the mail_id is not parked 'sending' (409 forever) and the
-                # caller's retry can proceed. 4xx -> 400 (caller relays over
-                # SMTP), else 502 (ask again).
-                if body.mailId:
-                    await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
-                raise HTTPException(
-                    status_code=_not_sent_http_status(exc),
-                    detail="the provider did not accept the mail",
-                ) from exc
-            # AMBIGUOUS: a network fault on the sendMail call itself. Graph may
-            # have already accepted the message — send_mail's own idempotent=
-            # False means this was not silently retried underneath us — so the
-            # claim from above is deliberately left 'sending' rather than
-            # 'failed': marking it failed would let a redelivery reclaim and
-            # resend a mail that may already be sitting in the recipient's
-            # inbox. This mailId now answers 409 forever until an operator
-            # confirms the real outcome (checking the member's Sent folder)
-            # and resolves the row by hand — see the migration's docstring.
-            # 409, not 502/503: those are the codes provider_mail.py's shared
-            # breaker treats as "integrations-svc is unhealthy" and, once
-            # enough of them accumulate, answers with a fall-back-to-relay
-            # False — which for THIS mail_id means a genuine duplicate send.
-            # A 409 is never transient to that breaker, so it can never open
-            # it on this mail's account; see provider_mail.send's docstring.
-            log.error(
-                "mail_send_outcome_unknown", mail_id=body.mailId, org=body.orgId, error=str(exc)
-            )
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="mail send outcome unknown; needs manual review",
-            ) from exc
-        except Exception as exc:  # noqa: BLE001 - catch-all: never strand the claim
-            # Anything unclassified. Before: a bare 500 with the row left
-            # 'sending' (every retry then 409). Now: resolved 'failed' when
-            # nothing was ever put on the wire, otherwise left 'sending' with
-            # the same 409 as the ambiguous case — never a 5xx that
-            # provider_mail's breaker could count towards a relay fallback.
-            log.error(
-                "mail_send_unexpected_error", mail_id=body.mailId, org=body.orgId,
-                error=repr(exc),
-            )
-            if _nothing_sent(exc):
-                if body.mailId:
-                    await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="mail send failed before the provider was contacted",
-                ) from exc
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="mail send outcome unknown; needs manual review",
-            ) from exc
-
-        if body.mailId:
-            await _resolve_mail_send(db, body.mailId, body.orgId, "sent")
-            if graph_id:
-                # Loop-prevention bookkeeping — see microsoft.py's module
-                # docstring. Best-effort: the mail is already sent and resolved
-                # by this point, so a failure here must not fail the request,
-                # only leave this one Sent copy without write-back support and
-                # (if external-ref doesn't land) susceptible to one future
-                # duplicate import from the Sent-Items delta walk — self-healing
-                # the moment either call succeeds on a later send.
-                await db.execute(
-                    text(
-                        """
-                        INSERT INTO mail_sync_links
-                            (id, connection_id, org_id, mail_id, graph_message_id, folder,
-                             last_known_is_read)
-                        VALUES (:id, :conn, :org, :mail, :graph, 'sentitems', true)
-                        ON CONFLICT (connection_id, graph_message_id) DO NOTHING
-                        """
-                    ),
-                    {
-                        "id": str(uuid6.uuid7()),
-                        "conn": str(row.id),
-                        "org": body.orgId,
-                        "mail": body.mailId,
-                        "graph": graph_id,
-                    },
-                )
-                await db.commit()
-            if internet_message_id:
-                await messaging_client.set_external_ref(
-                    body.orgId, body.mailId, internet_message_id
-                )
-
-    return MailSendResp(status="sent", provider="outlook")

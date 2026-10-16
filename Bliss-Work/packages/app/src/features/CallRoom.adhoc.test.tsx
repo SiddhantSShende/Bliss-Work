@@ -13,7 +13,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { CallDTO } from "@taskboard/shared";
 import type { RoomParticipant, RoomStatus } from "../lib/useCallRoom";
 import { useSession } from "../store/session";
-import { DIRECTORY, ME } from "../test/meetingFixtures";
+import { ADA, DIRECTORY, GRACE, ME } from "../test/meetingFixtures";
 
 const h = vi.hoisted(() => ({
   useCallRoomMock: vi.fn(),
@@ -152,6 +152,28 @@ describe("the room of an ad-hoc call", () => {
     expect(await screen.findByRole("dialog", { name: "Add people to this call" })).toBeInTheDocument();
     expect(screen.queryByText(/meeting link|secure link/i)).toBeNull();
     expect(h.api.createCallInvite).not.toHaveBeenCalled();
+  });
+
+  it("offers a participant back in the picker once they've left, but not while still connected", async () => {
+    const LEFT_CONFERENCE: CallDTO = {
+      ...CONFERENCE,
+      participants: [
+        participant(ME.id, "HOST"),
+        { ...participant(ADA.id, "PARTICIPANT"), leftAt: "2026-10-16T09:00:00.000Z" },
+        participant(GRACE.id, "PARTICIPANT"),
+      ],
+    };
+    const user = renderRoom(LEFT_CONFERENCE);
+
+    await user.click(screen.getByTitle("Add people"));
+    await screen.findByRole("dialog", { name: "Add people to this call" });
+
+    // Ada left the call, so she's eligible to be added back.
+    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
+    // Grace is still connected, so she must not be offered as addable.
+    expect(screen.queryByText("Grace Hopper")).toBeNull();
+    // Nor should the current user offer themselves.
+    expect(screen.queryByText("Me Myself")).toBeNull();
   });
 
   it("has no pre-join lobby at all, even with no autoJoin — an ad-hoc call never shows one", async () => {

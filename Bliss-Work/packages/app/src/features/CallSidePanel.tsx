@@ -22,6 +22,7 @@ export function CallSidePanel({
   onExport,
   onClose,
   unreadChat = 0,
+  unreadNotes = 0,
   className,
   children,
 }: {
@@ -33,6 +34,8 @@ export function CallSidePanel({
   /** Shown on the Chat tab so switching away doesn't bury the fact that
    *  messages arrived — mirrors the sidebar's own Chats button badge. */
   unreadChat?: number;
+  /** Same, for the Notes tab — mirrors the sidebar's Notes button badge. */
+  unreadNotes?: number;
   className?: string;
   children: ReactNode;
 }) {
@@ -63,7 +66,12 @@ export function CallSidePanel({
           >
             <MessageSquare size={14} />
           </TabButton>
-          <TabButton active={active === "notes"} onClick={() => onSelectTab("notes")} label={t("sidePanel.notesTab")}>
+          <TabButton
+            active={active === "notes"}
+            onClick={() => onSelectTab("notes")}
+            label={t("sidePanel.notesTab")}
+            badge={unreadNotes}
+          >
             <NotebookPen size={14} />
           </TabButton>
           <TabButton

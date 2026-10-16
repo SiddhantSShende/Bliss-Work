@@ -151,7 +151,7 @@ describe("call.missed", () => {
   });
 });
 
-describe("IncomingMeetingNotice — Decline (ad-hoc ring only)", () => {
+describe("IncomingMeetingNotice — Decline (any real ring)", () => {
   it("calls api.declineCall and dismisses the card", () => {
     mount();
     fire(callEvent(EventType.CallRing));
@@ -176,14 +176,40 @@ describe("IncomingMeetingNotice — Decline (ad-hoc ring only)", () => {
     );
   });
 
-  it("a genuine meeting invite keeps its plain Leave, not Decline", () => {
+  it("a MEETING's own call.ring gets a real Decline too, not just an ad-hoc ring", () => {
     mount();
     fire(callEvent(EventType.CallRing, { kind: "MEETING", title: "Weekly review" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+
+    expect(h.declineCall).toHaveBeenCalledWith(CALL);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("a plain call.started FYI (no ring yet) keeps its local-only Leave, not Decline", () => {
+    mount();
+    fire(callEvent(EventType.CallStarted, { kind: "MEETING", title: "Weekly review" }));
 
     expect(screen.queryByRole("button", { name: "Decline" })).toBeNull();
     // Its accessible name is "Dismiss" (the aria-label/title) even though the
     // visible caption underneath reads "Leave" — see NoticeAction.
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
     expect(screen.getByText("Leave")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(h.declineCall).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("call.started's FYI card is upgraded in place once its own call.ring lands", () => {
+    mount();
+    fire(callEvent(EventType.CallStarted, { kind: "MEETING", title: "Weekly review" }));
+    expect(screen.queryByRole("button", { name: "Decline" })).toBeNull();
+
+    fire(callEvent(EventType.CallRing, { kind: "MEETING", title: "Weekly review" }));
+    expect(screen.getByRole("button", { name: "Decline" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    expect(h.declineCall).toHaveBeenCalledWith(CALL);
   });
 });

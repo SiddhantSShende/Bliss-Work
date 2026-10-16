@@ -8,17 +8,21 @@ import {
   RoomEvent,
   Track,
   VideoPresets,
+  LogLevel as LiveKitLogLevel,
+  setLogLevel as setLiveKitLogLevel,
   type LocalTrack,
   type RemoteParticipant,
 } from "livekit-client";
 import { toast } from "sonner";
 import { addCallParticipants } from "./addCallParticipants";
 import { useTranslation } from "react-i18next";
-import { ApiError, EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
+import { ApiError, EventType, isDevelopmentBuild, logger, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { decodeRoomMessage, encodeRoomMessage, type RoomMessage } from "./roomMessages";
 import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
 import { watchLivekitMic } from "./micDiagnostics";
+
+setLiveKitLogLevel(isDevelopmentBuild ? LiveKitLogLevel.debug : LiveKitLogLevel.warn);
 
 /**
  * A participant as the call UI needs to render them.
@@ -383,7 +387,7 @@ export function useCallRoom(callId: string | null, adhoc = false) {
             }
             await room.connect(t.url, t.token);
           } catch (e) {
-            console.error("[CALL ROOM] Refresh reconnect failed", e);
+            logger.error("[CALL ROOM] Refresh reconnect failed", e);
             refreshingRef.current = false;
             stopHeldTracks(heldTracks);
             void room.disconnect();
@@ -409,14 +413,14 @@ export function useCallRoom(callId: string | null, adhoc = false) {
             try {
               await room.localParticipant.publishTrack(track);
             } catch (e) {
-              console.error("[CALL ROOM] Failed to republish a track after refresh", e);
+              logger.error("[CALL ROOM] Failed to republish a track after refresh", e);
             }
           }
           if (screenTrack) {
             try {
               await room.localParticipant.publishTrack(screenTrack);
             } catch (e) {
-              console.error("[CALL ROOM] Failed to republish the screen share after refresh", e);
+              logger.error("[CALL ROOM] Failed to republish the screen share after refresh", e);
               screenTrack.stop();
               setSharing(false);
               void apiRef.current.stopScreenShare(id).catch(() => {});
@@ -495,9 +499,9 @@ export function useCallRoom(callId: string | null, adhoc = false) {
     // two different service replicas.
     const attemptStartedAt = Date.now();
     try {
-      console.debug("[CALL ROOM] Requesting meeting token");
+      logger.debug("[CALL ROOM] Requesting meeting token");
       const grant = await api.callToken(callId, opts?.switchHere ? "SWITCH" : "JOIN");
-      console.debug("[CALL ROOM] Token received");
+      logger.debug("[CALL ROOM] Token received");
       if (leaveRequestedWhileConnecting.current || unmountedRef.current) {
         // leave() ran while this request was in flight — there was no room
         // yet for it to disconnect (see the ref's own comment), so it just
@@ -692,7 +696,7 @@ export function useCallRoom(callId: string | null, adhoc = false) {
       // We are in, so stop asking whether we may come in.
       if (lobbyTimer.current) clearTimeout(lobbyTimer.current);
       stage = "connect";
-      console.debug("[CALL ROOM] Connecting to LiveKit");
+      logger.debug("[CALL ROOM] Connecting to LiveKit");
       await room.connect(grant.url, grant.token);
       // Camera and mic are NOT published on join — the participant arrives
       // muted and camera-off, and only the controls below (toggleMic/toggleCam)
@@ -700,7 +704,7 @@ export function useCallRoom(callId: string | null, adhoc = false) {
       // enables them.
       setConnectedAt(Date.now());
       setStatus("connected");
-      console.debug("[CALL ROOM] Connected");
+      logger.debug("[CALL ROOM] Connected");
       sync(room);
       scheduleRefresh(room, callId, grant.expiresAt);
       // Best-effort, same contract as the reconnect report above — a throw
@@ -730,7 +734,7 @@ export function useCallRoom(callId: string | null, adhoc = false) {
       }
       setStatus("failed");
       setFailStage(stage);
-      console.error(`[CALL ROOM] Join failed at "${stage}" stage`, e);
+      logger.error(`[CALL ROOM] Join failed at "${stage}" stage`, e);
       // A 503 here means the deployment has no SFU configured, which is a very
       // different problem from a denied join — say which.
       const msg =

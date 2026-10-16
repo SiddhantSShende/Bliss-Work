@@ -75,12 +75,6 @@ function build(cfg: Endpoints) {
       // the new token back here). Lets sticky-button actions self-heal instead of
       // silently failing once the token ages out.
       refreshToken: async () => (await requestToken()) || null,
-      // TEMPORARY, see ApiConfig.clientId / authDiagLog in client.ts — this
-      // process's requests (sticky-chat reply, sticky pin/unpin, task actions)
-      // are the ones suspected of racing `token` before main's first push; this
-      // tag is how the "missing bearer token" investigation's logs tell them
-      // apart from the renderer's own, separately-authed ApiClient.
-      clientId: "desktop-utility-process",
     }),
   );
   ws = new WsClient({
