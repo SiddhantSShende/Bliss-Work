@@ -31,7 +31,7 @@ import { useChatMedia } from "../features/useChatMedia";
 import { useOptimisticSend } from "../lib/useOptimisticSend";
 import { useMarkReadWhileViewing } from "../lib/useMarkReadWhileViewing";
 import { useChatTyping } from "../lib/useChatTyping";
-import { useCall } from "../lib/useCall";
+import { useMeetingSession } from "../lib/MeetingSession";
 import { useOlderMessages } from "../lib/useOlderMessages";
 import { useUserStatus } from "../lib/usePresence";
 import { useSelectedChat } from "../lib/selectedChat";
@@ -106,7 +106,8 @@ export function DMView() {
 
   // No typing indicator to broadcast to yourself.
   const { peerTyping, onType, stop: stopTyping } = useChatTyping(conversationId, isSelf ? undefined : conv?.peerId);
-  const call = useCall();
+  const session = useMeetingSession();
+  const [startingCall, setStartingCall] = useState(false);
 
   // Arms a forward; the WhatsApp handoff is the menu anchor's own doing and the
   // record is written only once the user comes back. Available to every org
@@ -551,6 +552,12 @@ export function DMView() {
       });
       return;
     }
+    // One call at a time, same guard GroupCallDialog applies — a second
+    // would leave the first running unattended.
+    if (session.call || startingCall) {
+      toast.error(t("dmView.startCall.alreadyInCall"));
+      return;
+    }
     // Not a refusal — they can still take it, and only they know whether they
     // should. Saying so first is the difference between an informed interruption
     // and a surprising one.
@@ -559,7 +566,22 @@ export function DMView() {
         description: t("dmView.startCall.onAnotherCall.description"),
       });
     }
-    call.invite(conv.peerId, peerName, media);
+    // Same path GroupCallDialog already uses for the multi-person case: the
+    // server creates (and, per its own ring-on-create behaviour, rings) the
+    // call, and the caller is taken straight into its room with the pre-join
+    // lobby skipped — CallRoom.tsx now does that for every ad-hoc call
+    // regardless of autoJoin, so this is no longer the special case it used
+    // to be when System 1 (lib/useCall) owned 1:1 ringing on its own.
+    setStartingCall(true);
+    api
+      .startDirectCall(conv.peerId, media)
+      .then((startedCall) => session.enter(startedCall, undefined, media === "video" ? "video" : "voice"))
+      .catch((e: unknown) =>
+        toast.error(t("dmView.startCall.failed"), {
+          description: e instanceof Error && e.message ? e.message : undefined,
+        }),
+      )
+      .finally(() => setStartingCall(false));
   };
   // A link and a diary entry are both asynchronous, so unlike ringing they do
   // not need the peer to be online right now.

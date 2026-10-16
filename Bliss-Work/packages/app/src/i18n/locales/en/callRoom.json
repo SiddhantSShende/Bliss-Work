@@ -111,6 +111,12 @@
       "title": "End call for everyone?",
       "message": "Everyone still on this call will be disconnected. This cannot be undone.",
       "confirm": "End for everyone"
+    },
+    "adhocWaiting": {
+      "calling": "Calling {{name}}…",
+      "declined": "{{name}} declined",
+      "noAnswer": "{{name}} didn't answer",
+      "leave": "Leave"
     }
   },
   "controls": {

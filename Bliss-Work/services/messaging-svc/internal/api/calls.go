@@ -375,11 +375,15 @@ func (s *Server) startDirectCall(w http.ResponseWriter, r *http.Request) {
 		s.mapErrR(w, r, err)
 		return
 	}
-	// A scheduled chat call is an appointment the peer needs to see coming; an
-	// immediate one is announced by the ring that follows on the signaling
-	// path, so it stays quiet here rather than arriving twice.
+	// A scheduled chat call is an appointment the peer needs to see coming.
+	// An immediate one rings the peer right away — the unified call room has
+	// no signaling path of its own left to announce it on, so this IS the
+	// announcement, same as addCallParticipant's and startConferenceCall's
+	// own ringUsers calls.
 	if sc.At != nil {
 		s.notifyCall(r.Context(), c, events.TypeCallScheduled, claims.UserID)
+	} else {
+		s.ringUsers(r.Context(), c, []string{req.PeerID}, events.TypeCallRing, claims.UserID)
 	}
 	writeJSON(w, http.StatusCreated, c)
 }
@@ -628,7 +632,7 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if req.Mode != "" && req.Mode != "SWITCH" && req.Mode != "REFRESH" && req.Mode != "CHECK" {
+	if req.Mode != "" && req.Mode != "JOIN" && req.Mode != "SWITCH" && req.Mode != "REFRESH" && req.Mode != "CHECK" {
 		writeErr(w, http.StatusBadRequest, "invalid join mode")
 		return
 	}
@@ -966,6 +970,46 @@ func (s *Server) leaveCall(w http.ResponseWriter, r *http.Request) {
 	// it (or from the SFU webhook racing it, see MarkLeftFromSFU).
 	if recorded {
 		s.notifyParticipantLeft(r.Context(), callID, claims.UserID)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// declineCall serves POST /api/v1/calls/{id}/decline — an explicit "no" to a
+// ring, for someone who has not joined (leaveCall is for that; see
+// store.DeclineCall's doc comment for why the two are not merged). Always
+// 204, even when there was no open ring to decline: see StopScreenShare for
+// the same idempotent shape.
+func (s *Server) declineCall(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	callID := chi.URLParam(r, "id")
+	if !validUUID(callID) {
+		writeErr(w, http.StatusBadRequest, "invalid call id")
+		return
+	}
+	inviterID, ended, err := s.store.DeclineCall(r.Context(), claims.OrgID, claims.UserID, callID)
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	if inviterID != "" {
+		// The one person who rang them, and nobody else — see
+		// events.TypeCallDeclined's doc comment.
+		c := ended
+		if c == nil {
+			var cerr error
+			c, cerr = s.store.CallForNotify(r.Context(), callID)
+			if cerr != nil {
+				s.log.Warn("decline notify failed", "call", callID, "err", cerr)
+				c = nil
+			}
+		}
+		if c != nil {
+			s.ringUsers(r.Context(), c, []string{inviterID}, events.TypeCallDeclined, claims.UserID)
+		}
+	}
+	if ended != nil {
+		s.endedCallSideEffects(r.Context(), ended, claims.UserID)
+		s.log.Info("call ended by a decline", "call", callID, "by", claims.UserID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

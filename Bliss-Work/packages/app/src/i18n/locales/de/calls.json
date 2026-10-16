@@ -165,7 +165,9 @@
     "leave": "Verlassen",
     "conferenceTitle": "Konferenzanruf",
     "addedYou": "{{name}} hat Sie zu einem Konferenzanruf hinzugefügt",
-    "ariaLabelCall": "Eingehender Anruf: {{title}}"
+    "ariaLabelCall": "Eingehender Anruf: {{title}}",
+    "decline": "Ablehnen",
+    "declineFailed": "Der Anruf konnte nicht abgelehnt werden. Bitte versuche es erneut."
   },
   "scheduledNotice": {
     "untitledMeeting": "Meeting",

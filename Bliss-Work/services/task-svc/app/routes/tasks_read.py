@@ -61,7 +61,8 @@ async def _sticky_list(
                     "       COALESCE(up.username, '') AS sender_username, "
                     "       COALESCE(up.display_name, '') AS sender_display_name, "
                     "       COALESCE((SELECT json_agg(json_build_object("
-                    "         'userId', p.assignee_id, 'username', COALESCE(pu.username, ''), 'status', p.status) "
+                    "         'userId', p.assignee_id, 'username', COALESCE(pu.username, ''), "
+                    "         'displayName', COALESCE(pu.display_name, ''), 'status', p.status) "
                     "         ORDER BY p.assigned_at, p.assignee_id) "
                     "         FROM task_assignees p LEFT JOIN user_projection pu "
                     "           ON pu.user_id = p.assignee_id AND pu.org_id = p.org_id "
@@ -175,7 +176,8 @@ async def task_detail(
                     "       COALESCE(up.username, '') AS sender_username, "
                     "       COALESCE(up.display_name, '') AS sender_display_name, "
                     "       COALESCE((SELECT json_agg(json_build_object("
-                    "         'userId', p.assignee_id, 'username', COALESCE(pu.username, ''), 'status', p.status) "
+                    "         'userId', p.assignee_id, 'username', COALESCE(pu.username, ''), "
+                    "         'displayName', COALESCE(pu.display_name, ''), 'status', p.status) "
                     "         ORDER BY p.assigned_at, p.assignee_id) "
                     "         FROM task_assignees p LEFT JOIN user_projection pu "
                     "           ON pu.user_id = p.assignee_id AND pu.org_id = p.org_id "
@@ -290,7 +292,8 @@ async def sent(
                     "       ta.assigned_at, ta.acknowledged_at, ta.completed_at, "
                     "       ta.ignored_at, ta.left_at, ta.missed_at, ta.reviewed_at, "
                     "       ta.review_enc, ta.review_rating, "
-                    "       COALESCE(up.username, '') AS assignee_username "
+                    "       COALESCE(up.username, '') AS assignee_username, "
+                    "       COALESCE(up.display_name, '') AS assignee_display_name "
                     "FROM tasks t "
                     "JOIN task_assignees ta ON ta.task_id = t.id "
                     "LEFT JOIN user_projection up "
@@ -348,6 +351,11 @@ async def sent(
                 )
             )
             by_task[tid].participants.append(
-                {"userId": str(r.assignee_id), "username": r.assignee_username, "status": r.status}
+                {
+                    "userId": str(r.assignee_id),
+                    "username": r.assignee_username,
+                    "displayName": r.assignee_display_name,
+                    "status": r.status,
+                }
             )
     return [by_task[t] for t in order]

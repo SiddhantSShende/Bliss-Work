@@ -2,15 +2,21 @@
  * TaskAnalyticsPanel: loading/error states and the "never conflate the two
  * completion rates" rule — each KPI tile must carry its own distinct tooltip.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { TaskAnalyticsDTO } from "@taskboard/shared";
 
-const h = vi.hoisted(() => ({ taskAnalytics: vi.fn() }));
+const h = vi.hoisted(() => ({ taskAnalytics: vi.fn(), directory: vi.fn() }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h, config: {} }) }));
 
 import { TaskAnalyticsPanel } from "./TaskAnalyticsPanel";
+
+beforeEach(() => {
+  // No directory entries by default — falls back to the DTO's own username,
+  // same as before `useUserLabels` was wired into this list.
+  h.directory.mockResolvedValue([]);
+});
 
 function mount(taskId = "task-1") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -97,5 +103,18 @@ describe("TaskAnalyticsPanel", () => {
     expect(await screen.findByText("alice")).toBeInTheDocument();
     expect(screen.getByText("bob")).toBeInTheDocument();
     expect(screen.getByText(/not completed/i)).toBeInTheDocument();
+  });
+
+  it("resolves an assignee's directory display name instead of their raw username", async () => {
+    h.directory.mockResolvedValue([
+      { id: "u1", username: "alice", displayName: "Alice Okafor", email: "alice@example.com" },
+    ]);
+    h.taskAnalytics.mockResolvedValue(FIXTURE);
+    mount();
+
+    expect(await screen.findByText("Alice Okafor")).toBeInTheDocument();
+    expect(screen.queryByText("alice")).not.toBeInTheDocument();
+    // u2 has no directory entry — falls back to its own assigneeUsername.
+    expect(screen.getByText("bob")).toBeInTheDocument();
   });
 });

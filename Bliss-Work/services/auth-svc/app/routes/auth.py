@@ -700,14 +700,47 @@ async def update_me(
             )
         if body.avatarUrl is not None:
             await service.update_avatar(conn, principal.org_id, principal.user_id, body.avatarUrl)
+        theme_changed = False
         if body.themePrefs is not None:
-            await service.update_theme_prefs(conn, principal.user_id, body.themePrefs)
-        if "customTheme" in body.model_fields_set:
-            await service.update_custom_theme(
-                conn,
-                principal.user_id,
-                body.customTheme.colors if body.customTheme is not None else None,
-            )
+            prefs = body.themePrefs
+            if "customTheme" in body.model_fields_set:
+                colors = body.customTheme.colors if body.customTheme is not None else None
+                updates = {"customColors": colors}
+                if colors is None:
+                    updates["customActive"] = False
+                prefs = prefs.model_copy(update=updates)
+            try:
+                theme_changed = await service.update_theme_prefs(
+                    conn,
+                    principal.user_id,
+                    prefs,
+                    expected_revision=body.expectedThemeRevision,
+                )
+            except service.ThemePrefsRevisionConflict:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "theme preferences changed; reload and retry",
+                ) from None
+        elif "customTheme" in body.model_fields_set:
+            try:
+                theme_changed = await service.update_custom_theme(
+                    conn,
+                    principal.user_id,
+                    body.customTheme.colors if body.customTheme is not None else None,
+                    expected_revision=body.expectedThemeRevision,
+                )
+            except service.ThemePrefsRevisionConflict:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "theme preferences changed; reload and retry",
+                ) from None
+        if theme_changed:
+            # Signal-only (see EventType.UserThemePrefsChanged): every OTHER
+            # session this account has open re-pulls GET /auth/me on receipt
+            # rather than trusting a payload here, so this never carries the
+            # new theme itself.
+            event = build_event("user.theme_prefs_changed", principal.org_id, userId=principal.user_id)
+            await enqueue_event(conn, topic=TOPIC_AUTH, kafka_key=principal.user_id, event=event)
         if body.displayName is not None or body.avatarUrl is not None:
             await service.write_audit(
                 conn,

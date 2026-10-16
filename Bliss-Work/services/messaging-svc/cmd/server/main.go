@@ -363,6 +363,11 @@ func main() {
 	// SKIP LOCKED, so duplicating the timer buys availability without
 	// duplicating the work. See api.RunCallSweeper.
 	trackedGo(apiSrv.RunCallSweeper)
+	// Resolves rings nobody answered, on its own much tighter ticker than the
+	// sweep above — see api.RunRingSweeper's own doc comment for why a ring
+	// timeout cannot ride on callSweepInterval's thirty seconds. Same
+	// every-replica reasoning applies.
+	trackedGo(apiSrv.RunRingSweeper)
 
 	// Wrap the root handler so every request is a server span and incoming W3C
 	// tracecontext headers are extracted. When tracing is disabled the global

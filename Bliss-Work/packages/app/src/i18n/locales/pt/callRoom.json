@@ -112,6 +112,12 @@
       "title": "Encerrar a chamada para todos?",
       "message": "Todas as pessoas que ainda estiverem nesta chamada serão desconectadas. Essa ação não pode ser desfeita.",
       "confirm": "Encerrar para todos"
+    },
+    "adhocWaiting": {
+      "calling": "Chamando {{name}}…",
+      "declined": "{{name}} recusou a chamada",
+      "noAnswer": "{{name}} não atendeu",
+      "leave": "Sair"
     }
   },
   "controls": {

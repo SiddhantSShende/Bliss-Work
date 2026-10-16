@@ -22,9 +22,11 @@ import (
 
 // Topic is auth-svc's existing session/audit event stream (see
 // services/auth-svc/app/routes/session_events.py) — not a new topic. Every
-// event type on it other than "session.revoked" is ignored by handle below;
-// contract.go's FanoutTopics deliberately excludes this topic entirely, since
-// nothing here is ever forwarded to a client as an app-level frame.
+// event type on it other than "session.revoked" is ignored by handle below.
+// This is a SEPARATE consumer group from contract.go's fan-out one, which
+// also reads this topic now (for user.theme_prefs_changed only — every other
+// type on it, including session.revoked, is dropped there by RecipientsOf's
+// `default` case and never reaches a client as an app-level frame).
 const Topic = "auth.events"
 
 // event is the minimal shape this consumer reads out of an otherwise-varied

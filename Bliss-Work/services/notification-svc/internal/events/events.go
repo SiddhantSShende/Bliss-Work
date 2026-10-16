@@ -37,6 +37,11 @@ const (
 	TypeCallStarted           = "call.started"
 	TypeCallEnded             = "call.ended"
 	TypeCallParticipantAdded  = "call.participant_added"
+	// TypeCallMissed is the one call.* event with a bell counterpart — see
+	// KindCallMissed. TypeCallDeclined and TypeCallNoAnswer are deliberately
+	// absent here: both are realtime-only (no notification row), so this
+	// consumer has no reason to decode them.
+	TypeCallMissed = "call.missed"
 )
 
 // Notification kinds.
@@ -59,6 +64,10 @@ const (
 	// KindCallAdded is a person being rung into an ad-hoc call (a conference): a
 	// call, not a meeting, so it is not a MEETING_* kind.
 	KindCallAdded = "CALL_ADDED"
+	// KindCallMissed is the one call.* notification with a bell counterpart —
+	// see messaging-svc's events.TypeCallMissed doc comment for why: its
+	// recipient may not have been looking at a screen when the ring expired.
+	KindCallMissed = "CALL_MISSED"
 )
 
 // TaskEvent is the shape consumed off task.events.v1. It is a superset that

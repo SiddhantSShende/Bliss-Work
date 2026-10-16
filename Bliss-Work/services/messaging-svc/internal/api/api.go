@@ -428,6 +428,7 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Post("/calls/{id}/share", s.startScreenShare)
 			r.Post("/calls/{id}/share/stop", s.stopScreenShare)
 			r.Post("/calls/{id}/leave", s.leaveCall)
+			r.Post("/calls/{id}/decline", s.declineCall)
 			r.Post("/calls/{id}/end", s.endCall)
 			// The recording of a finished call, if it has one and this caller
 			// may see it. Answers a short-lived signed link rather than the

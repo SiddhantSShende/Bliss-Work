@@ -65,7 +65,8 @@
       "updateBlock": {
         "title": "无法更新屏蔽设置",
         "description": "请重试。"
-      }
+      },
+      "startCall": "无法发起通话"
     },
     "bulkDelete": {
       "deletedToast_other": "已删除 {{count}} 条消息",
@@ -104,7 +105,9 @@
       "onAnotherCall": {
         "title": "{{name}} 正在通话中",
         "description": "仍会呼叫对方，但对方可能无法接听。"
-      }
+      },
+      "alreadyInCall": "你已在通话中",
+      "failed": "无法发起通话"
     },
     "exportedToast_other": "已导出 {{count}} 条消息",
     "header": {

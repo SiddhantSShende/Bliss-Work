@@ -83,7 +83,12 @@ export function TaskParticipants({
       {layout === "list" ? (
         <ul className="mt-2 flex min-w-0 flex-col divide-y divide-border/50">
           {participants.map((participant) => {
-            const name = participant.username || participant.userId;
+            // `username` is the email local-part (or a free-typed invite
+            // handle), not a name to show — this also renders in the desktop
+            // sticky window, which has no directory query (see StickyWidget's
+            // senderDisplayName comment), so the real name has to come off
+            // the DTO rather than a lookup here.
+            const name = participant.displayName || participant.username || participant.userId;
             const withdrawLabel = t("participants.withdrawUser", { name });
             return (
               <li key={participant.userId} className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 py-1.5 first:pt-0 last:pb-0">
@@ -134,13 +139,13 @@ export function TaskParticipants({
         <div className="mt-2 flex min-w-0 flex-wrap gap-1.5">
           {participants.map((participant) => (
             <span key={participant.userId} className="inline-flex min-w-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-1 text-xs text-fg">
-              <span className="max-w-40 truncate">{participant.username || participant.userId}</span>
+              <span className="max-w-40 truncate">{participant.displayName || participant.username || participant.userId}</span>
               <Badge tone={participantTone(participant.status)}>{participant.status.toLowerCase()}</Badge>
               {removable(participant) && (
                 <IconButton
                   className="h-5 w-5"
                   title={t("participants.withdraw")}
-                  aria-label={t("participants.withdrawUser", { name: participant.username })}
+                  aria-label={t("participants.withdrawUser", { name: participant.displayName || participant.username })}
                   disabled={busy}
                   onClick={() => void run(() => onWithdraw!(participant.userId))}
                 >

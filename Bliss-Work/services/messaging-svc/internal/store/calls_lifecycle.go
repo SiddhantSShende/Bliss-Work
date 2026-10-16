@@ -578,6 +578,151 @@ func activateCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, er
 	return getCallTx(ctx, tx, callID)
 }
 
+// RingExpirySweepLimit bounds one pass of the ring-expiry sweep — same
+// reasoning as OverdueSweepLimit.
+const RingExpirySweepLimit = 50
+
+// ExpiredRing is one ring the sweep resolved as unanswered — see
+// ExpireRingingInvitations.
+type ExpiredRing struct {
+	CallID string
+	// InviterID is who issued THIS ring (call_participants.invited_by) — the
+	// one person told "they did not answer", never the whole roster: see
+	// events.TypeCallNoAnswer's doc comment.
+	InviterID string
+	// InviteeID is who was rung and did not answer.
+	InviteeID string
+	// Ended is the call as it is AFTER ending, set only when this was the
+	// call's only ring and nobody else had ever answered it — see this
+	// function's own doc comment. Nil when the call keeps going for whoever
+	// else is already in it.
+	Ended *CallDTO
+}
+
+// ExpireRingingInvitations resolves every ring whose deadline has passed
+// without an answer.
+//
+// Each expired ring is judged on its own, by what the REST of the roster has
+// done, not by who issued it:
+//
+//   - If no PARTICIPANT other than the one who just timed out has EVER
+//     joined this call, there is nobody in it to leave the caller talking
+//     to, so the call ends — a 1:1 nobody answered, or the last unanswered
+//     seat of a multi-select "Call" where none of them picked up. The HOST's
+//     own seat does not count here: in the unified call room the caller
+//     always joins immediately, and their doing so must never, by itself,
+//     be mistaken for the invitee having answered.
+//   - If some OTHER participant has already joined — this invitation was an
+//     ADDITION to a call already under way (AddParticipant, see store/
+//     calls_adhoc.go's doc comment) — only IT expires. The call is left
+//     exactly as it was, for the same reason ExpireEmptyConferences does not
+//     end a conference off one departure: everyone else's presence is
+//     unaffected by one invitation nobody answered.
+//
+// When a ring's expiry DOES end the call, every other still-pending
+// invitation on it is cleared (ring_expires_at, with no missed_at — they did
+// not miss a call that was still going, it simply stopped being answerable)
+// rather than left to be claimed, fruitlessly, by every sweep tick from now
+// until ExpireAbandonedCalls would eventually have reached them anyway.
+//
+// Concurrency-safe on the same terms as the sweeps above: FOR UPDATE SKIP
+// LOCKED claims each row, and the resolving UPDATE's own guard (joined_at,
+// left_at, declined_at and missed_at all still NULL) means a join or decline
+// that lands first — even one blocked behind this very lock until it
+// releases — wins outright. See ClaimCallSession's and MarkJoined's own
+// missed_at guard for the other half of that race: an answer that arrives
+// after this sweep already claimed the row finds missed_at already set and
+// is refused, which is what makes a late join rejected safely rather than
+// racing to decide which mistake survives.
+func (s *Store) ExpireRingingInvitations(ctx context.Context, limit int) ([]ExpiredRing, error) {
+	if limit <= 0 {
+		limit = RingExpirySweepLimit
+	}
+	var out []ExpiredRing
+	err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT cp.call_id, cp.user_id, cp.invited_by
+			FROM call_participants cp
+			JOIN calls c ON c.id = cp.call_id
+			WHERE c.status = 'LIVE'
+			  AND cp.ring_expires_at IS NOT NULL
+			  AND cp.ring_expires_at <= now()
+			  AND cp.joined_at IS NULL
+			  AND cp.left_at IS NULL
+			  AND cp.declined_at IS NULL
+			ORDER BY cp.call_id, cp.user_id
+			LIMIT $1
+			FOR UPDATE OF cp SKIP LOCKED`, limit)
+		if err != nil {
+			return err
+		}
+		type ringClaim struct{ callID, userID, invitedBy string }
+		var claims []ringClaim
+		for rows.Next() {
+			var c ringClaim
+			if serr := rows.Scan(&c.callID, &c.userID, &c.invitedBy); serr != nil {
+				rows.Close()
+				return serr
+			}
+			claims = append(claims, c)
+		}
+		if rerr := rows.Err(); rerr != nil {
+			return rerr
+		}
+		rows.Close()
+
+		for _, c := range claims {
+			ct, err := tx.Exec(ctx, `
+				UPDATE call_participants
+				SET missed_at = now(), ring_expires_at = NULL
+				WHERE call_id = $1 AND user_id = $2
+				  AND joined_at IS NULL AND left_at IS NULL
+				  AND declined_at IS NULL AND missed_at IS NULL`,
+				c.callID, c.userID)
+			if err != nil {
+				return err
+			}
+			if ct.RowsAffected() == 0 {
+				continue // answered, declined, or already resolved since the claim above
+			}
+			var othersJoined bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM call_participants
+					WHERE call_id = $1 AND user_id <> $2
+					  AND role <> 'HOST' AND joined_at IS NOT NULL)`,
+				c.callID, c.userID).Scan(&othersJoined); err != nil {
+				return err
+			}
+			exp := ExpiredRing{CallID: c.callID, InviterID: c.invitedBy, InviteeID: c.userID}
+			if !othersJoined {
+				ended, err := endCallTx(ctx, tx, c.callID)
+				if err != nil {
+					return err
+				}
+				exp.Ended = ended
+				if ended != nil {
+					if _, err := tx.Exec(ctx, `
+						UPDATE call_participants
+						SET ring_expires_at = NULL
+						WHERE call_id = $1 AND user_id <> $2
+						  AND joined_at IS NULL AND left_at IS NULL
+						  AND declined_at IS NULL AND missed_at IS NULL`,
+						c.callID, c.userID); err != nil {
+						return err
+					}
+				}
+			}
+			out = append(out, exp)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EndsAtFor computes a call's scheduled end from its start and a duration.
 //
 // One place rather than three, because the three scheduling endpoints must not

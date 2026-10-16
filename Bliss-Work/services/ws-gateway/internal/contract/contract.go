@@ -1,12 +1,16 @@
 package contract
 
-// Topics consumed by the gateway for fan-out (excludes auth.events, which is
-// internal-only and never pushed to a client socket).
+// Topics consumed by the gateway for fan-out. auth.events carries mostly
+// internal-only event types (password resets, invites, session lifecycle —
+// see the `default` case in RecipientsOf, which drops every one of them
+// before a client ever sees this topic was added); the one exception is
+// user.theme_prefs_changed, routed below like any other single-user event.
 var FanoutTopics = []string{
 	"messaging.events.v1",
 	"task.events.v1",
 	"notification.events.v1",
 	"integration.events.v1",
+	"auth.events",
 }
 
 // Event is the partially-parsed envelope used for routing. Only the fields the
@@ -165,6 +169,12 @@ func (e *Event) RecipientsOf() []string {
 		// Every local recipient plus the author, whose other devices need the
 		// Sent copy to appear at the same moment the recipients see the mail.
 		return dedupe(e.Members)
+	case "user.theme_prefs_changed":
+		// auth-svc: this user's theme document changed on one device. Delivered
+		// to them alone — every device/session they have open, same pattern as
+		// sticky.pin.changed — so the others can re-pull GET /auth/me right away
+		// instead of waiting on their own focus/visibility poll.
+		return dedupe([]string{e.UserID})
 	case "mail.outbound":
 		// NEVER to a client. This is the instruction to email-worker to put one
 		// copy on the wire, and it carries the mail's subject and body in

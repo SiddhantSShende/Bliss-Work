@@ -112,6 +112,12 @@
       "title": "¿Finalizar la llamada para todos?",
       "message": "Todas las personas que siguen en esta llamada serán desconectadas. Esto no se puede deshacer.",
       "confirm": "Finalizar para todos"
+    },
+    "adhocWaiting": {
+      "calling": "Llamando a {{name}}…",
+      "declined": "{{name}} rechazó la llamada",
+      "noAnswer": "{{name}} no respondió",
+      "leave": "Salir"
     }
   },
   "controls": {

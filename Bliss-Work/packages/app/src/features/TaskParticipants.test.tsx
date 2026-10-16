@@ -63,6 +63,22 @@ describe("TaskParticipants list layout", () => {
     for (const name of ["piyush", "divya", "mayank", "siddhant", "luv"]) expect(screen.getByText(name)).toBeInTheDocument();
   });
 
+  it("prefers displayName over the raw username when the DTO carries one, in both layouts", () => {
+    // `username` is an email-derived handle, not a name — see the DTO comment.
+    // This component has no directory of its own (it also renders in the
+    // desktop sticky window, which has none), so the name has to come off
+    // the participant DTO itself.
+    const withName = [...people, person("u-named", "j.okafor", "SENT")];
+    (withName[withName.length - 1] as TaskParticipantDTO & { displayName?: string }).displayName = "Jane Okafor";
+
+    renderParticipants({ participants: withName, layout: "list" });
+    expect(screen.getByText("Jane Okafor")).toBeInTheDocument();
+    expect(screen.queryByText("j.okafor")).not.toBeInTheDocument();
+
+    renderParticipants({ participants: withName, layout: "chips" });
+    expect(screen.getAllByText("Jane Okafor")).toHaveLength(2); // list render + chips render, both still mounted
+  });
+
   it("calls onWithdraw with the person on that row", async () => {
     const user = userEvent.setup();
     const { onWithdraw } = renderParticipants();

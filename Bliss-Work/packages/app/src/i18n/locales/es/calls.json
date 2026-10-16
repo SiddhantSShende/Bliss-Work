@@ -165,7 +165,9 @@
     "leave": "Salir",
     "conferenceTitle": "Llamada en conferencia",
     "addedYou": "{{name}} te agregó a una llamada en conferencia",
-    "ariaLabelCall": "Llamada entrante: {{title}}"
+    "ariaLabelCall": "Llamada entrante: {{title}}",
+    "decline": "Rechazar",
+    "declineFailed": "No se pudo rechazar la llamada. Inténtalo de nuevo."
   },
   "scheduledNotice": {
     "untitledMeeting": "Reunión",

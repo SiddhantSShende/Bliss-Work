@@ -85,6 +85,19 @@
   --color-heat-4: oklch(0.63 0.19 285);
   --color-heat-5: oklch(0.52 0.22 285);
 
+  /* Workspace Overview status-identity colors — fixed across every theme
+     family (like success/danger/warning above), never rotated with the
+     selected accent: a task's flow-state must read the same regardless of
+     which theme the viewer picked. Only consumer is OVERVIEW_STATUS_COLORS
+     in WorkspaceOverviewParts.tsx (StatusDonut/StatusFlowChart); completed/
+     missed/ignored reuse --color-success/-danger/-muted above, so only the
+     two hues this app had no existing semantic token for are defined here.
+     Validated (lightness band, chroma floor, CVD separation, contrast)
+     against success/danger/muted with the dataviz skill's palette
+     validator — see WorkspaceOverviewParts.tsx for the categorical set. */
+  --color-status-acknowledged: oklch(0.55 0.2 295);
+  --color-status-sent: oklch(0.62 0.22 340);
+
   --shadow-soft: 0 1px 2px rgba(40, 30, 90, 0.04), 0 8px 24px rgba(40, 30, 90, 0.07);
   --shadow-card: 0 1px 3px rgba(40, 30, 90, 0.06), 0 16px 40px rgba(40, 30, 90, 0.1);
   --shadow-widget: 0 18px 50px rgba(20, 12, 60, 0.28);
@@ -133,6 +146,11 @@
   --color-heat-3: oklch(0.52 0.16 288);
   --color-heat-4: oklch(0.62 0.19 288);
   --color-heat-5: oklch(0.74 0.19 288);
+
+  /* See the light block's comment above. Re-stepped for the dark surface,
+     same hues. */
+  --color-status-acknowledged: oklch(0.62 0.19 295);
+  --color-status-sent: oklch(0.6 0.2 340);
 
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45);

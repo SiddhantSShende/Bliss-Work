@@ -1161,6 +1161,11 @@ ipcMain.on("meeting-invite:act", (e, payload: unknown) => {
   if (action === "video" || action === "voice") {
     focusMain();
     sendToMain("meeting-invite:join", { callId, media: action });
+  } else if (action === "decline") {
+    // No focusMain(): declining is meant to be dismissable without having
+    // to look at the app, same as Leave — only the actual POST needs the
+    // main window's api/React Query, which has no UI effect of its own.
+    sendToMain("meeting-invite:declined", { callId });
   } else if (action !== "leave") {
     return;
   }

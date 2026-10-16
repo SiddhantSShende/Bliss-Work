@@ -44,12 +44,14 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, ScreenShare, Video, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Button, cn } from "@taskboard/ui";
+import { Avatar, Button, cn } from "@taskboard/ui";
 import { isAdhocCall, type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { isCallOver } from "../lib/meetingView";
+import { useUserLabels } from "../lib/userLabel";
+import { onCallResolutionAnnounced, type CallResolution } from "../lib/MeetingSession";
 import { isGetUserMediaDenied, useCallRoom } from "../lib/useCallRoom";
 import { CAMERA_PREVIEW_CONSTRAINTS } from "../lib/mediaConstraints";
 import { useVideoAspect } from "../lib/useVideoAspect";
@@ -228,7 +230,13 @@ export function CallRoom({
   const [addOpen, setAddOpen] = useState(false);
   const [endForEveryoneOpen, setEndForEveryoneOpen] = useState(false);
   const [endingForEveryone, setEndingForEveryone] = useState(false);
-  const [preJoin, setPreJoin] = useState(() => !autoJoin);
+  // An ad-hoc call NEVER shows the lobby, whichever entry point brought the
+  // caller here — unlike a MEETING/CHANNEL/scheduled-DIRECT call, which keeps
+  // its existing `!autoJoin` rule exactly as it was. This is what makes the
+  // "Call" button and the incoming-ring Accept both land straight in the
+  // room, instead of only the one or two entry points that happened to pass
+  // `autoJoin` before.
+  const [preJoin, setPreJoin] = useState(() => !autoJoin && !adhoc);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [previewMicOn, setPreviewMicOn] = useState(true);
   const [previewCamOn, setPreviewCamOn] = useState(true);
@@ -418,6 +426,40 @@ export function CallRoom({
   // one case where leaving no longer ends the call for everyone by itself (see
   // messaging-svc's adhocEndsOnLeave) and the host needs an explicit way to.
   const conference = adhoc && call.participants.length > 2;
+
+  // The other person on a fresh ad-hoc 1:1, for the "Calling {name}…" state
+  // below — there is no roster-wide "organiser" wording for this case, just
+  // the one peer being rung. `username` is the DTO's own fallback (an
+  // auth-svc handle), resolved to a real display name the same way every
+  // other roster label in this room already is.
+  const adhocPeerRow = adhoc ? call.participants.find((p) => p.userId !== me?.id) : undefined;
+  const { nameOf: nameOfAdhocPeer } = useUserLabels(adhocPeerRow ? [adhocPeerRow.userId] : undefined);
+  const adhocPeerName = adhocPeerRow ? nameOfAdhocPeer(adhocPeerRow.userId, adhocPeerRow.username) : "";
+
+  /**
+   * How the ring the caller placed was resolved, told to us by the server
+   * (call.declined / call.no_answer — see queryBridge's handleCallEvent and
+   * MeetingSession's announceCallResolution) rather than guessed from a local
+   * timer. Cleared whenever this room starts covering a different call, so a
+   * previous call's outcome can never bleed into a new one.
+   *
+   * Only meaningful for an ad-hoc call where nobody else has joined yet (see
+   * `alone` below) — a conference already under way, or a call the OTHER
+   * participants answered, has nothing left to show this for.
+   */
+  const [callResolution, setCallResolution] = useState<CallResolution | null>(null);
+  useEffect(() => setCallResolution(null), [call.id]);
+  useEffect(
+    () =>
+      onCallResolutionAnnounced((callId, resolution) => {
+        if (callId === call.id) setCallResolution(resolution);
+      }),
+    [call.id],
+  );
+  // The caller, alone in the room they were auto-joined into — the false
+  // "success" step 4 of the plan calls out: nothing failed, the peer just
+  // has not answered (or has not been reached) yet.
+  const alone = adhoc && participants.length <= 1;
 
   // Read by the data-channel subscriber, which is registered once and must not
   // close over a stale copy of what we hold.
@@ -1303,6 +1345,32 @@ export function CallRoom({
                 <BracketFrame className={cn("glass min-h-0 flex-1", stageUnderSheet)}>
                   <div className="flex h-full items-center justify-center text-sm text-muted">
                     {t("room.stage.connectingPlaceholder")}
+                  </div>
+                </BracketFrame>
+              ) : alone ? (
+                // The caller, auto-joined into a fresh ad-hoc 1:1 and still the
+                // only one here — not a failure, just a ring nobody has
+                // answered yet (or already has, with a reason). Resolves on
+                // its own the moment a second tile shows up (this branch stops
+                // matching once participants.length > 1), on the server's own
+                // call.declined/call.no_answer (see callResolution above), or
+                // on call.ended closing the room outright via the `ended`
+                // effect further up.
+                <BracketFrame className={cn("glass min-h-0 flex-1", stageUnderSheet)}>
+                  <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                    <Avatar name={adhocPeerName || t("room.youFallbackName")} size="lg" />
+                    <div className="text-base font-semibold text-fg">
+                      {callResolution
+                        ? callResolution.reason === "declined"
+                          ? t("room.adhocWaiting.declined", { name: callResolution.actorName || adhocPeerName })
+                          : t("room.adhocWaiting.noAnswer", { name: callResolution.actorName || adhocPeerName })
+                        : t("room.adhocWaiting.calling", { name: adhocPeerName || t("room.youFallbackName") })}
+                    </div>
+                    {callResolution && (
+                      <Button size="sm" variant="ghost" onClick={() => void hangUp()}>
+                        {t("room.adhocWaiting.leave")}
+                      </Button>
+                    )}
                   </div>
                 </BracketFrame>
               ) : stage ? (

@@ -110,6 +110,12 @@
       "title": "要为所有人结束通话吗？",
       "message": "仍在此通话中的所有人都将断开连接。此操作无法撤销。",
       "confirm": "为所有人结束"
+    },
+    "adhocWaiting": {
+      "calling": "正在呼叫 {{name}}…",
+      "declined": "{{name}} 已拒绝",
+      "noAnswer": "{{name}} 未接听",
+      "leave": "离开"
     }
   },
   "controls": {

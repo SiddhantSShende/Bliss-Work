@@ -22,10 +22,11 @@
  * own incoming-call screen — an invite nobody answers should not sit on
  * screen forever.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Phone, Video, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Logo } from "@taskboard/ui";
 import {
   type AdhocIncoming,
@@ -47,6 +48,16 @@ interface Incoming {
 /** 12s — inside the requested 10-15s window. Matches an incoming phone call:
  *  long enough to notice and react, short enough not to linger once missed. */
 const AUTO_DISMISS_MS = 12_000;
+
+/** Deadline for the ring server-side (store.DirectRingTimeout /
+ *  AdditionalInviteRingTimeout, messaging-svc) — the longest a genuinely
+ *  ad-hoc card should ever need its own fallback timer for; the sweeper that
+ *  enforces it resolves within ~2s, and queryBridge's onIncomingMeetingDismissed
+ *  normally clears the card well before this fires at all. Kept only as a
+ *  backstop for a dropped/delayed event, not as the card's primary way out —
+ *  see the module doc and AUTO_DISMISS_MS above for the non-adhoc card, which
+ *  keeps its own, much shorter, blind timeout exactly as before. */
+const ADHOC_RING_BACKSTOP_MS = 35_000;
 
 export function IncomingMeetingNotice() {
   const { t } = useTranslation(["calls", "common"]);
@@ -103,12 +114,40 @@ export function IncomingMeetingNotice() {
   // `incoming` state — it has its own 12s auto-dismiss timer, not this one's.
   useEffect(() => config.onMeetingInviteAction?.(requestMeetingJoin), [config]);
 
+  /** Explicit "no" to an ad-hoc ring. The card is dismissed immediately,
+   *  while a failed request is surfaced so the user knows the other person
+   *  may still be ringing. */
+  const declineCall = useCallback(
+    (callId: string) => {
+      void api.declineCall(callId).catch(() => {
+        toast.error(t("incomingNotice.declineFailed"));
+      });
+    },
+    [api, t],
+  );
+
+  // Same idea for the popup's Decline — it has no api/React Query of its own
+  // either, so the actual POST happens here, same as above.
+  useEffect(() => config.onMeetingInviteDeclined?.(declineCall), [config, declineCall]);
+
   // Auto-dismiss with no interaction. Re-armed only when `incoming` actually
   // changes identity — which, per the dedup above, means a genuinely new
   // invite, not a repeat announcement of the one already on screen.
+  //
+  // An ad-hoc ring is DIFFERENT: the thing that actually resolves it is the
+  // server (a decline, a timeout the ~2s ring sweeper catches, or the call
+  // being answered/ended elsewhere — see onIncomingMeetingDismissed above,
+  // fed by queryBridge's call.declined/call.no_answer/call.missed/call.ended
+  // handling), never a blind client-side clock. This timer is kept only as a
+  // backstop for a dropped event, generous enough (comfortably past the
+  // server's own 30s/20s ring deadline) that it should essentially never be
+  // the thing that actually fires. A genuine meeting/channel invite keeps its
+  // original, much shorter AUTO_DISMISS_MS — nothing server-side resolves
+  // those, so the blind timeout IS the mechanism there, unchanged.
   useEffect(() => {
     if (!incoming) return;
-    const timer = setTimeout(() => setIncoming(null), AUTO_DISMISS_MS);
+    const ms = incoming.adhoc ? ADHOC_RING_BACKSTOP_MS : AUTO_DISMISS_MS;
+    const timer = setTimeout(() => setIncoming(null), ms);
     return () => clearTimeout(timer);
   }, [incoming]);
 
@@ -152,6 +191,14 @@ export function IncomingMeetingNotice() {
     requestMeetingJoin(incoming.callId, media);
     dismiss();
   };
+  // An ad-hoc ring gets a real "no" told to the server (so the caller's room
+  // reads "declined" rather than silently ringing out — see CallRoom's
+  // callResolution); a MEETING/CHANNEL invite has no decline concept and
+  // keeps its plain, local-only dismiss.
+  const decline = () => {
+    declineCall(incoming.callId);
+    dismiss();
+  };
 
   return (
     <div
@@ -188,10 +235,10 @@ export function IncomingMeetingNotice() {
         />
         <NoticeAction
           icon={<X size={18} />}
-          label={t("incomingNotice.leave")}
-          title={t("common:buttons.dismiss")}
+          label={adhoc ? t("incomingNotice.decline") : t("incomingNotice.leave")}
+          title={adhoc ? t("incomingNotice.decline") : t("common:buttons.dismiss")}
           tone="danger"
-          onClick={dismiss}
+          onClick={adhoc ? decline : dismiss}
         />
       </div>
     </div>

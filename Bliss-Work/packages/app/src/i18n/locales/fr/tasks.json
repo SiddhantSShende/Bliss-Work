@@ -437,7 +437,7 @@
     }
   },
   "analyticsHub": {
-    "title": "Analyses",
+    "title": "Analyses de l'espace de travail",
     "hint": "Consultez les analyses de l'espace de travail ou choisissez un projet pour voir ses tâches.",
     "overviewTitle": "Aperçu",
     "projectsTitle": "Projets",
@@ -473,6 +473,7 @@
         "activityPulse": "Pouls d'activité"
       },
       "statusFlowHint": "Transitions de statut par jour pour la période sélectionnée.",
+      "donutTotalLabel": "Tâches",
       "workloadTable": {
         "person": "Personne",
         "assigned": "Assignées",
@@ -482,8 +483,14 @@
       },
       "scatter": {
         "xLabel": "Tâches assignées",
-        "yLabel": "Taux d'achèvement",
-        "hint": "Chaque point représente une personne : charge assignée par rapport à son taux d'achèvement."
+        "yLabel": "Taux d'achèvement (%)",
+        "hint": "Chaque point représente une personne : charge assignée par rapport à son taux d'achèvement.",
+        "quadrants": {
+          "highEffLowLoad": "Haute efficacité / Faible charge",
+          "highEffHighLoad": "Haute efficacité / Charge élevée",
+          "lowEffLowLoad": "Faible efficacité / Faible charge",
+          "lowEffHighLoad": "Faible efficacité / Charge élevée"
+        }
       },
       "activity": {
         "created": "Créées",

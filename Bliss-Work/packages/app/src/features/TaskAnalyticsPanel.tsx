@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3 } from "lucide-react";
@@ -5,6 +6,7 @@ import { EmptyState, Spinner } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryKeys";
 import { formatMs } from "../i18n/format";
+import { useUserLabels } from "../lib/userLabel";
 import { KpiTile, StatusBreakdownBar } from "./TaskAnalyticsParts";
 
 /**
@@ -22,6 +24,11 @@ export function TaskAnalyticsPanel({ taskId }: { taskId: string }) {
     queryKey: qk.taskAnalytics(taskId),
     queryFn: () => api.taskAnalytics(taskId),
   });
+  // `assigneeUsername` is an email-derived handle, not a display name — see
+  // userLabel.ts's module docstring. The ids are already in hand here, so
+  // resolve through the directory instead of rendering the raw DTO field.
+  const assigneeIds = useMemo(() => data?.assignees.map((a) => a.assigneeId), [data?.assignees]);
+  const { nameOf } = useUserLabels(assigneeIds);
 
   if (isLoading) {
     return (
@@ -77,7 +84,7 @@ export function TaskAnalyticsPanel({ taskId }: { taskId: string }) {
               className="flex items-center justify-between gap-3 rounded-xl border border-border/60 p-3 text-sm"
             >
               <div className="min-w-0">
-                <div className="truncate text-fg">{a.assigneeUsername}</div>
+                <div className="truncate text-fg">{nameOf(a.assigneeId, a.assigneeUsername)}</div>
                 <div className="text-xs text-muted">
                   {t(`tasks:analytics.statuses.${a.status.toLowerCase()}`)}
                 </div>

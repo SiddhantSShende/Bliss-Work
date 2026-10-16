@@ -22,7 +22,14 @@ export { RankedBars, type RankedDatum } from "./components/charts/RankedBars";
 export { StatTile, Sparkline } from "./components/charts/StatTile";
 export { formatMs } from "./components/charts/scale";
 export { UiStringsProvider, useUiStrings, DEFAULT_UI_STRINGS, type UiStrings } from "./strings";
-export { ThemeProvider, useTheme, hasStoredThemeChoice, type Theme, type ThemePrefs } from "./theme/ThemeProvider";
+export {
+  ThemeProvider,
+  useTheme,
+  hasStoredThemeChoice,
+  type Theme,
+  type ThemePrefs,
+  type ThemePrefsSnapshot,
+} from "./theme/ThemeProvider";
 export { applyTheme } from "./theme/applyTheme";
 export {
   customThemeGradient,

@@ -62,7 +62,8 @@
       "voice": "음성",
       "voiceTitle": "음성으로만 참여",
       "leave": "나가기",
-      "dismiss": "닫기"
+      "dismiss": "닫기",
+      "decline": "거절"
     },
     "titles": {
       "task": "태스크",

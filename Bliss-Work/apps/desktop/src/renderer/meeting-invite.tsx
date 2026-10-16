@@ -25,7 +25,7 @@ declare global {
       adhoc: boolean;
       onUpdate: (cb: (invite: Invite) => void) => () => void;
       ready: () => void;
-      act: (action: "video" | "voice" | "leave") => void;
+      act: (action: "video" | "voice" | "leave" | "decline") => void;
     };
   }
 }
@@ -103,10 +103,10 @@ function MeetingInviteApp() {
         />
         <InviteAction
           icon={<X size={18} />}
-          label={t("window.invite.leave")}
-          title={t("window.invite.dismiss")}
+          label={invite.adhoc ? t("window.invite.decline") : t("window.invite.leave")}
+          title={invite.adhoc ? t("window.invite.decline") : t("window.invite.dismiss")}
           tone="danger"
-          onClick={() => bridge.act("leave")}
+          onClick={() => bridge.act(invite.adhoc ? "decline" : "leave")}
         />
       </div>
     </div>

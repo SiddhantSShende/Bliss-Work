@@ -112,6 +112,12 @@
       "title": "Mettre fin à l'appel pour tout le monde ?",
       "message": "Toutes les personnes encore présentes dans cet appel seront déconnectées. Cette action est irréversible.",
       "confirm": "Mettre fin pour tous"
+    },
+    "adhocWaiting": {
+      "calling": "Appel de {{name}}…",
+      "declined": "{{name}} a refusé l'appel",
+      "noAnswer": "{{name}} n'a pas répondu",
+      "leave": "Quitter"
     }
   },
   "controls": {

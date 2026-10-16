@@ -21,6 +21,15 @@ export interface ThemePrefs {
   customActive: boolean;
 }
 
+/** The account-wide theme document: preset (which also encodes light/dark,
+ *  e.g. "rose-dark"), whether Custom is the active choice, and the custom
+ *  palette definition. Mirrors auth-svc's ThemePrefs shape. */
+export interface ThemePrefsSnapshot {
+  theme: ThemeId;
+  customActive: boolean;
+  customTheme: CustomTheme | null;
+}
+
 const ThemeCtx = createContext<{
   theme: ThemeId;
   isDark: boolean;
@@ -30,8 +39,9 @@ const ThemeCtx = createContext<{
   customThemeActive: boolean;
   saveCustomTheme: (theme: CustomTheme) => void;
   clearCustomTheme: () => void;
-  /** Update only the shared definition; the selected theme remains device-local. */
-  applyRemoteCustomTheme: (theme: CustomTheme | null) => void;
+  /** Apply the account's current document, exactly as another device left it
+   *  (preset, light/dark, Custom activation, and the palette). */
+  applyRemotePrefs: (prefs: ThemePrefsSnapshot) => void;
 }>({
   theme: defaultThemeFor(false),
   isDark: false,
@@ -41,10 +51,40 @@ const ThemeCtx = createContext<{
   customThemeActive: false,
   saveCustomTheme: () => {},
   clearCustomTheme: () => {},
-  applyRemoteCustomTheme: () => {},
+  applyRemotePrefs: () => {},
 });
 
 const THEME_KEY = "tb-theme";
+const THEME_OWNER_KEY = "tb-theme-owner";
+
+function canReadStoredTheme(accountId?: string): boolean {
+  if (!accountId) return true;
+  try {
+    const owner = localStorage.getItem(THEME_OWNER_KEY);
+    return owner === null || owner === accountId;
+  } catch {
+    return true;
+  }
+}
+
+function rememberThemeOwner(accountId?: string): void {
+  if (!accountId) return;
+  try {
+    localStorage.setItem(THEME_OWNER_KEY, accountId);
+  } catch {
+    // The in-memory theme still applies when storage is unavailable.
+  }
+}
+
+function clearStoredThemeChoice(): void {
+  try {
+    localStorage.removeItem(THEME_KEY);
+    removeStoredCustomTheme();
+    persistCustomThemeActive(false);
+  } catch {
+    // The next authenticated hydration still starts from the default.
+  }
+}
 
 /** True when this device has a cached theme choice or custom definition. */
 export function hasStoredThemeChoice(): boolean {
@@ -84,12 +124,15 @@ function persistTheme(theme: ThemeId) {
 export function ThemeProvider({
   children,
   authenticated = false,
+  accountId,
   forceDefault = false,
-  onCustomThemeChange,
+  onPrefsChange,
 }: {
   children: React.ReactNode;
   /** Persisted user preferences are not read or applied until auth is confirmed. */
   authenticated?: boolean;
+  /** Keeps a previous account's origin-wide localStorage choice from leaking. */
+  accountId?: string;
   /**
    * True while the current screen must always show the fixed Light + Blue/
    * Purple default regardless of what's stored — e.g. the caller's
@@ -106,14 +149,16 @@ export function ThemeProvider({
    */
   forceDefault?: boolean;
   /**
-    * Called only when the shared custom palette definition changes or is
-    * deleted. Preset selection, appearance, and Custom activation are local.
+   * Called after ANY of preset, light/dark, Custom activation, or the custom
+   * palette definition changes on this device — the whole account-wide
+   * document, every time, so the caller's publish path never has to guess
+   * which pieces moved.
    */
-    onCustomThemeChange?: (theme: CustomTheme | null) => void;
+  onPrefsChange?: (prefs: ThemePrefsSnapshot) => void;
 }) {
-  const [theme, setThemeState] = useState<ThemeId>(() => authenticated ? readStoredTheme() : defaultThemeFor(false));
-  const [customTheme, setCustomTheme] = useState<CustomTheme | null>(() => authenticated ? readStoredCustomTheme() : null);
-  const [customThemeSelected, setCustomThemeActive] = useState(() => authenticated && isCustomThemeActive());
+  const [theme, setThemeState] = useState<ThemeId>(() => authenticated && canReadStoredTheme(accountId) ? readStoredTheme() : defaultThemeFor(false));
+  const [customTheme, setCustomTheme] = useState<CustomTheme | null>(() => authenticated && canReadStoredTheme(accountId) ? readStoredCustomTheme() : null);
+  const [customThemeSelected, setCustomThemeActive] = useState(() => authenticated && canReadStoredTheme(accountId) && isCustomThemeActive());
   // "Custom" is the active theme only while there is a valid palette to be
   // active. The selection is the explicit flag above — never inferred from the
   // palette's colours — but a flag left behind with no (or an unreadable)
@@ -128,10 +173,13 @@ export function ThemeProvider({
       setCustomThemeActive(false);
       return;
     }
-    setThemeState(readStoredTheme());
-    setCustomTheme(readStoredCustomTheme());
-    setCustomThemeActive(isCustomThemeActive());
-  }, [authenticated]);
+    if (!canReadStoredTheme(accountId)) clearStoredThemeChoice();
+    const canUseStoredTheme = canReadStoredTheme(accountId);
+    setThemeState(canUseStoredTheme ? readStoredTheme() : defaultThemeFor(false));
+    setCustomTheme(canUseStoredTheme ? readStoredCustomTheme() : null);
+    setCustomThemeActive(canUseStoredTheme && isCustomThemeActive());
+    rememberThemeOwner(accountId);
+  }, [accountId, authenticated]);
 
   useLayoutEffect(() => {
     const useDefault = !authenticated || forceDefault;
@@ -148,17 +196,16 @@ export function ThemeProvider({
     setThemeState(next);
     persistCustomThemeActive(false);
     setCustomThemeActive(false);
+    onPrefsChange?.({ theme: next, customActive: false, customTheme });
   };
 
   const saveCustomTheme = (next: CustomTheme) => {
     if (!authenticated) return;
-    const changed = !customTheme || customTheme.colors.length !== next.colors.length ||
-      customTheme.colors.some((color, index) => color !== next.colors[index]);
     persistCustomTheme(next);
     persistCustomThemeActive(true);
     setCustomTheme(next);
     setCustomThemeActive(true);
-    if (changed) onCustomThemeChange?.({ colors: [...next.colors] });
+    onPrefsChange?.({ theme, customActive: true, customTheme: { colors: [...next.colors] } });
   };
 
   const clearCustomTheme = () => {
@@ -167,7 +214,7 @@ export function ThemeProvider({
     persistCustomThemeActive(false);
     setCustomTheme(null);
     setCustomThemeActive(false);
-    onCustomThemeChange?.(null);
+    onPrefsChange?.({ theme, customActive: false, customTheme: null });
   };
 
   /** Profile → Dark Mode / Settings → Theme: flips the CURRENT family's own
@@ -179,25 +226,39 @@ export function ThemeProvider({
     const next = darkCounterpart(theme);
     persistTheme(next);
     setThemeState(next);
+    onPrefsChange?.({ theme: next, customActive: customThemeActive, customTheme });
   };
 
-  const applyRemoteCustomTheme = (remote: CustomTheme | null) => {
+  /** Apply the account's current document exactly as another device/session
+   *  left it — preset, light/dark (folded into the preset id), Custom
+   *  activation, and the palette — all at once, so there is never a moment
+   *  where only part of a remote change has been applied. An invalid preset id
+   *  or palette (a future id this build doesn't know, or corrupted colours)
+   *  falls back to the fixed default / no palette rather than crashing or
+   *  rendering a theme that cannot actually apply. */
+  const applyRemotePrefs = (remote: ThemePrefsSnapshot) => {
     if (!authenticated) return;
-    const nextCustom = remote && isCustomColors(remote.colors) ? { colors: [...remote.colors] } : null;
+    const nextTheme = isThemeId(remote.theme) ? remote.theme : defaultThemeFor(false);
+    const nextCustom =
+      remote.customTheme && isCustomColors(remote.customTheme.colors)
+        ? { colors: [...remote.customTheme.colors] }
+        : null;
+    const nextActive = remote.customActive && nextCustom !== null;
+    persistTheme(nextTheme);
     if (nextCustom) persistCustomTheme(nextCustom);
     else removeStoredCustomTheme();
+    persistCustomThemeActive(nextActive);
+    rememberThemeOwner(accountId);
+    setThemeState(nextTheme);
     setCustomTheme(nextCustom);
-    if (!nextCustom) {
-      persistCustomThemeActive(false);
-      setCustomThemeActive(false);
-    }
+    setCustomThemeActive(nextActive);
   };
 
   const isDark = theme.endsWith("-dark");
 
   return (
     <ThemeCtx.Provider
-      value={{ theme, isDark, setTheme, toggle, customTheme, customThemeActive, saveCustomTheme, clearCustomTheme, applyRemoteCustomTheme }}
+      value={{ theme, isDark, setTheme, toggle, customTheme, customThemeActive, saveCustomTheme, clearCustomTheme, applyRemotePrefs }}
     >
       {children}
     </ThemeCtx.Provider>

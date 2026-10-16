@@ -4,15 +4,21 @@
  * unique-task rate must render as two distinct, separately-tooltipped
  * numbers, never merged into one.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ChannelAnalyticsDTO } from "@taskboard/shared";
 
-const h = vi.hoisted(() => ({ channelAnalytics: vi.fn() }));
+const h = vi.hoisted(() => ({ channelAnalytics: vi.fn(), directory: vi.fn() }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h, config: {} }) }));
 
 import { ChannelAnalyticsPanel } from "./ChannelAnalyticsPanel";
+
+beforeEach(() => {
+  // No directory entries by default — falls back to the DTO's own username,
+  // same as before `useUserLabels` was wired into the workload bars.
+  h.directory.mockResolvedValue([]);
+});
 
 function mount(channelId = "chan-1") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -99,5 +105,18 @@ describe("ChannelAnalyticsPanel", () => {
     expect(await screen.findByText("alice")).toBeInTheDocument();
     expect(screen.getByText("bob")).toBeInTheDocument();
     expect(screen.getByText("8/10 (80%)")).toBeInTheDocument();
+  });
+
+  it("resolves a workload row's directory display name instead of its raw username", async () => {
+    h.directory.mockResolvedValue([
+      { id: "u1", username: "alice", displayName: "Alice Okafor", email: "alice@example.com" },
+    ]);
+    h.channelAnalytics.mockResolvedValue(FIXTURE);
+    mount();
+
+    expect(await screen.findByText("Alice Okafor")).toBeInTheDocument();
+    expect(screen.queryByText("alice")).not.toBeInTheDocument();
+    // u2 has no directory entry — falls back to its own assigneeUsername.
+    expect(screen.getByText("bob")).toBeInTheDocument();
   });
 });

@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProjectDTO, type WorkspaceOverviewDTO } from "@taskboard/shared";
 
-const h = vi.hoisted(() => ({ projects: vi.fn(), workspaceAnalyticsOverview: vi.fn() }));
+const h = vi.hoisted(() => ({ projects: vi.fn(), workspaceAnalyticsOverview: vi.fn(), directory: vi.fn() }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h, config: {} }) }));
 
 import { WorkspaceOverview } from "./WorkspaceOverview";
@@ -108,6 +108,7 @@ describe("WorkspaceOverview", () => {
   it("fetches and shows KPI totals — no client-side role gate", async () => {
     h.projects.mockResolvedValue([PROJECT]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    h.directory.mockResolvedValue([]);
     mount();
 
     const totalLabel = await screen.findByText("Total Tasks");
@@ -123,6 +124,7 @@ describe("WorkspaceOverview", () => {
   it("shows project names from the project performance ranking", async () => {
     h.projects.mockResolvedValue([PROJECT]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    h.directory.mockResolvedValue([]);
     mount();
 
     const projectSection = (await screen.findByText("Project Performance")).closest("div");
@@ -132,6 +134,7 @@ describe("WorkspaceOverview", () => {
   it("shows the empty state when there are no tasks in range", async () => {
     h.projects.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
+    h.directory.mockResolvedValue([]);
     mount();
 
     expect(await screen.findByText("No activity yet")).toBeInTheDocument();
@@ -140,6 +143,7 @@ describe("WorkspaceOverview", () => {
   it("shows a retry control on error", async () => {
     h.projects.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockRejectedValue(new Error("boom"));
+    h.directory.mockResolvedValue([]);
     mount();
 
     expect(await screen.findByText("Couldn't load the overview")).toBeInTheDocument();
@@ -149,6 +153,7 @@ describe("WorkspaceOverview", () => {
   it("refetches with a new date range when a range tab is clicked", async () => {
     h.projects.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    h.directory.mockResolvedValue([]);
     mount();
     await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalledTimes(1));
     const firstCall = h.workspaceAnalyticsOverview.mock.calls[0]?.[0];
@@ -163,6 +168,7 @@ describe("WorkspaceOverview", () => {
   it("refetches scoped to one project when the project filter changes", async () => {
     h.projects.mockResolvedValue([PROJECT]);
     h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    h.directory.mockResolvedValue([]);
     mount();
     await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalledTimes(1));
 
@@ -173,5 +179,28 @@ describe("WorkspaceOverview", () => {
         expect.objectContaining({ projectId: PROJECT_ID }),
       ),
     );
+  });
+
+  it("shows the person's directory display name, not their raw username", async () => {
+    h.projects.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    h.directory.mockResolvedValue([
+      { id: "u1", username: "alice", displayName: "Alice Okafor", email: "alice@example.com" },
+    ]);
+    mount();
+
+    const workloadSection = (await screen.findByText("Person Workload")).closest("div");
+    expect(within(workloadSection as HTMLElement).getByText("Alice Okafor")).toBeInTheDocument();
+    expect(within(workloadSection as HTMLElement).queryByText("alice")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the DTO's username when the directory has no entry for that person", async () => {
+    h.projects.mockResolvedValue([]);
+    h.workspaceAnalyticsOverview.mockResolvedValue(OVERVIEW);
+    h.directory.mockResolvedValue([]);
+    mount();
+
+    const workloadSection = (await screen.findByText("Person Workload")).closest("div");
+    expect(within(workloadSection as HTMLElement).getByText("alice")).toBeInTheDocument();
   });
 });

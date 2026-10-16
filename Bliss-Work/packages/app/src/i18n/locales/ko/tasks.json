@@ -413,7 +413,7 @@
     }
   },
   "analyticsHub": {
-    "title": "분석",
+    "title": "워크스페이스 분석",
     "hint": "워크스페이스 분석을 확인하거나, 프로젝트를 선택하여 작업을 확인하세요.",
     "overviewTitle": "개요",
     "projectsTitle": "프로젝트",
@@ -449,6 +449,7 @@
         "activityPulse": "활동 추이"
       },
       "statusFlowHint": "선택한 기간의 일별 상태 전환입니다.",
+      "donutTotalLabel": "작업",
       "workloadTable": {
         "person": "담당자",
         "assigned": "할당됨",
@@ -458,8 +459,14 @@
       },
       "scatter": {
         "xLabel": "할당된 작업",
-        "yLabel": "완료율",
-        "hint": "각 점은 한 명의 담당자이며, 할당된 업무량과 완료율을 나타냅니다."
+        "yLabel": "완료율 (%)",
+        "hint": "각 점은 한 명의 담당자이며, 할당된 업무량과 완료율을 나타냅니다.",
+        "quadrants": {
+          "highEffLowLoad": "높은 효율 / 낮은 부하",
+          "highEffHighLoad": "높은 효율 / 높은 부하",
+          "lowEffLowLoad": "낮은 효율 / 낮은 부하",
+          "lowEffHighLoad": "낮은 효율 / 높은 부하"
+        }
       },
       "activity": {
         "created": "생성됨",

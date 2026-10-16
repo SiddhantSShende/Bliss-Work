@@ -165,7 +165,9 @@
     "leave": "Leave",
     "conferenceTitle": "Conference call",
     "addedYou": "{{name}} added you to a conference call",
-    "ariaLabelCall": "Incoming call: {{title}}"
+    "ariaLabelCall": "Incoming call: {{title}}",
+    "decline": "Decline",
+    "declineFailed": "Couldn't decline the call. Please try again."
   },
   "scheduledNotice": {
     "untitledMeeting": "Meeting",

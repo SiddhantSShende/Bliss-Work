@@ -62,7 +62,8 @@
       "voice": "Voice",
       "voiceTitle": "Join with voice only",
       "leave": "Leave",
-      "dismiss": "Dismiss"
+      "dismiss": "Dismiss",
+      "decline": "Decline"
     },
     "titles": {
       "task": "Task",

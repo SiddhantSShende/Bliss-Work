@@ -140,6 +140,41 @@ export function onIncomingMeetingDismissed(listener: (callId: string) => void) {
   return () => window.removeEventListener(DISMISS_INCOMING_MEETING_EVENT, handle);
 }
 
+const CALL_RESOLUTION_EVENT = "taskboard:call-resolution";
+
+/** How a ring the CALLER placed was resolved, server-authoritative — the
+ *  live counterpart of CallMissed's bell notification (that one is for the
+ *  INVITEE; this is for the INVITER). `actorName` is the invitee who
+ *  declined or did not answer, exactly as the call.declined/call.no_answer
+ *  event itself carries it (see events.ts's callFields doc). */
+export interface CallResolution {
+  reason: "declined" | "no_answer";
+  actorName?: string;
+}
+
+/** Tell CallRoom that the ring it is waiting on (an ad-hoc call where the
+ *  caller is still alone in the room) was declined or timed out unanswered —
+ *  raised by the socket bridge (lib/queryBridge) on call.declined/
+ *  call.no_answer, which the server addresses ONLY to the inviter. A plain
+ *  window event, matching announceIncomingMeeting's own shape, for the same
+ *  reason: the bridge that hears these has no reason to sit inside the
+ *  meeting session's provider tree. */
+export function announceCallResolution(callId: string, resolution: CallResolution) {
+  window.dispatchEvent(new CustomEvent(CALL_RESOLUTION_EVENT, { detail: { callId, resolution } }));
+}
+
+export function onCallResolutionAnnounced(listener: (callId: string, resolution: CallResolution) => void) {
+  const handle = (event: Event) => {
+    const detail = (event as CustomEvent<{ callId?: unknown; resolution?: unknown }>).detail;
+    if (typeof detail?.callId !== "string" || !detail.callId) return;
+    const r = detail.resolution as Partial<CallResolution> | undefined;
+    if (r?.reason !== "declined" && r?.reason !== "no_answer") return;
+    listener(detail.callId, { reason: r.reason, actorName: typeof r.actorName === "string" ? r.actorName : undefined });
+  };
+  window.addEventListener(CALL_RESOLUTION_EVENT, handle);
+  return () => window.removeEventListener(CALL_RESOLUTION_EVENT, handle);
+}
+
 export interface MeetingSessionApi {
   /** The meeting in progress, or null. */
   call: CallDTO | null;

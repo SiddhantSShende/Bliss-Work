@@ -62,7 +62,8 @@
       "voice": "Voz",
       "voiceTitle": "Unirse solo con voz",
       "leave": "Salir",
-      "dismiss": "Descartar"
+      "dismiss": "Descartar",
+      "decline": "Rechazar"
     },
     "titles": {
       "task": "Tarea",

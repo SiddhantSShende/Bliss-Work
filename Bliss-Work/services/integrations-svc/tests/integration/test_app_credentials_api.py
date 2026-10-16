@@ -268,6 +268,62 @@ async def test_connect_start_is_forbidden_for_a_non_enterprise_org(db_app):
     assert n == 0
 
 
+async def test_connect_start_outlook_is_exempt_from_the_enterprise_gate(db_app):
+    # Product decision: every authenticated org may connect Outlook regardless
+    # of plan. Teams shares the SAME Entra app registration (app_credentials's
+    # vendor_for maps both to 'microsoft') but is a DIFFERENT provider and must
+    # stay gated — proving the exemption is keyed off `provider`, not `vendor`.
+    async with await _client(_principal(plan="enterprise")) as c:
+        await c.put(
+            "/api/v1/integrations/app-credentials/microsoft",
+            json={"clientId": "ms-live-id", "clientSecret": "ms-live-secret"},
+        )
+
+    async with await _client(_principal(plan="free")) as c:
+        r = await c.post("/api/v1/integrations/outlook/connect/start", json={})
+        assert r.status_code == 200, r.text
+        assert "client_id=ms-live-id" in r.json()["authorizeUrl"]
+
+        r = await c.post("/api/v1/integrations/teams/connect/start", json={})
+        assert r.status_code == 403, r.text
+        assert "enterprise" in r.json()["error"]["message"].lower()
+
+
+async def test_connect_start_outlook_uses_the_central_server_app_with_no_org_setup(
+    db_app, monkeypatch
+):
+    # The product requirement is that a member can connect their own Microsoft
+    # account without their ORG ever registering an Entra app or pasting a
+    # client secret. app_credentials._env_fallback() is what makes that
+    # possible: with no per-org row, load() falls back to these three
+    # service-level settings — a single app BlissWork operates for everyone.
+    # No PUT /integrations/app-credentials call happens anywhere in this test.
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ms_client_id", "central-app-id")
+    monkeypatch.setattr(settings, "ms_client_secret", "central-app-secret")
+    monkeypatch.setattr(settings, "ms_tenant", "common")
+
+    async with await _client(_principal(plan="free")) as c:
+        r = await c.post("/api/v1/integrations/outlook/connect/start", json={})
+        assert r.status_code == 200, r.text
+        url = r.json()["authorizeUrl"]
+        # The shared app's client id drives the flow, against the multi-audience
+        # /common authority (required for both personal and work/school
+        # accounts to sign in through the same registration)...
+        assert "client_id=central-app-id" in url
+        assert "https://login.microsoftonline.com/common/oauth2/v2.0/authorize" in url
+        # ...and the secret never travels in the browser-followed URL.
+        assert "central-app-secret" not in url
+
+    # A SECOND, unrelated org gets the exact same treatment — proving this
+    # isn't a credential some earlier test/row left behind for THIS org.
+    async with await _client(_principal(org_id=OTHER_ORG, plan="free")) as c:
+        r = await c.post("/api/v1/integrations/outlook/connect/start", json={})
+        assert r.status_code == 200, r.text
+        assert "client_id=central-app-id" in r.json()["authorizeUrl"]
+
+
 async def test_the_oauth_state_is_pinned_to_the_credential_row(db_app):
     """A secret rotated mid-consent must not break an in-flight code exchange."""
     async with await _client() as c:

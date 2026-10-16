@@ -307,7 +307,8 @@ func (c *Consumer) handle(ctx context.Context, tx pgx.Tx, value []byte) error {
 	// The other call events (ended, waiting, left, screen shares) are signals for
 	// live clients, not news.
 	switch ev.Type {
-	case events.TypeCallScheduled, events.TypeCallRing, events.TypeCallStarted, events.TypeCallEnded:
+	case events.TypeCallScheduled, events.TypeCallRing, events.TypeCallStarted, events.TypeCallEnded,
+		events.TypeCallMissed:
 		return c.callNotification(ctx, tx, value)
 	}
 
@@ -608,8 +609,24 @@ func callNotice(ev events.CallLifecycle) (kind, text string, linksCall bool) {
 			return "", "", false
 		}
 		return events.KindMeetingCancelled, callEventText("Meeting cancelled", ev.Title, ev.ScheduledAt), false
+	case events.TypeCallMissed:
+		// The call that was missed is already over by the time this fires (the
+		// ring-expiry sweep only emits it once an invitation has actually
+		// expired), so there is nothing a link into it would open — same
+		// reasoning as a cancellation, above.
+		return events.KindCallMissed, missedCallText(ev.ActorName), false
 	}
 	return "", "", false
+}
+
+// missedCallText is what the one person who missed a ring reads in the bell.
+// ev.ActorName here is the INVITER (see TypeCallMissed's doc comment in
+// messaging-svc's events package) — the person whose call this was.
+func missedCallText(inviter string) string {
+	if inviter == "" {
+		return "You missed a call"
+	}
+	return "You missed a call from " + inviter
 }
 
 // callEventText is "<what happened>: <title>[ · <when>]", with the same "Meeting"

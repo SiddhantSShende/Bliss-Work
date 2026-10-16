@@ -499,3 +499,104 @@ describe("CallRoom — Picture-in-Picture button", () => {
     expect(await screen.findByRole("button", { name: /^picture-in-picture$/i })).toBeInTheDocument();
   });
 });
+
+/** An ad-hoc 1:1 — a DIRECT call with no schedule (see isAdhocCall). */
+const ADHOC_CALL: CallDTO = { ...CALL, kind: "DIRECT", scheduledAt: null };
+/** A scheduled DIRECT call — NOT ad-hoc, keeps the ordinary lobby rule. */
+const SCHEDULED_DIRECT_CALL: CallDTO = { ...CALL, kind: "DIRECT", scheduledAt: "2026-09-29T09:00:00.000Z" };
+
+/** Renders CallRoom with NO autoJoin prop at all — the only way to actually
+ *  exercise the lobby's own initial state, since every other test in this
+ *  file passes autoJoin="video" to land straight on the connected room it is
+ *  testing. */
+function renderWithoutAutoJoin(call: CallDTO, participants: RoomParticipant[] = []) {
+  h.useCallRoomMock.mockReturnValue(room(participants));
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <CallRoom call={call} onClose={() => {}} />
+    </QueryClientProvider>,
+  );
+}
+
+describe("CallRoom — pre-join lobby, gated on call KIND not entry point", () => {
+  it("skips the lobby for an ad-hoc call even with no autoJoin at all", () => {
+    renderWithoutAutoJoin(ADHOC_CALL);
+
+    expect(screen.queryByText("Ready to join?")).toBeNull();
+    // Straight through to the room chrome — useCallRoom's join() was called,
+    // which is exactly what the pre-join lobby exists to defer.
+    const callRoom = h.useCallRoomMock.mock.results.at(-1)!.value as ReturnType<typeof room>;
+    expect(callRoom.join).toHaveBeenCalled();
+  });
+
+  it("keeps the lobby for an ordinary MEETING with no autoJoin — unchanged regression", () => {
+    renderWithoutAutoJoin(CALL);
+
+    expect(screen.getByText("Ready to join?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Join meeting" })).toBeInTheDocument();
+    const callRoom = h.useCallRoomMock.mock.results.at(-1)!.value as ReturnType<typeof room>;
+    expect(callRoom.join).not.toHaveBeenCalled();
+  });
+
+  it("keeps the lobby for a SCHEDULED (non-ad-hoc) DIRECT call too", () => {
+    renderWithoutAutoJoin(SCHEDULED_DIRECT_CALL);
+
+    expect(screen.getByText("Ready to join?")).toBeInTheDocument();
+    const callRoom = h.useCallRoomMock.mock.results.at(-1)!.value as ReturnType<typeof room>;
+    expect(callRoom.join).not.toHaveBeenCalled();
+  });
+
+  it("still honours autoJoin for a MEETING, exactly as before", () => {
+    renderRoom([]);
+
+    expect(screen.queryByText("Ready to join?")).toBeNull();
+  });
+});
+
+describe("CallRoom — the caller waiting on a fresh ad-hoc ring", () => {
+  const ADHOC_WITH_PEER: CallDTO = {
+    ...ADHOC_CALL,
+    participants: [
+      { userId: "00000000-0000-4000-8000-000000000777", orgId: CALL.orgId, role: "PARTICIPANT", username: "jordan", joinedAt: null, leftAt: null, waitingSince: null, external: false },
+    ],
+  };
+
+  it("shows a Calling… state while alone in the room, not a false success", () => {
+    h.useCallRoomMock.mockReturnValue(room([person("local", { isLocal: true })], { status: "connected" }));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <CallRoom call={ADHOC_WITH_PEER} onClose={() => {}} autoJoin="video" />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText(/^Calling jordan…$/)).toBeInTheDocument();
+  });
+
+  it("resolves on its own once a second participant actually joins", () => {
+    const { rerender } = render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <CallRoom call={ADHOC_WITH_PEER} onClose={() => {}} autoJoin="video" />
+      </QueryClientProvider>,
+    );
+    h.useCallRoomMock.mockReturnValue(room([person("local", { isLocal: true })], { status: "connected" }));
+    rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <CallRoom call={ADHOC_WITH_PEER} onClose={() => {}} autoJoin="video" />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText(/Calling jordan/)).toBeInTheDocument();
+
+    // jordan actually joins — the empty-room branch stops matching on its own.
+    h.useCallRoomMock.mockReturnValue(
+      room([person("local", { isLocal: true }), person("jordan")], { status: "connected" }),
+    );
+    rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <CallRoom call={ADHOC_WITH_PEER} onClose={() => {}} autoJoin="video" />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText(/Calling jordan/)).toBeNull();
+  });
+});

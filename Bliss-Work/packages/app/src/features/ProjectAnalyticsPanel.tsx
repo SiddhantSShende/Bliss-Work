@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { BarChart3 } from "lucide-react";
@@ -6,6 +7,7 @@ import type { ProjectTaskStatus, ProjectTaskSummaryDTO } from "@taskboard/shared
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryKeys";
 import { formatTaskInstant } from "../lib/taskDates";
+import { useUserLabels } from "../lib/userLabel";
 import {
   CompletionRing,
   KpiTile,
@@ -41,6 +43,24 @@ export function ProjectAnalyticsPanel({ projectId }: { projectId: string }) {
         return loaded < last.tasksTotal ? loaded : undefined;
       },
     });
+
+  // `assigneeUsername`/`senderUsername` are email-derived handles, not
+  // display names (see userLabel.ts). Every id this panel will ever render
+  // — workload assignees, task senders, per-task assignees, across every
+  // loaded page — is already in hand, so resolve them all through one
+  // directory lookup instead of rendering the raw DTO fields.
+  const allIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const page of data?.pages ?? []) {
+      for (const w of page.workload) ids.add(w.assigneeId);
+      for (const task of page.tasks) {
+        ids.add(task.senderId);
+        for (const a of task.assignees) ids.add(a.assigneeId);
+      }
+    }
+    return [...ids];
+  }, [data?.pages]);
+  const { nameOf } = useUserLabels(allIds);
 
   if (isLoading) {
     return (
@@ -102,12 +122,12 @@ export function ProjectAnalyticsPanel({ projectId }: { projectId: string }) {
 
       <div>
         <h4 className="mb-2 text-sm font-semibold text-fg">{t("tasks:analytics.project.workloadHeading")}</h4>
-        <WorkloadBars workload={first.workload} />
+        <WorkloadBars workload={first.workload} nameOf={nameOf} />
       </div>
 
       <div>
         <h4 className="mb-2 text-sm font-semibold text-fg">{t("tasks:analytics.project.breakdownHeading")}</h4>
-        <ProjectTaskBreakdownList tasks={tasks} />
+        <ProjectTaskBreakdownList tasks={tasks} nameOf={nameOf} />
         {hasNextPage && (
           <div className="mt-3 flex justify-center">
             <Button variant="subtle" size="sm" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
@@ -126,7 +146,13 @@ const TASK_STATUS_TONE: Record<ProjectTaskStatus, "success" | "accent" | "warnin
   ABANDONED: "warning",
 };
 
-function ProjectTaskBreakdownList({ tasks }: { tasks: ProjectTaskSummaryDTO[] }) {
+function ProjectTaskBreakdownList({
+  tasks,
+  nameOf,
+}: {
+  tasks: ProjectTaskSummaryDTO[];
+  nameOf: (id: string, fallback?: string) => string;
+}) {
   const { t } = useTranslation("tasks");
   return (
     <ul className="m-0 list-none space-y-2 p-0">
@@ -142,7 +168,7 @@ function ProjectTaskBreakdownList({ tasks }: { tasks: ProjectTaskSummaryDTO[] })
             </div>
           </div>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
-            <span>{t("tasks:analytics.project.sentBy", { name: task.senderUsername })}</span>
+            <span>{t("tasks:analytics.project.sentBy", { name: nameOf(task.senderId, task.senderUsername) })}</span>
             {formatTaskInstant(task.createdAt) && <span>{t("tasks:analytics.project.createdOn", { date: formatTaskInstant(task.createdAt) })}</span>}
             {task.deadlineAt && formatTaskInstant(task.deadlineAt) && (
               <span>{t("tasks:analytics.project.deadlineOn", { date: formatTaskInstant(task.deadlineAt) })}</span>
@@ -152,7 +178,7 @@ function ProjectTaskBreakdownList({ tasks }: { tasks: ProjectTaskSummaryDTO[] })
             <ul className="mt-2 flex min-w-0 flex-wrap gap-1.5">
               {task.assignees.map((assignee) => (
                 <li key={assignee.assigneeId} className="inline-flex min-w-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-xs text-fg">
-                  <span className="max-w-32 truncate">{assignee.assigneeUsername || assignee.assigneeId}</span>
+                  <span className="max-w-32 truncate">{nameOf(assignee.assigneeId, assignee.assigneeUsername)}</span>
                   <span className="text-muted">{t(`tasks:analytics.statuses.${assignee.status.toLowerCase()}`)}</span>
                 </li>
               ))}

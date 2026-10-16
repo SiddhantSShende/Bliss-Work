@@ -413,7 +413,7 @@
     }
   },
   "analyticsHub": {
-    "title": "分析",
+    "title": "工作区分析",
     "hint": "查看工作区分析，或选择一个项目以查看其任务。",
     "overviewTitle": "总览",
     "projectsTitle": "项目",
@@ -449,6 +449,7 @@
         "activityPulse": "活动脉搏"
       },
       "statusFlowHint": "所选时间范围内每日的状态变化。",
+      "donutTotalLabel": "任务",
       "workloadTable": {
         "person": "人员",
         "assigned": "已分配",
@@ -458,8 +459,14 @@
       },
       "scatter": {
         "xLabel": "已分配任务",
-        "yLabel": "完成率",
-        "hint": "每个点代表一个人：已分配工作量与其完成率的对比。"
+        "yLabel": "完成率 (%)",
+        "hint": "每个点代表一个人：已分配工作量与其完成率的对比。",
+        "quadrants": {
+          "highEffLowLoad": "高效率 / 低负荷",
+          "highEffHighLoad": "高效率 / 高负荷",
+          "lowEffLowLoad": "低效率 / 低负荷",
+          "lowEffHighLoad": "低效率 / 高负荷"
+        }
       },
       "activity": {
         "created": "创建",

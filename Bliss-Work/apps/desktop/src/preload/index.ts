@@ -258,6 +258,13 @@ const api = {
     return () => ipcRenderer.removeListener("meeting-invite:join", handler);
   },
 
+  /** The invite popup's Decline button was clicked (ad-hoc rings only). */
+  onMeetingInviteDeclined: (cb: (callId: string) => void) => {
+    const handler = (_: unknown, p: { callId: string }) => cb(p.callId);
+    ipcRenderer.on("meeting-invite:declined", handler);
+    return () => ipcRenderer.removeListener("meeting-invite:declined", handler);
+  },
+
   /** Phase 10 WebRTC signaling, bridged to the ws-process socket: outbound
    *  frames go to main → ws-process; inbound rtc.* frames arrive on "rtc:frame". */
   rtc: {

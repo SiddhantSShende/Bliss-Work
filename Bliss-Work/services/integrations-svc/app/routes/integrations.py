@@ -281,7 +281,10 @@ async def connect_start(
     # and token-paste) create a new connection through this function, and the
     # OAuth callback cannot complete without the oauth_states row only this
     # branch inserts, so refusing it here closes both paths.
-    if principal.plan != "enterprise":
+    #
+    # Outlook is carved out: every authenticated org may connect it regardless
+    # of plan, by product decision. Gmail/Slack/Teams stay enterprise-gated.
+    if provider != "outlook" and principal.plan != "enterprise":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="External Integrations requires the enterprise plan",

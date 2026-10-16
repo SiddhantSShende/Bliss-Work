@@ -66,7 +66,8 @@
       "updateBlock": {
         "title": "Die Sperre konnte nicht aktualisiert werden",
         "description": "Bitte versuchen Sie es erneut."
-      }
+      },
+      "startCall": "Der Anruf konnte nicht gestartet werden"
     },
     "bulkDelete": {
       "deletedToast_one": "{{count}} Nachricht gelöscht",
@@ -107,7 +108,9 @@
       "onAnotherCall": {
         "title": "{{name}} ist in einem anderen Anruf",
         "description": "Der Anruf wird trotzdem versucht – eventuell wird nicht abgenommen."
-      }
+      },
+      "alreadyInCall": "Sie sind bereits in einem Anruf",
+      "failed": "Der Anruf konnte nicht gestartet werden"
     },
     "exportedToast_one": "{{count}} Nachricht exportiert",
     "exportedToast_other": "{{count}} Nachrichten exportiert",

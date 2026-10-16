@@ -5,7 +5,6 @@ import { MAX_ADHOC_CALL_PARTICIPANTS } from "@taskboard/shared";
 import { Modal } from "./Modal";
 import { MemberPicker } from "./MemberPicker";
 import { useRuntime } from "../lib/runtime";
-import { useCall } from "../lib/useCall";
 import { useMeetingSession } from "../lib/MeetingSession";
 
 /** Two people, because one is just a 1:1 call and rings from the chat. */
@@ -33,13 +32,15 @@ export function GroupCallDialog({ open, onClose }: { open: boolean; onClose: () 
 function GroupCallPicker({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation("callRoom");
   const { api } = useRuntime();
-  const ring = useCall();
   const session = useMeetingSession();
   const [busy, setBusy] = useState(false);
 
   const start = (userIds: string[]) => {
     // One call at a time: a second would leave the first running unattended.
-    if (session.call || ring.status !== "idle") {
+    // `session.call` is the one "is a call already active" signal now that
+    // every call (1:1 or group) goes through MeetingSession's room — see
+    // DMView's own startCall for the 1:1 half of this.
+    if (session.call) {
       toast.error(t("groupCall.alreadyInCall"));
       return;
     }

@@ -57,10 +57,18 @@ export function MyTasksBoard({ projectId }: { projectId?: string } = {}) {
     [projectId, tasks],
   );
   const people = useMemo(() => personOptions(boardTasks), [boardTasks]);
-  // Cards also draw task.participants, who need not be assignees.
+  // Cards also draw task.participants (who need not be assignees) and
+  // schedule.assignees (ScheduledTaskCard below) — every id a card on this
+  // board will ever resolve a name for.
   const labelIds = useMemo(
-    () => [...new Set([...people.map((p) => p.id), ...boardTasks.flatMap((task) => task.participants?.map((p) => p.userId) ?? [])])],
-    [people, boardTasks],
+    () => [
+      ...new Set([
+        ...people.map((p) => p.id),
+        ...boardTasks.flatMap((task) => task.participants?.map((p) => p.userId) ?? []),
+        ...(schedules.data ?? []).flatMap((schedule) => schedule.assignees.map((a) => a.userId)),
+      ]),
+    ],
+    [people, boardTasks, schedules.data],
   );
   const { nameOf, avatarUrlOf } = useUserLabels(labelIds);
   const channelList = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
@@ -148,7 +156,7 @@ export function MyTasksBoard({ projectId }: { projectId?: string } = {}) {
         ) : (
           <div className="flex flex-col gap-3">
             {visibleSchedules.map((schedule) => (
-              <ScheduledTaskCard key={schedule.scheduleId} schedule={schedule} onCancelled={() => void schedules.refetch()} />
+              <ScheduledTaskCard key={schedule.scheduleId} schedule={schedule} nameOf={nameOf} onCancelled={() => void schedules.refetch()} />
             ))}
             {visibleTasks.map((match) => (
               <MyTaskCard
@@ -189,9 +197,11 @@ export function MyTasksBoard({ projectId }: { projectId?: string } = {}) {
 
 function ScheduledTaskCard({
   schedule,
+  nameOf,
   onCancelled,
 }: {
   schedule: import("@taskboard/shared").ScheduledTaskDTO;
+  nameOf: (id: string, fallback?: string) => string;
   onCancelled: () => void;
 }) {
   const { t, i18n } = useTranslation("tasks");
@@ -251,7 +261,9 @@ function ScheduledTaskCard({
             </div>
           )}
           {schedule.assignees.length > 0 && (
-            <div className="mt-2 line-clamp-2 break-words text-sm text-fg">{schedule.assignees.map((assignee) => assignee.username).join(", ")}</div>
+            <div className="mt-2 line-clamp-2 break-words text-sm text-fg">
+              {schedule.assignees.map((assignee) => nameOf(assignee.userId, assignee.displayName || assignee.username)).join(", ")}
+            </div>
           )}
           {schedule.channelIds.length > 0 && (
             <div className="mt-2 line-clamp-2 break-words text-sm text-fg">{channelsLine}</div>

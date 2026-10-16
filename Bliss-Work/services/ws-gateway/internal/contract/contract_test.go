@@ -91,6 +91,54 @@ func TestRecipientsOf_StickyPinChanged_NoAssignee_DropsCleanly(t *testing.T) {
 // TestRecipientsOf_TaskMissed proves a missed deadline reaches exactly the
 // assignee (their cards move to Missed) and the allocator (their board
 // refreshes), like every other per-assignee task outcome, and nobody else.
+// TestFanoutTopics_IncludesAuthEvents is a regression test for theme-sync
+// push: auth.events was added to FanoutTopics so user.theme_prefs_changed can
+// reach a client socket. Every other event type on that topic (password
+// resets, session lifecycle, invites, ...) still falls through RecipientsOf's
+// `default` case below and is dropped before it ever reaches a client.
+func TestFanoutTopics_IncludesAuthEvents(t *testing.T) {
+	for _, got := range FanoutTopics {
+		if got == "auth.events" {
+			return
+		}
+	}
+	t.Errorf("FanoutTopics = %v, missing %q", FanoutTopics, "auth.events")
+}
+
+// TestRecipientsOf_UserThemePrefsChanged proves the event reaches exactly the
+// account owner (UserID / JSON "userId") — every OTHER session/device that
+// user has open — and nobody else.
+func TestRecipientsOf_UserThemePrefsChanged(t *testing.T) {
+	ev := &Event{
+		Type:    "user.theme_prefs_changed",
+		EventID: "evt-1",
+		UserID:  "user-owner",
+		// Populated to prove they are ignored for this event type.
+		SenderID: "user-other",
+		Members:  []string{"user-other"},
+	}
+	got := ev.RecipientsOf()
+	if len(got) != 1 || got[0] != "user-owner" {
+		t.Fatalf("RecipientsOf() = %v, want exactly [\"user-owner\"]", got)
+	}
+}
+
+// TestRecipientsOf_OtherAuthEventTypes_DropCleanly proves the topic addition
+// above did not accidentally open the door for any other auth.events type —
+// these still carry secrets (password.reset.requested) or are purely internal
+// (user.created) and must never reach a client socket.
+func TestRecipientsOf_OtherAuthEventTypes_DropCleanly(t *testing.T) {
+	for _, typ := range []string{
+		"password.reset.requested", "email.verification.requested",
+		"invite.created", "user.created", "user.session.started",
+	} {
+		ev := &Event{Type: typ, UserID: "user-x", RecipientID: "user-x", AssigneeID: "user-x", SenderID: "user-x"}
+		if got := ev.RecipientsOf(); len(got) != 0 {
+			t.Fatalf("RecipientsOf() for %q = %v, want empty (internal-only/secret)", typ, got)
+		}
+	}
+}
+
 func TestRecipientsOf_TaskMissed(t *testing.T) {
 	ev := &Event{
 		Type:       "task.missed",

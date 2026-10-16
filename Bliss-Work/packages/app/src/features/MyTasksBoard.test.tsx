@@ -24,7 +24,7 @@ const CAROL = person("u-carol", "carol");
 
 const api = {
   tasksSent: vi.fn(async (_params?: { limit?: number; offset?: number; includeIgnored?: boolean }) => [] as SentTaskDTO[]),
-  directory: vi.fn(async () => []),
+  directory: vi.fn(async (): Promise<UserDTO[]> => []),
   directoryPage: vi.fn(pagedDirectory([ALICE, BOB, CAROL])),
   taskSchedules: vi.fn(async () => [] as ScheduledTaskDTO[]),
   channels: vi.fn(async () => CHANNELS as ChannelDTO[]),
@@ -466,5 +466,28 @@ describe("MyTasksBoard scheduled assignments", () => {
     expect(screen.getByText("alice, bob")).toBeInTheDocument();
     // The schedule card's own line ("Channels: #x" / "N channels"); the filter panel has a Channels heading of its own.
     expect(screen.queryByText(/^Channels: |^\d+ channels?$/)).not.toBeInTheDocument();
+  });
+
+  it("resolves an assignee's directory display name instead of their raw username", async () => {
+    api.directory.mockResolvedValueOnce([
+      { ...ALICE, displayName: "Alice Okafor" },
+    ]);
+    await showScheduled(scheduled({ assignees: people }));
+
+    expect(screen.getByText("Alice Okafor, bob")).toBeInTheDocument();
+  });
+
+  it("falls back to the schedule's own displayName when the directory has no entry for that person", async () => {
+    api.directory.mockResolvedValueOnce([]);
+    await showScheduled(
+      scheduled({
+        assignees: [
+          { userId: "u-dave", username: "dave", displayName: "Dave Okoro" },
+          { userId: "u-bob", username: "bob" },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("Dave Okoro, bob")).toBeInTheDocument();
   });
 });

@@ -62,7 +62,8 @@
       "voice": "音声",
       "voiceTitle": "音声のみで参加",
       "leave": "退出",
-      "dismiss": "閉じる"
+      "dismiss": "閉じる",
+      "decline": "拒否"
     },
     "titles": {
       "task": "タスク",

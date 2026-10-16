@@ -189,6 +189,7 @@ var cappedRoutes = map[string]string{
 	// but they are POSTs, so they inherit the same small-body group and are
 	// listed here for the walk to find. Verified at api.go: both sit inside the
 	// /api/v1 group that applies mw.MaxBytes(smallBody).
+	"POST /api/v1/calls/{id}/decline":         "small",
 	"POST /api/v1/calls/{id}/recording/start": "small",
 	"POST /api/v1/calls/{id}/recording/stop":  "small",
 	// A meeting's transcript. One chat line or one note per request, both

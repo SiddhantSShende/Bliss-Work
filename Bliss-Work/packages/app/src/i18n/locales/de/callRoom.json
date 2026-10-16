@@ -111,6 +111,12 @@
       "title": "Anruf für alle beenden?",
       "message": "Alle, die noch in diesem Anruf sind, werden getrennt. Das kann nicht rückgängig gemacht werden.",
       "confirm": "Für alle beenden"
+    },
+    "adhocWaiting": {
+      "calling": "{{name}} wird angerufen…",
+      "declined": "{{name}} hat abgelehnt",
+      "noAnswer": "{{name}} hat nicht geantwortet",
+      "leave": "Verlassen"
     }
   },
   "controls": {

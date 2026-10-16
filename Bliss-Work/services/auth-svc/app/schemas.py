@@ -75,10 +75,11 @@ class AcceptInviteRequest(BaseModel):
 
 
 class ThemePrefs(BaseModel):
-    """Legacy account theme payload returned for backward compatibility.
-
-    Current clients synchronize only the custom palette definition; selected
-    theme and custom activation remain local to each device.
+    """The account-wide theme document: preset (which also encodes light/dark,
+    e.g. "rose-dark"), the single custom palette definition, and whether
+    Custom is the active choice. Shared by every authenticated session on the
+    account — see services/auth-svc/migrations/0021_theme_prefs.sql and
+    packages/app/src/lib/themeSync.tsx.
     """
 
     theme: str = Field(pattern=_THEME_ID_PATTERN)
@@ -105,8 +106,14 @@ class UpdateProfileRequest(BaseModel):
     # that always submits both.
     displayName: str | None = Field(default=None, min_length=1, max_length=80)
     avatarUrl: str | None = Field(default=None, max_length=MAX_AVATAR_DATA_URL_LENGTH)
+    # The account-wide theme document (see ThemePrefs) and the legacy
+    # colors-only path kept for older clients mid-rollout — both merge into
+    # the same users.theme_prefs row and bump the same revision counter.
     themePrefs: ThemePrefs | None = None
     customTheme: CustomThemeDefinition | None = None
+    # Optional for older clients. New clients use the revision returned by
+    # /auth/me as a compare-and-set guard against overwriting a newer device.
+    expectedThemeRevision: int | None = Field(default=None, ge=0)
 
     @field_validator("avatarUrl")
     @classmethod

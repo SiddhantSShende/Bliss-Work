@@ -66,7 +66,8 @@
       "updateBlock": {
         "title": "ब्लॉक अपडेट नहीं हो सका",
         "description": "कृपया फिर से कोशिश करें।"
-      }
+      },
+      "startCall": "कॉल शुरू नहीं हो सकी"
     },
     "bulkDelete": {
       "deletedToast_one": "{{count}} संदेश हटाया गया",
@@ -107,7 +108,9 @@
       "onAnotherCall": {
         "title": "{{name}} दूसरी कॉल पर हैं",
         "description": "फिर भी रिंग कर रहे हैं — वे शायद न उठाएँ।"
-      }
+      },
+      "alreadyInCall": "आप पहले से एक कॉल में हैं",
+      "failed": "कॉल शुरू नहीं हो सका"
     },
     "exportedToast_one": "{{count}} संदेश एक्सपोर्ट हुआ",
     "exportedToast_other": "{{count}} संदेश एक्सपोर्ट हुए",

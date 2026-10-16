@@ -67,7 +67,8 @@
       "updateBlock": {
         "title": "Não foi possível atualizar o bloqueio",
         "description": "Tente novamente."
-      }
+      },
+      "startCall": "Não foi possível iniciar a chamada"
     },
     "bulkDelete": {
       "deletedToast_one": "{{count}} mensagem excluída",
@@ -110,7 +111,9 @@
       "onAnotherCall": {
         "title": "{{name}} está em outra chamada",
         "description": "Chamando mesmo assim — a pessoa pode não atender."
-      }
+      },
+      "alreadyInCall": "Você já está em uma chamada",
+      "failed": "Não foi possível iniciar a chamada"
     },
     "exportedToast_one": "{{count}} mensagem exportada",
     "exportedToast_many": "{{count}} de mensagens exportadas",

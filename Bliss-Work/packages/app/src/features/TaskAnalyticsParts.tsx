@@ -153,23 +153,29 @@ export function StatusBreakdownBar({
 
 /** Per-assignee workload as horizontal bars, in the order the server returns
  *  (assigned desc). Empty list renders nothing — the caller decides the
- *  surrounding empty state. */
+ *  surrounding empty state. `nameOf` resolves a real display name (the DTO's
+ *  `assigneeUsername` is an email-derived handle, not a name to show — see
+ *  userLabel.ts); omitting it falls back to that raw field, same as before. */
 export function WorkloadBars({
   workload,
+  nameOf,
 }: {
   workload: AssigneeWorkloadDTO[];
+  nameOf?: (id: string, fallback?: string) => string;
 }) {
   if (workload.length === 0) return null;
   const max = Math.max(1, ...workload.map((w) => w.assignedCount));
   return (
     <ul className="m-0 list-none space-y-3 p-0">
-      {workload.map((w) => (
+      {workload.map((w) => {
+        const name = nameOf ? nameOf(w.assigneeId, w.assigneeUsername) : w.assigneeUsername;
+        return (
         <li key={w.assigneeId} className="flex items-center gap-3">
           <span
             className="w-28 shrink-0 truncate text-sm text-fg"
-            title={w.assigneeUsername}
+            title={name}
           >
-            {w.assigneeUsername}
+            {name}
           </span>
           <div className="min-w-0 flex-1">
             <div
@@ -190,7 +196,8 @@ export function WorkloadBars({
             %)
           </span>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }

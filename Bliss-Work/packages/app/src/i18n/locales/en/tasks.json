@@ -428,7 +428,7 @@
     }
   },
   "analyticsHub": {
-    "title": "Analytics",
+    "title": "Workspace Analytics",
     "hint": "View workspace analytics, or pick a project to see its tasks.",
     "overviewTitle": "Overview",
     "projectsTitle": "Projects",
@@ -464,6 +464,7 @@
         "activityPulse": "Activity Pulse"
       },
       "statusFlowHint": "Task status transitions per day for the selected range.",
+      "donutTotalLabel": "Tasks",
       "workloadTable": {
         "person": "Person",
         "assigned": "Assigned",
@@ -473,8 +474,14 @@
       },
       "scatter": {
         "xLabel": "Assigned tasks",
-        "yLabel": "Completion rate",
-        "hint": "Each point is one person: assigned workload against their completion rate."
+        "yLabel": "Completion rate (%)",
+        "hint": "Each point is one person: assigned workload against their completion rate.",
+        "quadrants": {
+          "highEffLowLoad": "High efficiency / Low load",
+          "highEffHighLoad": "High efficiency / High load",
+          "lowEffLowLoad": "Low efficiency / Low load",
+          "lowEffHighLoad": "Low efficiency / High load"
+        }
       },
       "activity": {
         "created": "Created",

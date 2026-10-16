@@ -79,9 +79,11 @@ func TestAddingToAnAdhocCallRingsWithoutMakingAMeeting(t *testing.T) {
 	}
 
 	rings := f.ringEvents()
-	if len(rings) != 2 {
-		t.Fatalf("call.ring events = %d, want 2 (one per person added)", len(rings))
+	if len(rings) != 3 {
+		t.Fatalf("call.ring events = %d, want 3 (initial peer plus two invitees)", len(rings))
 	}
+	wantRung := map[string]bool{b: true, c: true, d: true}
+	seenRung := make(map[string]bool, len(wantRung))
 	for i, r := range rings {
 		if r["kind"] != "DIRECT" || r["scheduledAt"] != nil && r["scheduledAt"] != "" {
 			t.Errorf("ring %d is not an ad-hoc call: kind=%v scheduledAt=%v", i, r["kind"], r["scheduledAt"])
@@ -90,9 +92,23 @@ func TestAddingToAnAdhocCallRingsWithoutMakingAMeeting(t *testing.T) {
 			t.Errorf("ring %d carries no actorName — the notification cannot say who added you", i)
 		}
 		members, _ := r["members"].([]any)
-		want := []string{c, d}[i]
-		if len(members) != 1 || members[0] != want {
-			t.Errorf("ring %d members = %v, want only %s", i, members, want)
+		if len(members) != 1 {
+			t.Errorf("ring %d members = %v, want exactly one recipient", i, members)
+			continue
+		}
+		recipient, ok := members[0].(string)
+		if !ok || !wantRung[recipient] {
+			t.Errorf("ring %d recipient = %v, want one of %v", i, members[0], wantRung)
+			continue
+		}
+		if seenRung[recipient] {
+			t.Errorf("recipient %s was rung more than once", recipient)
+		}
+		seenRung[recipient] = true
+	}
+	for recipient := range wantRung {
+		if !seenRung[recipient] {
+			t.Errorf("recipient %s was never rung", recipient)
 		}
 	}
 	// Meeting machinery stays out of it: no link, and not in the Meetings list.

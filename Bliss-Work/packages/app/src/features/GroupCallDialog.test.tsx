@@ -13,12 +13,9 @@ const h = vi.hoisted(() => ({
   api: { directory: vi.fn(), startConferenceCall: vi.fn() },
   toast: { error: vi.fn(), success: vi.fn() },
   session: { call: null as unknown, enter: vi.fn() },
-  ring: { status: "idle" },
-  useCall: vi.fn(),
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: h.toast }));
-vi.mock("../lib/useCall", () => ({ useCall: h.useCall }));
 vi.mock("../lib/MeetingSession", () => ({ useMeetingSession: () => h.session }));
 
 import { GroupCallDialog } from "./GroupCallDialog";
@@ -43,12 +40,10 @@ beforeEach(() => {
   h.toast.error.mockReset();
   h.session.call = null;
   h.session.enter.mockReset();
-  h.ring.status = "idle";
-  h.useCall.mockReset().mockImplementation(() => h.ring);
 });
 
 describe("GroupCallDialog", () => {
-  it("reads no call state while closed", () => {
+  it("renders nothing while closed", () => {
     const qc = new QueryClient();
     render(
       <QueryClientProvider client={qc}>
@@ -56,7 +51,6 @@ describe("GroupCallDialog", () => {
       </QueryClientProvider>,
     );
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(h.useCall).not.toHaveBeenCalled();
   });
 
   it("needs two people: Call stays disabled for none or one, and says why", async () => {
@@ -102,11 +96,8 @@ describe("GroupCallDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["in a meeting or conference", () => (h.session.call = CONFERENCE)],
-    ["ringing or on a 1:1", () => (h.ring.status = "in-call")],
-  ])("will not start a second call while %s", async (_name, busy) => {
-    busy();
+  it("will not start a second call while already in a meeting or conference", async () => {
+    h.session.call = CONFERENCE;
     const { user } = renderDialog();
 
     await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));

@@ -28,6 +28,21 @@ const MaxAdhocCallParticipants = 20
 // ErrCallFull is an ad-hoc call over MaxAdhocCallParticipants.
 var ErrCallFull = errors.New("call has reached its participant limit")
 
+// DirectRingTimeout is how long an ORIGINAL ring may go unanswered before
+// ExpireRingingInvitations treats it as a no-answer and ends the call — the
+// 1:1 case, and the initial roster of a multi-select "Call". Thirty seconds:
+// long enough for a phone to actually be reached for, short enough that the
+// caller is not left staring at a silent room.
+const DirectRingTimeout = 30 * time.Second
+
+// AdditionalInviteRingTimeout is how long an invitation into a call that is
+// ALREADY live (someone besides the caller has already joined) may go
+// unanswered before it expires on its own, without ending the call for
+// everyone already in it. Shorter than DirectRingTimeout on purpose: the
+// people already in the room are waiting on this one answer, not starting a
+// call from nothing.
+const AdditionalInviteRingTimeout = 20 * time.Second
+
 // adhocDirectSQL is the predicate "this call is ad-hoc". alias is the calls
 // table's alias in the surrounding query ("" for none).
 func adhocDirectSQL(alias string) string {
@@ -241,6 +256,7 @@ func (s *Store) CreateConferenceCall(
 		}
 		id := uuid.Must(uuid.NewV7()).String()
 		now := time.Now().UTC()
+		ringExpiresAt := now.Add(DirectRingTimeout)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO calls (id, org_id, kind, title, media, created_by, started_at, status)
 			VALUES ($1, $2, 'DIRECT', $3, $4, $5, $6, 'LIVE')`,
@@ -253,9 +269,9 @@ func (s *Store) CreateConferenceCall(
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by)
-			SELECT $1, u, $2, 'PARTICIPANT', $3 FROM unnest($4::uuid[]) AS u`,
-			id, orgID, callerID, peerIDs); err != nil {
+			INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by, ring_expires_at)
+			SELECT $1, u, $2, 'PARTICIPANT', $3, $5 FROM unnest($4::uuid[]) AS u`,
+			id, orgID, callerID, peerIDs, ringExpiresAt); err != nil {
 			return err
 		}
 		var derr error

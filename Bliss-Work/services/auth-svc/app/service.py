@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import uuid6
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from slugify import slugify as _slugify
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -136,11 +137,13 @@ async def user_dto(
     )
     theme_prefs = _theme_prefs_from_row(theme_document) if with_theme_prefs else None
     custom_colors = theme_prefs.customColors if theme_prefs else None
-    custom_theme_revision = (
-        theme_document.get("customThemeRevision")
-        if with_theme_prefs and isinstance(theme_document, dict)
-        else None
-    )
+    raw_revision = theme_document.get("customThemeRevision") if isinstance(theme_document, dict) else None
+    if type(raw_revision) is int and raw_revision >= 0:
+        custom_theme_revision = min(raw_revision, 2_147_483_647)
+    elif isinstance(raw_revision, str) and raw_revision.isdigit():
+        custom_theme_revision = min(int(raw_revision), 2_147_483_647)
+    else:
+        custom_theme_revision = None
     return UserDTO(
         id=str(row.id),
         orgId=org_id,
@@ -169,7 +172,26 @@ def _theme_prefs_from_row(raw: object) -> ThemePrefs | None:
     a codec is registered, so accept either form."""
     if raw is None:
         return None
-    return ThemePrefs.model_validate(json.loads(raw) if isinstance(raw, str) else raw)
+    value = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(value, dict):
+        return None
+    try:
+        return ThemePrefs.model_validate(value)
+    except ValidationError:
+        try:
+            theme = ThemePrefs(theme=value.get("theme"), customActive=False).theme
+        except ValidationError:
+            theme = "bluePurple"
+        colors = value.get("customColors")
+        try:
+            ThemePrefs(theme=theme, customColors=colors, customActive=False)
+        except ValidationError:
+            colors = None
+        return ThemePrefs(
+            theme=theme,
+            customColors=colors,
+            customActive=value.get("customActive") is True and colors is not None,
+        )
 
 
 # How many rows a directory SEARCH decrypts per round trip while looking for matches.
@@ -403,32 +425,89 @@ async def update_display_name(
     )
 
 
-async def update_theme_prefs(conn: AsyncConnection, user_id: str, prefs: ThemePrefs) -> None:
-    """Sets the caller's synced UI theme. Deliberately NOT audited (unlike a
-    display-name or avatar change): it is a colour preference that changes with
-    a single click, and each row in the hash-chained audit_log is permanent."""
-    await conn.execute(
+async def update_theme_prefs(
+    conn: AsyncConnection,
+    user_id: str,
+    prefs: ThemePrefs,
+    *,
+    expected_revision: int | None = None,
+) -> bool:
+    """Sets the caller's account-wide theme choice (preset, light/dark, and
+    whether Custom is active) and bumps the same revision counter
+    `update_custom_theme` uses — any write to this document, from any device,
+    advances one shared number, which is what lets a client tell a fresh
+    account-wide change apart from its own stale in-flight read. Deliberately
+    NOT audited (unlike a display-name or avatar change): it is a UI
+    preference that changes with a single click, and each row in the
+    hash-chained audit_log is permanent."""
+    result = await conn.execute(
         text(
             """
             UPDATE users
-            SET theme_prefs = CAST(:tp AS jsonb) || jsonb_build_object(
-                'customThemeRevision', theme_prefs->'customThemeRevision'
+            SET theme_prefs = COALESCE(theme_prefs, '{}'::jsonb) || CAST(:tp AS jsonb) || jsonb_build_object(
+                'customThemeRevision', CASE
+                    WHEN COALESCE(theme_prefs->>'customThemeRevision', '') ~ '^[0-9]{1,10}$'
+                    THEN LEAST((theme_prefs->>'customThemeRevision')::numeric + 1, 2147483647)::int
+                    ELSE 1
+                END
             )
             WHERE id = :id
+              AND CASE
+                  WHEN COALESCE(theme_prefs->>'customThemeRevision', '') ~ '^[0-9]{1,10}$'
+                  THEN LEAST((theme_prefs->>'customThemeRevision')::numeric, 2147483647)::int
+                  ELSE 0
+                END = COALESCE(:expected_revision, 0)
+              AND (
+                  (CAST(:tp AS jsonb) ? 'theme'
+                   AND COALESCE(theme_prefs->'theme', 'null'::jsonb) IS DISTINCT FROM CAST(:tp AS jsonb)->'theme')
+                  OR (CAST(:tp AS jsonb) ? 'customColors'
+                      AND COALESCE(theme_prefs->'customColors', 'null'::jsonb) IS DISTINCT FROM CAST(:tp AS jsonb)->'customColors')
+                  OR (CAST(:tp AS jsonb) ? 'customActive'
+                      AND COALESCE(theme_prefs->'customActive', 'false'::jsonb) IS DISTINCT FROM CAST(:tp AS jsonb)->'customActive')
+              )
             """
         ),
-        {"tp": prefs.model_dump_json(), "id": user_id},
+        {
+            "tp": prefs.model_dump_json(exclude_unset=True),
+            "id": user_id,
+            "expected_revision": expected_revision,
+        },
     )
+    if getattr(result, "rowcount", 0):
+        return True
+
+    current = await conn.execute(
+        text("""
+            SELECT CASE
+                WHEN COALESCE(theme_prefs->>'customThemeRevision', '') ~ '^[0-9]{1,10}$'
+                THEN LEAST((theme_prefs->>'customThemeRevision')::numeric, 2147483647)::int
+                ELSE 0
+            END FROM users WHERE id = :id
+            """),
+        {"id": user_id},
+    )
+    current_revision = current.scalar_one_or_none()
+    if current_revision != (expected_revision or 0):
+        raise ThemePrefsRevisionConflict
+    return False
+
+
+class ThemePrefsRevisionConflict(Exception):
+    """The account theme document changed after the caller last read it."""
 
 
 async def update_custom_theme(
-    conn: AsyncConnection, user_id: str, colors: list[str] | None
-) -> None:
+    conn: AsyncConnection,
+    user_id: str,
+    colors: list[str] | None,
+    *,
+    expected_revision: int | None = None,
+) -> bool:
     """Merge the shared custom palette without changing legacy/device selection fields.
 
     No `"key":value` JSON literal in the SQL: text() reads every `:word` in it as a
     bind parameter (`:null`, `:false`), which made this statement fail on every call."""
-    await conn.execute(
+    result = await conn.execute(
         text(
             """
             UPDATE users
@@ -437,13 +516,41 @@ async def update_custom_theme(
                 jsonb_build_object('theme', 'bluePurple', 'customColors', NULL, 'customActive', false)
             ) || jsonb_build_object(
                 'customColors', CAST(:colors AS jsonb),
-                'customThemeRevision', COALESCE((theme_prefs->>'customThemeRevision')::int, 0) + 1
+                'customThemeRevision', CASE
+                    WHEN COALESCE(theme_prefs->>'customThemeRevision', '') ~ '^[0-9]{1,10}$'
+                    THEN LEAST((theme_prefs->>'customThemeRevision')::numeric + 1, 2147483647)::int
+                    ELSE 1
+                END
             )
             WHERE id = :id
+                AND (:expected_revision IS NULL OR
+                       CASE
+                           WHEN COALESCE(theme_prefs->>'customThemeRevision', '') ~ '^[0-9]{1,10}$'
+                           THEN LEAST((theme_prefs->>'customThemeRevision')::numeric, 2147483647)::int
+                           ELSE 0
+                       END = :expected_revision)
+              AND COALESCE(theme_prefs->'customColors', 'null'::jsonb)
+                  IS DISTINCT FROM CAST(:colors AS jsonb)
             """
         ),
-        {"colors": json.dumps(colors), "id": user_id},
+        {"colors": json.dumps(colors), "id": user_id, "expected_revision": expected_revision},
     )
+    if getattr(result, "rowcount", 0):
+        return True
+    if expected_revision is not None:
+        current = await conn.execute(
+            text("""
+                SELECT CASE
+                    WHEN COALESCE(theme_prefs->>'customThemeRevision', '') ~ '^[0-9]{1,10}$'
+                    THEN LEAST((theme_prefs->>'customThemeRevision')::numeric, 2147483647)::int
+                    ELSE 0
+                END FROM users WHERE id = :id
+                """),
+            {"id": user_id},
+        )
+        if current.scalar_one_or_none() != expected_revision:
+            raise ThemePrefsRevisionConflict
+    return False
 
 
 async def update_avatar(

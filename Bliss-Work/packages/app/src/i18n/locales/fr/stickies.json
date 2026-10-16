@@ -62,7 +62,8 @@
       "voice": "Audio",
       "voiceTitle": "Rejoindre en audio uniquement",
       "leave": "Quitter",
-      "dismiss": "Ignorer"
+      "dismiss": "Ignorer",
+      "decline": "Refuser"
     },
     "titles": {
       "task": "Tâche",

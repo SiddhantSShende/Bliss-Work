@@ -437,7 +437,7 @@
     }
   },
   "analyticsHub": {
-    "title": "Analíticas",
+    "title": "Analíticas del espacio de trabajo",
     "hint": "Consulta las analíticas del espacio de trabajo o elige un proyecto para ver sus tareas.",
     "overviewTitle": "Resumen",
     "projectsTitle": "Proyectos",
@@ -473,6 +473,7 @@
         "activityPulse": "Pulso de actividad"
       },
       "statusFlowHint": "Transiciones de estado por día para el período seleccionado.",
+      "donutTotalLabel": "Tareas",
       "workloadTable": {
         "person": "Persona",
         "assigned": "Asignadas",
@@ -482,8 +483,14 @@
       },
       "scatter": {
         "xLabel": "Tareas asignadas",
-        "yLabel": "Tasa de finalización",
-        "hint": "Cada punto es una persona: carga asignada frente a su tasa de finalización."
+        "yLabel": "Tasa de finalización (%)",
+        "hint": "Cada punto es una persona: carga asignada frente a su tasa de finalización.",
+        "quadrants": {
+          "highEffLowLoad": "Alta eficiencia / Baja carga",
+          "highEffHighLoad": "Alta eficiencia / Alta carga",
+          "lowEffLowLoad": "Baja eficiencia / Baja carga",
+          "lowEffHighLoad": "Baja eficiencia / Alta carga"
+        }
       },
       "activity": {
         "created": "Creadas",

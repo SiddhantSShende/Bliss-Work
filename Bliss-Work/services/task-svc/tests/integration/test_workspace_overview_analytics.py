@@ -299,6 +299,39 @@ async def test_per_person_workload(db_app):
     assert workload[b]["inProgressCount"] == 1
 
 
+async def test_non_admin_workload_excludes_other_members(db_app):
+    """A non-admin SENDER must not see another assignee's individual workload,
+    even for tasks they themselves sent — only their own assignee row (or none)."""
+    other_assignee = _id()
+    t1 = await _task(ORG_A, SENDER)
+    await _assignee_row(ORG_A, t1, other_assignee, "COMPLETED")
+    t2 = await _task(ORG_A, SENDER)
+    await _assignee_row(ORG_A, t2, SENDER, "SENT")
+
+    member_r = await _get(SENDER, roles=["member"])
+    assert member_r.status_code == 200, member_r.text
+    workload = {w["assigneeId"]: w for w in member_r.json()["workload"]}
+    assert other_assignee not in workload
+    assert workload[SENDER]["assignedCount"] == 1
+
+    admin_r = await _get(SENDER, roles=["org_admin"])
+    admin_workload = {w["assigneeId"]: w for w in admin_r.json()["workload"]}
+    assert other_assignee in admin_workload
+    assert SENDER in admin_workload
+
+
+async def test_non_admin_with_no_own_assignments_sees_empty_workload(db_app):
+    """A non-admin who only sends tasks to others (never assigned themselves)
+    gets an empty workload list, not someone else's rows."""
+    other_assignee = _id()
+    t = await _task(ORG_A, SENDER)
+    await _assignee_row(ORG_A, t, other_assignee, "COMPLETED")
+
+    r = await _get(SENDER, roles=["member"])
+    assert r.status_code == 200, r.text
+    assert r.json()["workload"] == []
+
+
 async def test_project_filter_scopes_every_section(db_app):
     proj_a = await _project(ORG_A, SENDER, "Project A")
     proj_b = await _project(ORG_A, SENDER, "Project B")

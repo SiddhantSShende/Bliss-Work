@@ -66,7 +66,8 @@
       "updateBlock": {
         "title": "Couldn't update block",
         "description": "Please try again."
-      }
+      },
+      "startCall": "Couldn't start the call"
     },
     "bulkDelete": {
       "deletedToast_one": "Deleted {{count}} message",
@@ -107,7 +108,9 @@
       "onAnotherCall": {
         "title": "{{name}} is on another call",
         "description": "Ringing them anyway — they may not pick up."
-      }
+      },
+      "alreadyInCall": "You're already in a call",
+      "failed": "Couldn't start the call"
     },
     "exportedToast_one": "Exported {{count}} message",
     "exportedToast_other": "Exported {{count}} messages",

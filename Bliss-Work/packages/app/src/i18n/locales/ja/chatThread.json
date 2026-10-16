@@ -65,7 +65,8 @@
       "updateBlock": {
         "title": "ブロックの設定を更新できませんでした",
         "description": "もう一度お試しください。"
-      }
+      },
+      "startCall": "通話を開始できませんでした"
     },
     "bulkDelete": {
       "deletedToast_other": "{{count}}件のメッセージを削除しました",
@@ -104,7 +105,9 @@
       "onAnotherCall": {
         "title": "{{name}}は別の通話中です",
         "description": "そのまま呼び出します。応答できない場合があります。"
-      }
+      },
+      "alreadyInCall": "すでに通話中です",
+      "failed": "通話を開始できませんでした"
     },
     "exportedToast_other": "{{count}}件のメッセージをエクスポートしました",
     "header": {

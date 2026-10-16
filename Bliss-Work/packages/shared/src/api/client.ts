@@ -742,14 +742,17 @@ export class ApiClient {
   i18nCatalog(locale: string) {
     return this.req(this.cfg.authBase, `/i18n/catalog?locale=${encodeURIComponent(locale)}`, {}, I18nCatalogDTO);
   }
-  /** These fields are independently optional. `customTheme` synchronizes the
-   *  shared palette; theme selection stays local. `themePrefs` is retained for
-   *  legacy clients. */
+  /** These fields are independently optional. `themePrefs` is the whole
+   *  account-wide theme document (preset, light/dark, Custom activation, and
+   *  the palette) — see packages/app/src/lib/themeSync.tsx. `customTheme` is
+   *  a legacy colours-only path some older clients may still send; both merge
+   *  into the same server-side document. */
   updateProfile(body: {
     displayName?: string;
     avatarUrl?: string;
     themePrefs?: ThemePrefsDTO;
     customTheme?: CustomThemeDTO | null;
+    expectedThemeRevision?: number;
   }) {
     return this.req(this.cfg.authBase, "/auth/me", {
       method: "PATCH",
@@ -3201,6 +3204,17 @@ export class ApiClient {
    *  join link, so a meeting that is over cannot be re-entered by an old link. */
   endCall(callId: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/end`, {
+      method: "POST",
+    });
+  }
+
+  /** Explicitly decline a ring. Always 204, even for a ring that already
+   *  expired or was never there — see the server's declineCall doc comment.
+   *  Resolves the one invitation (and, if it was the call's only ring, ends
+   *  the call) the same way the server's own ring-timeout sweep does; this
+   *  is just the user-initiated path to that same outcome. */
+  declineCall(callId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/decline`, {
       method: "POST",
     });
   }

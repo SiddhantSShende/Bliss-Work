@@ -110,6 +110,12 @@
       "title": "모든 참가자의 통화를 종료할까요?",
       "message": "이 통화에 남아 있는 모든 사람의 연결이 끊어져요. 이 작업은 되돌릴 수 없어요.",
       "confirm": "전체 통화 종료"
+    },
+    "adhocWaiting": {
+      "calling": "{{name}}님에게 전화 중…",
+      "declined": "{{name}}님이 거절했습니다",
+      "noAnswer": "{{name}}님이 응답하지 않았습니다",
+      "leave": "나가기"
     }
   },
   "controls": {

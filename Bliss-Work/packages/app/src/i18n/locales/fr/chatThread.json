@@ -67,7 +67,8 @@
       "updateBlock": {
         "title": "Impossible de mettre à jour le blocage",
         "description": "Veuillez réessayer."
-      }
+      },
+      "startCall": "Impossible de démarrer l'appel"
     },
     "bulkDelete": {
       "deletedToast_one": "{{count}} message supprimé",
@@ -110,7 +111,9 @@
       "onAnotherCall": {
         "title": "{{name}} est déjà en appel",
         "description": "Appel lancé quand même — la personne ne décrochera peut-être pas."
-      }
+      },
+      "alreadyInCall": "Vous êtes déjà dans un appel",
+      "failed": "Impossible de démarrer l'appel"
     },
     "exportedToast_one": "{{count}} message exporté",
     "exportedToast_many": "{{count}} de messages exportés",

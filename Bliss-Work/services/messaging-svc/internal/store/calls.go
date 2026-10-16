@@ -333,10 +333,16 @@ func (s *Store) CreateDirectCall(
 		id := uuid.Must(uuid.NewV7()).String()
 		status := CallScheduled
 		var startedAt *time.Time
+		// A ring deadline only for the ad-hoc, LIVE-immediately shape — a
+		// scheduled DIRECT call rings nobody until somebody starts it (see
+		// startCall/StartCall), the same as a MEETING.
+		var ringExpiresAt *time.Time
 		if scheduledAt == nil {
 			status = CallLive
 			now := time.Now().UTC()
 			startedAt = &now
+			expires := now.Add(DirectRingTimeout)
+			ringExpiresAt = &expires
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO calls (id, org_id, kind, title, media, created_by,
@@ -347,9 +353,10 @@ func (s *Store) CreateDirectCall(
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by)
-			VALUES ($1, $2, $3, 'HOST', $2), ($1, $4, $3, 'PARTICIPANT', $2)`,
-			id, callerID, orgID, peerID); err != nil {
+			INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by, ring_expires_at)
+			VALUES ($1, $2, $3, 'HOST', $2, NULL),
+			       ($1, $4, $3, 'PARTICIPANT', $2, $5)`,
+			id, callerID, orgID, peerID, ringExpiresAt); err != nil {
 			return err
 		}
 		var derr error
@@ -543,9 +550,10 @@ func (s *Store) AddParticipant(
 				return err
 			}
 		}
+		ringExpiresAt := time.Now().UTC().Add(AdditionalInviteRingTimeout)
 		_, err = tx.Exec(ctx, `
-			INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by)
-			VALUES ($1, $2, $3, 'PARTICIPANT', $4)
+			INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by, ring_expires_at)
+			VALUES ($1, $2, $3, 'PARTICIPANT', $4, $5)
 			ON CONFLICT (call_id, user_id)
 			DO UPDATE SET
 				left_at = NULL,
@@ -559,8 +567,15 @@ func (s *Store) AddParticipant(
 				-- was already NULL — a harmless re-invite of someone still in
 				-- the room) leaves their real joined_at alone.
 				joined_at = CASE WHEN call_participants.left_at IS NOT NULL
-				                 THEN NULL ELSE call_participants.joined_at END`,
-			callID, inviteeID, orgID, callerID)
+				                 THEN NULL ELSE call_participants.joined_at END,
+				-- A fresh ring, with a fresh deadline — and a clean slate for
+				-- declined_at/missed_at, or someone re-rung after declining or
+				-- missing the first ring would be swept again off their OLD
+				-- answer the instant this transaction commits.
+				ring_expires_at = EXCLUDED.ring_expires_at,
+				declined_at = NULL,
+				missed_at = NULL`,
+			callID, inviteeID, orgID, callerID, ringExpiresAt)
 		return err
 	})
 }
@@ -591,10 +606,12 @@ func (s *Store) MarkJoined(ctx context.Context, orgID, userID, callID string) er
 	return s.withCaller(ctx, orgID, userID, func(tx pgx.Tx) error {
 		ct, err := tx.Exec(ctx, `
 			UPDATE call_participants cp
-			SET joined_at = COALESCE(cp.joined_at, now()), left_at = NULL, waiting_since = NULL
+			SET joined_at = COALESCE(cp.joined_at, now()), left_at = NULL, waiting_since = NULL,
+			    ring_expires_at = NULL
 			FROM calls c
 			WHERE cp.call_id = $1 AND cp.user_id = $2
-			  AND c.id = cp.call_id AND c.status = 'LIVE'`, callID, userID)
+			  AND c.id = cp.call_id AND c.status = 'LIVE'
+			  AND cp.missed_at IS NULL`, callID, userID)
 		if err != nil {
 			return err
 		}
@@ -614,10 +631,16 @@ func (s *Store) ClaimCallSession(ctx context.Context, orgID, userID, callID stri
 	return s.withCaller(ctx, orgID, userID, func(tx pgx.Tx) error {
 		ct, err := tx.Exec(ctx, `
 			UPDATE call_participants cp
-			SET joined_at = COALESCE(cp.joined_at, now()), left_at = NULL, waiting_since = NULL
+			SET joined_at = COALESCE(cp.joined_at, now()), left_at = NULL, waiting_since = NULL,
+			    ring_expires_at = NULL
 			FROM calls c
 			WHERE cp.call_id = $1 AND cp.user_id = $2
 			  AND c.id = cp.call_id AND c.status = 'LIVE'
+			  -- A ring the sweep has already resolved as missed must not be
+			  -- answered late — see ExpireRingingInvitations. The sweep claims
+			  -- the row first (FOR UPDATE), so whichever of this UPDATE and that
+			  -- one commits first wins outright: the loser affects zero rows.
+			  AND cp.missed_at IS NULL
 			  AND ($3 OR cp.joined_at IS NULL OR cp.left_at IS NOT NULL)`,
 			callID, userID, takeover)
 		if err != nil {
@@ -718,6 +741,63 @@ func (s *Store) LeaveCall(
 		return false, false, nil, err
 	}
 	return recorded, wasSharing, ended, nil
+}
+
+// DeclineCall records an explicit "no" to a ring — distinct from a timeout
+// (ExpireRingingInvitations) and from LeaveCall (which is for someone already
+// on the roster of a call under way, not someone who was never going to pick
+// up). Ends the call under the SAME rule the sweep uses for a timeout — see
+// ExpireRingingInvitations's doc comment — applied here to an explicit
+// decline instead of an expired deadline: if no OTHER participant has ever
+// joined, there is nobody left for the caller to talk to and the call ends;
+// if somebody else is already in it, only this invitation is resolved.
+//
+// Returns who invited the decliner (so the handler can tell that one person,
+// and only that one person — see events.TypeCallDeclined), and the ended
+// call when declining closed it. Idempotent and silent on anything that is
+// not an open ring: not on the roster, already joined, already left, or
+// already declined/missed by the time this lands — a double-submitted
+// decline is a no-op, not an error, exactly like StopScreenShare's own
+// "already closed" case.
+func (s *Store) DeclineCall(
+	ctx context.Context, orgID, userID, callID string,
+) (inviterID string, ended *CallDTO, err error) {
+	err = s.withCaller(ctx, orgID, userID, func(tx pgx.Tx) error {
+		derr := tx.QueryRow(ctx, `
+			UPDATE call_participants cp
+			SET declined_at = now(), ring_expires_at = NULL
+			FROM calls c
+			WHERE cp.call_id = $1 AND cp.user_id = $2
+			  AND c.id = cp.call_id AND c.status = 'LIVE'
+			  AND cp.joined_at IS NULL AND cp.left_at IS NULL
+			  AND cp.declined_at IS NULL AND cp.missed_at IS NULL
+			RETURNING cp.invited_by`, callID, userID).Scan(&inviterID)
+		if errors.Is(derr, pgx.ErrNoRows) {
+			return nil
+		}
+		if derr != nil {
+			return derr
+		}
+		var othersJoined bool
+		if qerr := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM call_participants
+				WHERE call_id = $1 AND user_id <> $2
+				  AND role <> 'HOST' AND joined_at IS NOT NULL)`,
+			callID, userID).Scan(&othersJoined); qerr != nil {
+			return qerr
+		}
+		if othersJoined {
+			return nil
+		}
+		var eerr error
+		ended, eerr = endCallTx(ctx, tx, callID)
+		return eerr
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	return inviterID, ended, nil
 }
 
 // EndCall closes a call. HOSTS ONLY.
@@ -2046,9 +2126,17 @@ func (s *Store) EmitCallLifecycle(ctx context.Context, c *CallDTO, n CallNotice)
 		evt.ScheduledAt = *c.ScheduledAt
 	}
 	return s.withBypass(ctx, func(tx pgx.Tx) error {
-		// Only a ring is read aloud ("X added you to ..."), so only a ring pays
-		// for the lookup. A user with no projected name yet is simply left out.
-		if n.Type == events.TypeCallRing && n.ActorID != "" {
+		// A ring is read aloud ("X added you to ..."), and so are the three
+		// ring-resolution events below ("X declined" / "X did not answer" /
+		// "You missed a call from X") — everything else stays silent and pays
+		// nothing for the lookup. A user with no projected name yet is simply
+		// left out.
+		switch n.Type {
+		case events.TypeCallRing, events.TypeCallDeclined, events.TypeCallNoAnswer, events.TypeCallMissed:
+		default:
+			return insertOutbox(ctx, tx, c.ID, evt)
+		}
+		if n.ActorID != "" {
 			uname, display, nerr := s.cachedUserNames(ctx, tx, c.OrgID, n.ActorID)
 			if nerr != nil {
 				return nerr

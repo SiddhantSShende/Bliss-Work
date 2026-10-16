@@ -278,6 +278,7 @@ class CreateTaskResponse(BaseModel):
 class ScheduledAssignee(BaseModel):
     userId: str
     username: str
+    displayName: str = ""
 
 
 class ScheduledTaskDTO(BaseModel):

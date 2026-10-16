@@ -165,7 +165,9 @@
     "leave": "退出",
     "conferenceTitle": "会議通話",
     "addedYou": "{{name}}さんがあなたを会議通話に追加しました",
-    "ariaLabelCall": "通話の着信:{{title}}"
+    "ariaLabelCall": "通話の着信:{{title}}",
+    "decline": "拒否",
+    "declineFailed": "通話を拒否できませんでした。もう一度お試しください。"
   },
   "scheduledNotice": {
     "untitledMeeting": "ミーティング",

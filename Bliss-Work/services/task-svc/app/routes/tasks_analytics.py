@@ -568,7 +568,16 @@ async def workspace_overview(
     this" rule task_analytics/channel_analytics/project_analytics enforce
     above, just applied as a row filter instead of a single lookup, since this
     endpoint aggregates rather than fetching one task/channel/project. Members
-    never see another member's projects, workload, or activity this way.
+    never see another member's projects or activity this way.
+
+    Per-person workload is scoped further still: `member_where` alone would
+    let a non-admin sender see their OWN assignees' individual workload rows
+    (every task they sent passes `t.sender_id = :me`, and the workload query
+    then groups by every assignee on those tasks) — a real disclosure of a
+    colleague's completion stats, not merely "tasks I'm a party to". So the
+    workload query additionally restricts non-admins to `ta.assignee_id = :me`:
+    a member's Person Workload is always exactly their own row (or empty),
+    never another member's, regardless of who sent the task.
 
     org_admin keeps the original unrestricted, org-wide rollup (including
     projects/members the caller never joined) — the same elevated view
@@ -600,6 +609,9 @@ async def workspace_overview(
             "))"
         )
     )
+    # Person Workload only: see the docstring above — a non-admin's workload
+    # rows are further restricted to their own assignee_id, never a colleague's.
+    workload_where = "" if is_admin else "AND ta.assignee_id = :me"
     params: dict[str, object] = {"org": org_id, "start": start, "end": end, "me": me}
     prev_params: dict[str, object] = {"org": org_id, "start": prev_start, "end": prev_end, "me": me}
     if projectId:
@@ -676,7 +688,7 @@ async def workspace_overview(
                     "LEFT JOIN user_projection up "
                     "       ON up.user_id = ta.assignee_id AND up.org_id = ta.org_id "
                     "WHERE t.org_id = :org AND t.created_at >= :start AND t.created_at < :end "
-                    f"{project_where} {member_where} "
+                    f"{project_where} {member_where} {workload_where} "
                     "GROUP BY ta.assignee_id, up.username "
                     "ORDER BY assigned DESC, ta.assignee_id "
                     "LIMIT :workload_limit"

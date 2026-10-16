@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { BarChart3 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ import { useProjects } from "./useProjects";
 import { activityRanges, computeRange, type RangeKey } from "../lib/dateRange";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { useUserLabels } from "../lib/userLabel";
 
 /** Workspace analytics: KPI totals (with trend + sparkline), project/person
  *  rankings, and distribution/activity charts. Open to every authenticated
@@ -41,7 +42,15 @@ export function WorkspaceOverview() {
     queryFn: () => api.workspaceAnalyticsOverview({ from, to, projectId: projectId || undefined }),
   });
 
-  const nameOfPerson = (id: string) => data?.workload.find((w) => w.assigneeId === id)?.assigneeUsername || id;
+  // `assigneeUsername` is an auth-svc-derived handle (the email local-part),
+  // not a display name — see userLabel.ts's module docstring. The directory
+  // already carries the real displayName for every id this table will ever
+  // show (the ids are already in hand from `data.workload`), so resolve
+  // through it instead of rendering the raw DTO field.
+  const workloadIds = useMemo(() => data?.workload.map((w) => w.assigneeId), [data?.workload]);
+  const { nameOf } = useUserLabels(workloadIds);
+  const nameOfPerson = (id: string) =>
+    nameOf(id, data?.workload.find((w) => w.assigneeId === id)?.assigneeUsername);
 
   return (
     <section className="space-y-4">

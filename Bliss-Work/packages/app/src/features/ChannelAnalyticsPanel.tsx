@@ -1,9 +1,11 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3 } from "lucide-react";
 import { EmptyState, Spinner } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryKeys";
+import { useUserLabels } from "../lib/userLabel";
 import {
   CompletionRing,
   KpiTile,
@@ -25,6 +27,8 @@ export function ChannelAnalyticsPanel({ channelId }: { channelId: string }) {
     queryKey: qk.channelAnalytics(channelId),
     queryFn: () => api.channelAnalytics(channelId),
   });
+  const workloadIds = useMemo(() => data?.workload.map((w) => w.assigneeId), [data?.workload]);
+  const { nameOf } = useUserLabels(workloadIds);
 
   if (isLoading) {
     return (
@@ -99,7 +103,7 @@ export function ChannelAnalyticsPanel({ channelId }: { channelId: string }) {
         <h4 className="mb-2 text-sm font-semibold text-fg">
           {t("tasks:analytics.channel.workloadHeading")}
         </h4>
-        <WorkloadBars workload={data.workload} />
+        <WorkloadBars workload={data.workload} nameOf={nameOf} />
       </div>
     </div>
   );

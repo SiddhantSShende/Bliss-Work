@@ -165,7 +165,9 @@
     "leave": "Quitter",
     "conferenceTitle": "Appel en conférence",
     "addedYou": "{{name}} vous a ajouté à un appel en conférence",
-    "ariaLabelCall": "Appel entrant : {{title}}"
+    "ariaLabelCall": "Appel entrant : {{title}}",
+    "decline": "Refuser",
+    "declineFailed": "Impossible de refuser l’appel. Veuillez réessayer."
   },
   "scheduledNotice": {
     "untitledMeeting": "Réunion",

@@ -87,6 +87,20 @@ interpolated directly into livekit's `LIVEKIT_KEYS` in `docker-compose.prod.yml`
 and exist only in `.env.prod` — with `.env` alone that resolves to `": "` and
 LiveKit authenticates nobody.
 
+### Account-wide theme preferences
+
+Theme preferences use the existing `users.theme_prefs` JSONB column from auth
+migration `0021_theme_prefs.sql`; this rollout adds no migration or Kafka topic.
+`PATCH /auth/me` commits the preference update and its `auth.events` outbox
+signal together. `ws-gateway` must include the `auth.events` fanout consumer so
+`user.theme_prefs_changed` reaches only that account's connected sessions. The
+gateway drops other auth event types from client delivery; the signal carries no
+private preference data. Deploy the gateway and auth-svc updates together (or
+gateway first), then publish the web bundle. Electron uses the same renderer
+integration and needs a normal desktop release to receive the feature; it does
+not add another socket. Existing focus/visibility pulls and periodic
+`GET /auth/me` reconciliation recover missed websocket events.
+
 ### Task-service schema compatibility and image-marker reconciliation
 
 task-svc applies its migrations in one transaction before it starts serving.

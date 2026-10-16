@@ -62,7 +62,8 @@
       "voice": "Voz",
       "voiceTitle": "Entrar somente com voz",
       "leave": "Sair",
-      "dismiss": "Dispensar"
+      "dismiss": "Dispensar",
+      "decline": "Recusar"
     },
     "titles": {
       "task": "Tarefa",

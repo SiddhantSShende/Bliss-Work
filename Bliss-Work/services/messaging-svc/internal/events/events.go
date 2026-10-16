@@ -64,6 +64,35 @@ const (
 	// meeting has an audience waiting on it. Not an approval request: there is
 	// nothing to approve, and starting the call admits everyone at once.
 	TypeCallWaiting = "call.waiting"
+	// TypeCallDeclined says an invitee explicitly declined a ring, distinctly
+	// from one that simply timed out. Addressed to the one person who invited
+	// them (see store.CallNotice.Recipients on the emitting side), not the
+	// whole roster — a decline is between the invitee and whoever rang them.
+	// ActorID is the decliner, so ActorName resolves to their name for "X
+	// declined". Ephemeral: nobody is notified about a decline that is not
+	// looking at their screen right now, so this has no notification.KindCall*
+	// counterpart.
+	TypeCallDeclined = "call.declined"
+	// TypeCallNoAnswer tells the person who issued a ring that it went
+	// unanswered — the realtime counterpart to TypeCallMissed below, addressed
+	// to the INVITER instead of the invitee. ActorID is the invitee who did
+	// not answer, so ActorName resolves to "X did not answer". Addressed only
+	// to the one person who invited them, same as TypeCallDeclined, and for
+	// the same reason: this is the server telling someone, live, that the
+	// specific invitation THEY issued went unanswered. A 1:1 ring that times
+	// out emits this AND ends the call (see TypeCallEnded); a third-person
+	// invitation timing out on an already-live call emits this alone — see
+	// store.ExpireRingingInvitations.
+	TypeCallNoAnswer = "call.no_answer"
+	// TypeCallMissed is the durable counterpart to TypeCallNoAnswer: addressed
+	// to the INVITEE who missed the ring (by timeout — a decline is not a
+	// "miss", see TypeCallDeclined), so they learn about it even if they were
+	// not looking at a screen when it happened. ActorID is the inviter, so
+	// ActorName resolves to "You missed a call from X" — and, unlike every
+	// other call.* event, this one DOES have a notification.KindCallMissed
+	// counterpart, precisely because its one recipient may not be present to
+	// see it live.
+	TypeCallMissed = "call.missed"
 	// Screen sharing. ActorID is the sharer; ShareSource says what they picked.
 	TypeCallShareStarted = "call.screenshare_started"
 	TypeCallShareStopped = "call.screenshare_stopped"

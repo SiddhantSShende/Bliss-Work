@@ -83,6 +83,22 @@ describe("the participant limit", () => {
   });
 });
 
+describe("declineCall", () => {
+  it("POSTs to the decline endpoint with no body and expects no response body", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient({ messagingBase: "http://msg.test", getToken: async () => "t" } as never);
+
+    await client.declineCall(CALL);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`http://msg.test/api/v1/calls/${CALL}/decline`);
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeUndefined();
+  });
+});
+
 describe("the /calls/direct wire contract", () => {
   // A backend built before `peerIds` was added silently drops the unknown
   // JSON field (Go's decoder ignores keys it doesn't recognize) and falls

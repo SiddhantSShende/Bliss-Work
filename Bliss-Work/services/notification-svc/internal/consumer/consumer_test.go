@@ -291,6 +291,11 @@ func TestCallNoticeClassifiesEachMeetingEvent(t *testing.T) {
 			events.KindMeetingStarted, "Meeting started: Standup", true},
 		{"cancelled", with(func(e *events.CallLifecycle) { e.Type = events.TypeCallEnded; e.Status = events.CallStatusCancelled }),
 			events.KindMeetingCancelled, "Meeting cancelled: Standup · " + at, false},
+		{"missed call", with(func(e *events.CallLifecycle) {
+			e.Type = events.TypeCallMissed
+			e.ActorName = "Jordan Doe"
+		}),
+			events.KindCallMissed, "You missed a call from Jordan Doe", false},
 		{"untitled", with(func(e *events.CallLifecycle) {
 			e.Type = events.TypeCallStarted
 			e.Status = events.CallStatusLive

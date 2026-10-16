@@ -62,7 +62,8 @@
       "voice": "Audio",
       "voiceTitle": "Nur mit Audio beitreten",
       "leave": "Verlassen",
-      "dismiss": "Schließen"
+      "dismiss": "Schließen",
+      "decline": "Ablehnen"
     },
     "titles": {
       "task": "Aufgabe",

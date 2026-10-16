@@ -4,15 +4,21 @@
  * the overdue KPI, the per-task breakdown list, and pagination (the aggregate
  * metrics must stay stable across pages while `tasks` accumulates).
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ProjectAnalyticsDTO, ProjectTaskSummaryDTO } from "@taskboard/shared";
 
-const h = vi.hoisted(() => ({ projectAnalytics: vi.fn() }));
+const h = vi.hoisted(() => ({ projectAnalytics: vi.fn(), directory: vi.fn() }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h, config: {} }) }));
 
 import { ProjectAnalyticsPanel } from "./ProjectAnalyticsPanel";
+
+beforeEach(() => {
+  // No directory entries by default — surfaces fall back to the DTO's own
+  // username field, same as before `useUserLabels` was wired in.
+  h.directory.mockResolvedValue([]);
+});
 
 function mount(projectId = "proj-1") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -140,6 +146,22 @@ describe("ProjectAnalyticsPanel", () => {
     const workload = screen.getByText("8/10 (80%)").closest("ul") as HTMLElement;
     expect(within(workload).getByText("alice")).toBeInTheDocument();
     expect(within(workload).getByText("bob")).toBeInTheDocument();
+  });
+
+  it("resolves workload and assignee names from the directory instead of the raw username", async () => {
+    h.directory.mockResolvedValue([
+      { id: "u1", username: "alice", displayName: "Alice Okafor", email: "alice@example.com" },
+    ]);
+    h.projectAnalytics.mockResolvedValue(FIXTURE);
+    mount();
+
+    // "Alice Okafor" appears twice: once in the workload bars, once in the
+    // per-task assignee pill — both resolved through the same directory.
+    expect(await screen.findAllByText("Alice Okafor")).toHaveLength(2);
+    expect(screen.queryByText("alice")).not.toBeInTheDocument();
+    // u2 has no directory entry — falls back to its own assigneeUsername,
+    // again in both the workload bars and the per-task assignee pill.
+    expect(screen.getAllByText("bob")).toHaveLength(2);
   });
 
   it("renders the per-task breakdown with title, status, and the overdue badge only on the overdue task", async () => {

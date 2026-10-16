@@ -212,6 +212,16 @@ export interface PlatformConfig {
    */
   onMeetingInviteAction?: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
   /**
+   * Present only in Electron: the invite popup's Decline button was clicked
+   * (ad-hoc rings only — see renderer/meeting-invite.tsx, which only offers
+   * this for `adhoc` invites). The popup window has no api/React Query of
+   * its own, so this is what lets IncomingMeetingNotice make the actual
+   * declineCall() POST on its behalf, same reasoning as onMeetingInviteAction
+   * above. Absent on web, where the in-page card's own Decline button calls
+   * declineCall() directly.
+   */
+  onMeetingInviteDeclined?: (cb: (callId: string) => void) => () => void;
+  /**
    * Present only in Electron: the user clicked an OS notification popup. The shell
    * handles it exactly like a click on the bell row or the in-app toast (see
    * NotificationClickBridge): mark `notificationId` read and, if `path` is set,

@@ -154,10 +154,24 @@ describe("the room of an ad-hoc call", () => {
     expect(h.api.createCallInvite).not.toHaveBeenCalled();
   });
 
-  it("says call on its pre-join screen too", async () => {
-    renderRoom(CONFERENCE, {}, { status: "idle", connected: false });
-    expect(await screen.findByRole("button", { name: "Join call" })).toBeInTheDocument();
-    expect(screen.getByText("Check your camera and microphone before joining the call.")).toBeInTheDocument();
+  it("has no pre-join lobby at all, even with no autoJoin — an ad-hoc call never shows one", async () => {
+    const callRoom = room({ status: "idle", connected: false });
+    h.useCallRoomMock.mockReturnValue(callRoom);
+    h.api.call.mockResolvedValue(CONFERENCE);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <CallRoom call={CONFERENCE} onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    // The lobby's own copy (join button, camera-check line) never appears —
+    // see CallRoom's preJoin initial-state doc: `!autoJoin && !adhoc`, so an
+    // ad-hoc call is never gated on autoJoin at all, unlike a MEETING/CHANNEL/
+    // scheduled-DIRECT call (covered by CallRoom.test.tsx's own pre-join suite).
+    expect(screen.queryByRole("button", { name: "Join call" })).toBeNull();
+    expect(screen.queryByText(/Check your camera and microphone/)).toBeNull();
+    expect(callRoom.join).toHaveBeenCalled();
   });
 });
 

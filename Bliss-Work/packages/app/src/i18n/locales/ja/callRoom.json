@@ -110,6 +110,12 @@
       "title": "全員の通話を終了しますか？",
       "message": "この通話にまだ参加している全員が切断されます。この操作は元に戻せません。",
       "confirm": "全員の通話を終了"
+    },
+    "adhocWaiting": {
+      "calling": "{{name}} に発信中…",
+      "declined": "{{name}} が辞退しました",
+      "noAnswer": "{{name}} は応答しませんでした",
+      "leave": "退出"
     }
   },
   "controls": {

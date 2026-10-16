@@ -7,6 +7,8 @@ is refused at the boundary rather than persisted and echoed to every device.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 schemas = pytest.importorskip(
@@ -63,6 +65,12 @@ def test_profile_request_accepts_custom_theme_updates_and_explicit_deletion():
     assert saved.customTheme.colors == ["#65a30d"]
     assert "customTheme" in deleted.model_fields_set
     assert "customTheme" not in omitted.model_fields_set
+
+
+def test_profile_request_validates_optional_theme_revision():
+    assert UpdateProfileRequest(expectedThemeRevision=0).expectedThemeRevision == 0
+    with pytest.raises(ValidationError):
+        UpdateProfileRequest(expectedThemeRevision=-1)
 
 
 def test_user_dto_defaults_theme_prefs_to_none_for_listings():
@@ -204,11 +212,35 @@ async def test_user_dto_with_no_stored_prefs_is_none_even_when_asked(service, mo
     assert (await service.user_dto(_Conn(), "u1", with_theme_prefs=True)).themePrefs is None
 
 
+async def test_legacy_theme_record_defaults_missing_fields(service, monkeypatch):
+    monkeypatch.setattr(_Row, "theme_prefs", {"theme": "teal"})
+    dto = await service.user_dto(_Conn(), "u1", with_theme_prefs=True)
+    assert dto.themePrefs.theme == "teal"
+    assert dto.themePrefs.customColors is None
+    assert dto.themePrefs.customActive is False
+    assert dto.customThemeRevision is None
+
+
+async def test_malformed_stored_theme_data_is_safely_normalized(service, monkeypatch):
+    monkeypatch.setattr(
+        _Row,
+        "theme_prefs",
+        {"theme": "../invalid", "customColors": ["red"], "customActive": True, "customThemeRevision": "bad"},
+    )
+    dto = await service.user_dto(_Conn(), "u1", with_theme_prefs=True)
+    assert dto.themePrefs.theme == "bluePurple"
+    assert dto.themePrefs.customColors is None
+    assert dto.themePrefs.customActive is False
+    assert dto.customTheme is None
+    assert dto.customThemeRevision is None
+
+
 async def test_update_custom_theme_merges_palette_into_legacy_preferences(service):
     class RecordingConn:
         async def execute(self, statement, params):
             self.statement = str(statement)
             self.params = params
+            return SimpleNamespace(rowcount=1)
 
     conn = RecordingConn()
     await service.update_custom_theme(conn, "u1", ["#112233"])
@@ -221,3 +253,89 @@ async def test_update_custom_theme_merges_palette_into_legacy_preferences(servic
 
     await service.update_custom_theme(conn, "u1", None)
     assert conn.params["colors"] == "null"
+
+
+async def test_update_theme_prefs_bumps_the_shared_revision(service):
+    """A preset/light-dark/Custom-active change must advance the SAME counter
+    update_custom_theme does — that is what lets a client tell this write apart
+    from a stale read racing it, now that the whole document (not just the
+    palette) is account-wide. Previously this statement PRESERVED the existing
+    revision instead of bumping it."""
+
+    class RecordingConn:
+        async def execute(self, statement, params):
+            self.statement = str(statement)
+            self.params = params
+            return SimpleNamespace(rowcount=1)
+
+    conn = RecordingConn()
+    await service.update_theme_prefs(
+        conn,
+        "u1",
+        ThemePrefs(theme="rose-dark", customActive=False),
+        expected_revision=7,
+    )
+    assert "COALESCE" in conn.statement
+    assert "customThemeRevision" in conn.statement
+    assert "+ 1" in conn.statement
+    assert conn.params["id"] == "u1"
+    assert conn.params["expected_revision"] == 7
+
+
+async def test_update_theme_prefs_rejects_a_stale_revision(service):
+    class Result:
+        rowcount = 0
+
+        def scalar_one_or_none(self):
+            return 8
+
+    class RecordingConn:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, *_args, **_kwargs):
+            self.calls += 1
+            return Result()
+
+    with pytest.raises(service.ThemePrefsRevisionConflict):
+        await service.update_theme_prefs(
+            RecordingConn(),
+            "u1",
+            ThemePrefs(theme="rose", customActive=False),
+            expected_revision=7,
+        )
+
+
+async def test_unchanged_theme_prefs_do_not_bump_the_revision(service):
+    class Result:
+        rowcount = 0
+
+        def scalar_one_or_none(self):
+            return 7
+
+    class RecordingConn:
+        async def execute(self, *_args, **_kwargs):
+            return Result()
+
+    changed = await service.update_theme_prefs(
+        RecordingConn(),
+        "u1",
+        ThemePrefs(theme="rose", customActive=False),
+        expected_revision=7,
+    )
+    assert changed is False
+
+
+async def test_partial_theme_update_only_persists_explicit_fields(service):
+    import json
+
+    class RecordingConn:
+        async def execute(self, statement, params):
+            self.statement = str(statement)
+            self.params = params
+            return SimpleNamespace(rowcount=1)
+
+    conn = RecordingConn()
+    await service.update_theme_prefs(conn, "u1", ThemePrefs(theme="rose"))
+    assert json.loads(conn.params["tp"]) == {"theme": "rose"}
+    assert "? 'customColors'" in conn.statement

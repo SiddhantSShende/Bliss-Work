@@ -103,6 +103,24 @@ export const EventType = {
    *  request for approval: there is nothing to approve, and starting the call
    *  admits everyone waiting at once. */
   CallWaiting: "call.waiting",
+  /** An invitee explicitly declined a ring. `members` is ONLY the person who
+   *  rang them, not the whole roster — a decline is between the invitee and
+   *  whoever invited them. `actorId` is the decliner, so `actorName` reads
+   *  "X declined". Ephemeral: there is no bell notification for a decline. */
+  CallDeclined: "call.declined",
+  /** A ring the caller issued went unanswered — realtime, to the INVITER
+   *  alone (`members` is just them), the live counterpart to CallMissed
+   *  below. `actorId` is the invitee who did not answer, so `actorName`
+   *  reads "X did not answer". A 1:1 ring that times out pairs this with a
+   *  CallEnded; a third person invited into an already-live call times out
+   *  with this alone — the call keeps going. */
+  CallNoAnswer: "call.no_answer",
+  /** The durable counterpart to CallNoAnswer: to the INVITEE who missed the
+   *  ring by timeout (a decline is not a "miss" — see CallDeclined).
+   *  `actorId` is the inviter, so `actorName` reads "You missed a call from
+   *  X". Unlike every other call.* event this has a bell notification, since
+   *  its one recipient may not have been looking at a screen when it fired. */
+  CallMissed: "call.missed",
   /** Screen sharing started or stopped. `actorId` is the sharer, and is what
    *  tells every other client that a share exists without handing them
    *  anything to stop it with — the stop control is the sharer's alone. */
@@ -111,6 +129,13 @@ export const EventType = {
   InviteCreated: "invite.created",
   PasswordResetRequested: "password.reset.requested",
   EmailVerificationRequested: "email.verification.requested",
+  /** auth-svc: the caller's own account-wide theme document (preset, light/dark,
+   *  custom-palette definition, and whether Custom is active) changed via `PATCH
+   *  /auth/me`. Signal-only — no theme data on the wire, just who to re-pull
+   *  `GET /auth/me` for — delivered to every OTHER session this same account has
+   *  open (see themeSync.tsx's notifyRemoteThemePrefsChanged), so a change on one
+   *  device reaches another without waiting on its focus/visibility fallback. */
+  UserThemePrefsChanged: "user.theme_prefs_changed",
 } as const;
 export type EventTypeName = (typeof EventType)[keyof typeof EventType];
 
@@ -611,6 +636,16 @@ export const StickyPinChanged = z.object({
   pinState: z.enum(["PINNED", "UNPINNED"]),
 });
 
+/** Signal-only (see EventType.UserThemePrefsChanged): the client re-fetches
+ *  `GET /auth/me` on receipt rather than trusting a payload here, the same way
+ *  it already does on focus/launch, so there is exactly one code path that
+ *  applies a remote theme document. */
+export const UserThemePrefsChanged = z.object({
+  type: z.literal(EventType.UserThemePrefsChanged),
+  ...envelope,
+  userId: z.string().uuid(),
+});
+
 export const NotificationCreated = z.object({
   type: z.literal(EventType.NotificationCreated),
   ...envelope,
@@ -930,6 +965,9 @@ export const CallParticipantLeft = z.object({
 export const CallEnded = z.object({ type: z.literal(EventType.CallEnded), ...callFields });
 export const CallStarted = z.object({ type: z.literal(EventType.CallStarted), ...callFields });
 export const CallWaiting = z.object({ type: z.literal(EventType.CallWaiting), ...callFields });
+export const CallDeclined = z.object({ type: z.literal(EventType.CallDeclined), ...callFields });
+export const CallNoAnswer = z.object({ type: z.literal(EventType.CallNoAnswer), ...callFields });
+export const CallMissed = z.object({ type: z.literal(EventType.CallMissed), ...callFields });
 export const CallShareStarted = z.object({
   type: z.literal(EventType.CallShareStarted),
   ...callFields,
@@ -946,6 +984,9 @@ export type CallParticipantLeft = z.infer<typeof CallParticipantLeft>;
 export type CallEnded = z.infer<typeof CallEnded>;
 export type CallStarted = z.infer<typeof CallStarted>;
 export type CallWaiting = z.infer<typeof CallWaiting>;
+export type CallDeclined = z.infer<typeof CallDeclined>;
+export type CallNoAnswer = z.infer<typeof CallNoAnswer>;
+export type CallMissed = z.infer<typeof CallMissed>;
 export type CallShareStarted = z.infer<typeof CallShareStarted>;
 export type CallShareStopped = z.infer<typeof CallShareStopped>;
 /** Any of them, for handlers that treat them uniformly. */
@@ -957,6 +998,9 @@ export type CallLifecycle =
   | CallEnded
   | CallStarted
   | CallWaiting
+  | CallDeclined
+  | CallNoAnswer
+  | CallMissed
   | CallShareStarted
   | CallShareStopped;
 
@@ -968,6 +1012,9 @@ export const ServerEvent = z.discriminatedUnion("type", [
   CallEnded,
   CallStarted,
   CallWaiting,
+  CallDeclined,
+  CallNoAnswer,
+  CallMissed,
   CallShareStarted,
   CallShareStopped,
   MessageCreated,
@@ -1006,6 +1053,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   PresenceOnline,
   PresenceOffline,
   PresenceSnapshot,
+  UserThemePrefsChanged,
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;
 
@@ -1046,6 +1094,7 @@ export type MailDelivered = z.infer<typeof MailDelivered>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;
 export type PresenceSnapshot = z.infer<typeof PresenceSnapshot>;
+export type UserThemePrefsChanged = z.infer<typeof UserThemePrefsChanged>;
 export type UserCreated = z.infer<typeof UserCreated>;
 export type UserRoleChanged = z.infer<typeof UserRoleChanged>;
 export type UserDeactivated = z.infer<typeof UserDeactivated>;

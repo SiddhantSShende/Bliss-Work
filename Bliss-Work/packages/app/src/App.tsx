@@ -6,7 +6,7 @@ import { Toaster } from "sonner";
 import { ThemeProvider } from "@taskboard/ui";
 import type { PlatformConfig } from "./platform";
 import { RuntimeProvider, useRuntime } from "./lib/runtime";
-import { ThemeSync, publishCustomTheme } from "./lib/themeSync";
+import { ThemeSync, publishThemePrefs } from "./lib/themeSync";
 import { LanguageProvider } from "./i18n/LanguageProvider";
 import { queryRetryDelay, shouldRetryQuery } from "./lib/retryPolicy";
 import { FileTransferProvider } from "./lib/fileTransfer";
@@ -425,12 +425,15 @@ function ThemedTree({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { api } = useRuntime();
   const authenticated = useSession((s) => s.status === "authed");
+  const accountId = useSession((s) => s.user?.id);
   return (
-    // ThemeSync mirrors only the shared custom definition to the account.
+    // ThemeSync mirrors the whole theme document (preset, light/dark, Custom
+    // activation, and the palette) to the account.
     <ThemeProvider
       authenticated={authenticated}
+      accountId={accountId}
       forceDefault={!authenticated || FORCED_DEFAULT_THEME_PATHS.has(pathname)}
-      onCustomThemeChange={(theme) => publishCustomTheme(api, theme, { notify: true })}
+      onPrefsChange={(prefs) => publishThemePrefs(api, prefs, { notify: true })}
     >
       <ThemeSync />
       {children}

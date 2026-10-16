@@ -239,3 +239,87 @@ func (s *Server) sweepOverdueCalls(ctx context.Context) {
 			"call_id", c.ID, "kind", c.Kind, "grace", store.ConferenceEmptyGracePeriod)
 	}
 }
+
+// ringSweepInterval is how often each replica looks for a ring that has gone
+// unanswered — its own, much tighter ticker rather than a share of
+// callSweepInterval's thirty seconds.
+//
+// A 30-second (DirectRingTimeout) or 20-second (AdditionalInviteRingTimeout)
+// ring timeout is a UX promise made in seconds, not in "within the minute" —
+// riding on callSweepInterval would let the real worst case run to ring
+// timeout PLUS thirty more seconds before anyone is told, which is the
+// resolution that is fine for "a meeting closing up to half a minute late"
+// (see callSweepInterval's own doc comment) and is not fine for a caller
+// watching a ring. Two seconds keeps that worst case at ring timeout plus
+// two, for a check that is as cheap as the others: both the claim and the
+// resolution read the one partial index on open rings (see migration
+// 0039's call_participants_ring_expires_at_idx).
+const ringSweepInterval = 2 * time.Second
+
+// RunRingSweeper resolves rings that have gone unanswered — see
+// store.ExpireRingingInvitations — until ctx is cancelled.
+//
+// Separate from RunCallSweeper/sweepOverdueCalls for exactly the reason
+// ringSweepInterval's doc comment gives: the OTHER sweeps' thirty-second
+// resolution is deliberate (see RunCallSweeper's own doc comment on why that
+// is safe to run on every replica concurrently); the same reasoning for
+// running on every replica, with no leader election, applies here
+// unchanged — FOR UPDATE SKIP LOCKED is what makes two tickers, in two
+// replicas, never claim the same row.
+func (s *Server) RunRingSweeper(ctx context.Context) {
+	t := time.NewTicker(ringSweepInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.sweepExpiredRings(ctx)
+		}
+	}
+}
+
+// sweepExpiredRings runs one pass of the ring-expiry sweep. Separated from
+// the loop so it is testable without a clock, same as sweepOverdueCalls.
+func (s *Server) sweepExpiredRings(ctx context.Context) {
+	expiredRings, err := s.store.ExpireRingingInvitations(ctx, store.RingExpirySweepLimit)
+	if err != nil {
+		s.log.Warn("ring sweep failed", "err", err)
+		return
+	}
+	for _, r := range expiredRings {
+		s.resolveExpiredRing(ctx, r)
+	}
+}
+
+// resolveExpiredRing tells both sides of a ring nobody answered in time —
+// the inviter that the invitee did not answer, the invitee that they missed
+// a call — and, when ExpireRingingInvitations ended the call over it, runs
+// the same side effects every other ending path does.
+//
+// ActorID/ActorName are deliberately asymmetric between the two events: the
+// inviter's toast needs the INVITEE's name ("X did not answer") and the
+// invitee's notification needs the INVITER's name ("You missed a call from
+// X") — see events.TypeCallNoAnswer and events.TypeCallMissed.
+func (s *Server) resolveExpiredRing(ctx context.Context, r store.ExpiredRing) {
+	c := r.Ended
+	if c == nil {
+		var err error
+		c, err = s.store.CallForNotify(ctx, r.CallID)
+		if err != nil {
+			s.log.Warn("ring expiry notify failed", "call", r.CallID, "err", err)
+			return
+		}
+	}
+	if r.InviterID != "" {
+		s.ringUsers(ctx, c, []string{r.InviterID}, events.TypeCallNoAnswer, r.InviteeID)
+	}
+	s.ringUsers(ctx, c, []string{r.InviteeID}, events.TypeCallMissed, r.InviterID)
+	if r.Ended != nil {
+		s.endedCallSideEffects(ctx, r.Ended, "")
+		s.log.Info("call ended: the only ring on it went unanswered",
+			"call_id", r.CallID, "invitee", r.InviteeID)
+	} else {
+		s.log.Info("call ring expired unanswered", "call_id", r.CallID, "invitee", r.InviteeID)
+	}
+}

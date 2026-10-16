@@ -165,7 +165,9 @@
     "leave": "छोड़ें",
     "conferenceTitle": "कॉन्फ़्रेंस कॉल",
     "addedYou": "{{name}} ने आपको एक कॉन्फ़्रेंस कॉल में जोड़ा",
-    "ariaLabelCall": "आने वाली कॉल: {{title}}"
+    "ariaLabelCall": "आने वाली कॉल: {{title}}",
+    "decline": "अस्वीकार करें",
+    "declineFailed": "कॉल अस्वीकार नहीं हो सकी। कृपया फिर से प्रयास करें।"
   },
   "scheduledNotice": {
     "untitledMeeting": "मीटिंग",

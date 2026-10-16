@@ -19,7 +19,7 @@ import {
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { useActiveThread } from "./activeThread";
-import { announceIncomingMeeting, dismissIncomingMeeting } from "./MeetingSession";
+import { announceCallResolution, announceIncomingMeeting, dismissIncomingMeeting } from "./MeetingSession";
 import { announceScheduledMeeting } from "./scheduledMeetingNotice";
 import i18n from "../i18n";
 import {
@@ -33,6 +33,7 @@ import { applyStickyPinChanged } from "./stickyPinState";
 import { watchReconnectResync } from "./reconnectResync";
 import { isPendingOwnEcho } from "./pendingOwnEcho";
 import { noteLivePresence, noteLiveSnapshot } from "./presenceFreshness";
+import { notifyRemoteThemePrefsChanged } from "./themeSync";
 // Re-exported for back-compat: every existing web import site pulls `qk`
 // from here (queryBridge used to define it locally). queryKeys.ts is the
 // canonical, platform-neutral source now (apps/mobile imports it directly,
@@ -134,6 +135,9 @@ export function WsEventBridge() {
         case EventType.CallStarted:
         case EventType.CallWaiting:
         case EventType.CallRing:
+        case EventType.CallDeclined:
+        case EventType.CallNoAnswer:
+        case EventType.CallMissed:
         case EventType.CallShareStarted:
         case EventType.CallShareStopped:
           handleCallEvent(e, ctx);
@@ -193,6 +197,12 @@ export function WsEventBridge() {
         case EventType.PresenceOnline:
         case EventType.PresenceOffline:
           handlePresenceEvent(e, ctx);
+          break;
+        case EventType.UserThemePrefsChanged:
+          // Signal-only — another session on this account changed the theme
+          // document. Re-pull GET /auth/me right away instead of waiting on
+          // ThemeSync's own focus/visibility fallback.
+          notifyRemoteThemePrefsChanged();
           break;
       }
     };
@@ -342,6 +352,36 @@ function handleCallEvent(e: CallLifecycle, ctx: EventHandlerContext) {
           isAdhocCall(e) ? { actorName: e.actorName } : undefined,
         );
       }
+      break;
+    }
+    // A ring the caller placed was explicitly declined, or simply timed out
+    // unanswered — realtime-only, addressed by the server to the INVITER
+    // alone (see events.ts's own doc on CallDeclined/CallNoAnswer). Told to
+    // CallRoom (which is what is actually waiting on this, for a fresh
+    // ad-hoc 1:1 where the caller is still alone in the room) via the same
+    // window-event pattern as announceIncomingMeeting — see
+    // MeetingSession.announceCallResolution.
+    //
+    // Also dismisses IncomingMeetingNotice for this callId, defensively:
+    // these two events are not actually addressed to the invitee the card
+    // would be showing for, but a client that somehow still has a card open
+    // for this call (e.g. its own earlier ring, re-announced) should not be
+    // left stuck on it either.
+    case EventType.CallDeclined:
+    case EventType.CallNoAnswer: {
+      announceCallResolution(e.callId, {
+        reason: e.type === EventType.CallDeclined ? "declined" : "no_answer",
+        actorName: e.actorName,
+      });
+      dismissIncomingMeeting(e.callId);
+      break;
+    }
+    // The durable counterpart, to the INVITEE who missed the ring — a bell
+    // notification is what actually tells them (NotificationCreated, handled
+    // elsewhere); this only clears a card still open for it, same reasoning
+    // as the two cases above.
+    case EventType.CallMissed: {
+      dismissIncomingMeeting(e.callId);
       break;
     }
     // The room's record of who is sharing. The picture itself arrives on the

@@ -62,7 +62,8 @@
       "voice": "语音",
       "voiceTitle": "仅语音加入",
       "leave": "退出",
-      "dismiss": "关闭"
+      "dismiss": "关闭",
+      "decline": "拒绝"
     },
     "titles": {
       "task": "任务",

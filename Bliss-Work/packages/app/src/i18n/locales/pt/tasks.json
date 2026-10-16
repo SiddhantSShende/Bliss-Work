@@ -437,7 +437,7 @@
     }
   },
   "analyticsHub": {
-    "title": "Análises",
+    "title": "Análises do espaço de trabalho",
     "hint": "Veja as análises do espaço de trabalho ou escolha um projeto para ver suas tarefas.",
     "overviewTitle": "Visão geral",
     "projectsTitle": "Projetos",
@@ -473,6 +473,7 @@
         "activityPulse": "Pulso de atividade"
       },
       "statusFlowHint": "Transições de status por dia no período selecionado.",
+      "donutTotalLabel": "Tarefas",
       "workloadTable": {
         "person": "Pessoa",
         "assigned": "Atribuídas",
@@ -482,8 +483,14 @@
       },
       "scatter": {
         "xLabel": "Tarefas atribuídas",
-        "yLabel": "Taxa de conclusão",
-        "hint": "Cada ponto é uma pessoa: carga atribuída em relação à sua taxa de conclusão."
+        "yLabel": "Taxa de conclusão (%)",
+        "hint": "Cada ponto é uma pessoa: carga atribuída em relação à sua taxa de conclusão.",
+        "quadrants": {
+          "highEffLowLoad": "Alta eficiência / Baixa carga",
+          "highEffHighLoad": "Alta eficiência / Alta carga",
+          "lowEffLowLoad": "Baixa eficiência / Baixa carga",
+          "lowEffHighLoad": "Baixa eficiência / Alta carga"
+        }
       },
       "activity": {
         "created": "Criadas",

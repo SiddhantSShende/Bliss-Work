@@ -413,7 +413,7 @@
     }
   },
   "analyticsHub": {
-    "title": "分析",
+    "title": "ワークスペース分析",
     "hint": "ワークスペースの分析を表示するか、プロジェクトを選択してそのタスクを確認してください。",
     "overviewTitle": "概要",
     "projectsTitle": "プロジェクト",
@@ -449,6 +449,7 @@
         "activityPulse": "アクティビティパルス"
       },
       "statusFlowHint": "選択した期間における日別のステータス推移。",
+      "donutTotalLabel": "タスク",
       "workloadTable": {
         "person": "メンバー",
         "assigned": "割り当て済み",
@@ -458,8 +459,14 @@
       },
       "scatter": {
         "xLabel": "割り当てタスク数",
-        "yLabel": "完了率",
-        "hint": "各点は1人を表し、割り当てられたワークロードと完了率を示します。"
+        "yLabel": "完了率 (%)",
+        "hint": "各点は1人を表し、割り当てられたワークロードと完了率を示します。",
+        "quadrants": {
+          "highEffLowLoad": "高効率 / 低負荷",
+          "highEffHighLoad": "高効率 / 高負荷",
+          "lowEffLowLoad": "低効率 / 低負荷",
+          "lowEffHighLoad": "低効率 / 高負荷"
+        }
       },
       "activity": {
         "created": "作成",

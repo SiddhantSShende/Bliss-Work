@@ -8,9 +8,26 @@ import type {
   WorkloadBreakdownDTO,
 } from "@taskboard/shared";
 import { StatTile } from "@taskboard/ui";
-import { STATUS_COLORS } from "./TaskAnalyticsParts";
 
-const STATUS_ORDER = Object.keys(STATUS_COLORS) as (keyof StatusBreakdownDTO)[];
+/** StatusDonut/StatusFlowChart's own vibrant, categorical status palette —
+ *  deliberately NOT the shared STATUS_COLORS from TaskAnalyticsParts (which
+ *  stays on its original muted mapping for every other analytics panel).
+ *  completed/missed/ignored reuse the existing semantic --color-success/
+ *  -danger/-muted tokens; acknowledged/sent get the two fixed
+ *  --color-status-* tokens added to theme.css for this purpose (validated
+ *  with the dataviz skill's palette validator for CVD separation and
+ *  contrast against those three). ignored and left intentionally share the
+ *  muted gray, same as STATUS_COLORS — both read as "no further action",
+ *  and the legend/tooltip text still disambiguates them. */
+const OVERVIEW_STATUS_COLORS: Record<keyof StatusBreakdownDTO, string> = {
+  completed: "var(--color-success)",
+  acknowledged: "var(--color-status-acknowledged)",
+  sent: "var(--color-status-sent)",
+  missed: "var(--color-danger)",
+  ignored: "var(--color-muted)",
+  left: "var(--color-muted)",
+};
+const STATUS_ORDER = Object.keys(OVERVIEW_STATUS_COLORS) as (keyof StatusBreakdownDTO)[];
 
 function pct(n: number, d: number): number {
   return d > 0 ? (n / d) * 100 : 0;
@@ -167,12 +184,15 @@ export function WorkloadMatrixTable({
 }
 
 const SCATTER_W = 480;
-const SCATTER_H = 200;
-const SCATTER_PAD = { left: 36, right: 12, top: 10, bottom: 24 };
+const SCATTER_H = 230;
+const SCATTER_PAD = { left: 34, right: 14, top: 16, bottom: 26 };
 
 /** Assigned workload (x) against completion rate (y, fixed 0..100), one point
  *  per person — the same `workload` array WorkloadMatrixTable renders as a
- *  table, read here as a shape instead of a lookup. */
+ *  table, read here as a shape instead of a lookup. Quadrant dividers split
+ *  at the midpoint of the visible load range (x) and the midpoint of the
+ *  completion-rate domain (y = 50%) — there's no server-provided threshold,
+ *  so "average load, half complete" is the deterministic, explainable split. */
 export function WorkloadScatterChart({
   workload,
   nameOf,
@@ -185,52 +205,98 @@ export function WorkloadScatterChart({
   const { t } = useTranslation("tasks");
   if (workload.length === 0) return <p className="py-3 text-sm text-muted">{emptyHint}</p>;
   const maxAssigned = Math.max(1, ...workload.map((w) => w.assignedCount));
-  const x = (v: number) =>
-    SCATTER_PAD.left + (v / maxAssigned) * (SCATTER_W - SCATTER_PAD.left - SCATTER_PAD.right);
-  const y = (v: number) =>
-    SCATTER_PAD.top + (1 - v / 100) * (SCATTER_H - SCATTER_PAD.top - SCATTER_PAD.bottom);
+  const innerW = SCATTER_W - SCATTER_PAD.left - SCATTER_PAD.right;
+  const innerH = SCATTER_H - SCATTER_PAD.top - SCATTER_PAD.bottom;
+  const x = (v: number) => SCATTER_PAD.left + (v / maxAssigned) * innerW;
+  const y = (v: number) => SCATTER_PAD.top + (1 - v / 100) * innerH;
   const yTicks = [0, 50, 100];
+  const xTicks = [...new Set([0, Math.round(maxAssigned / 2), maxAssigned])];
+  const midX = x(maxAssigned / 2);
+  const assignedLabel = t("tasks:analyticsHub.overview.scatter.xLabel");
+  const completionLabel = t("tasks:analyticsHub.overview.scatter.yLabel");
+  const completedLabel = t("tasks:analyticsHub.overview.workloadTable.completed");
+
+  const quadrantLabelStyle = { fontSize: 9, fill: "currentColor", opacity: 0.6 } as const;
 
   return (
     <figure className="m-0">
-      <svg
-        viewBox={`0 0 ${SCATTER_W} ${SCATTER_H}`}
-        className="block h-auto w-full"
-        role="img"
-        aria-label={t("tasks:analyticsHub.overview.scatter.hint")}
-      >
-        {yTicks.map((tick) => (
-          <g key={tick}>
-            <line
-              x1={SCATTER_PAD.left}
-              x2={SCATTER_W - SCATTER_PAD.right}
-              y1={y(tick)}
-              y2={y(tick)}
-              stroke="var(--color-chart-grid)"
-              strokeWidth={1}
-            />
-            <text x={SCATTER_PAD.left - 6} y={y(tick) + 3} textAnchor="end" fontSize={10} fill="currentColor" className="text-muted">
-              {tick}%
+      <div className="flex gap-1">
+        <div className="flex w-3 shrink-0 items-center justify-center">
+          <span
+            className="origin-center whitespace-nowrap text-[10px] text-muted"
+            style={{ transform: "rotate(-90deg)" }}
+          >
+            {completionLabel}
+          </span>
+        </div>
+        <svg
+          viewBox={`0 0 ${SCATTER_W} ${SCATTER_H}`}
+          className="block h-auto min-w-0 flex-1"
+          role="img"
+          aria-label={t("tasks:analyticsHub.overview.scatter.hint")}
+        >
+          {yTicks.map((tick) => (
+            <g key={`y${tick}`}>
+              <line
+                x1={SCATTER_PAD.left}
+                x2={SCATTER_W - SCATTER_PAD.right}
+                y1={y(tick)}
+                y2={y(tick)}
+                stroke="var(--color-chart-grid)"
+                strokeWidth={1}
+              />
+              <text x={SCATTER_PAD.left - 6} y={y(tick) + 3} textAnchor="end" fontSize={10} fill="currentColor" className="text-muted">
+                {tick}%
+              </text>
+            </g>
+          ))}
+          {xTicks.map((tick) => (
+            <text
+              key={`x${tick}`}
+              x={x(tick)}
+              y={SCATTER_H - SCATTER_PAD.bottom + 16}
+              textAnchor="middle"
+              fontSize={10}
+              fill="currentColor"
+              className="text-muted"
+            >
+              {tick}
+            </text>
+          ))}
+          {/* Quadrant dividers (dashed, decorative) and labels — drawn before
+              the points so the data marks always render on top. */}
+          <line x1={midX} x2={midX} y1={SCATTER_PAD.top} y2={SCATTER_H - SCATTER_PAD.bottom} stroke="var(--color-chart-grid)" strokeWidth={1} strokeDasharray="3 3" />
+          <g pointerEvents="none">
+            <text x={SCATTER_PAD.left + 4} y={SCATTER_PAD.top + 10} textAnchor="start" {...quadrantLabelStyle}>
+              {t("tasks:analyticsHub.overview.scatter.quadrants.highEffLowLoad")}
+            </text>
+            <text x={SCATTER_W - SCATTER_PAD.right - 4} y={SCATTER_PAD.top + 10} textAnchor="end" {...quadrantLabelStyle}>
+              {t("tasks:analyticsHub.overview.scatter.quadrants.highEffHighLoad")}
+            </text>
+            <text x={SCATTER_PAD.left + 4} y={SCATTER_H - SCATTER_PAD.bottom - 6} textAnchor="start" {...quadrantLabelStyle}>
+              {t("tasks:analyticsHub.overview.scatter.quadrants.lowEffLowLoad")}
+            </text>
+            <text x={SCATTER_W - SCATTER_PAD.right - 4} y={SCATTER_H - SCATTER_PAD.bottom - 6} textAnchor="end" {...quadrantLabelStyle}>
+              {t("tasks:analyticsHub.overview.scatter.quadrants.lowEffHighLoad")}
             </text>
           </g>
-        ))}
-        {workload.map((w) => (
-          <circle
-            key={w.assigneeId}
-            cx={x(w.assignedCount)}
-            cy={y(w.completionRate)}
-            r={4}
-            fill="var(--color-chart-ink)"
-            fillOpacity={0.75}
-          >
-            <title>{`${nameOf(w.assigneeId)} — ${w.assignedCount} ${t("tasks:analyticsHub.overview.scatter.xLabel")}, ${Math.round(w.completionRate)}%`}</title>
-          </circle>
-        ))}
-      </svg>
-      <div className="mt-1 flex justify-between text-[10px] text-muted">
-        <span>{t("tasks:analyticsHub.overview.scatter.xLabel")}</span>
-        <span>{t("tasks:analyticsHub.overview.scatter.yLabel")}</span>
+          {workload.map((w) => (
+            <circle
+              key={w.assigneeId}
+              cx={x(w.assignedCount)}
+              cy={y(w.completionRate)}
+              r={4.5}
+              fill="var(--color-accent)"
+              fillOpacity={0.85}
+              stroke="var(--color-surface)"
+              strokeWidth={1.5}
+            >
+              <title>{`${nameOf(w.assigneeId)} — ${assignedLabel}: ${w.assignedCount}, ${completedLabel}: ${w.completedCount}, ${completionLabel}: ${Math.round(w.completionRate)}%`}</title>
+            </circle>
+          ))}
+        </svg>
       </div>
+      <div className="mt-1 text-center text-[10px] text-muted">{assignedLabel}</div>
     </figure>
   );
 }
@@ -246,8 +312,8 @@ export function StatusDonut({ breakdown }: { breakdown: StatusBreakdownDTO }) {
   const c = 2 * Math.PI * DONUT_R;
   let offset = 0;
   return (
-    <div className="flex items-center gap-4">
-      <svg viewBox="0 0 100 100" width={120} height={120} role="img" aria-label={t("tasks:analyticsHub.overview.sections.statusDistribution")}>
+    <div className="flex flex-wrap items-center justify-center gap-5">
+      <svg viewBox="0 0 100 100" width={168} height={168} role="img" aria-label={t("tasks:analyticsHub.overview.sections.statusDistribution")}>
         <circle cx={50} cy={50} r={DONUT_R} fill="none" stroke="var(--color-chart-grid)" strokeWidth={DONUT_STROKE} />
         {total > 0 &&
           STATUS_ORDER.filter((k) => breakdown[k] > 0).map((k) => {
@@ -262,7 +328,7 @@ export function StatusDonut({ breakdown }: { breakdown: StatusBreakdownDTO }) {
                 cy={50}
                 r={DONUT_R}
                 fill="none"
-                stroke={STATUS_COLORS[k]}
+                stroke={OVERVIEW_STATUS_COLORS[k]}
                 strokeWidth={DONUT_STROKE}
                 strokeDasharray={`${dash} ${c - dash}`}
                 strokeDashoffset={dashOffset}
@@ -272,14 +338,17 @@ export function StatusDonut({ breakdown }: { breakdown: StatusBreakdownDTO }) {
               </circle>
             );
           })}
-        <text x={50} y={54} textAnchor="middle" fontSize={16} fontWeight={600} fill="currentColor" className="text-fg">
+        <text x={50} y={47} textAnchor="middle" fontSize={20} fontWeight={700} fill="currentColor" className="text-fg">
           {total}
         </text>
+        <text x={50} y={59} textAnchor="middle" fontSize={8} fill="currentColor" className="text-muted">
+          {t("tasks:analyticsHub.overview.donutTotalLabel")}
+        </text>
       </svg>
-      <dl className="grid grid-cols-1 gap-1.5 text-xs">
+      <dl className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
         {STATUS_ORDER.map((k) => (
-          <div key={k} className="flex items-center gap-1.5">
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_COLORS[k] }} />
+          <div key={k} className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: OVERVIEW_STATUS_COLORS[k] }} />
             <dt className="text-muted">{t(`tasks:analytics.statuses.${k}`)}</dt>
             <dd className="font-medium tabular-nums text-fg">
               {breakdown[k]} ({Math.round(pct(breakdown[k], total))}%)
@@ -418,8 +487,8 @@ const FLOW_PAD = { left: 30, right: 10, top: 10, bottom: 24 };
 /** A stacked timeline of the six status categories, one bar per day — the
  *  over-time counterpart to StatusDonut's single-snapshot totals. Each bar
  *  segment is a count of assignee rows that ENTERED that status that day
- *  (see StatusDayPointDTO), reusing the exact STATUS_COLORS every other
- *  status visualization in this app keys off. */
+ *  (see StatusDayPointDTO), reusing the exact OVERVIEW_STATUS_COLORS
+ *  StatusDonut keys off, so the two charts read as one palette. */
 export function StatusFlowChart({ points }: { points: StatusDayPointDTO[] }) {
   const { t, i18n } = useTranslation("tasks");
   if (points.length === 0) return null;
@@ -446,7 +515,7 @@ export function StatusFlowChart({ points }: { points: StatusDayPointDTO[] }) {
       <figcaption className="mb-2 flex flex-wrap items-center justify-end gap-3 text-[11px] text-muted">
         {STATUS_ORDER.map((k) => (
           <span key={k} className="inline-flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS_COLORS[k] }} />
+            <span className="h-2 w-2 rounded-full" style={{ background: OVERVIEW_STATUS_COLORS[k] }} />
             {t(`tasks:analytics.statuses.${k}`)}
           </span>
         ))}
@@ -484,10 +553,14 @@ export function StatusFlowChart({ points }: { points: StatusDayPointDTO[] }) {
           return (
             <g key={p.day}>
               {STATUS_ORDER.filter((k) => p[k] > 0).map((k) => {
-                const h = (p[k] / max) * innerH;
+                // A 1.5px floor keeps a real-but-tiny count visible instead of
+                // vanishing to a sub-pixel sliver; the 1px drawn gap (height
+                // trimmed, not the stacking math) separates adjacent segments
+                // without changing their relative order or proportions.
+                const h = Math.max((p[k] / max) * innerH, 1.5);
                 cursor -= h;
                 return (
-                  <rect key={k} x={x(i)} y={cursor} width={barW} height={h} fill={STATUS_COLORS[k]}>
+                  <rect key={k} x={x(i)} y={cursor + 0.5} width={barW} height={Math.max(h - 1, 0.5)} fill={OVERVIEW_STATUS_COLORS[k]}>
                     <title>{`${labelDay(p.day)} — ${t(`tasks:analytics.statuses.${k}`)}: ${p[k]}`}</title>
                   </rect>
                 );

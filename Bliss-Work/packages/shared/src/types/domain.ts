@@ -33,7 +33,9 @@ export const UserDTO = z.object({
    *  with pre-verification responses; UI treats only `=== false` as unverified. */
   emailVerified: z.boolean().optional(),
   /** Org subscription plan (entitlements). 'enterprise' unlocks External
-   *  Integrations + forward-tracking. Defaults 'free' for older responses. */
+   *  Integrations (Gmail/Slack/Teams) + forward-tracking. Outlook is exempt —
+   *  every plan may connect it (see integrations-svc/app/routes/integrations.py
+   *  connect_start). Defaults 'free' for older responses. */
   plan: z.string().default("free"),
   /** A `data:image/(jpeg|png|webp);base64,...` URI, or null when the user has
    *  never set one — render initials via `Avatar` in that case. */
@@ -847,6 +849,11 @@ export type DeadlineRule = z.infer<typeof DeadlineRule>;
 export const TaskParticipantDTO = z.object({
   userId: z.string().uuid(),
   username: z.string(),
+  // The participant's real name. `username` is the email local-part or a
+  // free-typed invite handle, not a name to show on its own — see
+  // senderDisplayName above. Empty until the projection catches up; clients
+  // fall back to username.
+  displayName: z.string().optional(),
   status: AssigneeStatus,
 });
 export type TaskParticipantDTO = z.infer<typeof TaskParticipantDTO>;
@@ -951,7 +958,7 @@ export const ScheduledTaskDTO = z.object({
   endAt: z.string().nullable().optional(),
   occurrenceLimit: z.number().int().nullable().optional(),
   occurrenceCount: z.number().int(),
-  assignees: z.array(z.object({ userId: z.string(), username: z.string() })),
+  assignees: z.array(z.object({ userId: z.string(), username: z.string(), displayName: z.string().optional() })),
   deadlineAt: z.string().nullable().optional(),
   deadlineRule: DeadlineRule.nullable().optional(),
 });
@@ -1245,6 +1252,7 @@ export const NOTIFICATION_KINDS = [
   "MEETING_STARTED",
   "MEETING_CANCELLED",
   "CALL_ADDED",
+  "CALL_MISSED",
 ] as const;
 export type KnownNotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

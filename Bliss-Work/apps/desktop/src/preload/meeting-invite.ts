@@ -30,8 +30,10 @@ const api = {
    *  handshake as sticky.ts's own `ready()`. */
   ready: () => ipcRenderer.send("meeting-invite:ready", api.callId),
 
-  /** Video / Voice joins the call and closes the popup; Leave only closes it. */
-  act: (action: "video" | "voice" | "leave") =>
+  /** Video / Voice joins the call and closes the popup; Leave only closes it;
+   *  Decline (ad-hoc rings only — see meeting-invite.tsx) also tells the
+   *  server "no" via the main window before closing. */
+  act: (action: "video" | "voice" | "leave" | "decline") =>
     ipcRenderer.send("meeting-invite:act", { callId: api.callId, action }),
 };
 

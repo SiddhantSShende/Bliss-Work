@@ -425,7 +425,7 @@
     }
   },
   "analyticsHub": {
-    "title": "Analysen",
+    "title": "Workspace-Analysen",
     "hint": "Sieh dir die Workspace-Analysen an oder wähle ein Projekt, um dessen Aufgaben zu sehen.",
     "overviewTitle": "Überblick",
     "projectsTitle": "Projekte",
@@ -461,6 +461,7 @@
         "activityPulse": "Aktivitätsverlauf"
       },
       "statusFlowHint": "Statusübergänge pro Tag für den gewählten Zeitraum.",
+      "donutTotalLabel": "Aufgaben",
       "workloadTable": {
         "person": "Person",
         "assigned": "Zugewiesen",
@@ -470,8 +471,14 @@
       },
       "scatter": {
         "xLabel": "Zugewiesene Aufgaben",
-        "yLabel": "Abschlussquote",
-        "hint": "Jeder Punkt ist eine Person: zugewiesene Auslastung gegenüber ihrer Abschlussquote."
+        "yLabel": "Abschlussquote (%)",
+        "hint": "Jeder Punkt ist eine Person: zugewiesene Auslastung gegenüber ihrer Abschlussquote.",
+        "quadrants": {
+          "highEffLowLoad": "Hohe Effizienz / Geringe Auslastung",
+          "highEffHighLoad": "Hohe Effizienz / Hohe Auslastung",
+          "lowEffLowLoad": "Niedrige Effizienz / Geringe Auslastung",
+          "lowEffHighLoad": "Niedrige Effizienz / Hohe Auslastung"
+        }
       },
       "activity": {
         "created": "Erstellt",
