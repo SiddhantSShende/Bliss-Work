@@ -72,7 +72,7 @@ function NeonRoomPreview() {
             canAddPeople addPeopleTitle="Add people" onAddPeople={() => {}}
             canInviteLink inviteLinkTitle="Copy invite link" mintingInviteLink={false} onCopyInviteLink={() => {}}
             chatActive={panel === "chat"} unreadChat={3} onToggleChat={() => setPanel((p) => (p === "chat" ? null : "chat"))}
-            notesActive={panel === "notes"} onToggleNotes={() => setPanel((p) => (p === "notes" ? null : "notes"))}
+            notesActive={panel === "notes"} unreadNotes={0} onToggleNotes={() => setPanel((p) => (p === "notes" ? null : "notes"))}
             isHost recordingSupported recording={false} onToggleRecording={() => {}}
             pipSupported pipAvailable={false /* useMeetingPiP: supported && (active || track); no tracks here */} pipActive={false} onTogglePip={() => {}} onMinimize={() => {}}
             onEnd={() => {}}

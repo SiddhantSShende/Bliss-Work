@@ -301,10 +301,17 @@ export const OrgMembershipDTO = z.object({
 });
 export type OrgMembershipDTO = z.infer<typeof OrgMembershipDTO>;
 
-export const OrgMembershipPageDTO = z.object({
-  items: z.array(OrgMembershipDTO),
-  hasMore: z.boolean(),
-});
+/** /auth/orgs/mine's paged shape. A legacy auth-svc that predates paging
+ *  answers with a bare array of every membership instead — see
+ *  `myOrgsPage` in api/client.ts, which normalizes either shape into this
+ *  one by paginating the array client-side. */
+export const OrgMembershipPageDTO = z.union([
+  z.object({
+    items: z.array(OrgMembershipDTO),
+    hasMore: z.boolean(),
+  }),
+  z.array(OrgMembershipDTO),
+]);
 export type OrgMembershipPageDTO = z.infer<typeof OrgMembershipPageDTO>;
 
 /**

@@ -285,6 +285,16 @@ function assertSafeRequestPath(path: string): void {
   }
 }
 
+/** Client-side equivalent of what a paging auth-svc does server-side for
+ *  `GET /auth/orgs/mine`: name sort, then a case-insensitive substring
+ *  filter. Used only against the legacy bare-array reply — see
+ *  `myOrgsPage`. */
+function sortAndFilterOrgs(orgs: OrgMembershipDTO[], search: string): OrgMembershipDTO[] {
+  const sorted = [...orgs].sort((a, b) => a.orgName.toLowerCase().localeCompare(b.orgName.toLowerCase()));
+  const needle = search.trim().toLowerCase();
+  return needle ? sorted.filter((o) => o.orgName.toLowerCase().includes(needle)) : sorted;
+}
+
 export class ApiClient {
   constructor(private readonly cfg: ApiConfig) {}
 
@@ -793,7 +803,17 @@ export class ApiClient {
       offset: String(params.offset),
       limit: String(params.limit),
     });
-    return this.req(this.cfg.authBase, `/auth/orgs/mine?${query}`, {}, OrgMembershipPageDTO);
+    return this.req(this.cfg.authBase, `/auth/orgs/mine?${query}`, {}, OrgMembershipPageDTO).then((result) => {
+      if (!Array.isArray(result)) return result;
+      // Legacy auth-svc that predates paging: /auth/orgs/mine answers with
+      // every membership, unfiltered and unpaginated. Apply the same
+      // search/offset/limit contract client-side so callers see one shape.
+      const matches = sortAndFilterOrgs(result, params.search);
+      return {
+        items: matches.slice(params.offset, params.offset + params.limit),
+        hasMore: params.offset + params.limit < matches.length,
+      };
+    });
   }
   /** The current org plus any pending deletion. Admin-only. */
   org() {
