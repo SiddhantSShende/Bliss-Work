@@ -257,7 +257,7 @@ export function IncomingMeetingNotice() {
       aria-label={
         adhoc ? t("incomingNotice.ariaLabelCall", { title: heading }) : t("incomingNotice.ariaLabel", { title: incoming.title })
       }
-      className="fixed bottom-4 right-4 z-[150] w-60 rounded-2xl bg-surface p-4 shadow-widget ring-1 ring-border"
+      className="fixed bottom-4 right-4 z-[var(--z-notification)] w-60 rounded-2xl bg-surface p-4 shadow-widget ring-1 ring-border"
     >
       <div className="flex flex-col items-center gap-2 text-center">
         <Logo size={30} />

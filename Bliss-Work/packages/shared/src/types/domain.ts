@@ -931,6 +931,8 @@ export const ProjectDTO = z.object({
   id: z.string().uuid(),
   name: z.string(),
   channelId: z.string().uuid(),
+  /** Every channel linked to the project, including `channelId` itself. */
+  channelIds: z.array(z.string().uuid()).default([]),
   status: ProjectStatus,
   /** Caller is this project's creator or an org_admin → the client renders
    *  the Complete Project button. The server re-checks regardless — this
@@ -1805,3 +1807,55 @@ export type CallWaitingDTO = z.infer<typeof CallWaitingDTO>;
  *  field survives being passed around after the response is gone. */
 export const CallJoinDTO = z.discriminatedUnion("state", [CallTokenDTO, CallWaitingDTO]);
 export type CallJoinDTO = z.infer<typeof CallJoinDTO>;
+
+// ── Billing (billing-svc) ─────────────────────────────────────────────────────
+// 1 credit = $1. There is no purchase/checkout flow yet — these DTOs cover
+// read-only org balance/ledger/catalog plus operator-only pricing & catalog
+// management (billing-svc phase 2's API surface).
+
+export const BillingBalanceDTO = z.object({
+  orgId: z.string().uuid(),
+  balance: z.number().int(),
+});
+export type BillingBalanceDTO = z.infer<typeof BillingBalanceDTO>;
+
+export const BillingLedgerEntryDTO = z.object({
+  id: z.string(),
+  delta: z.number().int(),
+  balanceAfter: z.number().int(),
+  reason: z.string(),
+  referenceType: z.string().nullable().default(null),
+  referenceId: z.string().nullable().default(null),
+  createdAt: z.string(),
+});
+export type BillingLedgerEntryDTO = z.infer<typeof BillingLedgerEntryDTO>;
+
+export const BillingReconcileDTO = z.object({
+  orgId: z.string().uuid(),
+  storedBalance: z.number().int(),
+  computedBalance: z.number().int(),
+  matches: z.boolean(),
+});
+export type BillingReconcileDTO = z.infer<typeof BillingReconcileDTO>;
+
+export const BillingPackageDTO = z.object({
+  id: z.string(),
+  name: z.string(),
+  credits: z.number().int(),
+  priceCents: z.number().int(),
+  currency: z.string(),
+  active: z.boolean(),
+});
+export type BillingPackageDTO = z.infer<typeof BillingPackageDTO>;
+
+/** `value` is whatever JSON the operator stored for this key (a number for
+ *  every key billing-svc seeds today) — kept loose rather than narrowed to
+ *  `number` so an operator-added key of a different shape doesn't fail
+ *  validation and break the page that lists them all. */
+export const BillingPricingEntryDTO = z.object({
+  key: z.string(),
+  value: z.unknown(),
+  updatedAt: z.string(),
+  updatedBy: z.string().nullable().default(null),
+});
+export type BillingPricingEntryDTO = z.infer<typeof BillingPricingEntryDTO>;

@@ -12,13 +12,14 @@
  * finished meeting gets no Join — there is nothing left to join — and offers
  * its record instead.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Clock, MoreHorizontal, Phone, PlayCircle, Repeat, Users, Video } from "lucide-react";
 import { Avatar, Badge, Button } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { AnchoredPopover } from "./AnchoredPopover";
 import { dayLabel, startOfDay, timeLabel } from "../lib/meetingTime";
 import { occurrenceOf } from "../lib/meetingCalendar";
 import { bucketFor, meetingScope, statusLabel } from "../lib/meetingView";
@@ -167,7 +168,9 @@ function RowMenu({
 }) {
   const { t } = useTranslation("meetings");
   const [open, setOpen] = useState(false);
-  const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
+  const panelRef = useRef<HTMLDivElement>(null);
+  const close = () => setOpen(false);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
 
   const pick = (run: () => void) => () => {
     setOpen(false);
@@ -187,9 +190,12 @@ function RowMenu({
         <MoreHorizontal size={16} />
       </button>
       {open && (
-        <div
+        <AnchoredPopover
+          anchor={wrap}
+          panelRef={panelRef}
+          gap={4}
           role="menu"
-          className="absolute right-0 z-40 mt-1 w-48 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
+          className="w-48 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-card"
         >
           <MenuRow label={t("row.menu.viewDetails")} onClick={pick(onOpenDetail)} />
           {joinable && onOpenRoom && (
@@ -201,7 +207,7 @@ function RowMenu({
           {call.recordingStatus === "READY" && (
             <MenuRow label={t("row.menu.watchRecording")} onClick={pick(onOpenDetail)} />
           )}
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );

@@ -100,6 +100,7 @@ export function usePopoverPosition({
         // Clamped to the boundary on both sides, so a trigger near its edge
         // does not push the panel past it.
         left: Math.max(boundLeft + gap, Math.min(anchorLeft, boundRight - width - gap)),
+        maxWidth: Math.max(0, boundRight - boundLeft - gap * 2),
         maxHeight: Math.max(0, below ? spaceBelow : spaceAbove),
       });
     };

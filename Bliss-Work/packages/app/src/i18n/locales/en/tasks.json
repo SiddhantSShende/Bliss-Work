@@ -1,4 +1,28 @@
 {
+  "projectCreationDialog": {
+    "title": "New Project",
+    "fields": {
+      "name": "Project Name",
+      "namePlaceholder": "Name this project",
+      "channels": "Channels",
+      "channelsListLabel": "Channels for this project",
+      "channelsHint": "Only channels with at least 2 members can be part of a project."
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "create": "Create Project",
+      "creating": "Creating…"
+    },
+    "errors": {
+      "needName": "Give the project a name",
+      "needChannel": "Pick at least one channel",
+      "channelTooSmall": "#{{name}} needs at least 2 members to be part of a project",
+      "createFailed": "Could not create project"
+    },
+    "toasts": {
+      "created": "Project \"{{name}}\" created"
+    }
+  },
   "liveEvents": {
     "newTask": "New task: {{title}}",
     "newTaskFrom": "from {{sender}}",
@@ -227,6 +251,10 @@
       "taskTitlePlaceholder": "Enter task title",
       "title": "Project Name",
       "titlePlaceholder": "Name this project",
+      "titlePreview": "Task title",
+      "titlePreviewPlaceholder": "Pick channels, people, or a project to see the title",
+      "newProjectName": "Project Name",
+      "newProjectNamePlaceholder": "Name this new project",
       "description": "Description",
       "descriptionPlaceholder": "Add details…",
       "assignTo": "Assign to",
@@ -267,6 +295,10 @@
       "needTaskTitle": "Give the task a title",
       "needTitle": "Give the task a project name",
       "needAssignee": "Pick at least one assignee",
+      "needProjectName": "Give this project a name",
+      "needSelection": "Select at least one channel, person, or project",
+      "stillCheckingMembership": "Still checking channel membership — try again in a moment",
+      "membershipAddFailed": "Could not add everyone to the selected channel(s)",
       "invalidSchedule": "Choose a future date and time",
       "invalidStart": "Choose a future recurring start",
       "needWeekday": "Choose at least one weekday",
@@ -329,24 +361,34 @@
     },
     "assign": {
       "required": "required",
+      "projectsTab": "Projects ({{count}})",
       "peopleTab": "People ({{count}})",
       "channelsTab": "Channels ({{count}})",
+      "projectsSearch": "Search your projects…",
       "peopleSearch": "Search people in your organisation…",
       "channelsSearch": "Search your channels…",
+      "projectsSearchLabel": "Search your projects",
       "peopleSearchLabel": "Search people in your organisation",
       "channelsSearchLabel": "Search your channels",
+      "projectsListLabel": "Projects to assign to",
       "peopleListLabel": "People to assign to",
       "channelsListLabel": "Channels to assign to",
       "loading": "Loading…",
+      "projectsLoadingMore": "Loading more projects…",
       "peopleLoadingMore": "Loading more people…",
       "channelsLoadingMore": "Loading more channels…",
+      "projectsEmpty": "No projects match your search.",
       "peopleEmpty": "No people match your search.",
       "channelsEmpty": "No channels match your search.",
       "loadError": "Couldn't load this list.",
       "retry": "Try again",
       "locked": "Locked channel",
+      "newProject": "+ New",
+      "viaProject": "From a project",
       "members_one": "{{count}} member",
-      "members_other": "{{count}} members"
+      "members_other": "{{count}} members",
+      "projectChannelCount_one": "{{count}} channel",
+      "projectChannelCount_other": "{{count}} channels"
     }
   },
   "exportTasksDialog": {

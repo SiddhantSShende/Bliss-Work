@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { create } from "zustand";
@@ -11,6 +11,7 @@ import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { broadcastSession } from "../lib/authChannel";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { AnchoredPopover } from "./AnchoredPopover";
 
 const ORG_PAGE_SIZE = 2;
 
@@ -103,7 +104,9 @@ export function OrgSwitcher() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const busyOrgId = useOrgSwitchBusyId();
-  const ref = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
+  const panelRef = useRef<HTMLDivElement>(null);
+  const close = () => setOpen(false);
+  const ref = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -157,7 +160,13 @@ export function OrgSwitcher() {
         <ChevronsUpDown size={13} className="shrink-0 text-muted" />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-surface shadow-card">
+        <AnchoredPopover
+          anchor={ref}
+          panelRef={panelRef}
+          align="start"
+          gap={4}
+          className="w-64 overflow-y-auto rounded-xl border border-border bg-surface shadow-card"
+        >
           <label className="flex items-center gap-2 border-b border-border px-3 py-2">
             <Search size={14} className="shrink-0 text-muted" />
             <input
@@ -226,7 +235,7 @@ export function OrgSwitcher() {
               {orgQuery.isFetchingNextPage ? t("org:orgSwitcher.loading") : t("org:orgSwitcher.loadMore")}
             </button>
           )}
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );

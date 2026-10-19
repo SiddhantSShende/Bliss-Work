@@ -1,0 +1,27 @@
+fastapi==0.140.0
+uvicorn[standard]==0.34.0
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+pyjwt[crypto]==2.13.0
+structlog==24.4.0
+uuid6==2024.7.10
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# structlog -> stdout JSON bootstrap, shared with every other Python service.
+# See services/shared/logging_setup/shared_logging_setup.py.
+../shared/logging_setup
+
+# Hardened JWKS fetch-and-cache (single-flighted refresh + kid-miss cooldown),
+# shared with auth-svc, task-svc, integrations-svc. See
+# services/shared/jwks_auth/jwks_auth.py.
+../shared/jwks_auth
+
+# Retry + circuit-breaker helpers used by jwks_auth's refresh path, shared
+# with every other Python service. See services/shared/resilience/resilience.py.
+../shared/resilience
+
+# Constant-time internal-service-secret comparison for /internal/v1/billing/*
+# (auth-svc is the only caller — see app/routes/internal.py), shared with
+# every other Python service that validates its own /internal/* routes.
+../shared/internal_auth

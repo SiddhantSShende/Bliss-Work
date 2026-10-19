@@ -13,48 +13,65 @@ import { useSession } from "../store/session";
 import { ME } from "../test/meetingFixtures";
 import { makeChannels, makeUsers, pagedChannels, pagedDirectory, scrollToEnd, stubScrollGeometry } from "../test/pagedPickerApi";
 
-const h = vi.hoisted(() => ({ api: { directoryPage: vi.fn(), channelsPage: vi.fn() } }));
+const h = vi.hoisted(() => ({ api: { directoryPage: vi.fn(), channelsPage: vi.fn(), projects: vi.fn() } }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 
-import { AssignToPanel } from "./AssignToPanel";
+import { AssignToPanel, type ChannelPickLike } from "./AssignToPanel";
 import { PICKER_PAGE_SIZE } from "../lib/usePagedPicker";
 
 const PAGE = PICKER_PAGE_SIZE; // 30
 let restoreGeometry: () => void;
 let onPeople: Mock<(u: UserDTO) => void>;
-let onChannels: Mock<(c: ChannelDTO) => void>;
+let onChannels: Mock<(c: ChannelPickLike) => void>;
+let onProjects: Mock<(p: ProjectDTO) => void>;
 
-function Harness({ initialTab = "people", project }: { initialTab?: "people" | "channels"; project?: ProjectDTO }) {
+function Harness({
+  initialTab = "people",
+  projectDerivedChannels = [],
+}: {
+  initialTab?: "projects" | "people" | "channels";
+  projectDerivedChannels?: ChannelPickLike[];
+}) {
   const [people, setPeople] = useState<Set<string>>(new Set());
-  const [channels, setChannels] = useState<Set<string>>(() => new Set(project ? [project.channelId] : []));
+  const [channels, setChannels] = useState<Set<string>>(new Set(projectDerivedChannels.map((c) => c.id)));
+  const [projects, setProjects] = useState<Set<string>>(new Set());
   return (
     <AssignToPanel
       people={people}
       channels={channels}
-      project={project}
-      lockedChannelId={project?.channelId}
+      projects={projects}
+      projectDerivedChannels={projectDerivedChannels}
       initialTab={initialTab}
       onTogglePerson={(u: UserDTO) => {
         onPeople(u);
         setPeople((s) => { const n = new Set(s); if (!n.delete(u.id)) n.add(u.id); return n; });
       }}
-      onToggleChannel={(c: ChannelDTO) => {
+      onToggleChannel={(c: ChannelPickLike) => {
         onChannels(c);
         setChannels((s) => { const n = new Set(s); if (!n.delete(c.id)) n.add(c.id); return n; });
+      }}
+      onToggleProject={(p: ProjectDTO) => {
+        onProjects(p);
+        setProjects((s) => { const n = new Set(s); if (!n.delete(p.id)) n.add(p.id); return n; });
       }}
     />
   );
 }
 
-function mount(initialTab: "people" | "channels" = "people", project?: ProjectDTO) {
+function mount(initialTab: "projects" | "people" | "channels" = "people", projectDerivedChannels: ChannelPickLike[] = []) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={qc}><Harness initialTab={initialTab} project={project} /></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={qc}>
+      <Harness initialTab={initialTab} projectDerivedChannels={projectDerivedChannels} />
+    </QueryClientProvider>,
+  );
   return userEvent.setup();
 }
 
 const scroller = (name: RegExp | string) => screen.getByLabelText(name) as HTMLElement;
 const peopleBox = () => scroller("People to assign to");
 const channelsBox = () => scroller("Channels to assign to");
+const projectsBox = () => scroller("Projects to assign to");
 const rows = (box: HTMLElement) => within(box).queryAllByRole("checkbox");
 const scroll = (box: HTMLElement) => scrollToEnd(box, (el) => fireEvent.scroll(el));
 
@@ -62,48 +79,42 @@ beforeEach(() => {
   restoreGeometry = stubScrollGeometry();
   useSession.setState({ user: ME });
   onPeople = vi.fn<(u: UserDTO) => void>();
-  onChannels = vi.fn<(c: ChannelDTO) => void>();
+  onChannels = vi.fn<(c: ChannelPickLike) => void>();
+  onProjects = vi.fn<(p: ProjectDTO) => void>();
   h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(makeUsers(100)));
   h.api.channelsPage.mockReset().mockImplementation(pagedChannels(makeChannels(75)));
+  h.api.projects.mockReset().mockResolvedValue([]);
 });
 afterEach(() => restoreGeometry());
 
 describe("opening", () => {
-  it("puts Channels before People and opens the channel list first in the task dialog", async () => {
+  it("puts Projects before Channels before People, and opens the channel list first in the task dialog", async () => {
     mount("channels");
     const tabs = screen.getAllByRole("tab");
-    expect(tabs[0]).toHaveAccessibleName(/^Channels/);
-    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
-    expect(tabs[1]).toHaveAccessibleName(/^People/);
+    expect(tabs[0]).toHaveAccessibleName(/^Projects/);
+    expect(tabs[1]).toHaveAccessibleName(/^Channels/);
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[2]).toHaveAccessibleName(/^People/);
     await waitFor(() => expect(rows(channelsBox())).toHaveLength(PAGE));
   });
 
-  it("shows People selected, both counts at 0, and the search directly under the tabs", async () => {
+  it("shows People selected, every count at 0, and the search directly under the tabs", async () => {
     mount();
     expect(screen.getByRole("tab", { name: /People \(0\)/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: /Channels \(0\)/ })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: /Projects \(0\)/ })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("group", { name: /Assign to/ })).toBeInTheDocument();
     const search = screen.getByRole("searchbox", { name: "Search people in your organisation" });
     expect(screen.getByRole("tablist").compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await waitFor(() => expect(rows(peopleBox())).toHaveLength(PAGE));
   });
 
-  it("shows an existing project channel as selected and locked without treating it as an allocation target", async () => {
-    const project: ProjectDTO = {
-      id: "00000000-0000-4000-8000-000000000001",
-      name: "Ship the report",
-      channelId: "00000000-0000-4000-8000-000000000002",
-      status: "ACTIVE",
-      canComplete: false,
-    };
-    mount("channels", project);
-    await waitFor(() => expect(rows(channelsBox())).toHaveLength(PAGE + 1));
-    const row = within(channelsBox()).getByText("#Ship the report").closest("li");
-    expect(row).toBeInTheDocument();
-    expect(row).toHaveTextContent("Project channel");
-    expect(within(row!).getByRole("checkbox")).toBeChecked();
-    expect(within(row!).getByRole("checkbox")).toBeDisabled();
-    expect(onChannels).not.toHaveBeenCalled();
+  it("does not ask for projects until the Projects tab is opened", async () => {
+    const user = mount();
+    await waitFor(() => expect(rows(peopleBox())).toHaveLength(PAGE));
+    expect(h.api.projects).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("tab", { name: /Projects/ }));
+    await waitFor(() => expect(h.api.projects).toHaveBeenCalledTimes(1));
   });
 
   it("loads ONE page of a 100-person organisation, not all of it", async () => {
@@ -414,6 +425,79 @@ describe("channels", () => {
     expect(await screen.findByText("Loading more channels…")).toBeInTheDocument();
     await act(async () => release());
     await waitFor(() => expect(rows(channelsBox())).toHaveLength(2 * PAGE));
+  });
+});
+
+describe("project-derived channels", () => {
+  const DERIVED: ChannelPickLike[] = [{ id: "chan-derived-1", name: "launch-plan-chat", memberCount: 4 }];
+
+  it("shows a project-derived channel as its own row, tagged, above the ordinary list", async () => {
+    const user = mount("channels", DERIVED);
+    await waitFor(() => expect(rows(channelsBox())).toHaveLength(PAGE + 1));
+    const row = within(channelsBox()).getByText("launch-plan-chat").closest("li")!;
+    expect(row).toHaveTextContent("From a project");
+    expect(within(row).getByRole("checkbox")).toBeChecked();
+
+    // It is the first row (above the ordinary paged list).
+    const allRows = within(channelsBox()).getAllByRole("checkbox");
+    expect(allRows[0]).toBe(within(row).getByRole("checkbox"));
+    await user.click(within(row).getByRole("checkbox"));
+    expect(onChannels.mock.calls[0]![0]).toMatchObject({ id: "chan-derived-1", name: "launch-plan-chat" });
+  });
+
+  it("never shows a project-derived channel twice, even if it is also on the loaded picker page", async () => {
+    const onPage = makeChannels(5)[2]!;
+    const derived: ChannelPickLike[] = [{ id: onPage.id, name: onPage.name, memberCount: onPage.memberCount }];
+    h.api.channelsPage.mockResolvedValue(makeChannels(5));
+    mount("channels", derived);
+    await waitFor(() => expect(rows(channelsBox())).toHaveLength(5));
+    expect(within(channelsBox()).getAllByText(onPage.name)).toHaveLength(1);
+  });
+
+  it("an unchecked project-derived row can be checked again", async () => {
+    const user = mount("channels", DERIVED);
+    await waitFor(() => expect(rows(channelsBox())).toHaveLength(PAGE + 1));
+    const checkbox = within(channelsBox()).getByRole("checkbox", { name: /launch-plan-chat/ });
+    expect(checkbox).toBeChecked();
+    await user.click(checkbox); // uncheck
+    expect(checkbox).not.toBeChecked();
+    await user.click(checkbox); // check again
+    expect(checkbox).toBeChecked();
+    expect(onChannels).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("projects", () => {
+  const PROJECTS: ProjectDTO[] = [
+    { id: "proj-1", name: "Website Redesign", channelId: "chan-1", channelIds: ["chan-1", "chan-2"], status: "ACTIVE", canComplete: false },
+    { id: "proj-2", name: "Q3 Launch", channelId: "chan-3", channelIds: ["chan-3"], status: "ACTIVE", canComplete: false },
+  ];
+
+  it("lists projects and reports the whole project when picked", async () => {
+    h.api.projects.mockResolvedValue(PROJECTS);
+    const user = mount("projects");
+    await waitFor(() => expect(rows(projectsBox())).toHaveLength(2));
+    expect(within(projectsBox()).getByText("Website Redesign")).toBeInTheDocument();
+    expect(within(projectsBox()).getByText("2 channels")).toBeInTheDocument();
+
+    await user.click(within(projectsBox()).getByRole("checkbox", { name: /Website Redesign/ }));
+    expect(onProjects.mock.calls[0]![0]).toMatchObject({ id: "proj-1", name: "Website Redesign" });
+    expect(screen.getByRole("tab", { name: /Projects \(1\)/ })).toBeInTheDocument();
+  });
+
+  it("filters projects by name client-side", async () => {
+    h.api.projects.mockResolvedValue(PROJECTS);
+    const user = mount("projects");
+    await waitFor(() => expect(rows(projectsBox())).toHaveLength(2));
+    await user.type(screen.getByRole("searchbox", { name: "Search your projects" }), "Launch");
+    await waitFor(() => expect(rows(projectsBox())).toHaveLength(1));
+    expect(within(projectsBox()).getByText("Q3 Launch")).toBeInTheDocument();
+  });
+
+  it("says so when there are no projects", async () => {
+    h.api.projects.mockResolvedValue([]);
+    mount("projects");
+    expect(await screen.findByText("No projects match your search.")).toBeInTheDocument();
   });
 });
 

@@ -39,7 +39,7 @@ from ..logging_config import log
 from ..schemas import DeleteOrgRequest, OrgLifecycleDTO, OrgMfaSettingsDTO, OrgMfaSettingsRequest
 from ..security.auth_dep import Principal, require_org_admin
 from ..security.origin import enforce_origin
-from .invites_service import iso_z
+from ..dates import iso_z
 from .members_service import require_live_admin
 
 router = APIRouter(prefix="/auth", tags=["org"])

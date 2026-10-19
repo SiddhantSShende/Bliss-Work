@@ -544,21 +544,8 @@ export function ChannelView() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* relative z-50, actually matching TopNavbar's `glass relative z-50`
-          (it claimed to match at z-30 before, which is still below TopNavbar).
-          backdrop-blur makes this header a STACKING CONTEXT that is painted at
-          its in-flow position, so without a z-index of its own everything
-          inside it — the options menu included — is trapped below whatever it
-          is compared against, no matter what z-index the menu itself asks for.
-          z-30 cleared the message list and a message's own action popover
-          (z-20), but was still capped below TopNavbar (z-50), which is what put
-          the options/call menu behind the top nav bar. z-50 clears TopNavbar
-          too while staying under the lightbox (z-[100]), which should still
-          cover it. A plain Modal overlay is ALSO `fixed inset-0 z-50`, so one
-          mounted earlier in the DOM (a sidebar pane's dialog) loses the tie to
-          this header and is painted under it; a dialog that can open next to a
-          channel passes `elevated` (see Modal) rather than this header
-          giving way. */}
+      {/* Keep the header above its scrollable conversation content. Dropdown
+          panels portal to document.body, outside this stacking context. */}
       <header className="relative z-50 flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
         {/* min-w-0 + truncate: a long channel name must not push the member
             count and options menu off the right edge on a narrow window. */}

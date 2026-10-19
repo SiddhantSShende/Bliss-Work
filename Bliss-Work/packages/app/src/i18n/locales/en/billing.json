@@ -1,0 +1,97 @@
+{
+  "org": {
+    "header": {
+      "title": "Credits & Billing",
+      "subtitle": "Your organization's credit balance, monthly costs, and transaction history."
+    },
+    "adminsOnly": {
+      "title": "Admins only",
+      "hint": "Only organization admins can view billing."
+    },
+    "unavailable": {
+      "title": "Billing unavailable",
+      "hint": "Billing isn't configured for this deployment."
+    },
+    "states": {
+      "loading": "Loading billing information…",
+      "error": "Couldn't load billing information."
+    },
+    "balance": {
+      "label": "Current balance",
+      "credits_one": "{{count}} credit",
+      "credits_other": "{{count}} credits"
+    },
+    "insufficientBanner": {
+      "title": "Low balance",
+      "description": "Your organization is out of credits. Add credits to avoid a suspension."
+    },
+    "monthlyCost": {
+      "title": "Monthly cost per member",
+      "admin": "Admin",
+      "member": "Member",
+      "creditsPerMonth_one": "{{count}} credit/mo",
+      "creditsPerMonth_other": "{{count}} credits/mo"
+    },
+    "packages": {
+      "title": "Credit packages",
+      "empty": "No packages are available yet.",
+      "creditsLabel_one": "{{count}} credit",
+      "creditsLabel_other": "{{count}} credits"
+    },
+    "ledger": {
+      "title": "Transaction history",
+      "empty": "No transactions yet.",
+      "reasons": {
+        "monthly_grant": "Monthly credit grant",
+        "renewal_debit": "Monthly renewal charge",
+        "manual_adjustment": "Manual adjustment"
+      }
+    }
+  },
+  "operator": {
+    "header": {
+      "title": "Platform Pricing",
+      "subtitle": "Global pricing and the credit package catalog, for platform operators only."
+    },
+    "forbiddenBanner": {
+      "title": "Platform operator access required",
+      "description": "Your account isn't a platform operator, so changes here will be rejected by the server."
+    },
+    "states": {
+      "loading": "Loading pricing…",
+      "error": "Couldn't load pricing."
+    },
+    "pricing": {
+      "title": "Global pricing",
+      "keys": {
+        "admin_monthly_credits": "Admin monthly credits",
+        "member_monthly_credits": "Member monthly credits",
+        "admin_reference_price_cents": "Admin list price (cents)",
+        "member_reference_price_cents": "Member list price (cents)",
+        "admin_current_price_cents": "Admin current price (cents)",
+        "member_current_price_cents": "Member current price (cents)"
+      },
+      "save": "Save",
+      "saved": "Pricing updated.",
+      "saveFailedForbidden": "Only a platform operator can change pricing.",
+      "saveFailed": "Couldn't save this pricing change."
+    },
+    "packages": {
+      "title": "Credit packages",
+      "empty": "No packages yet.",
+      "name": "Name",
+      "credits": "Credits",
+      "price": "Price (cents)",
+      "active": "Active",
+      "inactive": "Inactive",
+      "create": "Add package",
+      "createFailed": "Couldn't create the package.",
+      "createFailedForbidden": "Only a platform operator can create packages.",
+      "updateFailed": "Couldn't update the package.",
+      "updateFailedForbidden": "Only a platform operator can edit packages.",
+      "deactivate": "Deactivate",
+      "activate": "Activate",
+      "save": "Save"
+    }
+  }
+}

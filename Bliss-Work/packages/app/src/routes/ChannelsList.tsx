@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import { useJoinChannel } from "../lib/useJoinChannel";
 import { LeaveChannelDialog } from "../features/LeaveChannelDialog";
 import { Tabs, type TabSpec } from "../features/Tabs";
 import { useSession } from "../store/session";
+import { AnchoredPopover } from "../features/AnchoredPopover";
 
 /**
  * Middle pane of /app/channels.
@@ -364,7 +365,8 @@ function ChannelListMenu({
   const { t } = useTranslation("chatList");
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
-  const wrap = usePopupDismiss<HTMLDivElement>(open, close);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
   const pick = (run: () => void) => (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -389,10 +391,13 @@ function ChannelListMenu({
         <MoreVertical size={16} />
       </button>
       {open && (
-        <div
+        <AnchoredPopover
+          anchor={wrap}
+          panelRef={panelRef}
+          gap={6}
           role="menu"
           aria-label={t("channelsList.menu.optionsLabel")}
-          className="absolute right-0 z-[1000] mt-1.5 w-52 rounded-xl border border-border bg-surface p-1 shadow-card"
+          className="w-52 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-card"
         >
           <ChannelListMenuItem
             icon={<Pin size={15} />}
@@ -410,7 +415,7 @@ function ChannelListMenu({
             label={muted ? t("common.unmuteNotifications") : t("common.muteNotifications")}
             onClick={pick(onToggleMute)}
           />
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );

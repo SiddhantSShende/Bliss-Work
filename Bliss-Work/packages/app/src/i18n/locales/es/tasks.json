@@ -246,7 +246,11 @@
       "assignToChannelEmpty": "Aún no se agregaron canales.",
       "addChannels": "Agregar canales",
       "unknownChannel": "Canal no disponible",
-      "removeChannel": "Quitar {{name}}"
+      "removeChannel": "Quitar {{name}}",
+      "titlePreview": "Task title",
+      "titlePreviewPlaceholder": "Pick channels, people, or a project to see the title",
+      "newProjectName": "Project Name",
+      "newProjectNamePlaceholder": "Name this new project"
     },
     "deadline": {
       "label": "Fecha límite",
@@ -282,7 +286,11 @@
       "invalidDeadlineAmount": "Ingresa un número entero para el tiempo posterior a cada repetición",
       "needDeadlineTime": "Elige una hora límite",
       "fixedDeadlineBeforeStart": "La hora límite fija debe ser posterior a la hora de inicio",
-      "createFailed": "No se pudo crear la tarea"
+      "createFailed": "No se pudo crear la tarea",
+      "needProjectName": "Give this project a name",
+      "needSelection": "Select at least one channel, person, or project",
+      "stillCheckingMembership": "Still checking channel membership — try again in a moment",
+      "membershipAddFailed": "Could not add everyone to the selected channel(s)"
     },
     "toasts": {
       "sentPlain": "Tarea enviada",
@@ -352,7 +360,18 @@
       "locked": "Canal bloqueado",
       "members_one": "{{count}} miembro",
       "members_many": "{{count}} de miembros",
-      "members_other": "{{count}} miembros"
+      "members_other": "{{count}} miembros",
+      "projectsTab": "Projects ({{count}})",
+      "projectsSearch": "Search your projects…",
+      "projectsSearchLabel": "Search your projects",
+      "projectsListLabel": "Projects to assign to",
+      "projectsLoadingMore": "Loading more projects…",
+      "projectsEmpty": "No projects match your search.",
+      "newProject": "+ New",
+      "projectChannelCount_one": "{{count}} channel",
+      "projectChannelCount_other": "{{count}} channels",
+      "projectChannelCount_many": "{{count}} channels",
+      "viaProject": "From a project"
     }
   },
   "exportTasksDialog": {
@@ -573,6 +592,30 @@
       "assignmentRateTooltip": "Asignaciones completadas dividido por todas las asignaciones del ámbito, incluidas las tareas con varios asignados.",
       "uniqueRate": "Tasa de finalización de tareas",
       "uniqueRateTooltip": "Proporción de tareas únicas en las que cada asignado restante la ha completado. Una tarea que todos abandonaron o ignoraron se considera abandonada, no completada."
+    }
+  },
+  "projectCreationDialog": {
+    "title": "New Project",
+    "fields": {
+      "name": "Project Name",
+      "namePlaceholder": "Name this project",
+      "channels": "Channels",
+      "channelsListLabel": "Channels for this project",
+      "channelsHint": "Only channels with at least 2 members can be part of a project."
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "create": "Create Project",
+      "creating": "Creating…"
+    },
+    "errors": {
+      "needName": "Give the project a name",
+      "needChannel": "Pick at least one channel",
+      "channelTooSmall": "#{{name}} needs at least 2 members to be part of a project",
+      "createFailed": "Could not create project"
+    },
+    "toasts": {
+      "created": "Project \"{{name}}\" created"
     }
   }
 }

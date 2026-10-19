@@ -165,8 +165,18 @@ class CreateTaskRequest(BaseModel):
     # never stored as the task's title. Renaming `title` would ripple through
     # every existing caller and test that already treats it as the project
     # name, so it is left as-is and the real task title is this new field.
-    taskTitle: str = Field(min_length=1, max_length=200)
-    title: str = Field(min_length=1, max_length=200)
+    #
+    # Both are now OPTIONAL: a client built against Smart Task Allocation
+    # (see app/allocation.py) omits them entirely and lets the server derive
+    # the title from projectId/newProjectName/channelIds/assigneeIds instead
+    # — see _validate_allocation below and create_task's two branches. A
+    # client sending taskTitle keeps today's exact behavior; the two modes
+    # are mutually exclusive, never merged.
+    taskTitle: str | None = Field(default=None, min_length=1, max_length=200)
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    # Smart Task Allocation fields (derived-title mode only).
+    projectId: str | None = None
+    newProjectName: str | None = Field(default=None, min_length=1, max_length=200)
     description: str = Field(default="", max_length=10_000)
     assigneeIds: list[str] = Field(default_factory=list, max_length=MAX_ASSIGNEES)
     # Channels the task is allocated to, alongside `assigneeIds` (either, or both).
@@ -194,17 +204,37 @@ class CreateTaskRequest(BaseModel):
             raise ValueError("datetimes must include a timezone")
         return value
 
-    @field_validator("taskTitle")
+    @field_validator("taskTitle", "newProjectName")
     @classmethod
-    def _task_title_is_not_blank(cls, value: str) -> str:
+    def _not_blank(cls, value: str | None) -> str | None:
         # min_length=1 alone would accept a whitespace-only string (len > 0 but
         # nothing to show as the task's heading), so trim here and reject what
         # that leaves empty — the client is expected to trim too, but the
         # server is the boundary that actually enforces it.
+        if value is None:
+            return None
         trimmed = value.strip()
         if not trimmed:
-            raise ValueError("taskTitle must not be empty or whitespace-only")
+            raise ValueError("must not be empty or whitespace-only")
         return trimmed
+
+    @model_validator(mode="after")
+    def _validate_title_mode(self) -> "CreateTaskRequest":
+        # Legacy mode (taskTitle given) and derived mode (title absent) are
+        # mutually exclusive: `title`'s is-a-project-name meaning only ever
+        # applied alongside taskTitle, so letting the two mix would silently
+        # reinterpret one or the other.
+        if self.taskTitle is not None:
+            if self.title is None:
+                raise ValueError("title is required alongside taskTitle")
+            if self.projectId is not None or self.newProjectName is not None:
+                raise ValueError("projectId/newProjectName are not used alongside taskTitle")
+        else:
+            if self.title is not None:
+                raise ValueError("title requires taskTitle; omit both to use Smart Task Allocation")
+            if self.projectId is not None and self.newProjectName is not None:
+                raise ValueError("projectId and newProjectName are mutually exclusive")
+        return self
 
     @model_validator(mode="after")
     def _validate_allocation(self) -> "CreateTaskRequest":
@@ -421,11 +451,32 @@ class ProjectDTO(BaseModel):
     id: str
     name: str
     channelId: str
+    # Every channel linked to the project via project_channels, including
+    # channelId itself. Always non-empty for a readable project.
+    channelIds: list[str] = Field(default_factory=list)
     status: ProjectStatus
     # Caller is this project's creator or an org_admin → the client renders
     # the Complete Project button. The server re-checks regardless (see
     # routes/projects_write.py) — this only decides what to OFFER.
     canComplete: bool
+
+
+class CreateProjectRequest(BaseModel):
+    """Standalone project creation (Section 6.4): a project made on its own,
+    never implicitly through a task. Every channel named here must already
+    have >=2 real members (Section 5's domain invariant) — checked loudly,
+    one request, no task to otherwise anchor a silent partial failure to."""
+
+    name: str = Field(min_length=1, max_length=200)
+    channelIds: list[str] = Field(min_length=1, max_length=MAX_CHANNELS_PER_TASK)
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_not_blank(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("name must not be empty or whitespace-only")
+        return trimmed
 
 
 class TransitionResponse(BaseModel):

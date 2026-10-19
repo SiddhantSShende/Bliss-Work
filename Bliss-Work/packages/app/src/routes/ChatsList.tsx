@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -19,6 +19,7 @@ import { useOpenSelfChat } from "../lib/useSelfChat";
 import { listPreview, readablePrefix, withSenderLabel } from "../lib/chatEnvelope";
 import { ConfirmDialog } from "../features/ConfirmDialog";
 import { useSession } from "../store/session";
+import { AnchoredPopover } from "../features/AnchoredPopover";
 
 function ChatListMenu({
   muted,
@@ -36,7 +37,8 @@ function ChatListMenu({
   const { t } = useTranslation("chatList");
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
-  const wrap = usePopupDismiss<HTMLDivElement>(open, close);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
   const pick = (run: () => void) => (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -66,10 +68,13 @@ function ChatListMenu({
         // chat list itself — unclickable until you had spent a click closing
         // it. usePopupDismiss closes on an outside click without a layer in the
         // way, and closes any other popup that was open.
-        <div
+        <AnchoredPopover
+          anchor={wrap}
+          panelRef={panelRef}
+          gap={6}
           role="menu"
           aria-label={t("chatsList.menu.optionsLabel")}
-          className="absolute right-0 z-[1000] mt-1.5 w-52 rounded-xl border border-border bg-surface p-1 shadow-card"
+          className="w-52 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-card"
         >
           <ChatListMenuItem icon={<Pin size={15} />} label={pinned ? t("chatsList.menu.unpin") : t("chatsList.menu.pin")} onClick={pick(onTogglePin)} />
           <ChatListMenuItem
@@ -83,7 +88,7 @@ function ChatListMenu({
             label={muted ? t("common.unmuteNotifications") : t("common.muteNotifications")}
             onClick={pick(onToggleMute)}
           />
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );

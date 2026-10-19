@@ -13,14 +13,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import events
+from ..allocation import AllocationError, AllocationSelection, derive_title_and_project
 from ..auth import Principal, PrincipalDep
 from ..config import settings
 from crypto import cryptor
 from ..db import session, set_org_context
 from ..logging_setup import log
-from ..projects import resolve_or_create_project, sync_assignees_to_project_channel
+from ..projects import (
+    ProjectResolution,
+    link_channels_to_project,
+    resolve_or_create_project,
+    sync_assignees_to_project_channel,
+)
 from ..schemas import CreateTaskRequest, CreateTaskResponse, MAX_ASSIGNEES
-from .helpers import enqueue_outbox, resolve_username
+from .helpers import enqueue_outbox, resolve_display_name, resolve_username
 
 router = APIRouter()
 
@@ -314,6 +320,92 @@ async def _insert_schedule(
     )
 
 
+async def _resolve_derived_title_and_project(
+    db: AsyncSession,
+    body: CreateTaskRequest,
+    org_id: str,
+    sender_id: str,
+    channel_ids: list[str],
+    named_ids: list[str],
+) -> tuple[str, ProjectResolution | None]:
+    """Smart Task Allocation (Section 8): decide the task's title, and which
+    project (if any) it is filed under, from projectId/newProjectName plus
+    the channel/people selection. Only called when the client omitted
+    taskTitle — see CreateTaskRequest._validate_title_mode.
+
+    Names are only fetched for the two single-item rules (A and C/D) that
+    actually read a name; the multi-item and explicit-project rules only
+    need counts, so a real lookup there would be wasted work.
+    """
+    channel_count = len(channel_ids)
+    person_count = len(named_ids)
+
+    existing_project_row = None
+    existing_project_name: str | None = None
+    if body.projectId:
+        try:
+            canonical_project_id = str(uuid.UUID(body.projectId))
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        existing_project_row = (
+            await db.execute(
+                text(
+                    "SELECT id, name_enc, channel_id FROM projects "
+                    "WHERE id = :id AND org_id = :org AND channel_id IS NOT NULL"
+                ),
+                {"id": canonical_project_id, "org": org_id},
+            )
+        ).first()
+        if existing_project_row is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        existing_project_name = await cryptor().decrypt(db, org_id, existing_project_row.name_enc)
+
+    channel_names = [""] * channel_count
+    if channel_count == 1 and person_count == 0 and existing_project_row is None:
+        _, name = await _resolve_channel_members(channel_ids[0], org_id, sender_id)
+        if not name:
+            raise HTTPException(status_code=404, detail="channel not found")
+        channel_names = [name]
+
+    person_names = [""] * person_count
+    if person_count == 1 and channel_count == 0 and existing_project_row is None:
+        name = await resolve_display_name(db, org_id, named_ids[0])
+        if not name:
+            raise HTTPException(status_code=400, detail="assignee not found")
+        person_names = [name]
+
+    try:
+        derived = derive_title_and_project(
+            AllocationSelection(
+                channel_names=channel_names,
+                person_names=person_names,
+                existing_project_id=str(existing_project_row.id) if existing_project_row else None,
+                existing_project_name=existing_project_name,
+                new_project_name=body.newProjectName,
+            )
+        )
+    except AllocationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if derived.existing_project_id:
+        return derived.title, ProjectResolution(
+            str(existing_project_row.id),
+            derived.title,
+            str(existing_project_row.channel_id),
+            False,
+        )
+    if derived.new_project_name:
+        project = await resolve_or_create_project(org_id, sender_id, derived.new_project_name)
+        # Rule B/E/G/H: make the merge real — every channel in the selection
+        # that produced this new/resolved project gets linked into it, not
+        # just its own auto-created channel. Uses the caller's own session
+        # (org context already bound), separate from resolve_or_create_project's
+        # own internal transaction above.
+        await link_channels_to_project(db, org_id, project.project_id, channel_ids, sender_id)
+        return project.name, project
+    return derived.title, None
+
+
 @router.post("/tasks", response_model=CreateTaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
     body: CreateTaskRequest,
@@ -336,13 +428,26 @@ async def create_task(
     # from the assignee, so a self-assigned task flows through unchanged.
     named_ids = list(dict.fromkeys(str(uuid.UUID(a)) for a in body.assigneeIds))
     channel_ids = body.target_channel_ids()
-    if not named_ids and not channel_ids:
+    if not named_ids and not channel_ids and not body.projectId:
         raise HTTPException(status_code=400, detail="at least one assignee required")
-    project = await resolve_or_create_project(org_id, sender_id, body.title)
-    # The project channel is attached to the task but is not an assignment
-    # target: its existing members may have been assigned to other project
-    # tasks and must not be added to this task implicitly.
-    recipient_channel_ids = [channel_id for channel_id in channel_ids if channel_id != project.channel_id]
+
+    # Legacy mode (taskTitle given): resolve/create the project named by
+    # `title` up front, exactly as before, and its auto-created channel is
+    # never itself a recipient (see comment below). Derived mode (Smart Task
+    # Allocation) resolves its title/project later, inside the DB session
+    # where display-name lookups need org context — and never excludes a
+    # channel this way, since every channel in a derived request is one the
+    # user actually picked as a target (Section 7.1/7.3).
+    project: ProjectResolution | None = None
+    if body.taskTitle is not None:
+        project = await resolve_or_create_project(org_id, sender_id, body.title)
+        # The project channel is attached to the task but is not an assignment
+        # target: its existing members may have been assigned to other project
+        # tasks and must not be added to this task implicitly.
+        recipient_channel_ids = [channel_id for channel_id in channel_ids if channel_id != project.channel_id]
+    else:
+        recipient_channel_ids = channel_ids
+
     assignee_ids, channel_origin = await _resolve_recipients(
         named_ids, recipient_channel_ids, org_id, sender_id
     )
@@ -447,12 +552,22 @@ async def create_task(
         if named_ids:
             await _require_org_members(db, org_id, named_ids)
 
+        if body.taskTitle is not None:
+            final_title = body.taskTitle
+        else:
+            # Smart Task Allocation: derive the title (and resolve/create the
+            # project, if any) now that org context is bound for the
+            # display-name and project lookups it needs.
+            final_title, project = await _resolve_derived_title_and_project(
+                db, body, org_id, sender_id, channel_ids, named_ids
+            )
+
         # Encrypt PII (title/description) at rest under the org's DEK. The DEK is
         # created lazily inside THIS write transaction on first use for the org.
         # The Kafka event below still carries plaintext (the relay + messaging
         # projection need it) — we keep the plaintext in-memory and only store
         # ciphertext.
-        title_enc = await cryptor().encrypt(db, org_id, body.taskTitle)
+        title_enc = await cryptor().encrypt(db, org_id, final_title)
         desc_enc = await cryptor().encrypt(db, org_id, body.description or "")
 
         if body.allocation != "NOW":
@@ -469,7 +584,7 @@ async def create_task(
                 description_enc=desc_enc,
                 channel_ids=recipient_channel_ids,
                 assignee_ids=named_ids,
-                project_id=project.project_id,
+                project_id=project.project_id if project else None,
                 body=body,
             )
             await db.commit()
@@ -492,7 +607,7 @@ async def create_task(
                 # Legacy single-channel column (see 012) mirrors only an actual
                 # assignment channel; the project channel is linked by project_id.
                 "ch": recipient_channel_ids[0] if recipient_channel_ids else None,
-                "project": project.project_id,
+                "project": project.project_id if project else None,
             },
         )
         # task_channels represents assignment targets. Its member-joined
@@ -510,12 +625,12 @@ async def create_task(
             assignee_ids=assignee_ids,
             sender_id=sender_id,
             sender_username=sender_username,
-            title=body.taskTitle,
+            title=final_title,
             description=body.description or "",
             channel_origin=channel_origin,
         )
 
-        if body.allocation == "NOW":
+        if body.allocation == "NOW" and project is not None:
             await sync_assignees_to_project_channel(
                 org_id, project.channel_id, sender_id, assignee_ids
             )

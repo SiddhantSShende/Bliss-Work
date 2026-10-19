@@ -11,11 +11,12 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Request, status
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from .. import service
 from ..config import settings
 from crypto import cryptor
+from ..dates import iso_z
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..logging_config import log
 from ..net import request_context
@@ -42,10 +43,6 @@ class InviteAtAnotherSite(Exception):
     def __init__(self, home_site: str) -> None:
         super().__init__(home_site)
         self.home_site = home_site
-
-
-def iso_z(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 async def create_invite_tx(
@@ -171,10 +168,61 @@ async def create_invite_tx(
     return invite_id
 
 
+async def precheck_commitment_for_invite(
+    engine: AsyncEngine, token: str
+) -> tuple[str, str, str] | None:
+    """Best-effort, non-authoritative lookup of (org_id, role, user_id_hint)
+    for a billing-svc commitment check BEFORE `accept_invite_tx` opens its own
+    transaction — see routes/invites.py's accept_invite. Returns None when the
+    invite doesn't resolve locally (wrong token, expired, already accepted, or
+    it belongs to another site's data — all of which accept_invite_tx will
+    re-check authoritatively and report correctly on its own; skipping the
+    billing call here just avoids a wasted one).
+
+    `user_id_hint` reuses a previously-removed user's id when this email was a
+    member before (so the SAME id used for the billing reservation is the id
+    accept_invite_tx actually writes), or a freshly minted one otherwise.
+    Plain reads only — no locks, no writes — so nothing here needs to survive
+    into the real transaction.
+    """
+    token_hash = service.sha256_bytes(token)
+    async with engine.connect() as conn:
+        await service.set_bypass_rls(conn)
+        row = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT i.org_id, i.email, r.name AS role_name
+                    FROM invites i
+                    JOIN roles r ON r.id = i.role_id
+                    WHERE i.token_hash = :hash AND i.status = 'pending' AND i.expires_at > now()
+                    """
+                ),
+                {"hash": token_hash},
+            )
+        ).first()
+        if row is None:
+            return None
+        org_id = str(row.org_id)
+        email_bidx = cryptor().blind_index(str(row.email))
+        existing = (
+            await conn.execute(
+                text(
+                    "SELECT id FROM users WHERE org_id = :org AND email_bidx = :bidx AND status = 'removed'"
+                ),
+                {"org": org_id, "bidx": email_bidx},
+            )
+        ).first()
+    user_id = str(existing.id) if existing is not None else service.new_uuid()
+    return org_id, str(row.role_name), user_id
+
+
 async def accept_invite_tx(
     conn: AsyncConnection,
     body: AcceptInviteRequest,
     request: Request,
+    *,
+    user_id_hint: str | None = None,
 ) -> tuple[SessionDTO | MfaPendingDTO, str | None, str]:
     """Accept an invite: create user, emit user.created, build a session.
 
@@ -324,7 +372,10 @@ async def accept_invite_tx(
                 ) from exc
             raise
     else:
-        user_id = service.new_uuid()
+        # Reuse the pre-generated id from precheck_commitment_for_invite when
+        # given, so the billing-svc reservation made against it (before this
+        # transaction opened) lines up with the row actually created here.
+        user_id = user_id_hint or service.new_uuid()
         try:
             async with conn.begin_nested():
                 await conn.execute(

@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from "react";
-import { Hash, Lock, Search, User } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { FolderKanban, Hash, Lock, Search, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@taskboard/ui";
 import type { ChannelDTO, ProjectDTO, UserDTO } from "@taskboard/shared";
@@ -8,13 +9,15 @@ import { useSession } from "../store/session";
 import { matchUser } from "../lib/matchUser";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { usePagedPicker } from "../lib/usePagedPicker";
+import { qk } from "../lib/queryBridge";
 import { PagedListBox } from "./PagedListBox";
 
-type Tab = "people" | "channels";
+type Tab = "projects" | "people" | "channels";
 const SEARCH_DEBOUNCE_MS = 250;
 
 // Module-level so the hook's memo sees one stable function.
 const matchesChannel = (c: ChannelDTO, q: string) => !q || c.name.toLowerCase().includes(q.toLowerCase());
+const matchesProject = (p: ProjectDTO, q: string) => !q || p.name.toLowerCase().includes(q.toLowerCase());
 
 /**
  * "Assign to" for the New Task dialog: a People tab and a Channels tab, each a
@@ -27,28 +30,45 @@ const matchesChannel = (c: ChannelDTO, q: string) => !q || c.name.toLowerCase().
  * once visited (the other is only hidden), so a tab keeps its search text, its
  * loaded pages and its scroll position.
  */
+/** Minimal shape a channel toggle needs — satisfied by a real ChannelDTO from
+ *  a picked row, or by a synthetic one built from a project's channelIds
+ *  (which only ever carries id/name/memberCount; see CreateTaskDialog's
+ *  `projectDerivedChannels`). */
+export type ChannelPickLike = { id: string; name: string; memberCount: number };
+
 export function AssignToPanel({
   people,
   channels,
+  projects,
+  projectDerivedChannels = [],
   onTogglePerson,
   onToggleChannel,
-  project,
-  lockedChannelId,
-  initialTab = "channels",
+  onToggleProject,
+  initialTab = "projects",
 }: {
   people: ReadonlySet<string>;
+  /** Every EFFECTIVELY selected channel — direct picks and project-derived
+   *  ones alike (minus anything explicitly excluded). Checkbox state only. */
   channels: ReadonlySet<string>;
-  project?: ProjectDTO | null;
+  projects: ReadonlySet<string>;
+  /** Channels pulled in by a selected project, not picked directly — shown
+   *  as their own rows (Section 7.3/7.4) so they can be individually
+   *  deselected without touching the project itself. Rows with an id also
+   *  present here are hidden from the ordinary picker list below, so a
+   *  channel never appears twice. */
+  projectDerivedChannels?: ChannelPickLike[];
   onTogglePerson: (user: UserDTO) => void;
-  onToggleChannel: (channel: ChannelDTO) => void;
+  onToggleChannel: (channel: ChannelPickLike) => void;
+  onToggleProject: (project: ProjectDTO) => void;
   initialTab?: Tab;
-  lockedChannelId?: string;
 }) {
   const { t } = useTranslation("tasks");
   const [tab, setTab] = useState<Tab>(initialTab);
-  // The channels list is not requested until the tab has been opened once.
+  // The channels/projects lists are not requested until their tab has been
+  // opened once — people stays the always-mounted default (initialTab).
   const [channelsOpened, setChannelsOpened] = useState(initialTab === "channels");
-  const [queries, setQueries] = useState<Record<Tab, string>>({ people: "", channels: "" });
+  const [projectsOpened, setProjectsOpened] = useState(initialTab === "projects");
+  const [queries, setQueries] = useState<Record<Tab, string>>({ projects: "", people: "", channels: "" });
   const headingId = useId();
   const baseId = useId();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -56,8 +76,10 @@ export function AssignToPanel({
   const select = (next: Tab) => {
     setTab(next);
     if (next === "channels") setChannelsOpened(true);
+    if (next === "projects") setProjectsOpened(true);
   };
   const tabs: { id: Tab; icon: React.ReactNode; count: number }[] = [
+    { id: "projects", icon: <FolderKanban size={16} aria-hidden />, count: projects.size },
     { id: "channels", icon: <Hash size={16} aria-hidden />, count: channels.size },
     { id: "people", icon: <User size={16} aria-hidden />, count: people.size },
   ];
@@ -70,7 +92,7 @@ export function AssignToPanel({
         <span className="sr-only"> ({t("createTaskDialog.assign.required")})</span>
       </span>
 
-      <div role="tablist" aria-label={t("createTaskDialog.fields.assignTo")} className="grid grid-cols-2 gap-1.5 rounded-xl bg-surface-2 p-1">
+      <div role="tablist" aria-label={t("createTaskDialog.fields.assignTo")} className="grid grid-cols-3 gap-1.5 rounded-xl bg-surface-2 p-1">
         {tabs.map(({ id, icon, count }) => (
           <button
             key={id}
@@ -108,14 +130,18 @@ export function AssignToPanel({
         />
       </div>
 
+      {projectsOpened && (
+        <div role="tabpanel" id={`${baseId}-panel-projects`} aria-labelledby={`${baseId}-tab-projects`} hidden={tab !== "projects"} className="flex min-h-0 flex-1 flex-col">
+          <ProjectsList query={queries.projects} selected={projects} onToggle={onToggleProject} />
+        </div>
+      )}
       {channelsOpened && (
         <div role="tabpanel" id={`${baseId}-panel-channels`} aria-labelledby={`${baseId}-tab-channels`} hidden={tab !== "channels"} className="flex min-h-0 flex-1 flex-col">
           <ChannelList
             query={queries.channels}
             selected={channels}
             onToggle={onToggleChannel}
-            project={project}
-            lockedChannelId={lockedChannelId}
+            projectDerivedChannels={projectDerivedChannels}
           />
         </div>
       )}
@@ -126,7 +152,7 @@ export function AssignToPanel({
   );
 }
 
-export function listCopy(t: (k: string) => string, kind: "people" | "channels") {
+export function listCopy(t: (k: string) => string, kind: "people" | "channels" | "projects") {
   return {
     loading: t("createTaskDialog.assign.loading"),
     loadingMore: t(`createTaskDialog.assign.${kind}LoadingMore`),
@@ -175,14 +201,12 @@ function ChannelList({
   query,
   selected,
   onToggle,
-  project,
-  lockedChannelId,
+  projectDerivedChannels,
 }: {
   query: string;
   selected: ReadonlySet<string>;
-  onToggle: (c: ChannelDTO) => void;
-  project?: ProjectDTO | null;
-  lockedChannelId?: string;
+  onToggle: (c: ChannelPickLike) => void;
+  projectDerivedChannels: ChannelPickLike[];
 }) {
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
@@ -192,35 +216,29 @@ function ChannelList({
     fetchPage: ({ q, offset, limit }) => api.channelsPage({ q, offset, limit }),
     matches: matchesChannel,
   });
+  const viaProjectIds = new Set(projectDerivedChannels.map((c) => c.id));
+  // A project-derived channel gets its own row above (so it survives
+  // deselection independent of the project, and shows the "via a project"
+  // tag) — never duplicated below once it's also on the loaded picker page.
+  const ordinaryRows = list.items.filter((c) => !viaProjectIds.has(c.id));
   return (
     <PagedListBox
       label={t("createTaskDialog.assign.channelsListLabel")}
       note={t("createTaskDialog.fields.channelHint")}
-      count={list.items.length}
+      count={ordinaryRows.length + projectDerivedChannels.length}
       {...pagedState(list)}
       copy={listCopy(t, "channels")}
     >
-      {project && lockedChannelId === project.channelId && (
-        <li>
-          <label className="flex items-center gap-3 rounded-lg bg-gradient-to-br from-brand-from/15 to-brand-to/15 px-2.5 py-1.5 text-accent">
-            <input
-              type="checkbox"
-              checked={selected.has(project.channelId)}
-              disabled
-              readOnly
-              aria-label={`#${project.name} — ${t("projects.channel")}`}
-              className="h-4 w-4 shrink-0 accent-[var(--color-accent)]"
-            />
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-from/10 to-brand-to/10">
-              <Hash size={16} aria-hidden />
-            </span>
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">#{project.name}</span>
-            <span className="shrink-0 text-xs">{t("projects.channel")}</span>
-            <Lock size={13} aria-label={t("createTaskDialog.assign.locked")} className="shrink-0" />
-          </label>
-        </li>
-      )}
-      {list.items.filter((channel) => channel.id !== lockedChannelId).map((c) => (
+      {projectDerivedChannels.map((c) => (
+        <Row key={c.id} checked={selected.has(c.id)} via={t("createTaskDialog.assign.viaProject")} onToggle={() => onToggle(c)}>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-from/10 to-brand-to/10 text-accent">
+            <Hash size={16} aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{c.name}</span>
+          <span className="shrink-0 text-xs text-muted">{t("createTaskDialog.assign.viaProject")}</span>
+        </Row>
+      ))}
+      {ordinaryRows.map((c) => (
         <Row key={c.id} checked={selected.has(c.id)} onToggle={() => onToggle(c)}>
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
             <Hash size={16} aria-hidden />
@@ -228,6 +246,52 @@ function ChannelList({
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{c.name}</span>
           {c.isLocked && <Lock size={13} aria-label={t("createTaskDialog.assign.locked")} className="shrink-0 text-muted" />}
           <span className="shrink-0 text-xs text-muted">{t("createTaskDialog.assign.members", { count: c.memberCount })}</span>
+        </Row>
+      ))}
+    </PagedListBox>
+  );
+}
+
+/** Projects tab: `api.projects()` already walks every server page itself (there
+ *  are realistically few projects per org compared to people/channels), so this
+ *  is a plain cached query with client-side search, not usePagedPicker's
+ *  offset/limit paging — there is no next page to ask the server for. */
+function ProjectsList({
+  query,
+  selected,
+  onToggle,
+}: {
+  query: string;
+  selected: ReadonlySet<string>;
+  onToggle: (p: ProjectDTO) => void;
+}) {
+  const { t } = useTranslation("tasks");
+  const { api } = useRuntime();
+  const q = useDebouncedValue(query, SEARCH_DEBOUNCE_MS).trim();
+  const result = useQuery({ queryKey: qk.projects, queryFn: () => api.projects(), staleTime: 30_000 });
+  const items = (result.data ?? []).filter((p) => matchesProject(p, q));
+  return (
+    <PagedListBox
+      label={t("createTaskDialog.assign.projectsListLabel")}
+      count={items.length}
+      isLoading={result.isLoading}
+      isRefreshing={false}
+      isLoadingMore={false}
+      isError={result.isError}
+      hasMore={false}
+      onLoadMore={() => {}}
+      onRetry={() => void result.refetch()}
+      copy={listCopy(t, "projects")}
+    >
+      {items.map((p) => (
+        <Row key={p.id} checked={selected.has(p.id)} onToggle={() => onToggle(p)}>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
+            <FolderKanban size={16} aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{p.name}</span>
+          <span className="shrink-0 text-xs text-muted">
+            {t("createTaskDialog.assign.projectChannelCount", { count: p.channelIds.length })}
+          </span>
         </Row>
       ))}
     </PagedListBox>

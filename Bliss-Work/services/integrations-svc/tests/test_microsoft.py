@@ -38,11 +38,20 @@ def test_non_numeric_retry_after_is_ignored_not_crashed():
     assert ei.value.retry_after is None
 
 
-@pytest.mark.parametrize("status", [400, 403, 404, 500])
+@pytest.mark.parametrize("status", [400, 403, 404])
 def test_other_errors_are_definitive(status):
     with pytest.raises(ms.MicrosoftError) as ei:
         ms._raise_for_status(_resp(status, {"error": {"message": "nope"}}))
     assert not isinstance(ei.value, ms.MicrosoftRateLimited)
+
+
+def test_5xx_propagates_a_plain_http_status_error_for_resilience():
+    # Not a MicrosoftError: retry_async's is_transient() and the
+    # CircuitBreaker both key off httpx.HTTPStatusError, so a plain 500 (no
+    # 429/503/504 special-casing applies) must raise that instead - see
+    # _raise_for_status's comment.
+    with pytest.raises(httpx.HTTPStatusError):
+        ms._raise_for_status(_resp(500, {"error": {"message": "nope"}}))
 
 
 def test_success_does_not_raise():

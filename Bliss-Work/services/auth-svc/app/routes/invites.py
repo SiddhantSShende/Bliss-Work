@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
-from .. import service
+from .. import billing_client, service
 from ..db import engine
 from ..logging_config import log
 from ..schemas import (
@@ -29,11 +29,12 @@ from ..routing.decision import Route, route_for, RouteDecision
 from ..routing.events import KEY_INVITE, invite_key
 from ..routing.redirect import SiteEndpoints, enforce
 from . import session_events
+from ..dates import iso_z
+from . import invites_service
 from .invites_service import (
     InviteAtAnotherSite,
     accept_invite_tx,
     create_invite_tx,
-    iso_z,
 )
 from .members_service import require_live_admin
 
@@ -215,10 +216,33 @@ async def accept_invite(
     redirect is built HERE, by the same helper an org-mismatch uses, because
     building HTTP is the router's job and not the transaction's.
     """
+    # Credit commitment check BEFORE opening this service's own transaction —
+    # see billing_client.py's module docstring for why the network call must
+    # not happen while a Postgres lock is held. Non-authoritative: if the
+    # precheck can't resolve the invite locally, skip straight to
+    # accept_invite_tx, which re-validates everything for real.
+    precheck = await invites_service.precheck_commitment_for_invite(engine, body.token)
+    org_id, user_id_hint = (precheck[0], precheck[2]) if precheck else (None, None)
+    if precheck is not None:
+        org_id, role_name, user_id_hint = precheck
+        await billing_client.check_and_reserve_membership(org_id, user_id_hint, role_name)
+
     try:
-        # record_failed_attempts BEFORE engine.begin(): see service.FailedAttempt.
-        async with service.record_failed_attempts(), engine.begin() as conn:
-            session, raw_refresh, user_id = await accept_invite_tx(conn, body, request)
+        try:
+            # record_failed_attempts BEFORE engine.begin(): see service.FailedAttempt.
+            async with service.record_failed_attempts(), engine.begin() as conn:
+                session, raw_refresh, user_id = await accept_invite_tx(
+                    conn, body, request, user_id_hint=user_id_hint
+                )
+        except Exception:
+            # The reservation billing-svc made above never materialized into an
+            # actual membership (redirected elsewhere, invite already consumed
+            # by a concurrent accept, username conflict, ...) — release it so it
+            # doesn't inflate this org's projected commitment forever. Best
+            # effort: release_membership_commitment never raises.
+            if org_id is not None and user_id_hint is not None:
+                await billing_client.release_membership_commitment(org_id, user_id_hint)
+            raise
     except InviteAtAnotherSite as elsewhere:
         # 307, not 302: the redemption is a POST carrying a password, and a 302
         # would arrive at the far site as a GET with no body.

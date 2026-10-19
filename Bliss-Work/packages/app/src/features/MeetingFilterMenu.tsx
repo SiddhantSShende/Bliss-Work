@@ -12,9 +12,11 @@
  * closing and immediately reopening.
  */
 import { useTranslation } from "react-i18next";
+import { useRef } from "react";
 import { Check, Filter } from "lucide-react";
 import type { CallDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { AnchoredPopover } from "./AnchoredPopover";
 import {
   meetingKindLabel,
   NO_MEETING_FILTER,
@@ -36,7 +38,9 @@ export function MeetingFilterMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslation("meetings");
-  const wrap = usePopupDismiss<HTMLDivElement>(open, () => onOpenChange(false));
+  const panelRef = useRef<HTMLDivElement>(null);
+  const close = () => onOpenChange(false);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
   const active = isFiltering(value);
 
   const toggleKind = (kind: CallDTO["kind"]) => {
@@ -65,10 +69,13 @@ export function MeetingFilterMenu({
       </button>
 
       {open && (
-        <div
+        <AnchoredPopover
+          anchor={wrap}
+          panelRef={panelRef}
+          gap={6}
           role="menu"
           aria-label={t("filterMenu.ariaLabel")}
-          className="absolute right-0 z-40 mt-1.5 w-56 rounded-xl border border-border bg-surface p-1.5 shadow-card"
+          className="w-56 overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-card"
         >
           <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
             {t("filterMenu.typeHeading")}
@@ -98,7 +105,7 @@ export function MeetingFilterMenu({
               {t("filterMenu.clear")}
             </button>
           )}
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );

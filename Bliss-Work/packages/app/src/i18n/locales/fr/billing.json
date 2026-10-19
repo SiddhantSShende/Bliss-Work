@@ -1,0 +1,97 @@
+{
+  "org": {
+    "header": {
+      "title": "Crédits et facturation",
+      "subtitle": "Solde de crédits, coûts mensuels et historique des transactions de votre organisation."
+    },
+    "adminsOnly": {
+      "title": "Réservé aux admins",
+      "hint": "Seuls les administrateurs de l'organisation peuvent consulter la facturation."
+    },
+    "unavailable": {
+      "title": "Facturation indisponible",
+      "hint": "La facturation n'est pas configurée pour ce déploiement."
+    },
+    "states": {
+      "loading": "Chargement des informations de facturation…",
+      "error": "Impossible de charger les informations de facturation."
+    },
+    "balance": {
+      "label": "Solde actuel",
+      "credits_one": "{{count}} crédit",
+      "credits_other": "{{count}} crédits"
+    },
+    "insufficientBanner": {
+      "title": "Solde faible",
+      "description": "Votre organisation n'a plus de crédits. Ajoutez des crédits pour éviter une suspension."
+    },
+    "monthlyCost": {
+      "title": "Coût mensuel par membre",
+      "admin": "Admin",
+      "member": "Membre",
+      "creditsPerMonth_one": "{{count}} crédit/mois",
+      "creditsPerMonth_other": "{{count}} crédits/mois"
+    },
+    "packages": {
+      "title": "Forfaits de crédits",
+      "empty": "Aucun forfait disponible pour le moment.",
+      "creditsLabel_one": "{{count}} crédit",
+      "creditsLabel_other": "{{count}} crédits"
+    },
+    "ledger": {
+      "title": "Historique des transactions",
+      "empty": "Aucune transaction pour le moment.",
+      "reasons": {
+        "monthly_grant": "Attribution mensuelle de crédits",
+        "renewal_debit": "Frais de renouvellement mensuel",
+        "manual_adjustment": "Ajustement manuel"
+      }
+    }
+  },
+  "operator": {
+    "header": {
+      "title": "Tarification plateforme",
+      "subtitle": "Tarification globale et catalogue de forfaits de crédits, réservé aux opérateurs de la plateforme."
+    },
+    "forbiddenBanner": {
+      "title": "Accès opérateur de plateforme requis",
+      "description": "Votre compte n'est pas opérateur de plateforme : les modifications seront rejetées par le serveur."
+    },
+    "states": {
+      "loading": "Chargement de la tarification…",
+      "error": "Impossible de charger la tarification."
+    },
+    "pricing": {
+      "title": "Tarification globale",
+      "keys": {
+        "admin_monthly_credits": "Crédits mensuels admin",
+        "member_monthly_credits": "Crédits mensuels membre",
+        "admin_reference_price_cents": "Prix catalogue admin (cents)",
+        "member_reference_price_cents": "Prix catalogue membre (cents)",
+        "admin_current_price_cents": "Prix actuel admin (cents)",
+        "member_current_price_cents": "Prix actuel membre (cents)"
+      },
+      "save": "Enregistrer",
+      "saved": "Tarification mise à jour.",
+      "saveFailedForbidden": "Seul un opérateur de plateforme peut modifier la tarification.",
+      "saveFailed": "Impossible d'enregistrer cette modification de tarif."
+    },
+    "packages": {
+      "title": "Forfaits de crédits",
+      "empty": "Aucun forfait pour le moment.",
+      "name": "Nom",
+      "credits": "Crédits",
+      "price": "Prix (cents)",
+      "active": "Actif",
+      "inactive": "Inactif",
+      "create": "Ajouter un forfait",
+      "createFailed": "Impossible de créer le forfait.",
+      "createFailedForbidden": "Seul un opérateur de plateforme peut créer des forfaits.",
+      "updateFailed": "Impossible de mettre à jour le forfait.",
+      "updateFailedForbidden": "Seul un opérateur de plateforme peut modifier les forfaits.",
+      "deactivate": "Désactiver",
+      "activate": "Activer",
+      "save": "Enregistrer"
+    }
+  }
+}

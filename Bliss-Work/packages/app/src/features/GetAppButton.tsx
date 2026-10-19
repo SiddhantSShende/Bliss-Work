@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Download, Monitor, Apple } from "lucide-react";
 import { IconButton, cn } from "@taskboard/ui";
+import { AnchoredPopover } from "./AnchoredPopover";
 import { useRuntime } from "../lib/runtime";
 import { PLATFORMS, PLATFORM_ORDER, detectPlatform, type PlatformId } from "../lib/downloads";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
@@ -34,7 +35,9 @@ export function GetAppButton({
   const { t } = useTranslation("shell");
   const { config } = useRuntime();
   const [open, setOpen] = useState(false);
-  const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
+  const panelRef = useRef<HTMLDivElement>(null);
+  const close = () => setOpen(false);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
 
   // Desktop users already have the app — never show it there.
   if (config.kind !== "web") return null;
@@ -100,9 +103,12 @@ export function GetAppButton({
         // usePopupDismiss handles outside clicks, Escape, and closing whatever
         // other popup was open — see lib/usePopupDismiss for why the old
         // click-away backdrop div is gone.
-        <div
+        <AnchoredPopover
+          anchor={wrap}
+          panelRef={panelRef}
+          gap={6}
           role="menu"
-          className="absolute right-0 z-50 mt-1.5 w-60 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
+          className="w-60 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-card"
         >
           <p className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
             {t("getAppButton.downloadHeading", { brand: "BlissWork" })}
@@ -127,7 +133,7 @@ export function GetAppButton({
               </a>
             );
           })}
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );

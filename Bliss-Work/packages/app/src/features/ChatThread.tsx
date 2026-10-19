@@ -9,6 +9,7 @@ import { clock, groupMessages } from "../lib/chatFormat";
 import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
 import { parseChatEnvelope, readablePrefix, type MediaItem } from "../lib/chatEnvelope";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { AnchoredPopover } from "./AnchoredPopover";
 import { isIdSwapOnly, isNearBottom } from "../lib/threadScroll";
 import { useUserLabels } from "../lib/userLabel";
 import { useTaskCards } from "../lib/useTaskTitles";
@@ -125,7 +126,9 @@ function quoted(m: ThreadMessage, byId: Map<string, ThreadMessage>, t: TFunction
 function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
   const { t } = useTranslation("chatThread");
   const [open, setOpen] = useState(false);
-  const wrap = usePopupDismiss<HTMLSpanElement>(open, () => setOpen(false));
+  const panelRef = useRef<HTMLDivElement>(null);
+  const close = () => setOpen(false);
+  const wrap = usePopupDismiss<HTMLSpanElement>(open, close, [panelRef]);
   if (receipts.length === 0) return null;
   return (
     <span ref={wrap} className="relative inline-flex">
@@ -134,22 +137,23 @@ function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
         type="button"
         onClick={() => setOpen((value) => !value)}
         className="ml-1 font-medium text-accent hover:underline"
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={t("thread.seenBy.ariaLabel", { count: receipts.length })}
       >
         {t("thread.seenBy.count", { count: receipts.length })}
       </button>
       {open && (
-        // Keep the reader list below its trigger so it does not cover the
-        // message text. Anchored to the RIGHT edge, not the left: this only
-        // ever renders on the caller's own messages (see the file doc), which
-        // sit against the right edge of the thread — opening from the left
-        // edge of the trigger pushed the panel further right, off the
-        // visible column, on exactly the messages it appears on.
-        <span
+        <AnchoredPopover
+          anchor={wrap}
+          panelRef={panelRef}
+          align="end"
+          gap={4}
+          maxPanelHeight="12rem"
+          layer="popover"
           role="dialog"
           aria-label={t("thread.seenBy.label")}
-          className="absolute right-0 top-full z-[1000] mt-1 max-h-48 min-w-40 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-xs text-fg shadow-card"
+          className="min-w-40 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-xs text-fg shadow-card"
         >
           <span className="mb-1 block font-semibold">{t("thread.seenBy.label")}</span>
           {receipts.map((receipt) => (
@@ -160,7 +164,7 @@ function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
               )}
             </span>
           ))}
-        </span>
+        </AnchoredPopover>
       )}
     </span>
   );

@@ -234,7 +234,11 @@
       "assignToChannelEmpty": "チャンネルはまだ追加されていません。",
       "addChannels": "チャンネルを追加",
       "unknownChannel": "利用できないチャンネル",
-      "removeChannel": "{{name}}を削除"
+      "removeChannel": "{{name}}を削除",
+      "titlePreview": "Task title",
+      "titlePreviewPlaceholder": "Pick channels, people, or a project to see the title",
+      "newProjectName": "Project Name",
+      "newProjectNamePlaceholder": "Name this new project"
     },
     "deadline": {
       "label": "期限",
@@ -270,7 +274,11 @@
       "invalidDeadlineAmount": "各回の何分/何時間/何日後かを整数で入力してください",
       "needDeadlineTime": "期限の時刻を選択してください",
       "fixedDeadlineBeforeStart": "固定の期限時刻は開始時刻より後にしてください",
-      "createFailed": "タスクを作成できませんでした"
+      "createFailed": "タスクを作成できませんでした",
+      "needProjectName": "Give this project a name",
+      "needSelection": "Select at least one channel, person, or project",
+      "stillCheckingMembership": "Still checking channel membership — try again in a moment",
+      "membershipAddFailed": "Could not add everyone to the selected channel(s)"
     },
     "toasts": {
       "sentPlain": "タスクを送信しました",
@@ -334,7 +342,16 @@
       "loadError": "このリストを読み込めませんでした。",
       "retry": "再試行",
       "locked": "ロックされたチャンネル",
-      "members_other": "{{count}}人のメンバー"
+      "members_other": "{{count}}人のメンバー",
+      "projectsTab": "Projects ({{count}})",
+      "projectsSearch": "Search your projects…",
+      "projectsSearchLabel": "Search your projects",
+      "projectsListLabel": "Projects to assign to",
+      "projectsLoadingMore": "Loading more projects…",
+      "projectsEmpty": "No projects match your search.",
+      "newProject": "+ New",
+      "projectChannelCount_other": "{{count}} channels",
+      "viaProject": "From a project"
     }
   },
   "exportTasksDialog": {
@@ -549,6 +566,30 @@
       "assignmentRateTooltip": "対象範囲内のすべての割り当て（複数担当者のタスクを含む）のうち、完了した割り当ての割合です。",
       "uniqueRate": "タスク完了率",
       "uniqueRateTooltip": "残っている担当者全員が完了したユニークなタスクの割合です。全員が辞退または無視したタスクは、完了ではなく放棄として扱われます。"
+    }
+  },
+  "projectCreationDialog": {
+    "title": "New Project",
+    "fields": {
+      "name": "Project Name",
+      "namePlaceholder": "Name this project",
+      "channels": "Channels",
+      "channelsListLabel": "Channels for this project",
+      "channelsHint": "Only channels with at least 2 members can be part of a project."
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "create": "Create Project",
+      "creating": "Creating…"
+    },
+    "errors": {
+      "needName": "Give the project a name",
+      "needChannel": "Pick at least one channel",
+      "channelTooSmall": "#{{name}} needs at least 2 members to be part of a project",
+      "createFailed": "Could not create project"
+    },
+    "toasts": {
+      "created": "Project \"{{name}}\" created"
     }
   }
 }

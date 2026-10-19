@@ -1,10 +1,16 @@
 /**
  * createOrg / acceptInvite / leaveOrg for an identity with MFA enrolled.
  *
- * auth-svc answers createOrg and acceptInvite with the same MfaPendingDTO that
- * /auth/login returns (the org/membership IS created; the challenge signs the
- * user into it), so both must parse either shape. leaveOrg takes an optional
- * step-up body, sent only when given.
+ * createOrg always creates a brand-new user row for a brand-new org (see
+ * auth-svc's `POST /auth/orgs`, `response_model=SessionDTO`, no MFA branch) —
+ * a row that has never enrolled MFA for that org, so it can never answer with
+ * an MfaPendingDTO and is tested for the plain-session case only.
+ *
+ * acceptInvite CAN join an existing identity into the org, so auth-svc answers
+ * it with the same MfaPendingDTO that /auth/login returns (the membership IS
+ * created; the challenge signs the user into it) — see `POST
+ * /auth/invites/accept`, `response_model=SessionDTO | MfaPendingDTO`.
+ * leaveOrg takes an optional step-up body, sent only when given.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClient, ApiError } from "./client";
@@ -60,11 +66,15 @@ describe.each([
     expect(result).toMatchObject({ accessToken: "access", user: { username: "sam" } });
     expect((fetchStub.mock.calls[0] as unknown as [string])[0]).toBe(`http://auth.test${path}`);
   });
+});
 
+describe("acceptInvite", () => {
+  // Only acceptInvite can join an already-enrolled identity into a new org -
+  // createOrg's user row is always brand new, so it has no such case.
   it("returns the MFA challenge, not a parse error, for an identity with MFA enrolled", async () => {
     stubFetch(() => json(201, PENDING));
 
-    const result = await call();
+    const result = await client().acceptInvite(ACCEPT);
 
     expect(isMfaPending(result)).toBe(true);
     expect(result).toMatchObject({ pendingToken: "pend-1", methods: ["totp"], enrollmentRequired: false });

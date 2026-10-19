@@ -95,6 +95,8 @@ const MfaSettings = lazyRoute(() => import("./routes/MfaSettings"), "MfaSettings
 const ActiveSessions = lazyRoute(() => import("./routes/ActiveSessions"), "ActiveSessions");
 const Org = lazyRoute(() => import("./routes/Org"), "Org");
 const Analytics = lazyRoute(() => import("./routes/Analytics"), "Analytics");
+const Billing = lazyRoute(() => import("./routes/Billing"), "Billing");
+const OperatorPricing = lazyRoute(() => import("./routes/OperatorPricing"), "OperatorPricing");
 // The Mail layout owns the message column; the routes below it are what shows
 // in the reading pane beside it. Both named exports live in one module, so the
 // two wrappers resolve the same chunk.
@@ -362,6 +364,11 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="settings/activity" element={<MyActivity />} />
                     <Route path="settings/security" element={<MfaSettings />} />
                     <Route path="settings/sessions" element={<ActiveSessions />} />
+                    <Route path="settings/billing" element={<Billing />} />
+                    {/* Platform-operator pricing management — deliberately NOT
+                        under settings/* and NOT linked from any nav; see
+                        OperatorPricing.tsx for why. */}
+                    <Route path="operator/pricing" element={<OperatorPricing />} />
                     <Route path="org" element={<Org />} />
                     <Route path="analytics" element={<Analytics />} />
                     <Route path="analytics/projects/:projectId" element={<Analytics />} />

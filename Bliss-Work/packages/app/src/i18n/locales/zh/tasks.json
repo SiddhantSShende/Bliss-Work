@@ -234,7 +234,11 @@
       "assignToChannelEmpty": "尚未添加频道。",
       "addChannels": "添加频道",
       "unknownChannel": "不可用的频道",
-      "removeChannel": "移除 {{name}}"
+      "removeChannel": "移除 {{name}}",
+      "titlePreview": "Task title",
+      "titlePreviewPlaceholder": "Pick channels, people, or a project to see the title",
+      "newProjectName": "Project Name",
+      "newProjectNamePlaceholder": "Name this new project"
     },
     "deadline": {
       "label": "截止时间",
@@ -270,7 +274,11 @@
       "invalidDeadlineAmount": "请输入整数，表示每次发生后的时长",
       "needDeadlineTime": "请选择截止时刻",
       "fixedDeadlineBeforeStart": "固定截止时刻必须晚于开始时刻",
-      "createFailed": "无法创建任务"
+      "createFailed": "无法创建任务",
+      "needProjectName": "Give this project a name",
+      "needSelection": "Select at least one channel, person, or project",
+      "stillCheckingMembership": "Still checking channel membership — try again in a moment",
+      "membershipAddFailed": "Could not add everyone to the selected channel(s)"
     },
     "toasts": {
       "sentPlain": "任务已发送",
@@ -334,7 +342,16 @@
       "loadError": "无法加载此列表。",
       "retry": "重试",
       "locked": "已锁定的频道",
-      "members_other": "{{count}} 名成员"
+      "members_other": "{{count}} 名成员",
+      "projectsTab": "Projects ({{count}})",
+      "projectsSearch": "Search your projects…",
+      "projectsSearchLabel": "Search your projects",
+      "projectsListLabel": "Projects to assign to",
+      "projectsLoadingMore": "Loading more projects…",
+      "projectsEmpty": "No projects match your search.",
+      "newProject": "+ New",
+      "projectChannelCount_other": "{{count}} channels",
+      "viaProject": "From a project"
     }
   },
   "exportTasksDialog": {
@@ -549,6 +566,30 @@
       "assignmentRateTooltip": "该范围内已完成的分配数除以全部分配数，包括拥有多个受理人的任务。",
       "uniqueRate": "任务完成率",
       "uniqueRateTooltip": "在剩余的每个受理人都已完成的唯一任务中所占的比例。所有人都退出或忽略的任务计为已放弃，而非已完成。"
+    }
+  },
+  "projectCreationDialog": {
+    "title": "New Project",
+    "fields": {
+      "name": "Project Name",
+      "namePlaceholder": "Name this project",
+      "channels": "Channels",
+      "channelsListLabel": "Channels for this project",
+      "channelsHint": "Only channels with at least 2 members can be part of a project."
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "create": "Create Project",
+      "creating": "Creating…"
+    },
+    "errors": {
+      "needName": "Give the project a name",
+      "needChannel": "Pick at least one channel",
+      "channelTooSmall": "#{{name}} needs at least 2 members to be part of a project",
+      "createFailed": "Could not create project"
+    },
+    "toasts": {
+      "created": "Project \"{{name}}\" created"
     }
   }
 }

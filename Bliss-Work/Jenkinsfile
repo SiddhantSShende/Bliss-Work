@@ -463,6 +463,44 @@ pipeline {
         }
 
         // ---------------------------------------------------------------------
+        // Quality gate: lint, typecheck and the test suites for every
+        // language in the repo. A failure here fails the stage, which fails
+        // the pipeline before any image is built — so a broken build/test
+        // never reaches "Build Images", let alone production.
+        //
+        // apps/mobile is intentionally excluded (not part of this release
+        // pipeline). graph-gw is Node/TypeScript despite the name, not Go -
+        // it is covered by the npm workspace commands below, not the Go loop.
+        // ---------------------------------------------------------------------
+        stage('Quality Gate') {
+            steps {
+                sh '''
+                    set -e
+                    echo "---- lint (apps/mobile excluded) ----"
+                    npx eslint . --ignore-pattern 'apps/mobile/**'
+
+                    JS_WORKSPACES="@taskboard/app @taskboard/shared @taskboard/ui @taskboard/desktop @taskboard/web @taskboard/graph-gw"
+                    for w in $JS_WORKSPACES; do
+                        echo "---- npm typecheck ($w) ----"
+                        npm run typecheck --workspace="$w" --if-present
+                        echo "---- npm test ($w) ----"
+                        npm run test --workspace="$w" --if-present
+                    done
+
+                    for svc in messaging-svc ws-gateway sticky-relay region-bridge notification-svc; do
+                        echo "---- go vet/test ($svc) ----"
+                        (cd "services/$svc" && go vet ./... && go test ./...)
+                    done
+
+                    for svc in auth-svc task-svc sticky-svc email-worker telemetry-svc integrations-svc; do
+                        echo "---- pytest ($svc) ----"
+                        (cd "services/$svc" && . .venv/bin/activate && pytest -m "not integration")
+                    done
+                '''
+            }
+        }
+
+        // ---------------------------------------------------------------------
         // Build the images, a few at a time in parallel.
         //
         // Each image saves its cache to the registry and loads it back next

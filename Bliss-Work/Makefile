@@ -84,7 +84,7 @@ define confirm
 	if [ "$$ans" != "y" ]; then echo "Aborted — nothing was done."; exit 1; fi
 endef
 
-.PHONY: help env keys up wait seed demo logs ps down reset test check-migrations check-i18n check-office-readers check-jenkins-images check-alertmanager-prod \
+.PHONY: help env keys up wait seed demo logs ps down reset test check-migrations check-i18n check-office-readers check-jenkins-images check-alertmanager-prod check-node-tests \
 	dev-up dev-down dev-restart dev-logs dev-ps dev-build dev-reset-db \
 	prod-up prod-down prod-restart prod-logs prod-ps prod-build \
 	prod-deploy prod-guard prod-fetch prod-deploy-images prod-deploy-core \
@@ -810,11 +810,18 @@ reset:
 
 test:
 	npm test --silent
+	node --test services/graph-gw/test/routeLabels.node.mjs services/graph-gw/test/shutdown-config.node.mjs infra/observability/tests/prometheus-discovery.node.mjs
 	node scripts/check-migrations.mjs
 	node scripts/check-locales.mjs
 	node scripts/check-no-office-readers.mjs
 	node scripts/check-jenkins-images.mjs
 	node scripts/check-alertmanager-prod.mjs
+
+# vitest's glob (**/*.{test,spec}.?(c|m)[jt]s?(x)) never matches *.node.mjs, so
+# these three real, passing node:test files were never run by anything -
+# `make test` above runs them too; this target exists to run just them.
+check-node-tests:
+	node --test services/graph-gw/test/routeLabels.node.mjs services/graph-gw/test/shutdown-config.node.mjs infra/observability/tests/prometheus-discovery.node.mjs
 
 check-migrations:
 	node scripts/check-migrations.mjs

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
@@ -7,6 +8,8 @@ import { Avatar, useTheme } from "@taskboard/ui";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
 import { signOut } from "../lib/signOut";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { usePopoverPosition } from "../lib/usePopoverPosition";
 
 /** Avatar-anchored account popover in the top navbar. */
 export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail" }) {
@@ -16,16 +19,16 @@ export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail
   const { isDark, toggle } = useTheme();
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const close = () => setOpen(false);
+  const ref = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
+  const style = usePopoverPosition({
+    anchor: ref,
+    panelRef,
+    align: "end",
+    gap: 12,
+    active: open,
+  });
 
   const go = (to: string) => {
     setOpen(false);
@@ -72,36 +75,42 @@ export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail
           <ChevronDown size={14} className="text-muted transition-transform" style={{ transform: open ? "rotate(180deg)" : "none" }} />
         )}
       </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            role="menu"
-            initial={{ opacity: 0, scale: 0.96, y: -6 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: -6 }}
-            transition={{ type: "spring", stiffness: 360, damping: 30 }}
-            className="absolute right-0 top-12 z-[100] w-60 overflow-hidden rounded-2xl border border-border bg-surface/95 p-1.5 shadow-card"
-          >
-            <div className="flex items-center gap-3 px-2.5 py-2.5">
-              <Avatar name={user.displayName} src={user.avatarUrl} />
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-fg">{user.displayName}</div>
-                <div className="truncate text-xs text-muted">{user.email}</div>
-              </div>
-            </div>
-            <div className="my-1 h-px bg-border/60" />
-            <MenuItem icon={<User size={16} />} label={t("profileMenu.editProfile")} onClick={() => go("/app/profile")} />
-            <MenuItem icon={<Settings size={16} />} label={t("profileMenu.settings")} onClick={() => go("/app/settings")} />
-            <MenuItem
-              icon={isDark ? <Sun size={16} /> : <Moon size={16} />}
-              label={isDark ? t("profileMenu.lightMode") : t("profileMenu.darkMode")}
-              onClick={toggle}
-            />
-            <div className="my-1 h-px bg-border/60" />
-            <MenuItem icon={<LogOut size={16} />} label={t("profileMenu.signOut")} onClick={logout} danger />
-          </motion.div>
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {open && (
+              <motion.div
+                ref={panelRef}
+                role="menu"
+                initial={{ opacity: 0, scale: 0.96, y: -6 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: -6 }}
+                transition={{ type: "spring", stiffness: 360, damping: 30 }}
+                style={style}
+                className="fixed z-[var(--z-dropdown)] w-60 overflow-y-auto rounded-2xl border border-border bg-surface/95 p-1.5 shadow-card"
+              >
+                <div className="flex items-center gap-3 px-2.5 py-2.5">
+                  <Avatar name={user.displayName} src={user.avatarUrl} />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-fg">{user.displayName}</div>
+                    <div className="truncate text-xs text-muted">{user.email}</div>
+                  </div>
+                </div>
+                <div className="my-1 h-px bg-border/60" />
+                <MenuItem icon={<User size={16} />} label={t("profileMenu.editProfile")} onClick={() => go("/app/profile")} />
+                <MenuItem icon={<Settings size={16} />} label={t("profileMenu.settings")} onClick={() => go("/app/settings")} />
+                <MenuItem
+                  icon={isDark ? <Sun size={16} /> : <Moon size={16} />}
+                  label={isDark ? t("profileMenu.lightMode") : t("profileMenu.darkMode")}
+                  onClick={toggle}
+                />
+                <div className="my-1 h-px bg-border/60" />
+                <MenuItem icon={<LogOut size={16} />} label={t("profileMenu.signOut")} onClick={logout} danger />
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
         )}
-      </AnimatePresence>
     </div>
   );
 }

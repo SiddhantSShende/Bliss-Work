@@ -10,22 +10,25 @@
  * when the backend gains a `user_settings` table they should move there so
  * they sync across devices.
  */
-import { useEffect, useState } from "react";
-import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button, PageHeader, useTheme, THEMES, customThemeGradient, themeName, darkCounterpart, type CustomTheme, type ThemeDef, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
+import { useSession } from "../store/session";
 import { useGoBack } from "../lib/useGoBack";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { loadDesktopNotifs, saveDesktopNotifs } from "../lib/notificationPrefs";
+import { AnchoredPopover } from "../features/AnchoredPopover";
 
 export function Settings() {
-  const { t } = useTranslation(["settings", "common"]);
+  const { t } = useTranslation(["settings", "common", "billing"]);
   const { theme, customThemeActive } = useTheme();
   const { config } = useRuntime();
+  const isOrgAdmin = Boolean(useSession((s) => s.user)?.roles.includes("org_admin"));
   const goBack = useGoBack();
   const [desktopNotifs, setDesktopNotifs] = useState(loadDesktopNotifs);
 
@@ -98,6 +101,19 @@ export function Settings() {
             }
           />
 
+          {isOrgAdmin && (
+            <SettingRow
+              icon={<CreditCard size={18} />}
+              title={t("billing:org.header.title")}
+              description={t("billing:org.header.subtitle")}
+              action={
+                <Link to="/app/settings/billing">
+                  <Button variant="subtle" size="sm">{t("common:buttons.view")}</Button>
+                </Link>
+              }
+            />
+          )}
+
           <SettingRow
             icon={desktopNotifs ? <Bell size={18} /> : <BellOff size={18} />}
             title={t("settings:desktopNotifications.title")}
@@ -129,8 +145,12 @@ function ThemeMenu() {
   const { theme, isDark, toggle, setTheme, customTheme, customThemeActive, saveCustomTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
-  const close = () => setOpen(false);
-  const wrap = usePopupDismiss<HTMLDivElement>(open, close);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const close = () => {
+    setOpen(false);
+    setEditing(false);
+  };
+  const wrap = usePopupDismiss<HTMLDivElement>(open || editing, close, [panelRef]);
   // THEMES only lists each family's light id (see themes.ts), so comparing
   // `theme` straight against `opt.id` would leave every row unchecked while
   // in Dark mode. Reduce `theme` to its light-mode id first — the family the
@@ -155,14 +175,21 @@ function ThemeMenu() {
         >
           <MoreVertical size={18} />
         </button>
-        <CustomThemeBuilder
-          initial={customTheme}
-          onCancel={cancelEditing}
-          onSave={(next) => {
-            saveCustomTheme(next);
-            setEditing(false);
-          }}
-        />
+        <AnchoredPopover
+          anchor={wrap}
+          panelRef={panelRef}
+          gap={6}
+          className="w-72 overflow-y-auto rounded-xl border border-border bg-surface shadow-card"
+        >
+          <CustomThemeBuilder
+            initial={customTheme}
+            onCancel={cancelEditing}
+            onSave={(next) => {
+              saveCustomTheme(next);
+              setEditing(false);
+            }}
+          />
+        </AnchoredPopover>
       </div>
     );
   }
@@ -181,10 +208,13 @@ function ThemeMenu() {
         <MoreVertical size={18} />
       </button>
       {open && (
-        <div
+        <AnchoredPopover
+          anchor={wrap}
+          panelRef={panelRef}
+          gap={6}
           role="menu"
           aria-label={t("settings:theme.menuLabel")}
-          className="absolute right-0 z-[1000] mt-1.5 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-card"
+          className="w-72 overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-card"
         >
           <div className="flex gap-1 p-1">
             <AppearanceOption icon={<Sun size={14} />} label={t("settings:theme.light")} active={!isDark} onClick={() => isDark && toggle()} />
@@ -231,7 +261,7 @@ function ThemeMenu() {
           >
             {customTheme ? t("settings:theme.custom.edit") : t("settings:theme.custom.create")}
           </button>
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );
@@ -259,7 +289,7 @@ function CustomThemeBuilder({
         event.preventDefault();
         onSave({ colors });
       }}
-      className="absolute right-0 z-[1000] mt-1.5 w-72 rounded-xl border border-border bg-surface p-3 shadow-card"
+      className="w-full p-3"
     >
       <div className="mb-3 text-sm font-semibold text-fg">{t("settings:theme.custom.title")}</div>
       <div className="flex items-center justify-between text-xs font-medium text-muted">

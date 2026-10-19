@@ -15,7 +15,7 @@ import { pagedChannels, pagedDirectory } from "../test/pagedPickerApi";
 import { setClockTime } from "../test/timePicker";
 
 const h = vi.hoisted(() => ({
-  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn(), projectByName: vi.fn() },
+  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn(), projects: vi.fn() },
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -42,8 +42,6 @@ function sent() {
 }
 
 async function readyToSend(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByPlaceholderText("Enter task title"), "Ship the report");
-  await user.type(screen.getByPlaceholderText("Name this project"), "Ship the report");
   await user.click(screen.getByRole("tab", { name: /^People/ }));
   await user.click(await screen.findByRole("checkbox", { name: /Ada Lovelace/ }));
 }
@@ -63,7 +61,7 @@ beforeEach(() => {
   vi.setSystemTime(OPENED_AT);
   useSession.setState({ user: ME });
   h.api.createTask.mockReset().mockResolvedValue({ taskId: "task-1" });
-  h.api.projectByName.mockReset().mockResolvedValue(null);
+  h.api.projects.mockReset().mockResolvedValue([]);
   h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(DIRECTORY));
   h.api.channelsPage.mockReset().mockImplementation(pagedChannels(CHANNELS));
   vi.mocked(toast.error).mockReset();
@@ -80,7 +78,7 @@ describe("no deadline", () => {
     const body = sent();
     expect(body).not.toHaveProperty("deadlineAt");
     expect(body.recurrence).toBeUndefined();
-    expect(Object.keys(body).sort()).toEqual(["allocation", "assigneeIds", "description", "taskTitle", "title"]);
+    expect(Object.keys(body).sort()).toEqual(["allocation", "assigneeIds", "description"]);
   });
 
   it("a recurring task without one sends a recurrence with no `deadline`", async () => {
@@ -241,7 +239,7 @@ describe("a recurring task's deadline rule", () => {
 describe("the rest of the form is untouched", () => {
   it("keeps the title, description, assign-to panel and allocation cards", () => {
     openDialog();
-    expect(screen.getByPlaceholderText("Name this project")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Pick channels, people, or a project/)).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /Assign to/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /People/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Channels/ })).toBeInTheDocument();

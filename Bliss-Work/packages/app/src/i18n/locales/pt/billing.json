@@ -1,0 +1,97 @@
+{
+  "org": {
+    "header": {
+      "title": "Créditos e faturamento",
+      "subtitle": "Saldo de créditos, custos mensais e histórico de transações da sua organização."
+    },
+    "adminsOnly": {
+      "title": "Somente administradores",
+      "hint": "Somente administradores da organização podem ver o faturamento."
+    },
+    "unavailable": {
+      "title": "Faturamento indisponível",
+      "hint": "O faturamento não está configurado para esta implantação."
+    },
+    "states": {
+      "loading": "Carregando informações de faturamento…",
+      "error": "Não foi possível carregar as informações de faturamento."
+    },
+    "balance": {
+      "label": "Saldo atual",
+      "credits_one": "{{count}} crédito",
+      "credits_other": "{{count}} créditos"
+    },
+    "insufficientBanner": {
+      "title": "Saldo baixo",
+      "description": "Sua organização está sem créditos. Adicione créditos para evitar uma suspensão."
+    },
+    "monthlyCost": {
+      "title": "Custo mensal por membro",
+      "admin": "Admin",
+      "member": "Membro",
+      "creditsPerMonth_one": "{{count}} crédito/mês",
+      "creditsPerMonth_other": "{{count}} créditos/mês"
+    },
+    "packages": {
+      "title": "Pacotes de créditos",
+      "empty": "Ainda não há pacotes disponíveis.",
+      "creditsLabel_one": "{{count}} crédito",
+      "creditsLabel_other": "{{count}} créditos"
+    },
+    "ledger": {
+      "title": "Histórico de transações",
+      "empty": "Ainda não há transações.",
+      "reasons": {
+        "monthly_grant": "Concessão mensal de créditos",
+        "renewal_debit": "Cobrança de renovação mensal",
+        "manual_adjustment": "Ajuste manual"
+      }
+    }
+  },
+  "operator": {
+    "header": {
+      "title": "Preços da plataforma",
+      "subtitle": "Preços globais e catálogo de pacotes de créditos, somente para operadores da plataforma."
+    },
+    "forbiddenBanner": {
+      "title": "Acesso de operador da plataforma necessário",
+      "description": "Sua conta não é um operador da plataforma, então as alterações aqui serão rejeitadas pelo servidor."
+    },
+    "states": {
+      "loading": "Carregando preços…",
+      "error": "Não foi possível carregar os preços."
+    },
+    "pricing": {
+      "title": "Preços globais",
+      "keys": {
+        "admin_monthly_credits": "Créditos mensais do admin",
+        "member_monthly_credits": "Créditos mensais do membro",
+        "admin_reference_price_cents": "Preço de tabela admin (centavos)",
+        "member_reference_price_cents": "Preço de tabela membro (centavos)",
+        "admin_current_price_cents": "Preço atual admin (centavos)",
+        "member_current_price_cents": "Preço atual membro (centavos)"
+      },
+      "save": "Salvar",
+      "saved": "Preços atualizados.",
+      "saveFailedForbidden": "Somente um operador da plataforma pode alterar os preços.",
+      "saveFailed": "Não foi possível salvar essa alteração de preço."
+    },
+    "packages": {
+      "title": "Pacotes de créditos",
+      "empty": "Ainda não há pacotes.",
+      "name": "Nome",
+      "credits": "Créditos",
+      "price": "Preço (centavos)",
+      "active": "Ativo",
+      "inactive": "Inativo",
+      "create": "Adicionar pacote",
+      "createFailed": "Não foi possível criar o pacote.",
+      "createFailedForbidden": "Somente um operador da plataforma pode criar pacotes.",
+      "updateFailed": "Não foi possível atualizar o pacote.",
+      "updateFailedForbidden": "Somente um operador da plataforma pode editar pacotes.",
+      "deactivate": "Desativar",
+      "activate": "Ativar",
+      "save": "Salvar"
+    }
+  }
+}

@@ -172,6 +172,13 @@ export interface PlatformConfig {
    * configuration instead of by deploy.
    */
   graphBase?: string;
+  /**
+   * billing-svc — org credit balance/ledger/catalog and operator-only pricing.
+   * OPTIONAL, same reasoning as stickyBase above: a build that omits this
+   * simply has no Credits & Billing settings surface (and no operator pricing
+   * surface), rather than erroring.
+   */
+  billingBase?: string;
   wsUrl: string;
   /** "browser" for web, "hash" for the Electron file:// renderer. */
   router: "browser" | "hash";

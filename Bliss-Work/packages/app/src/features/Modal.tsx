@@ -114,6 +114,7 @@ export function Modal({
   wide = false,
   showClose = false,
   elevated = false,
+  headerExtra,
 }: {
   open: boolean;
   onClose: () => void;
@@ -126,22 +127,23 @@ export function Modal({
   wide?: boolean;
   /** An X beside the title (opt-in, like Sheet's). Needs `title`. */
   showClose?: boolean;
+  /** Opt-in: rendered in the title row, between the title and the close X
+   *  (e.g. CreateTaskDialog's "+ New" project action). Every existing caller
+   *  omits it and the header is unchanged. */
+  headerExtra?: React.ReactNode;
   /**
    * Opt-in: render in its own layer and with a lighter scrim. Off for every
    * existing dialog, which are unchanged.
    *
-   * The ordinary overlay is `fixed inset-0 z-50` wherever it is mounted, and
-   * z-50 is also what the page chrome uses (TopNavbar, a channel's header). A
-   * tie is settled by DOM order, so a dialog mounted inside a sidebar pane — the
-   * Add Channel popup — is painted UNDER the header of the pane to its right,
-   * which cut its title off. Pinned notes (BrowserStickies, z-[200]) float above
-   * it for the same reason.
+   * The ordinary overlay stays in its caller's tree and uses the shared modal
+   * layer. This opt-in portal is for dialogs that must escape a pane's overflow
+   * or stacking context (for example, Add Channel).
    *
-   * This portals to <body> (so no ancestor can cap or reorder it) at z-[210] —
-   * above the notes, below toasts — so the scrim covers everything behind the
-   * dialog, notes included, and it is always centred in the viewport. The scrim
-   * is `black/30` with a 2px blur: enough to establish focus without turning the
-   * app behind into a smear.
+   * This portals to <body> (so no ancestor can cap or reorder it) at the modal
+   * layer — above dropdowns and notes, below notifications — so the scrim covers
+   * everything behind the dialog, notes included, and it is always centred in
+   * the viewport. The scrim is `black/30` with a 2px blur: enough to establish
+   * focus without turning the app behind into a smear.
    */
   elevated?: boolean;
 }) {
@@ -152,8 +154,8 @@ export function Modal({
     <AnimatePresence>
       {open && (
         <motion.div
-          className={`fixed inset-0 flex items-center justify-center p-4 ${
-            elevated ? "z-[210] bg-black/30 backdrop-blur-[2px]" : "z-50 bg-black/40 backdrop-blur-sm"
+          className={`fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4 ${
+            elevated ? "bg-black/30 backdrop-blur-[2px]" : "bg-black/40 backdrop-blur-sm"
           }`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -177,7 +179,8 @@ export function Modal({
           >
             {title && (
               <div className={`flex shrink-0 items-start justify-between gap-3 px-6 ${wide ? "pt-5" : "pt-6"}`}>
-                <h2 className="min-w-0 text-lg font-semibold tracking-tight text-fg">{title}</h2>
+                <h2 className="min-w-0 flex-1 text-lg font-semibold tracking-tight text-fg">{title}</h2>
+                {headerExtra}
                 {showClose && (
                   <button
                     type="button"
@@ -245,7 +248,7 @@ export function Sheet({
     <AnimatePresence>
       {open && (
         <motion.div
-          className={`fixed inset-x-0 bottom-0 top-[var(--titlebar-inset,0px)] z-50 flex ${fromLeft ? "justify-start" : "justify-end"} bg-black/30 backdrop-blur-sm`}
+          className={`fixed inset-x-0 bottom-0 top-[var(--titlebar-inset,0px)] z-[var(--z-modal)] flex ${fromLeft ? "justify-start" : "justify-end"} bg-black/30 backdrop-blur-sm`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

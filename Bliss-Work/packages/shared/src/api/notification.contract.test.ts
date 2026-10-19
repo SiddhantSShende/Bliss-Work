@@ -14,6 +14,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClient, ApiError } from "./client";
 import { NotificationPageDTO } from "../types/domain";
+import { logger } from "../logging";
 import fixtures from "./__fixtures__/notifications.live.json";
 
 const client = () => new ApiClient({ notificationBase: "http://notif.test", getToken: async () => "t" } as never);
@@ -71,14 +72,17 @@ describe("the notification-svc build that predates paging fails the strict schem
     ["read=true", read],
   ])("is rejected for ?limit=10&%s, loudly, instead of being treated as an empty list", async (_q, body) => {
     expect(NotificationPageDTO.safeParse(body).success).toBe(false);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The path and the raw zod issues are never logged (they can carry ids/PII
+    // from the response) — only a redacted, structured issue count. See
+    // packages/shared/src/logging.ts.
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     serve(body);
 
     const err = await client().notificationPage(undefined, 10, false).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ status: 502 });
-    expect(warn).toHaveBeenCalledWith("response validation failed", expect.stringContaining("/api/v1/notifications"), expect.anything());
+    expect(warn).toHaveBeenCalledWith("response validation failed", { issueCount: expect.any(Number) });
     warn.mockRestore();
   });
 });

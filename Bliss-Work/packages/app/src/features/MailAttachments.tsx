@@ -139,7 +139,7 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
       }
       patch(key, { id: dto.id, progress: 100 });
     },
-    [api, mailId, patch],
+    [api, mailId, patch, t],
   );
 
   const onPick = useCallback(
@@ -159,7 +159,7 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
         void upload(file);
       }
     },
-    [upload],
+    [upload, t],
   );
 
   const remove = useCallback(
@@ -192,7 +192,7 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
           });
       }
     },
-    [api, files, mailId],
+    [api, files, mailId, t],
   );
 
   return {

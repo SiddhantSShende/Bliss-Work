@@ -159,7 +159,7 @@ export function ScheduledMeetingNotice() {
     <div
       role="alertdialog"
       aria-label={t("scheduledNotice.ariaLabel", { title })}
-      className={`fixed right-4 z-[150] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl bg-surface shadow-widget ring-1 ring-accent/25 transition-[bottom] duration-200 ${
+      className={`fixed right-4 z-[var(--z-notification)] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl bg-surface shadow-widget ring-1 ring-accent/25 transition-[bottom] duration-200 ${
         yielding ? "bottom-[14rem]" : "bottom-4"
       }`}
     >

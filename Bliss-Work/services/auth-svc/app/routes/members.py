@@ -13,7 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
 
-from .. import service
+from .. import billing_client, service
 from ..db import engine
 from ..logging_config import log
 from ..net import request_context
@@ -27,7 +27,7 @@ from ..schemas import (
 from ..security.auth_dep import Principal, require_org_admin
 from ..security.origin import enforce_origin
 from . import session_events
-from .invites_service import iso_z
+from ..dates import iso_z
 from .members_service import change_role_tx, load_member, load_members_for_org, set_status_tx
 from .session_presentation import device_label, ip_prefix, session_origins
 
@@ -87,12 +87,47 @@ async def change_role(
 ) -> MemberDTO:
     _reject_self(principal, user_id)
     ip, user_agent, request_id = request_context(request)
-    async with engine.begin() as conn:
+
+    # Credit commitment check BEFORE opening this service's own transaction —
+    # see billing_client.py. Non-authoritative pre-read: skip the billing call
+    # entirely for what will be an idempotent no-op anyway (matches
+    # change_role_tx's own "already exactly this role" short-circuit).
+    old_role_name: str | None = None
+    async with engine.connect() as conn:
         await service.set_org_guc(conn, principal.org_id)
-        member = await change_role_tx(
-            conn, principal, user_id, body.role,
-            ip=ip, user_agent=user_agent, request_id=request_id,
-        )
+        try:
+            current = await load_member(conn, principal.org_id, user_id)
+        except HTTPException:
+            current = None
+    if current is not None and current.status == "active":
+        current_roles = set(current.roles)
+        if not (body.role in current_roles and len(current_roles) == 1):
+            old_role_name = next(iter(current_roles), None)
+            await billing_client.check_and_reserve_membership(principal.org_id, user_id, body.role)
+
+    try:
+        async with engine.begin() as conn:
+            await service.set_org_guc(conn, principal.org_id)
+            member = await change_role_tx(
+                conn, principal, user_id, body.role,
+                ip=ip, user_agent=user_agent, request_id=request_id,
+            )
+    except Exception:
+        # The reservation above assumed the role change would actually apply.
+        # It didn't (orphan-admin refusal, inactive member, a race) — restore
+        # the previous role's cost so billing-svc reflects what really
+        # happened. Best effort: never let cleanup mask the real error.
+        if old_role_name is not None:
+            try:
+                await billing_client.check_and_reserve_membership(principal.org_id, user_id, old_role_name)
+            except Exception:
+                log.warning(
+                    "billing_commitment_restore_failed",
+                    org_id=principal.org_id,
+                    user_id=user_id,
+                    role=old_role_name,
+                )
+        raise
     log.info(
         "member_role_changed",
         org_id=principal.org_id,
@@ -167,6 +202,12 @@ async def remove_member(
             conn, principal, user_id, "removed",
             ip=ip, user_agent=user_agent, request_id=request_id,
         )
+    # AFTER commit, not before: a removal never needs to be gated (dropping a
+    # seat always decreases commitment), so there's no affordability check to
+    # race against and nothing to hold a lock open for — this can safely be a
+    # best-effort call once the membership change is already real. No refund,
+    # no ledger entry: see membership_commitment.release_membership_commitment.
+    await billing_client.release_membership_commitment(principal.org_id, user_id)
     log.info("member_removed", org_id=principal.org_id, user_id=user_id)
     return member
 

@@ -213,7 +213,7 @@ export function TimePicker({
             role="group"
             aria-label={t("newMeeting.time.pickerAriaLabel", { label })}
             style={style}
-            className={`fixed z-[1100] w-64 rounded-2xl border p-4 ${c.panel}`}
+            className={`fixed z-[var(--z-popover)] w-64 rounded-2xl border p-4 ${c.panel}`}
           >
             <div className="mb-3 flex items-center justify-center gap-2">
               <button

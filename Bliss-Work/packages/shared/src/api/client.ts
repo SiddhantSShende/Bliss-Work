@@ -17,6 +17,11 @@ import {
   ConnectIntegrationResultDTO,
   IntegrationConnectionDTO,
   AvailabilityDTO,
+  BillingBalanceDTO,
+  BillingLedgerEntryDTO,
+  BillingPackageDTO,
+  BillingPricingEntryDTO,
+  BillingReconcileDTO,
   BulkDeleteResultDTO,
   BulkForwardResultDTO,
   CaptchaChallengeDTO,
@@ -135,6 +140,14 @@ export interface ApiConfig {
    * reversible by configuration rather than by deploy.
    */
   graphBase?: string;
+  /**
+   * billing-svc — org credit balance/ledger/catalog, and operator-only
+   * pricing & package management. OPTIONAL, same "feature unavailable"
+   * posture as stickyBase/integrationsBase: every billing method below
+   * treats an absent base as the feature not existing on this platform
+   * rather than throwing from deep inside a render.
+   */
+  billingBase?: string;
   getToken: () => string | null | Promise<string | null>;
   /**
    * Mint a fresh access token when an authed request 401s (the short-lived
@@ -326,58 +339,69 @@ export class ApiClient {
     headers["x-request-id"] = requestId;
 
     // Abort a hung request after timeoutMs (default 30s). Without this a stalled
-    // TCP connection blocks the promise — and any UI waiting on it — indefinitely.
+    // TCP connection, OR a response whose headers arrive but whose body then
+    // stalls (res.json() never settles), blocks the promise — and any UI
+    // waiting on it — indefinitely. The timer stays armed across the body
+    // read too, not just the initial fetch() call, and is cleared only once
+    // in one `finally` covering the whole attempt.
     const controller = new AbortController();
     const timeoutMs = this.cfg.timeoutMs ?? 30_000;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res: Response;
     try {
-      res = await fetch(`${base}${path}`, {
-        ...init,
-        headers,
-        credentials: "include",
-        signal: controller.signal,
-      });
+      let res: Response;
+      try {
+        res = await fetch(`${base}${path}`, {
+          ...init,
+          headers,
+          credentials: "include",
+          signal: controller.signal,
+        });
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+          throw new ApiError(408, `request timed out after ${timeoutMs}ms`);
+        }
+        throw e; // network / DNS failure — surface as-is
+      }
+      // Access tokens expire after ~15 min. When an AUTHED request 401s, silently
+      // refresh once and retry so an expired token self-heals instead of
+      // cascading 401s across every screen. Guard on `token` so a genuinely
+      // unauthenticated 401 (e.g. a bad login) stays a real error, and on
+      // `retried` so a still-401 after refresh fails out instead of looping.
+      // The retry re-reads getToken(), which now returns the refreshed token.
+      // NOTE: this fires once per 401'd request, and the presence poll alone runs
+      // every 20s on three screens. When the refresh token itself is dead that
+      // adds up to an endless drip of doomed refreshes, so `refreshSession` keeps
+      // a circuit breaker (see packages/app/src/lib/refresh.ts) and answers null
+      // locally once the session is terminal. Retrying here stays correct.
+      if (res.status === 401 && token && !retried && this.cfg.refreshToken) {
+        const fresh = await this.cfg.refreshToken();
+        if (fresh) {
+          // Carry the same support-correlation id into the retry.
+          const retryInit = { ...init, headers: { ...(init.headers as Record<string, string>), "x-request-id": requestId } };
+          return await this.req<T>(base, path, retryInit, schema, true);
+        }
+      }
+      if (!res.ok) {
+        throw await ApiError.fromResponse(res);
+      }
+      if (res.status === 204) return undefined as T;
+      if (schema) {
+        const parsed = schema.safeParse(await res.json());
+        if (!parsed.success) {
+          logger.warn("response validation failed", { issueCount: parsed.error.issues.length });
+          throw new ApiError(502, "invalid response from server", { code: undefined });
+        }
+        return parsed.data;
+      }
+      return (await res.json()) as T;
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") {
         throw new ApiError(408, `request timed out after ${timeoutMs}ms`);
       }
-      throw e; // network / DNS failure — surface as-is
+      throw e;
     } finally {
       clearTimeout(timer);
     }
-    // Access tokens expire after ~15 min. When an AUTHED request 401s, silently
-    // refresh once and retry so an expired token self-heals instead of
-    // cascading 401s across every screen. Guard on `token` so a genuinely
-    // unauthenticated 401 (e.g. a bad login) stays a real error, and on
-    // `retried` so a still-401 after refresh fails out instead of looping.
-    // The retry re-reads getToken(), which now returns the refreshed token.
-    // NOTE: this fires once per 401'd request, and the presence poll alone runs
-    // every 20s on three screens. When the refresh token itself is dead that
-    // adds up to an endless drip of doomed refreshes, so `refreshSession` keeps
-    // a circuit breaker (see packages/app/src/lib/refresh.ts) and answers null
-    // locally once the session is terminal. Retrying here stays correct.
-    if (res.status === 401 && token && !retried && this.cfg.refreshToken) {
-      const fresh = await this.cfg.refreshToken();
-      if (fresh) {
-        // Carry the same support-correlation id into the retry.
-        const retryInit = { ...init, headers: { ...(init.headers as Record<string, string>), "x-request-id": requestId } };
-        return this.req<T>(base, path, retryInit, schema, true);
-      }
-    }
-    if (!res.ok) {
-      throw await ApiError.fromResponse(res);
-    }
-    if (res.status === 204) return undefined as T;
-    if (schema) {
-      const parsed = schema.safeParse(await res.json());
-      if (!parsed.success) {
-        logger.warn("response validation failed", { issueCount: parsed.error.issues.length });
-        throw new ApiError(502, "invalid response from server", { code: undefined });
-      }
-      return parsed.data;
-    }
-    return (await res.json()) as T;
   }
 
   /**
@@ -494,11 +518,18 @@ export class ApiClient {
       z.object({ email: z.string(), orgName: z.string(), valid: z.boolean() }),
     );
   }
+  /** Returns either a session, or an MfaPendingDTO when the identity being
+   *  joined into the org already has a second factor enrolled (see
+   *  auth-svc's `/auth/invites/accept`, which answers `SessionDTO |
+   *  MfaPendingDTO` for exactly this reason) — check with `isMfaPending()`
+   *  before treating the result as a session. Unlike createOrg (which always
+   *  creates a brand-new, never-enrolled user row), accepting an invite can
+   *  join an EXISTING identity into the org, so the MFA branch is real here. */
   acceptInvite(body: { token: string; password: string; displayName: string; username: string }) {
     return this.req(this.cfg.authBase, "/auth/invites/accept", {
       method: "POST",
       body: JSON.stringify(body),
-    }, SessionDTO);
+    }, LoginResult);
   }
   createInvite(body: { email: string; role: Role }) {
     return this.req(this.cfg.authBase, "/auth/invites", {
@@ -1495,6 +1526,14 @@ export class ApiClient {
     const form = new FormData();
     form.append("file", file, opts.filename);
 
+    // 60s of silence (no upload-progress event) aborts the request. XHR's own
+    // `timeout` only measures total time, which a large-but-moving upload can
+    // legitimately exceed, so inactivity is tracked by hand and reset on every
+    // progress tick instead. `ontimeout` is kept wired for the native total-
+    // timeout case, though setting `.timeout` itself is deliberately skipped
+    // for the reason above.
+    const INACTIVITY_MS = 60_000;
+
     const res = await new Promise<{ status: number; body: unknown; text: string }>(
       (resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -1503,12 +1542,28 @@ export class ApiClient {
         if (token) xhr.setRequestHeader("authorization", `Bearer ${token}`);
         // No content-type here on purpose — see the doc comment.
 
-        if (opts.onProgress) {
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) opts.onProgress?.(e.loaded, e.total);
-          };
-        }
+        let timedOut = false;
+        let inactivityTimer: ReturnType<typeof setTimeout>;
+        const armInactivityTimer = () => {
+          clearTimeout(inactivityTimer);
+          inactivityTimer = setTimeout(() => {
+            timedOut = true;
+            xhr.abort();
+          }, INACTIVITY_MS);
+        };
+        const onCallerAbort = () => xhr.abort();
+        const cleanup = () => {
+          clearTimeout(inactivityTimer);
+          opts.signal?.removeEventListener("abort", onCallerAbort);
+        };
+        armInactivityTimer();
+
+        xhr.upload.onprogress = (e) => {
+          armInactivityTimer();
+          if (e.lengthComputable) opts.onProgress?.(e.loaded, e.total);
+        };
         xhr.onload = () => {
+          cleanup();
           let parsed: unknown;
           try {
             parsed = JSON.parse(xhr.responseText);
@@ -1517,15 +1572,24 @@ export class ApiClient {
           }
           resolve({ status: xhr.status, body: parsed, text: xhr.responseText });
         };
-        xhr.onerror = () => reject(new ApiError(0, "network error during upload"));
-        xhr.ontimeout = () => reject(new ApiError(408, "upload timed out"));
-        xhr.onabort = () => reject(new ApiError(0, "upload cancelled"));
+        xhr.onerror = () => {
+          cleanup();
+          reject(new ApiError(0, "network error during upload"));
+        };
+        xhr.ontimeout = () => {
+          cleanup();
+          reject(new ApiError(408, "upload timed out"));
+        };
+        xhr.onabort = () => {
+          cleanup();
+          reject(timedOut ? new ApiError(408, "upload timed out") : new ApiError(0, "upload cancelled"));
+        };
 
         if (opts.signal) {
           if (opts.signal.aborted) {
             xhr.abort();
           } else {
-            opts.signal.addEventListener("abort", () => xhr.abort(), { once: true });
+            opts.signal.addEventListener("abort", onCallerAbort, { once: true });
           }
         }
         xhr.send(form);
@@ -1993,6 +2057,18 @@ export class ApiClient {
   }
 
   // ── tasks ──────────────────────────────────────────────────────────────────────
+  /** Create a project on its own (Section 6.4) — no task involved. Every
+   *  channel named must already have >=2 real members; the server 400s the
+   *  whole request on the first one that doesn't, rather than creating a
+   *  project with some channels silently dropped. */
+  createProject(name: string, channelIds: string[]) {
+    return this.req(
+      this.cfg.taskBase,
+      "/api/v1/projects",
+      { method: "POST", body: JSON.stringify({ name, channelIds }) },
+      ProjectDTO,
+    );
+  }
   /** Every project the caller may access, walking the server's bounded pages. */
   async projects() {
     const limit = 100;
@@ -2027,6 +2103,18 @@ export class ApiClient {
       ProjectDTO,
     );
   }
+  /** Add an existing channel to a project. Only the project's creator or an
+   *  org_admin may call this (ProjectDTO.canComplete gates the same actions),
+   *  and the channel must have at least 2 members — the server re-checks
+   *  both regardless of what the client showed. */
+  linkProjectChannel(projectId: string, channelId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/projects/${encodeURIComponent(projectId)}/channels`,
+      { method: "POST", body: JSON.stringify({ channelId }) },
+      ProjectDTO,
+    );
+  }
   /** A miss is expected while the New Task form is being typed. */
   async projectByName(name: string): Promise<ProjectDTO | null> {
     const query = new URLSearchParams({ name });
@@ -2043,11 +2131,22 @@ export class ApiClient {
     }
   }
   createTask(body: {
-    /** The task's own identity — its heading everywhere it's shown. Distinct
-     *  from `title` below, which (despite the name) is the PROJECT this task
-     *  is filed under. */
-    taskTitle: string;
-    title: string;
+    /** Legacy mode: the task's own identity — its heading everywhere it's
+     *  shown. Distinct from `title`, which (despite the name) is the PROJECT
+     *  this task is filed under. Mutually exclusive with Smart Task
+     *  Allocation's `projectId`/`newProjectName` below — the server 422s any
+     *  request that mixes the two modes. Omit both to let the server derive
+     *  the title (app/allocation.py's Rules A-H). */
+    taskTitle?: string;
+    title?: string;
+    /** Smart Task Allocation mode: file the task under this existing project
+     *  (its name becomes the title) instead of typing one. */
+    projectId?: string;
+    /** Smart Task Allocation mode: required whenever the channel/people
+     *  selection needs a project and none of the selected ones already
+     *  covers it (multiple channels, multiple people, or a channel+people
+     *  mix) — becomes the task's title and a newly created project. */
+    newProjectName?: string;
     description: string;
     assigneeIds?: string[];
     /** Optional: allocate to channels, with or without `assigneeIds` — all of it
@@ -2244,6 +2343,101 @@ export class ApiClient {
       this.cfg.integrationsBase,
       `/api/v1/integrations/${encodeURIComponent(connectionId)}`,
       { method: "DELETE" },
+    );
+  }
+
+  // ── billing (org credit balance/ledger/catalog; operator-only pricing & ──
+  // package management). All rejections throw rather than fail silently —
+  // unlike listIntegrations()'s empty-array fallback, a billing screen with
+  // no base configured should show its error state, not render as if the
+  // org simply has no balance.
+  billingBalance() {
+    if (!this.cfg.billingBase) {
+      return Promise.reject(new Error("billing service is not configured"));
+    }
+    return this.req(this.cfg.billingBase, "/api/v1/billing/balance", {}, BillingBalanceDTO);
+  }
+  /** Most-recent-first page of the caller's org ledger. `before` is a ledger
+   *  entry id — the server paginates by its created_at, not an offset. */
+  billingLedger(params?: { limit?: number; before?: string }) {
+    if (!this.cfg.billingBase) {
+      return Promise.reject(new Error("billing service is not configured"));
+    }
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.before) q.set("before", params.before);
+    const qs = q.toString();
+    return this.req(
+      this.cfg.billingBase,
+      `/api/v1/billing/ledger${qs ? `?${qs}` : ""}`,
+      {},
+      z.array(BillingLedgerEntryDTO),
+    );
+  }
+  /** org_admin-only diagnostic — see billing-svc/app/routes/balance.py. */
+  billingReconcile() {
+    if (!this.cfg.billingBase) {
+      return Promise.reject(new Error("billing service is not configured"));
+    }
+    return this.req(this.cfg.billingBase, "/api/v1/billing/balance/reconcile", {}, BillingReconcileDTO);
+  }
+  /** Active packages only — the purchase catalog, not an audit view. */
+  billingPackages() {
+    if (!this.cfg.billingBase) {
+      return Promise.reject(new Error("billing service is not configured"));
+    }
+    return this.req(this.cfg.billingBase, "/api/v1/billing/packages", {}, z.array(BillingPackageDTO));
+  }
+  /** Platform-operator only. Authorization is enforced server-side against
+   *  platform_operators — this call is simply refused (403) for anyone else;
+   *  the UI showing it only to operators is a convenience, not the gate. */
+  billingCreatePackage(body: { name: string; credits: number; priceCents: number; currency?: string }) {
+    if (!this.cfg.billingBase) {
+      return Promise.reject(new Error("billing service is not configured"));
+    }
+    return this.req(
+      this.cfg.billingBase,
+      "/api/v1/billing/packages",
+      { method: "POST", body: JSON.stringify(body) },
+      BillingPackageDTO,
+    );
+  }
+  /** Platform-operator only — see billingCreatePackage. Deactivating/repricing
+   *  a package never touches historical purchases (they snapshot credits and
+   *  amount at purchase time). */
+  billingUpdatePackage(
+    packageId: string,
+    body: { name?: string; credits?: number; priceCents?: number; active?: boolean },
+  ) {
+    if (!this.cfg.billingBase) {
+      return Promise.reject(new Error("billing service is not configured"));
+    }
+    return this.req(
+      this.cfg.billingBase,
+      `/api/v1/billing/packages/${encodeURIComponent(packageId)}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+      BillingPackageDTO,
+    );
+  }
+  /** Readable by any authenticated caller (pricing isn't sensitive, and the
+   *  org billing view needs it to show monthly cost) — only the write below
+   *  is operator-gated. */
+  billingPricing() {
+    if (!this.cfg.billingBase) {
+      return Promise.reject(new Error("billing service is not configured"));
+    }
+    return this.req(this.cfg.billingBase, "/api/v1/billing/pricing", {}, z.array(BillingPricingEntryDTO));
+  }
+  /** Platform-operator only — see billingCreatePackage. */
+  billingUpdatePricing(key: string, value: unknown) {
+    if (!this.cfg.billingBase) {
+      return Promise.reject(new Error("billing service is not configured"));
+    }
+    return this.req(
+      this.cfg.billingBase,
+      `/api/v1/billing/pricing/${encodeURIComponent(key)}`,
+      { method: "PUT", body: JSON.stringify({ value }) },
+      BillingPricingEntryDTO,
     );
   }
 

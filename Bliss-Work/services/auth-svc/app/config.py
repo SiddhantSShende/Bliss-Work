@@ -5,7 +5,7 @@ import os
 import ssl
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     # Public URLs
     web_origin: str = "http://localhost:5173"
     invite_base_url: str = "http://localhost:5173/invite"
+
+    # ── billing-svc (credit enforcement on membership/role changes) ───────────
+    # OPTIONAL, same "feature unavailable" posture as other cross-service bases
+    # in this repo: a deployment that leaves this unset gets the pre-billing-svc
+    # behavior (membership/role changes always allowed) rather than a hard
+    # dependency on a service that may not exist in every deployment yet.
+    billing_internal_base: str = ""
+    billing_internal_token: str = Field(default="", validation_alias="BILLING_INTERNAL_TOKEN")
     # Base URLs for the emailed password-reset and email-verification links.
     # These MUST point at the WEB app (browser), not the desktop app — the
     # emailed link opens in a browser. `?token=<raw>` is appended.
@@ -181,6 +189,8 @@ class Settings(BaseSettings):
             problems.append("COOKIE_SECURE must be true behind TLS in production")
         if not os.getenv("AUTH_INTERNAL_TOKEN"):
             problems.append("AUTH_INTERNAL_TOKEN must be set in production")
+        if self.billing_internal_base and not self.billing_internal_token:
+            problems.append("BILLING_INTERNAL_TOKEN must be set in production when BILLING_INTERNAL_BASE is")
         if self.data_kek_provider == "kms":
             if not self.data_kms_key_id:
                 problems.append("DATA_KMS_KEY_ID must be set when DATA_KEK_PROVIDER=kms")

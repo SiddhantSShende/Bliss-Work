@@ -69,10 +69,8 @@ export function EmojiPopup({
   return createPortal(
     <div
       ref={popupRef}
-      // Above the app's own layers (the tallest elsewhere is z-[1000], on
-      // ConversationMenu) — a picker that opens behind the menu that summoned
-      // it is not a picker.
-      className="fixed z-[1100] overflow-y-auto overscroll-contain rounded-xl"
+      // Above dropdown menus so a picker opened from one is not hidden behind it.
+      className="fixed z-[var(--z-popover)] overflow-y-auto overscroll-contain rounded-xl"
       style={style}
     >
       {children}

@@ -72,6 +72,32 @@ async def _create_project_channel(org_id: str, creator_id: str, name: str) -> st
     return channel_id
 
 
+async def fetch_channel_members(channel_id: str, org_id: str, caller_id: str) -> list[str]:
+    """Current member ids of an existing channel, verified org/membership
+    server-side by messaging-svc. Same internal endpoint and contract as
+    tasks_write._resolve_channel_members — duplicated narrowly here (just the
+    member-ids half) since that helper is private to tasks_write and this
+    needs no channel name."""
+    headers = {"X-Internal-Token": settings.messaging_internal_token}
+    url = f"{settings.messaging_internal_base.rstrip('/')}/internal/channels/{channel_id}/members"
+    params = {"orgId": org_id, "callerId": caller_id}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
+            resp = await client.get(url, headers=headers, params=params)
+    except httpx.HTTPError as exc:
+        log.warning("project_link_channel_members_unreachable", channel_id=channel_id, error=str(exc))
+        raise HTTPException(status_code=503, detail="messaging service unreachable") from exc
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="channel not found")
+    if resp.status_code != 200:
+        log.warning("project_link_channel_members_failed", channel_id=channel_id, status=resp.status_code)
+        raise HTTPException(status_code=502, detail="messaging service error")
+    body = resp.json()
+    if body.get("orgId") != org_id:
+        raise HTTPException(status_code=404, detail="channel not found")
+    return list(body.get("memberIds") or [])
+
+
 async def resolve_or_create_project(
     org_id: str, creator_id: str, raw_name: str
 ) -> ProjectResolution:
@@ -99,6 +125,7 @@ async def resolve_or_create_project(
             if existing.channel_id is None:
                 raise HTTPException(status_code=503, detail="project channel is not ready; retry task creation")
             existing_name = await cryptor().decrypt(db, org_id, existing.name_enc)
+            await _ensure_project_channel_link(db, org_id, str(existing.id), str(existing.channel_id))
             await db.commit()
             return ProjectResolution(
                 str(existing.id), existing_name or name, str(existing.channel_id), False
@@ -120,6 +147,7 @@ async def resolve_or_create_project(
             if existing.channel_id is None:
                 raise HTTPException(status_code=503, detail="project channel is not ready; retry task creation")
             existing_name = await cryptor().decrypt(db, org_id, existing.name_enc)
+            await _ensure_project_channel_link(db, org_id, str(existing.id), str(existing.channel_id))
             await db.commit()
             return ProjectResolution(
                 str(existing.id), existing_name or name, str(existing.channel_id), False
@@ -145,8 +173,51 @@ async def resolve_or_create_project(
             text("UPDATE projects SET channel_id = :channel, updated_at = now() WHERE id = :id AND org_id = :org"),
             {"channel": channel_id, "id": project_id, "org": org_id},
         )
+        await _ensure_project_channel_link(db, org_id, project_id, channel_id)
         await db.commit()
         return ProjectResolution(project_id, name, channel_id, True)
+
+
+async def _ensure_project_channel_link(db, org_id: str, project_id: str, channel_id: str) -> None:
+    """project_channels mirrors projects.channel_id for every project read via
+    ProjectDTO.channelIds. Called on both the create and reuse paths so a
+    project resolved before 018_project_channels.sql (whose backfill only ran
+    once, at migration time) still ends up linked the first time it is
+    touched again."""
+    await db.execute(
+        text(
+            "INSERT INTO project_channels (project_id, org_id, channel_id) "
+            "VALUES (:pid, :org, :cid) ON CONFLICT DO NOTHING"
+        ),
+        {"pid": project_id, "org": org_id, "cid": channel_id},
+    )
+
+
+async def link_channels_to_project(
+    db, org_id: str, project_id: str, channel_ids: list[str], caller_id: str
+) -> None:
+    """Make a multi-channel/multi-project/mixed merge (Rules B/E/G/H) real:
+    once a NEW project is named for the combined scope, every channel that
+    went into that scope is linked into its project_channels — not just the
+    project's own auto-created channel — so picking this project again later
+    (Rule F) shows the whole merge, not just a label.
+
+    A channel that does not qualify for project membership (fewer than 2
+    real members — Section 5's domain invariant) is silently skipped rather
+    than failing the task: it still works fine as a plain task-allocation
+    channel (task_channels), it just never counted as a PROJECT channel.
+    Likewise a channel fetch_channel_members can't resolve (deleted, wrong
+    org, caller not a member) is skipped rather than blocking task creation
+    over a project-membership technicality.
+    """
+    for channel_id in channel_ids:
+        try:
+            member_ids = await fetch_channel_members(channel_id, org_id, caller_id)
+        except HTTPException:
+            continue
+        if len(member_ids) < 2:
+            continue
+        await _ensure_project_channel_link(db, org_id, project_id, channel_id)
 
 
 async def sync_assignees_to_project_channel(

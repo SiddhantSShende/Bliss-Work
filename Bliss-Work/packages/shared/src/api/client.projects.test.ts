@@ -2,7 +2,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClient, ApiError } from "./client";
 
 const uuid = (n: number) => `${n.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`;
-const project = (n: number) => ({ id: uuid(n), name: `Project ${n}`, channelId: uuid(n + 10_000) });
+// Mirrors task-svc's ProjectDTO (app/schemas.py): id, name, channelId,
+// channelIds, status and canComplete are all required on the wire — see
+// projects_read.py / projects_write.py, which always populate every field.
+const project = (n: number) => ({
+  id: uuid(n),
+  name: `Project ${n}`,
+  channelId: uuid(n + 10_000),
+  channelIds: [uuid(n + 10_000)],
+  status: "ACTIVE" as const,
+  canComplete: false,
+});
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const client = () => new ApiClient({ taskBase: "http://task.test", getToken: async () => "tok" } as never);
@@ -68,5 +78,26 @@ describe("project API", () => {
     const error = await client().projectByName("Alpha").catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 503 });
+  });
+
+  it("creates a standalone project with the given name and channels", async () => {
+    const expected = project(42);
+    const fetchStub = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(JSON.parse(init.body as string)).toEqual({ name: "Website Redesign", channelIds: [uuid(1), uuid(2)] });
+      return json(expected, 201);
+    });
+    vi.stubGlobal("fetch", fetchStub);
+
+    await expect(client().createProject("Website Redesign", [uuid(1), uuid(2)])).resolves.toEqual(expected);
+    expect(fetchStub.mock.calls[0]?.[0]).toBe("http://task.test/api/v1/projects");
+    expect(fetchStub.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+  });
+
+  it("surfaces a 400 (an ineligible channel) as an ApiError, not a silent partial success", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string) => json({ detail: "channel needs 2 members" }, 400)));
+
+    const error = await client().createProject("Solo", [uuid(3)]).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 400 });
   });
 });

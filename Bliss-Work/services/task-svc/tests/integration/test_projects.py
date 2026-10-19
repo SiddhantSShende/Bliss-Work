@@ -115,6 +115,7 @@ async def test_create_and_reuse_project_channel_without_assigning_its_existing_m
         "id": project_id,
         "name": "Quarterly Planning",
         "channelId": channel_id,
+        "channelIds": [channel_id],
         "status": "ACTIVE",
         "canComplete": True,
     }

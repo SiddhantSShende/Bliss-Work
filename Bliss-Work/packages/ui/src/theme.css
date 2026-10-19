@@ -111,6 +111,15 @@
 }
 
 :root {
+  /* Shared application layer scale. Anchored dropdowns/popovers are portalled
+     to document.body, so these values compare consistently across both shells
+     rather than being capped by a local stacking context. */
+  --z-dropdown: 300;
+  --z-modal: 400;
+  --z-popover: 410;
+  --z-tooltip: 420;
+  --z-notification: 500;
+
   /* Also shared across every light family, same reasoning as --color-bg
      above: a frosted panel should look like neutral frosted glass, not a
      tinted pane, regardless of which accent colour is selected. */

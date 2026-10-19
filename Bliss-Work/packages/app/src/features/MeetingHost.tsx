@@ -116,7 +116,7 @@ function RejoinPrompt() {
     <div
       role="alertdialog"
       aria-label={t("host.rejoin.ariaLabel")}
-      className="fixed bottom-4 left-1/2 z-[150] w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl bg-surface p-4 shadow-widget ring-1 ring-border"
+      className="fixed bottom-4 left-1/2 z-[var(--z-notification)] w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl bg-surface p-4 shadow-widget ring-1 ring-border"
     >
       <div className="flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">

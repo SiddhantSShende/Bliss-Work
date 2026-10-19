@@ -68,6 +68,10 @@ const config: PlatformConfig = {
   // an unset base simply means that one Settings card can't load — not a
   // reason to fail the whole build.
   integrationsBase: env.VITE_INTEGRATIONS_BASE ?? "http://localhost:8005",
+  // Deliberately absent from REQUIRED_ENV: billing-svc has no checkout flow
+  // yet, so an unset base simply means Settings > Credits & Billing (and the
+  // operator pricing surface) can't load — not a reason to fail the build.
+  billingBase: env.VITE_BILLING_BASE ?? "http://localhost:8010",
   wsUrl: env.VITE_WS_URL ?? "ws://localhost:8090/ws",
   router: "browser",
 };

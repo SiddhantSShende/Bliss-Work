@@ -64,12 +64,27 @@ def test_404_is_definitive():
 
 
 def test_non_json_error_body_still_classifies():
+    # 400, not 500: a 5xx intentionally propagates a plain httpx.HTTPStatusError
+    # instead (see _raise_for_status's comment) so resilience.is_transient() and
+    # the CircuitBreaker see it — that is covered separately below.
+    r = httpx.Response(
+        status_code=400,
+        text="<html>gateway error</html>",
+        request=httpx.Request("GET", "https://gmail.googleapis.com/x"),
+    )
+    with pytest.raises(gmail.GmailError):
+        gmail._raise_for_status(r)
+
+
+def test_5xx_propagates_a_plain_http_status_error_for_resilience():
+    # Not a GmailError: retry_async's is_transient() and the CircuitBreaker
+    # both key off httpx.HTTPStatusError, so a 5xx must raise that instead.
     r = httpx.Response(
         status_code=500,
         text="<html>gateway error</html>",
         request=httpx.Request("GET", "https://gmail.googleapis.com/x"),
     )
-    with pytest.raises(gmail.GmailError):
+    with pytest.raises(httpx.HTTPStatusError):
         gmail._raise_for_status(r)
 
 

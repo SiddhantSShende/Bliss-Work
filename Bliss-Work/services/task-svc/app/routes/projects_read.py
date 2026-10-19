@@ -20,7 +20,11 @@ _MAX_LIMIT = 100
 
 _AUTHORIZED_PROJECT = (
     "("
-    "EXISTS ("
+    "p.created_by = :me"
+    # A standalone-created project (Section 6.4) has no task or schedule yet —
+    # its own creator must still be able to see it, same as they always could
+    # complete it (_can_complete, below) regardless of task/schedule history.
+    " OR EXISTS ("
     "SELECT 1 FROM tasks t "
     "WHERE t.org_id = p.org_id AND t.project_id = p.id "
     "AND (t.sender_id = :me OR EXISTS ("
@@ -41,12 +45,26 @@ def _can_complete(row, me: str, roles: list[str]) -> bool:
     return str(row.created_by) == me or "org_admin" in roles
 
 
+async def _channel_ids(db, org_id: str, project_id: str) -> list[str]:
+    rows = (
+        await db.execute(
+            text(
+                "SELECT channel_id FROM project_channels "
+                "WHERE org_id = :org AND project_id = :pid ORDER BY created_at"
+            ),
+            {"org": org_id, "pid": project_id},
+        )
+    ).all()
+    return [str(r.channel_id) for r in rows]
+
+
 async def _project_dto(db, org_id: str, row, me: str, roles: list[str]) -> ProjectDTO:
     name = await cryptor().decrypt(db, org_id, row.name_enc)
     return ProjectDTO(
         id=str(row.id),
         name=name or "",
         channelId=str(row.channel_id),
+        channelIds=await _channel_ids(db, org_id, str(row.id)),
         status=row.status,
         canComplete=_can_complete(row, me, roles),
     )
@@ -106,6 +124,20 @@ async def projects(
         versions = {version for version in (cryptor().peek_version(blob) for blob in ciphertexts) if version is not None}
         await cryptor().warm_dek_versions(db, principal.org_id, versions)
 
+        project_ids = [str(row.id) for row in rows]
+        channel_rows = (
+            await db.execute(
+                text(
+                    "SELECT project_id, channel_id FROM project_channels "
+                    "WHERE org_id = :org AND project_id = ANY(:pids) ORDER BY created_at"
+                ),
+                {"org": principal.org_id, "pids": project_ids},
+            )
+        ).all()
+    channels_by_project: dict[str, list[str]] = {}
+    for r in channel_rows:
+        channels_by_project.setdefault(str(r.project_id), []).append(str(r.channel_id))
+
     names = await asyncio.to_thread(
         cryptor().decrypt_batch_cached, principal.org_id, ciphertexts
     )
@@ -114,6 +146,7 @@ async def projects(
             id=str(row.id),
             name=name or "",
             channelId=str(row.channel_id),
+            channelIds=channels_by_project.get(str(row.id), [str(row.channel_id)]),
             status=row.status,
             canComplete=_can_complete(row, principal.user_id, principal.roles),
         )

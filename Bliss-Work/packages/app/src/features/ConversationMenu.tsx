@@ -15,11 +15,10 @@
  * impossible to dismiss on touch. The disclosure collapses again whenever the
  * menu closes, so re-opening always starts from the short list.
  *
- * Layout follows CallMenu and the ChannelMenu it replaces (trigger +
- * click-away backdrop + absolutely positioned panel) so every menu in the app
- * behaves the same way.
+ * The panel is portalled and positioned against its trigger, so pane clipping
+ * and local stacking contexts cannot hide it.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Bell,
   BellOff,
@@ -39,6 +38,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
+import { AnchoredPopover } from "./AnchoredPopover";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 export interface ConversationMenuProps {
@@ -110,6 +110,7 @@ export function ConversationMenu({
   const unavailableHint = t("conversationMenu.unavailableHint");
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const close = () => {
     setOpen(false);
@@ -118,7 +119,7 @@ export function ConversationMenu({
     setExpanded(false);
   };
 
-  const wrap = usePopupDismiss<HTMLDivElement>(open, close);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
 
   /** Every row except More either navigates, opens a panel or fires a request;
    *  none of them wants the menu left behind. */
@@ -154,20 +155,16 @@ export function ConversationMenu({
               own menu, anything else already open stayed open behind it.
               usePopupDismiss handles outside clicks, Escape, and closing
               whatever else was open, without a layer over the page. */}
-          {/* z-1000 deliberately clears every other layer in the app — the
-              tallest elsewhere is z-[200]. This menu opens over a message list
-              that renders images, video, file cards and map previews, and a
-              menu that appears BEHIND the photo it is anchored next to is not a
-              menu.
-
-              The height cap is what keeps the expanded form usable on a short
-              window: eleven rows is taller than a laptop browser's viewport
-              once the disclosure is open, and a panel that runs off the bottom
-              of the screen takes its last rows with it. */}
-          <div
+          {/* The height cap keeps the expanded form usable on a short window:
+              the panel scrolls internally instead of running off the viewport. */}
+          <AnchoredPopover
+            anchor={wrap}
+            panelRef={panelRef}
+            gap={6}
+            maxPanelHeight="70dvh"
             role="menu"
             aria-label={label}
-            className="absolute right-0 z-[1000] mt-1.5 max-h-[70dvh] w-56 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-card"
+            className="w-56 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-card"
           >
             <Item
               icon={scope === "channel" ? <Users size={15} /> : <User size={15} />}
@@ -259,7 +256,7 @@ export function ConversationMenu({
                 />
               </>
             )}
-          </div>
+          </AnchoredPopover>
         </>
       )}
     </div>

@@ -1,0 +1,94 @@
+{
+  "org": {
+    "header": {
+      "title": "クレジットと請求",
+      "subtitle": "組織のクレジット残高、月額コスト、取引履歴です。"
+    },
+    "adminsOnly": {
+      "title": "管理者専用",
+      "hint": "請求情報は組織管理者のみ閲覧できます。"
+    },
+    "unavailable": {
+      "title": "請求情報は利用できません",
+      "hint": "この環境では請求機能が設定されていません。"
+    },
+    "states": {
+      "loading": "請求情報を読み込み中…",
+      "error": "請求情報を読み込めませんでした。"
+    },
+    "balance": {
+      "label": "現在の残高",
+      "credits_other": "{{count}}クレジット"
+    },
+    "insufficientBanner": {
+      "title": "残高不足",
+      "description": "組織のクレジットがなくなりました。利用停止を避けるためクレジットを追加してください。"
+    },
+    "monthlyCost": {
+      "title": "メンバーごとの月額コスト",
+      "admin": "管理者",
+      "member": "メンバー",
+      "creditsPerMonth_other": "{{count}}クレジット/月"
+    },
+    "packages": {
+      "title": "クレジットパッケージ",
+      "empty": "利用可能なパッケージはまだありません。",
+      "creditsLabel_other": "{{count}}クレジット"
+    },
+    "ledger": {
+      "title": "取引履歴",
+      "empty": "取引はまだありません。",
+      "reasons": {
+        "monthly_grant": "月次クレジット付与",
+        "renewal_debit": "月次更新請求",
+        "manual_adjustment": "手動調整"
+      }
+    }
+  },
+  "operator": {
+    "header": {
+      "title": "プラットフォーム料金",
+      "subtitle": "グローバル料金とクレジットパッケージカタログ（プラットフォーム運営者専用）。"
+    },
+    "forbiddenBanner": {
+      "title": "プラットフォーム運営者権限が必要です",
+      "description": "このアカウントはプラットフォーム運営者ではないため、ここでの変更はサーバーに拒否されます。"
+    },
+    "states": {
+      "loading": "料金を読み込み中…",
+      "error": "料金を読み込めませんでした。"
+    },
+    "pricing": {
+      "title": "グローバル料金",
+      "keys": {
+        "admin_monthly_credits": "管理者の月次クレジット",
+        "member_monthly_credits": "メンバーの月次クレジット",
+        "admin_reference_price_cents": "管理者の定価（セント）",
+        "member_reference_price_cents": "メンバーの定価（セント）",
+        "admin_current_price_cents": "管理者の現在価格（セント）",
+        "member_current_price_cents": "メンバーの現在価格（セント）"
+      },
+      "save": "保存",
+      "saved": "料金を更新しました。",
+      "saveFailedForbidden": "料金を変更できるのはプラットフォーム運営者のみです。",
+      "saveFailed": "この料金変更を保存できませんでした。"
+    },
+    "packages": {
+      "title": "クレジットパッケージ",
+      "empty": "パッケージはまだありません。",
+      "name": "名前",
+      "credits": "クレジット",
+      "price": "価格（セント）",
+      "active": "有効",
+      "inactive": "無効",
+      "create": "パッケージを追加",
+      "createFailed": "パッケージを作成できませんでした。",
+      "createFailedForbidden": "パッケージを作成できるのはプラットフォーム運営者のみです。",
+      "updateFailed": "パッケージを更新できませんでした。",
+      "updateFailedForbidden": "パッケージを編集できるのはプラットフォーム運営者のみです。",
+      "deactivate": "無効化",
+      "activate": "有効化",
+      "save": "保存"
+    }
+  }
+}

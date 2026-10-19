@@ -30,7 +30,7 @@ from ..security.passwords import (
     verify_password_async,
 )
 from . import session_events
-from .invites_service import iso_z
+from ..dates import iso_z
 
 PURPOSE_RESET = "password_reset"
 PURPOSE_VERIFY = "email_verify"

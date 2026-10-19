@@ -240,7 +240,11 @@
       "assignToChannelEmpty": "अभी तक कोई चैनल नहीं जोड़ा गया।",
       "addChannels": "चैनल जोड़ें",
       "unknownChannel": "अनुपलब्ध चैनल",
-      "removeChannel": "{{name}} हटाएँ"
+      "removeChannel": "{{name}} हटाएँ",
+      "titlePreview": "Task title",
+      "titlePreviewPlaceholder": "Pick channels, people, or a project to see the title",
+      "newProjectName": "Project Name",
+      "newProjectNamePlaceholder": "Name this new project"
     },
     "deadline": {
       "label": "समय-सीमा",
@@ -276,7 +280,11 @@
       "invalidDeadlineAmount": "हर बार के कितने समय बाद, इसके लिए पूर्ण संख्या दर्ज करें",
       "needDeadlineTime": "समय-सीमा का समय चुनें",
       "fixedDeadlineBeforeStart": "निश्चित समय-सीमा का समय शुरुआती समय के बाद का होना चाहिए",
-      "createFailed": "टास्क नहीं बनाया जा सका"
+      "createFailed": "टास्क नहीं बनाया जा सका",
+      "needProjectName": "Give this project a name",
+      "needSelection": "Select at least one channel, person, or project",
+      "stillCheckingMembership": "Still checking channel membership — try again in a moment",
+      "membershipAddFailed": "Could not add everyone to the selected channel(s)"
     },
     "toasts": {
       "sentPlain": "टास्क भेजा गया",
@@ -343,7 +351,17 @@
       "retry": "फिर से कोशिश करें",
       "locked": "लॉक किया हुआ चैनल",
       "members_one": "{{count}} सदस्य",
-      "members_other": "{{count}} सदस्य"
+      "members_other": "{{count}} सदस्य",
+      "projectsTab": "Projects ({{count}})",
+      "projectsSearch": "Search your projects…",
+      "projectsSearchLabel": "Search your projects",
+      "projectsListLabel": "Projects to assign to",
+      "projectsLoadingMore": "Loading more projects…",
+      "projectsEmpty": "No projects match your search.",
+      "newProject": "+ New",
+      "projectChannelCount_one": "{{count}} channel",
+      "projectChannelCount_other": "{{count}} channels",
+      "viaProject": "From a project"
     }
   },
   "exportTasksDialog": {
@@ -561,6 +579,30 @@
       "assignmentRateTooltip": "दायरे में मौजूद सभी असाइनमेंट में से पूर्ण हुए असाइनमेंट, जिनमें कई सदस्यों वाले कार्य भी शामिल हैं।",
       "uniqueRate": "कार्य पूर्णता दर",
       "uniqueRateTooltip": "उन अद्वितीय कार्यों का अनुपात जिन्हें बचे हुए प्रत्येक सदस्य ने पूर्ण कर दिया है। जिस कार्य को सभी ने छोड़ दिया या अनदेखा कर दिया, उसे पूर्ण नहीं बल्कि छूटा हुआ माना जाता है।"
+    }
+  },
+  "projectCreationDialog": {
+    "title": "New Project",
+    "fields": {
+      "name": "Project Name",
+      "namePlaceholder": "Name this project",
+      "channels": "Channels",
+      "channelsListLabel": "Channels for this project",
+      "channelsHint": "Only channels with at least 2 members can be part of a project."
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "create": "Create Project",
+      "creating": "Creating…"
+    },
+    "errors": {
+      "needName": "Give the project a name",
+      "needChannel": "Pick at least one channel",
+      "channelTooSmall": "#{{name}} needs at least 2 members to be part of a project",
+      "createFailed": "Could not create project"
+    },
+    "toasts": {
+      "created": "Project \"{{name}}\" created"
     }
   }
 }

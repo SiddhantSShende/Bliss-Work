@@ -1,0 +1,97 @@
+{
+  "org": {
+    "header": {
+      "title": "Guthaben & Abrechnung",
+      "subtitle": "Guthaben, monatliche Kosten und Transaktionsverlauf Ihrer Organisation."
+    },
+    "adminsOnly": {
+      "title": "Nur für Admins",
+      "hint": "Nur Organisationsadmins können die Abrechnung einsehen."
+    },
+    "unavailable": {
+      "title": "Abrechnung nicht verfügbar",
+      "hint": "Die Abrechnung ist für diese Bereitstellung nicht konfiguriert."
+    },
+    "states": {
+      "loading": "Abrechnungsdaten werden geladen…",
+      "error": "Abrechnungsdaten konnten nicht geladen werden."
+    },
+    "balance": {
+      "label": "Aktuelles Guthaben",
+      "credits_one": "{{count}} Guthabenpunkt",
+      "credits_other": "{{count}} Guthabenpunkte"
+    },
+    "insufficientBanner": {
+      "title": "Niedriges Guthaben",
+      "description": "Ihre Organisation hat kein Guthaben mehr. Fügen Sie Guthaben hinzu, um eine Sperrung zu vermeiden."
+    },
+    "monthlyCost": {
+      "title": "Monatliche Kosten pro Mitglied",
+      "admin": "Admin",
+      "member": "Mitglied",
+      "creditsPerMonth_one": "{{count}} Guthabenpunkt/Monat",
+      "creditsPerMonth_other": "{{count}} Guthabenpunkte/Monat"
+    },
+    "packages": {
+      "title": "Guthabenpakete",
+      "empty": "Noch keine Pakete verfügbar.",
+      "creditsLabel_one": "{{count}} Guthabenpunkt",
+      "creditsLabel_other": "{{count}} Guthabenpunkte"
+    },
+    "ledger": {
+      "title": "Transaktionsverlauf",
+      "empty": "Noch keine Transaktionen.",
+      "reasons": {
+        "monthly_grant": "Monatliche Guthabengutschrift",
+        "renewal_debit": "Monatliche Verlängerungsgebühr",
+        "manual_adjustment": "Manuelle Anpassung"
+      }
+    }
+  },
+  "operator": {
+    "header": {
+      "title": "Plattformpreise",
+      "subtitle": "Globale Preise und der Guthabenpaket-Katalog, nur für Plattformbetreiber."
+    },
+    "forbiddenBanner": {
+      "title": "Plattformbetreiber-Zugriff erforderlich",
+      "description": "Ihr Konto ist kein Plattformbetreiber; Änderungen hier werden vom Server abgelehnt."
+    },
+    "states": {
+      "loading": "Preise werden geladen…",
+      "error": "Preise konnten nicht geladen werden."
+    },
+    "pricing": {
+      "title": "Globale Preise",
+      "keys": {
+        "admin_monthly_credits": "Monatliche Guthabenpunkte (Admin)",
+        "member_monthly_credits": "Monatliche Guthabenpunkte (Mitglied)",
+        "admin_reference_price_cents": "Listenpreis Admin (Cent)",
+        "member_reference_price_cents": "Listenpreis Mitglied (Cent)",
+        "admin_current_price_cents": "Aktueller Preis Admin (Cent)",
+        "member_current_price_cents": "Aktueller Preis Mitglied (Cent)"
+      },
+      "save": "Speichern",
+      "saved": "Preise aktualisiert.",
+      "saveFailedForbidden": "Nur ein Plattformbetreiber kann Preise ändern.",
+      "saveFailed": "Diese Preisänderung konnte nicht gespeichert werden."
+    },
+    "packages": {
+      "title": "Guthabenpakete",
+      "empty": "Noch keine Pakete.",
+      "name": "Name",
+      "credits": "Guthabenpunkte",
+      "price": "Preis (Cent)",
+      "active": "Aktiv",
+      "inactive": "Inaktiv",
+      "create": "Paket hinzufügen",
+      "createFailed": "Das Paket konnte nicht erstellt werden.",
+      "createFailedForbidden": "Nur ein Plattformbetreiber kann Pakete erstellen.",
+      "updateFailed": "Das Paket konnte nicht aktualisiert werden.",
+      "updateFailedForbidden": "Nur ein Plattformbetreiber kann Pakete bearbeiten.",
+      "deactivate": "Deaktivieren",
+      "activate": "Aktivieren",
+      "save": "Speichern"
+    }
+  }
+}

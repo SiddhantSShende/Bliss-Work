@@ -33,6 +33,7 @@ const PROJECT: ProjectDTO = {
   id: "proj-1",
   name: "Launch Plan",
   channelId: "chan-1",
+  channelIds: ["chan-1"],
   status: "ACTIVE",
   canComplete: false,
 };

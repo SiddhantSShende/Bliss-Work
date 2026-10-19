@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { ProfileMenu } from "../features/ProfileMenu";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { AnchoredPopover } from "../features/AnchoredPopover";
 
 // Labels are resolved at render time via t(`nav.${key}`) — see buttons()
 // below — so this stays a plain module-level constant that doesn't need a
@@ -148,7 +149,9 @@ function MoreTab({
 }) {
   const { t } = useTranslation("shell");
   const [open, setOpen] = useState(false);
-  const popupRef = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
+  const panelRef = useRef<HTMLDivElement>(null);
+  const close = () => setOpen(false);
+  const popupRef = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
 
   return (
     <div ref={popupRef} className="relative flex-1">
@@ -161,9 +164,13 @@ function MoreTab({
         onClick={() => setOpen((v) => !v)}
       />
       {open && (
-        <div
+        <AnchoredPopover
+          anchor={popupRef}
+          panelRef={panelRef}
+          preferred="above"
+          gap={8}
           role="menu"
-          className="glass absolute bottom-full right-0 z-20 mb-2 w-44 rounded-2xl border border-border p-1 shadow-soft"
+          className="glass w-44 overflow-y-auto rounded-2xl border border-border p-1 shadow-soft"
         >
           {BOTTOM_MORE.map((it) => (
             <button
@@ -179,7 +186,7 @@ function MoreTab({
               {t(`nav.${it.key}`)}
             </button>
           ))}
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );

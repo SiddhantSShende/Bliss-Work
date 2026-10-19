@@ -68,7 +68,7 @@ describe("AddChannelDialog — layout contract", () => {
     expect(screen.getByTestId("pane").contains(dialog)).toBe(false);
     const overlay = dialog.parentElement!;
     expect(overlay.parentElement).toBe(document.body);
-    expect(overlay.className).toContain("z-[210]");
+    expect(overlay.className).toContain("z-[var(--z-modal)]");
     expect(overlay.className).toContain("inset-0");
     // A lighter scrim than the default dialogs' black/40 + blur-sm.
     expect(overlay.className).toContain("bg-black/30");
@@ -141,8 +141,8 @@ describe("AddChannelDialog — what it sends (unchanged)", () => {
   });
 });
 
-describe("Modal — elevated is opt-in", () => {
-  it("leaves an ordinary dialog exactly where and how it was", () => {
+describe("Modal layer behavior", () => {
+  it("keeps ordinary dialogs in the caller tree with the standard scrim", () => {
     const { container } = render(
       <Modal open onClose={() => {}} title="Plain">
         body
@@ -151,7 +151,7 @@ describe("Modal — elevated is opt-in", () => {
     const dialog = screen.getByRole("dialog", { name: "Plain" });
     const overlay = dialog.parentElement!;
     expect(container.contains(dialog)).toBe(true); // not portaled
-    expect(overlay.className).toContain("z-50");
+    expect(overlay.className).toContain("z-[var(--z-modal)]");
     expect(overlay.className).toContain("bg-black/40");
     expect(overlay.className).toContain("backdrop-blur-sm");
   });

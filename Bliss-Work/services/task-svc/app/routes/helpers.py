@@ -25,6 +25,22 @@ async def resolve_username(db: AsyncSession, org_id: str, user_id: str) -> str:
     return row.username if row else ""
 
 
+async def resolve_display_name(db: AsyncSession, org_id: str, user_id: str) -> str:
+    """The human-facing name for Rule C/D title derivation (app/allocation.py)
+    — ``display_name`` with the same username/empty fallback used everywhere
+    else a person's name is shown (tasks_read.py, schedules.py)."""
+    row = (
+        await db.execute(
+            text(
+                "SELECT COALESCE(NULLIF(display_name, ''), username, '') AS name "
+                "FROM user_projection WHERE user_id = :uid AND org_id = :org"
+            ),
+            {"uid": user_id, "org": org_id},
+        )
+    ).first()
+    return row.name if row else ""
+
+
 def enqueue_outbox(db: AsyncSession, topic: str, key: str, payload: dict):
     return db.execute(
         text(

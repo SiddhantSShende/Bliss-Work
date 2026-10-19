@@ -1,0 +1,94 @@
+{
+  "org": {
+    "header": {
+      "title": "积分与账单",
+      "subtitle": "您组织的积分余额、每月费用和交易记录。"
+    },
+    "adminsOnly": {
+      "title": "仅限管理员",
+      "hint": "只有组织管理员可以查看账单。"
+    },
+    "unavailable": {
+      "title": "账单功能不可用",
+      "hint": "此部署未配置账单功能。"
+    },
+    "states": {
+      "loading": "正在加载账单信息…",
+      "error": "无法加载账单信息。"
+    },
+    "balance": {
+      "label": "当前余额",
+      "credits_other": "{{count}} 积分"
+    },
+    "insufficientBanner": {
+      "title": "余额不足",
+      "description": "您的组织积分已用完。请充值以避免被暂停。"
+    },
+    "monthlyCost": {
+      "title": "每位成员的月费",
+      "admin": "管理员",
+      "member": "成员",
+      "creditsPerMonth_other": "{{count}} 积分/月"
+    },
+    "packages": {
+      "title": "积分套餐",
+      "empty": "目前没有可用的套餐。",
+      "creditsLabel_other": "{{count}} 积分"
+    },
+    "ledger": {
+      "title": "交易记录",
+      "empty": "暂无交易记录。",
+      "reasons": {
+        "monthly_grant": "每月积分发放",
+        "renewal_debit": "每月续费扣款",
+        "manual_adjustment": "手动调整"
+      }
+    }
+  },
+  "operator": {
+    "header": {
+      "title": "平台定价",
+      "subtitle": "全局定价和积分套餐目录，仅供平台运营者使用。"
+    },
+    "forbiddenBanner": {
+      "title": "需要平台运营者权限",
+      "description": "您的账户不是平台运营者，此处的任何更改都将被服务器拒绝。"
+    },
+    "states": {
+      "loading": "正在加载定价…",
+      "error": "无法加载定价。"
+    },
+    "pricing": {
+      "title": "全局定价",
+      "keys": {
+        "admin_monthly_credits": "管理员每月积分",
+        "member_monthly_credits": "成员每月积分",
+        "admin_reference_price_cents": "管理员标准价格（分）",
+        "member_reference_price_cents": "成员标准价格（分）",
+        "admin_current_price_cents": "管理员当前价格（分）",
+        "member_current_price_cents": "成员当前价格（分）"
+      },
+      "save": "保存",
+      "saved": "定价已更新。",
+      "saveFailedForbidden": "只有平台运营者才能更改定价。",
+      "saveFailed": "无法保存此定价更改。"
+    },
+    "packages": {
+      "title": "积分套餐",
+      "empty": "暂无套餐。",
+      "name": "名称",
+      "credits": "积分",
+      "price": "价格（分）",
+      "active": "已启用",
+      "inactive": "已停用",
+      "create": "添加套餐",
+      "createFailed": "无法创建套餐。",
+      "createFailedForbidden": "只有平台运营者才能创建套餐。",
+      "updateFailed": "无法更新套餐。",
+      "updateFailedForbidden": "只有平台运营者才能编辑套餐。",
+      "deactivate": "停用",
+      "activate": "启用",
+      "save": "保存"
+    }
+  }
+}

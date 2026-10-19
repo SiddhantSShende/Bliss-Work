@@ -14,25 +14,26 @@
  * Locked channels appear here only if the caller is a member; open channels they
  * aren't in are intentionally excluded — the assigner has to join first.
  */
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { CalendarClock, Repeat, Zap, type LucideIcon } from "lucide-react";
 import { Button, Input, Textarea } from "@taskboard/ui";
 import { toast } from "sonner";
-import type { ChannelDTO, UserDTO } from "@taskboard/shared";
+import type { ChannelDTO, ProjectDTO, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { dayLabel, timeLabel } from "../lib/meetingTime";
 import { localDateTimeWithOffset } from "../lib/taskDates";
 import { localDay } from "../lib/dateRange";
 import { deadlineProblem, deadlineRequest, emptyDeadline, type Allocation, type DeadlineForm, type DeadlineProblem } from "../lib/taskDeadline";
 import { Modal } from "./Modal";
 import { Field } from "../routes/Onboarding";
-import { AssignToPanel } from "./AssignToPanel";
+import { AssignToPanel, type ChannelPickLike } from "./AssignToPanel";
 import { TaskDeadlineField } from "./TaskDeadlineField";
 import { TimePicker } from "./TimePicker";
+import { useChannelMemberIds } from "./useChannelMemberIds";
+import { ProjectCreationDialog } from "./ProjectCreationDialog";
 
 
 type Frequency = "DAILY" | "WEEKLY" | "MONTHLY";
@@ -56,7 +57,36 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
 }
 
 /** A picked channel: just what the summary line and the success toast say about it. */
-type ChannelPick = { name: string; memberCount: number; projectLocked?: boolean };
+type ChannelPick = { name: string; memberCount: number };
+
+/** Smart Task Allocation (Section 8 of the allocation spec): the server is the
+ *  only authority on the final title — this mirrors Rules A/C/D/F for the
+ *  PREVIEW only, using names already known client-side. Rules B/E/G/H (more
+ *  than one channel, more than one person, a channel+person mix, or more
+ *  than one project) all collapse to "a project name is required", which the
+ *  preview shows literally rather than guessing a name. */
+function previewTitle({
+  projects,
+  channels,
+  peopleNames,
+  newProjectName,
+}: {
+  projects: Map<string, ProjectDTO>;
+  channels: Map<string, ChannelPick>;
+  peopleNames: Map<string, string>;
+  newProjectName: string;
+}): { title: string; needsNewProjectName: boolean } {
+  const firstProject = projects.values().next().value;
+  if (projects.size === 1 && firstProject) return { title: firstProject.name, needsNewProjectName: false };
+  const needsNewProjectName =
+    projects.size > 1 || channels.size > 1 || peopleNames.size > 1 || (channels.size >= 1 && peopleNames.size >= 1);
+  if (needsNewProjectName) return { title: newProjectName.trim(), needsNewProjectName: true };
+  const firstChannel = channels.values().next().value;
+  if (channels.size === 1 && firstChannel) return { title: firstChannel.name, needsNewProjectName: false };
+  const firstPersonName = peopleNames.values().next().value;
+  if (peopleNames.size === 1 && firstPersonName) return { title: firstPersonName, needsNewProjectName: false };
+  return { title: "", needsNewProjectName: false };
+}
 
 export function CreateTaskDialog({
   open,
@@ -85,13 +115,28 @@ export function CreateTaskDialog({
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const qc = useQueryClient();
-  const [taskTitle, setTaskTitle] = useState("");
-  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
+  // Display names for the title preview only — ids above are what's actually sent.
+  const [peopleNames, setPeopleNames] = useState<Map<string, string>>(new Map());
   // Keyed by channel id; the value is only what this form later SAYS about the channel,
   // captured when it was picked — the dialog never holds the channel list itself.
   const [selectedChannels, setSelectedChannels] = useState<Map<string, ChannelPick>>(new Map());
+  // Keyed by project id, full DTO so the preview/summary can show its name and
+  // (Section 7.3) its channels can be folded into the submission as real
+  // recipients — see the `effectiveChannelIds` memo below.
+  const [selectedProjects, setSelectedProjects] = useState<Map<string, ProjectDTO>>(new Map());
+  // Section 7.4: a project-derived channel the user explicitly unchecked.
+  // Removing it this way never touches the project itself — reselecting the
+  // SAME project re-includes its channels (see toggleProject), but this set
+  // is what lets one channel be opted out while the project stays picked.
+  const [excludedChannelIds, setExcludedChannelIds] = useState<Set<string>>(new Set());
+  const [newProjectName, setNewProjectName] = useState("");
+  // "+ New" beside the dialog's heading (Section 6.4) opens the real
+  // standalone project-creation dialog (POST /api/v1/projects) — the created
+  // project is then selected here exactly like one picked from the Projects
+  // tab (see its onCreated below).
+  const [creatingProject, setCreatingProject] = useState(false);
   const [allocation, setAllocation] = useState<Allocation>("NOW");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
@@ -106,21 +151,108 @@ export function CreateTaskDialog({
   const [endDate, setEndDate] = useState("");
   const [occurrenceCount, setOccurrenceCount] = useState("1");
   const [deadline, setDeadline] = useState<DeadlineForm>(emptyDeadline);
-  const projectLookupName = useDebouncedValue(title.trim(), 250);
-  const projectLookup = useQuery({
-    queryKey: qk.projectByName(projectLookupName),
-    queryFn: () => api.projectByName(projectLookupName),
-    enabled: open && projectLookupName.length > 0,
+
+  // Every channel the caller can see, used only to resolve a NAME for a
+  // project-derived channel row (Section 7.3/7.4) — the project itself only
+  // carries channel ids. A channel the caller is not a member of (so not in
+  // this list) still works as an allocation target; it just can't show a
+  // name here, same "has to join first" limit already on the picker below.
+  //
+  // Every channel id pulled in by a currently selected project, regardless
+  // of whether the user has excluded it (see excludedChannelIds above) —
+  // this is what renders the project-derived ROWS, so an excluded one still
+  // shows up, just unchecked and re-selectable.
+  const projectDerivedChannelIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const project of selectedProjects.values()) for (const id of project.channelIds) ids.add(id);
+    return ids;
+  }, [selectedProjects]);
+  // Fetched ONLY once a project is actually selected: this is the caller's
+  // WHOLE channel list, which the ordinary Channels-tab picker deliberately
+  // never fetches (it stays page-at-a-time, however large the org) — the
+  // one-time cost here is the price of resolving a project-derived
+  // channel's NAME, and only paid when there is one to resolve.
+  const allChannels = useQuery({
+    queryKey: qk.channels,
+    queryFn: () => api.channels(),
+    enabled: projectDerivedChannelIds.size > 0,
     staleTime: 30_000,
   });
-  const projectChannelId = projectLookup.data?.channelId;
+  const channelNameById = useMemo(() => {
+    const byId = new Map<string, ChannelDTO>();
+    for (const c of allChannels.data ?? []) byId.set(c.id, c);
+    return byId;
+  }, [allChannels.data]);
+  const projectDerivedChannels = useMemo(
+    () =>
+      [...projectDerivedChannelIds].map((id) => {
+        const known = channelNameById.get(id);
+        return { id, name: known?.name ?? "", memberCount: known?.memberCount ?? 0 };
+      }),
+    [projectDerivedChannelIds, channelNameById],
+  );
+
+  // What actually gets allocated to: direct picks plus project-derived
+  // channels, minus anything explicitly excluded (Section 7.3/7.4).
+  const effectiveChannelEntries = useMemo(() => {
+    const entries = new Map<string, ChannelPick>(selectedChannels);
+    for (const c of projectDerivedChannels) if (!entries.has(c.id)) entries.set(c.id, { name: c.name, memberCount: c.memberCount });
+    for (const id of excludedChannelIds) entries.delete(id);
+    return entries;
+  }, [selectedChannels, projectDerivedChannels, excludedChannelIds]);
+  const effectiveChannelIds = useMemo(() => [...effectiveChannelEntries.keys()], [effectiveChannelEntries]);
+
+  // Smart Task Allocation (Section 8): derive the title preview from the
+  // current selection. The server is the only authority on the FINAL title
+  // (app/allocation.py) — this is a preview only. Uses the EFFECTIVE channel
+  // set (not just direct picks) so the preview matches what create() sends.
+  const { title: previewedTitle, needsNewProjectName: ruleNeedsNewProjectName } = useMemo(
+    () => previewTitle({ projects: selectedProjects, channels: effectiveChannelEntries, peopleNames, newProjectName }),
+    [selectedProjects, effectiveChannelEntries, peopleNames, newProjectName],
+  );
+  const needsNewProjectName = ruleNeedsNewProjectName;
+  const titlePreview = selectedProjects.size === 1 ? previewedTitle : needsNewProjectName ? newProjectName.trim() : previewedTitle;
+
+  // Membership auto-add (Section 7.2/7.5): a person picked in the People tab
+  // who is not already a member of a channel picked DIRECTLY in the Channels
+  // tab gets added to that channel through the app's existing membership
+  // workflow (api.addChannelMembers — the same one-call-per-channel, atomic,
+  // manager/org_admin-gated endpoint ChannelMembersSheet already uses).
+  //
+  // Scope is deliberately narrow and explicit, per the spec's "only add
+  // people to channels that are part of the current operation" and "prefer
+  // requiring explicit channel selection when ambiguous":
+  //   - only channels picked directly here (never a project's channels —
+  //     being pulled in as a task recipient via a project is not the same
+  //     as the user asking to add someone to that channel);
+  //   - a person missing from several selected channels is added to EVERY
+  //     one of them (each a channel the user explicitly picked, so this is
+  //     never ambiguous, just "more than one explicit target").
+  // Server-side authorization (owner/admin/org_admin) is the real gate —
+  // this is only about computing WHO is missing from WHERE.
+  const channelMembership = useChannelMemberIds(selectedChannels.keys());
+  const missingChannelMembers = useMemo(() => {
+    const entries: [string, string[]][] = [];
+    for (const channelId of selectedChannels.keys()) {
+      const current = channelMembership.members.get(channelId);
+      if (!current) continue; // still loading, or failed to load — see submit()
+      const missing = [...selectedPeople].filter((id) => !current.includes(id));
+      if (missing.length > 0) entries.push([channelId, missing]);
+    }
+    return entries;
+  }, [selectedChannels, selectedPeople, channelMembership.members]);
+  // True only once every selected channel's membership has actually loaded
+  // (or failed) — while any is still in flight, missingChannelMembers can
+  // understate who needs adding, so submit() waits rather than guessing.
+  const channelMembershipSettled = [...selectedChannels.keys()].every((id) => channelMembership.members.has(id));
 
   // "Schedule for later"'s small allocation summary — who, and the real
   // combined start moment (same localDateTimeWithOffset the request itself
   // is built from, so the summary can never say something the request doesn't).
   const summaryTargets = [
+    ...(selectedProjects.size > 0 ? [...selectedProjects.values()].map((p) => p.name) : []),
     ...(selectedPeople.size > 0 ? [t("createTaskDialog.allocation.peopleCount", { count: selectedPeople.size })] : []),
-    ...[...selectedChannels.values()].filter((c) => !c.projectLocked).map((c) => `#${c.name}`),
+    ...[...effectiveChannelEntries.values()].map((c) => `#${c.name}`),
   ];
   const summaryWho = summaryTargets.length > 0 ? summaryTargets.join(", ") : t("createTaskDialog.allocation.noTargetYet");
   const summaryStartIso = localDateTimeWithOffset(scheduledDate, scheduledTime);
@@ -135,11 +267,21 @@ export function CreateTaskDialog({
       // Only touched when a caller actually asks for a prefill — every
       // existing call site that doesn't pass one keeps today's behavior
       // (whatever was left in these fields from before, cleared only on a
-      // successful create below).
-      if (prefillTaskTitle !== undefined) setTaskTitle(prefillTaskTitle);
+      // successful create below). There is no task-title field any more
+      // (Smart Task Allocation derives it server-side), so a caller that
+      // used to seed just the title now seeds the description instead —
+      // the message text a "Create task" action started from is still
+      // there to read, never silently dropped.
       if (prefillDescription !== undefined) setDescription(prefillDescription);
-      setSelectedPeople(new Set(preselect.map((u) => u.id)));
+      else if (prefillTaskTitle !== undefined) setDescription(prefillTaskTitle);
+      const initialPeople = new Map(preselect.map((u) => [u.id, u.displayName || u.username]));
+      setSelectedPeople(new Set(initialPeople.keys()));
+      setPeopleNames(initialPeople);
       setSelectedChannels(new Map());
+      setSelectedProjects(new Map());
+      setExcludedChannelIds(new Set());
+      setNewProjectName("");
+      setCreatingProject(false);
       setAllocation("NOW");
       setScheduledDate("");
       setScheduledTime("");
@@ -158,20 +300,6 @@ export function CreateTaskDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  useEffect(() => {
-    setSelectedChannels((current) => {
-      const next = new Map([...current].filter(([, channel]) => !channel.projectLocked));
-      if (open && projectLookup.data) {
-        next.set(projectLookup.data.channelId, {
-          name: projectLookup.data.name,
-          memberCount: 0,
-          projectLocked: true,
-        });
-      }
-      return next;
-    });
-  }, [open, projectLookup.data]);
-
   // A deadline is optional: with none, the request is exactly what it always was.
   const { deadlineAt, recurrenceDeadline } = deadlineRequest(deadline, allocation);
 
@@ -180,25 +308,39 @@ export function CreateTaskDialog({
   // a second task, since each request mints its own idempotency key.
   const inFlight = useRef(false);
 
+  // Exactly one project selected: use it as-is (Rule F). More than one, or none
+  // but the selection needs one (Rule B/E/G/H): a new project, named by the
+  // user — the server creates it. Neither: no project at all (Rule A/C/D).
+  const singleProjectId = selectedProjects.size === 1 ? [...selectedProjects.keys()][0] : undefined;
+
+  // Membership auto-add runs BEFORE task creation, as its own request per
+  // channel (api.addChannelMembers is already atomic server-side — see its
+  // doc comment). If any channel's add fails (most likely: the caller isn't
+  // that channel's owner/admin/org_admin), submit() stops here and does NOT
+  // create the task — the spec's "do not pretend to succeed" rule for a
+  // partial failure. The selection is left exactly as the user built it, so
+  // fixing the one problem channel (e.g. deselecting it) and retrying works.
+  const addMembers = useMutation({
+    mutationFn: (entries: [string, string[]][]) =>
+      Promise.all(entries.map(([channelId, ids]) => api.addChannelMembers(channelId, ids))),
+  });
+
   const create = useMutation({
-    // ONE request for the whole selection, whatever mix of people and channels it
-    // is. task-svc resolves each channel's members (so someone both picked and in a
-    // picked channel is still one recipient) and keeps the channels attached to the
-    // task, so a member who joins one later is added to it.
+    // ONE request for the whole selection, whatever mix of projects, people and
+    // channels it is. task-svc resolves each channel's members (so someone both
+    // picked and in a picked channel is still one recipient) and keeps the
+    // channels attached to the task, so a member who joins one later is added.
     mutationFn: () =>
       api.createTask({
-        taskTitle: taskTitle.trim(),
-        title,
         description,
         allocation,
+        ...(singleProjectId
+          ? { projectId: singleProjectId }
+          : needsNewProjectName
+            ? { newProjectName: newProjectName.trim() }
+            : {}),
         ...(selectedPeople.size > 0 ? { assigneeIds: [...selectedPeople] } : {}),
-        ...(selectedChannels.size > 0
-          ? {
-              channelIds: [...selectedChannels].filter(
-                ([id, channel]) => !channel.projectLocked || id === projectChannelId,
-              ).map(([id]) => id),
-            }
-          : {}),
+        ...(effectiveChannelIds.length > 0 ? { channelIds: effectiveChannelIds } : {}),
         ...(allocation === "SCHEDULED" ? { scheduledFor: localDateTimeWithOffset(scheduledDate, scheduledTime)! } : {}),
         ...(allocation === "RECURRING" ? { recurrence: recurrencePayload() } : {}),
         ...(deadlineAt ? { deadlineAt } : {}),
@@ -207,7 +349,7 @@ export function CreateTaskDialog({
       onCreated?.(data.taskId);
       // Only a lone channel gets the channel-specific toast: with people (or other
       // channels) alongside it, "sent to #general — 12 members" would undercount.
-      const assignmentChannels = [...selectedChannels.values()].filter((channel) => !channel.projectLocked);
+      const assignmentChannels = [...selectedChannels.values()];
       const lone = selectedPeople.size === 0 && assignmentChannels.length === 1 ? assignmentChannels[0] : undefined;
       toast.success(
         lone
@@ -223,7 +365,6 @@ export function CreateTaskDialog({
       );
       qc.invalidateQueries({ queryKey: qk.sent });
       qc.invalidateQueries({ queryKey: qk.projects });
-      qc.invalidateQueries({ queryKey: qk.projectByName(title.trim()) });
       // Self-assignment also makes the new task appear in Allocated to me.
       // Keep this mutation-owned cache fresh even if the deduplicated task
       // event arrives before the active view has subscribed to it.
@@ -232,11 +373,14 @@ export function CreateTaskDialog({
       // New SENT rows change the "n pending, unacked" hints in the Available
       // bucket (allocating doesn't make anyone unavailable, but it does queue).
       qc.invalidateQueries({ queryKey: qk.availability });
-      setTaskTitle("");
-      setTitle("");
       setDescription("");
       setSelectedPeople(new Set());
+      setPeopleNames(new Map());
       setSelectedChannels(new Map());
+      setSelectedProjects(new Map());
+      setExcludedChannelIds(new Set());
+      setNewProjectName("");
+      setCreatingProject(false);
       onClose();
     },
     onError: (e) => toast.error(t("createTaskDialog.errors.createFailed"), { description: String(e) }),
@@ -245,31 +389,63 @@ export function CreateTaskDialog({
     },
   });
 
-  const togglePerson = (user: UserDTO) => setSelectedPeople((s) => toggled(s, user.id));
-  const toggleChannel = (channel: ChannelDTO) => {
-    if (channel.id === projectChannelId) return;
+  const togglePerson = (user: UserDTO) => {
+    setSelectedPeople((s) => toggled(s, user.id));
+    setPeopleNames((current) => {
+      const next = new Map(current);
+      if (next.has(user.id)) next.delete(user.id);
+      else next.set(user.id, user.displayName || user.username);
+      return next;
+    });
+  };
+  // One toggle handles a channel regardless of where its row came from
+  // (picked directly, or shown because a selected project includes it):
+  // unchecking always excludes it from the effective set AND drops any
+  // direct pick, checking always un-excludes it AND ensures a direct pick
+  // exists — so it stays selected even if its project is later deselected.
+  const toggleChannel = (channel: ChannelPickLike) => {
+    const wasEffectivelySelected = effectiveChannelEntries.has(channel.id);
+    setExcludedChannelIds((excluded) => {
+      const next = new Set(excluded);
+      if (wasEffectivelySelected) next.add(channel.id);
+      else next.delete(channel.id);
+      return next;
+    });
     setSelectedChannels((s) => {
       const next = new Map(s);
-      if (!next.delete(channel.id)) next.set(channel.id, { name: channel.name, memberCount: channel.memberCount });
+      if (wasEffectivelySelected) next.delete(channel.id);
+      else next.set(channel.id, { name: channel.name, memberCount: channel.memberCount });
+      return next;
+    });
+  };
+  const toggleProject = (project: ProjectDTO) => {
+    setSelectedProjects((s) => {
+      const next = new Map(s);
+      if (!next.delete(project.id)) next.set(project.id, project);
+      return next;
+    });
+    // Re-selecting (or deselecting) a project resets any exclusion on ITS
+    // channels — picking a project is opting back into its default scope.
+    setExcludedChannelIds((excluded) => {
+      if (excluded.size === 0) return excluded;
+      const next = new Set(excluded);
+      for (const id of project.channelIds) next.delete(id);
       return next;
     });
   };
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (inFlight.current) return;
-    if (!taskTitle.trim()) return toast.error(t("createTaskDialog.errors.needTaskTitle"));
-    if (!title.trim()) return toast.error(t("createTaskDialog.errors.needTitle"));
-    // The locked project channel never counts here: task-svc deliberately
-    // excludes a task's own project channel from recipient resolution (its
-    // membership mirrors whoever has EVER been assigned under this project
-    // title, across unrelated tasks, so treating it as a pick would silently
-    // fan a new task out to people who have nothing to do with it) and 400s
-    // "at least one assignee required" on a request that carries only that
-    // channel. Matching that here client-side avoids a submit that can only
-    // ever fail server-side.
-    const assignmentChannelCount = [...selectedChannels.values()].filter((channel) => !channel.projectLocked).length;
-    if (selectedPeople.size === 0 && assignmentChannelCount === 0)
+    // A selected channel's member list is still loading: wait rather than
+    // guess, since missingChannelMembers would understate who needs adding
+    // and silently skip them (see its own comment above).
+    if (!channelMembershipSettled) return toast.error(t("createTaskDialog.errors.stillCheckingMembership"));
+    if (selectedProjects.size === 0 && selectedChannels.size === 0 && selectedPeople.size === 0)
+      return toast.error(t("createTaskDialog.errors.needSelection"));
+    if (needsNewProjectName && !newProjectName.trim())
+      return toast.error(t("createTaskDialog.errors.needProjectName"));
+    if (!singleProjectId && !needsNewProjectName && effectiveChannelIds.length === 0 && selectedPeople.size === 0)
       return toast.error(t("createTaskDialog.errors.needAssignee"));
     if (allocation === "SCHEDULED") {
       const at = localDateTimeWithOffset(scheduledDate, scheduledTime);
@@ -289,6 +465,14 @@ export function CreateTaskDialog({
     const problem = deadlineProblem(deadline, allocation, { date: scheduledDate, time: scheduledTime }, Date.now());
     if (problem) return toast.error(t(DEADLINE_ERRORS[problem]));
     inFlight.current = true;
+    if (missingChannelMembers.length > 0) {
+      try {
+        await addMembers.mutateAsync(missingChannelMembers);
+      } catch (err) {
+        inFlight.current = false;
+        return toast.error(t("createTaskDialog.errors.membershipAddFailed"), { description: String(err) });
+      }
+    }
     create.mutate();
   };
 
@@ -312,12 +496,18 @@ export function CreateTaskDialog({
   };
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
       title={t("createTaskDialog.title")}
       wide
       showClose
+      headerExtra={
+        <Button type="button" variant="ghost" onClick={() => setCreatingProject(true)}>
+          {t("createTaskDialog.assign.newProject")}
+        </Button>
+      }
       // Modal's pinned footer sits outside the scrolling body, so the submit
       // button reaches this form through the `form` attribute, not by nesting.
       footer={
@@ -335,32 +525,28 @@ export function CreateTaskDialog({
         {/* LEFT: what the task is and when it is allocated — the selected allocation
             mode decides which of start / repeat / deadline appear. */}
         <div className="flex min-w-0 flex-col gap-3.5">
-          <Field label={t("createTaskDialog.fields.taskTitle")}>
+          {/* Smart Task Allocation: no manual title. A read-only preview shows what
+              the server will derive (Rules A/C/D/F); a project name is asked for
+              only when the selection actually needs one (Rules B/E/G/H). */}
+          <Field label={t("createTaskDialog.fields.titlePreview")}>
             <Input
-              value={taskTitle}
-              onChange={(e) => setTaskTitle(e.target.value)}
-              required
-              maxLength={200}
-              placeholder={t("createTaskDialog.fields.taskTitlePlaceholder")}
+              value={titlePreview}
+              readOnly
+              placeholder={t("createTaskDialog.fields.titlePreviewPlaceholder")}
+              className="cursor-default bg-surface-2 text-muted"
             />
           </Field>
-          <Field label={t("createTaskDialog.fields.title")}>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              maxLength={200}
-              placeholder={t("createTaskDialog.fields.titlePlaceholder")}
-            />
-            {projectLookup.isError && (
-              <div role="alert" className="flex items-center justify-between gap-2 text-xs text-danger">
-                <span>{t("projects.lookupFailed")}</span>
-                <button type="button" className="font-semibold hover:underline" onClick={() => void projectLookup.refetch()}>
-                  {t("createTaskDialog.assign.retry")}
-                </button>
-              </div>
-            )}
-          </Field>
+          {needsNewProjectName && (
+            <Field label={t("createTaskDialog.fields.newProjectName")}>
+              <Input
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                required
+                maxLength={200}
+                placeholder={t("createTaskDialog.fields.newProjectNamePlaceholder")}
+              />
+            </Field>
+          )}
           <Field label={t("createTaskDialog.fields.description")}>
             <Textarea
               value={description}
@@ -493,15 +679,26 @@ export function CreateTaskDialog({
         <div className="flex min-w-0 flex-col md:border-l md:border-border/60 md:pl-6">
           <AssignToPanel
             people={selectedPeople}
-            channels={new Set(selectedChannels.keys())}
-            project={projectLookup.data}
-            lockedChannelId={projectChannelId}
+            channels={new Set(effectiveChannelIds)}
+            projects={new Set(selectedProjects.keys())}
+            projectDerivedChannels={projectDerivedChannels}
+            initialTab="channels"
             onTogglePerson={togglePerson}
             onToggleChannel={toggleChannel}
+            onToggleProject={toggleProject}
           />
         </div>
       </form>
     </Modal>
+    <ProjectCreationDialog
+      open={creatingProject}
+      onClose={() => setCreatingProject(false)}
+      onCreated={(project) => {
+        setSelectedProjects((s) => new Map(s).set(project.id, project));
+        setCreatingProject(false);
+      }}
+    />
+    </>
   );
 }
 

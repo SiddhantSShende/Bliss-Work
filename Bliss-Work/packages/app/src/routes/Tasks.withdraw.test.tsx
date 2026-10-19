@@ -268,25 +268,28 @@ describe("Allocated to me — Add member only, no participants block", () => {
   });
 });
 
-describe("Other task views keep their participants", () => {
-  it("Completed still lists participants with their status pills", async () => {
+describe("Terminal/archive views (completed/left/ignored/missed) drop the roster", () => {
+  // Tasks.tsx: `hideParticipants={view === "allocated" || isTerminalView(view)}` —
+  // "the terminal/archive views ... no longer need the roster: no participants
+  // block there." Same rule as "Allocated to me" above, which is why this view
+  // also switches to the slim, action-only card body (taskCardLayout.ts).
+  it("Completed renders no participants: no heading, names, list or withdraw", async () => {
     server = [task(A, "Old job", "COMPLETED")];
     mount("completed");
     await screen.findByText("Old job");
 
     const c = within(card("Old job"));
-    expect(c.getByText(/participants/i)).toBeInTheDocument();
-    expect(c.getByText("piyush")).toBeInTheDocument();
-    // History: there is no assignment left to withdraw from or extend.
+    expect(c.queryByText(/participants/i)).toBeNull();
+    expect(c.queryByText("piyush")).toBeNull();
     expect(c.queryByRole("button", { name: /withdraw/i })).toBeNull();
   });
 
-  it("the card's body is the full two-column one there, not the slim one", async () => {
+  it("Completed uses the slim two-column body, not the full one", async () => {
     server = [task(A, "Old job", "COMPLETED")];
     mount("completed");
     await screen.findByText("Old job");
 
-    expect((card("Old job").firstElementChild as HTMLElement).className).not.toContain("14rem");
+    expect((card("Old job").firstElementChild as HTMLElement).className).toContain("14rem");
   });
 });
 

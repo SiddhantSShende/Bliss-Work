@@ -177,4 +177,10 @@ export const qk = {
   /** The user's pin / explicit-unpin choice per task, from sticky-svc — the
    *  shared state Web and Desktop both follow (see lib/stickyPinState). */
   stickyPinStates: ["stickyPinStates"] as const,
+  /** billing-svc: org-scoped balance/ledger, plus the global catalog/pricing
+   *  that both the org billing view and the operator pricing page read. */
+  billingBalance: ["billing", "balance"] as const,
+  billingLedger: ["billing", "ledger"] as const,
+  billingPackages: ["billing", "packages"] as const,
+  billingPricing: ["billing", "pricing"] as const,
 };

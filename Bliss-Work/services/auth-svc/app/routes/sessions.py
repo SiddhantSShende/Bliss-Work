@@ -24,7 +24,7 @@ from ..schemas import ActiveSessionDTO, RevokeOtherSessionsRequest
 from ..security.auth_dep import Principal, get_principal
 from ..security.origin import enforce_origin
 from . import session_events
-from .invites_service import iso_z
+from ..dates import iso_z
 from .session_presentation import device_label, ip_prefix, session_origins
 
 router = APIRouter(prefix="/auth/sessions", tags=["sessions"])

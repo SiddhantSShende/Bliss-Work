@@ -106,9 +106,13 @@ describe("a ring into an ad-hoc call", () => {
     const card = screen.getByRole("alertdialog", { name: "Incoming call: Jordan Doe added you to a conference call" });
     expect(card).toHaveTextContent("Jordan Doe added you to a conference call");
     expect(card.textContent).not.toMatch(/meeting|hosted by/i);
-    // The same ways in as any incoming call.
-    expect(screen.getByRole("button", { name: "Join with camera on" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Join with voice only" })).toBeInTheDocument();
+    // An ad-hoc call rings with exactly two choices — accept it as placed, or
+    // reject it. No video/voice picker: the call's own media type decides
+    // what gets initialized once it connects (see IncomingMeetingNotice.tsx).
+    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Decline" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Join with camera on" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Join with voice only" })).not.toBeInTheDocument();
   });
 
   it("still reads as a call when the server could not name who added you", () => {

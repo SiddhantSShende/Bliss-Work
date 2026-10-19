@@ -9,12 +9,22 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSession } from "../store/session";
-import { ADA, CHANNELS, DESIGN, DIRECTORY, GENERAL, GRACE, ME } from "../test/meetingFixtures";
+import { ADA, CHANNELS, DESIGN, DIRECTORY, GENERAL, GRACE, LINUS, ME } from "../test/meetingFixtures";
 import { makeChannels, makeUsers, pagedChannels, pagedDirectory, stubScrollGeometry } from "../test/pagedPickerApi";
 import { setClockTime } from "../test/timePicker";
 
 const h = vi.hoisted(() => ({
-  api: { createTask: vi.fn(), directoryPage: vi.fn(), channelsPage: vi.fn(), projectByName: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: {
+    createTask: vi.fn(),
+    directoryPage: vi.fn(),
+    channelsPage: vi.fn(),
+    projects: vi.fn(),
+    directory: vi.fn(),
+    channels: vi.fn(),
+    channelMembers: vi.fn(),
+    addChannelMembers: vi.fn(),
+    createProject: vi.fn(),
+  },
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -41,16 +51,14 @@ function sent() {
   return h.api.createTask.mock.calls[0]![0] as Record<string, any>;
 }
 
-/** Fills both mandatory text fields: the new Task Title and the existing
- *  Project Name, with the SAME text — every test below cares only about the
- *  rest of the form (assignees, schedule, recurrence), and sending the same
- *  string through both keeps every existing `body.title` assertion valid
- *  (task-svc's `title` key is still, confusingly, the project name — see
- *  schemas.py). The dedicated "Task Title" describe block below is what
- *  actually proves the two fields are independent. */
-async function title(user: ReturnType<typeof userEvent.setup>, text = "Ship the report") {
-  await user.type(screen.getByPlaceholderText("Enter task title"), text);
-  await user.type(screen.getByPlaceholderText("Name this project"), text);
+/** Smart Task Allocation: there is no manual title/project-name field any
+ *  more — the server derives the title from the Projects/Channels/People
+ *  selection (app/allocation.py's Rules A-H). A selection that needs a new
+ *  project (more than one channel, more than one person, or a channel+person
+ *  mix) must be given one through this field; a single channel or person
+ *  needs nothing here at all. */
+async function fillNewProjectName(user: ReturnType<typeof userEvent.setup>, text = "Website Redesign") {
+  await user.type(screen.getByPlaceholderText("Name this new project"), text);
 }
 
 async function pickAssignee(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
@@ -58,14 +66,20 @@ async function pickAssignee(user: ReturnType<typeof userEvent.setup>, name: RegE
   await user.click(await screen.findByRole("checkbox", { name }));
 }
 
-/** The Assign-to panel's two tabs, named by their live counts: "People (1)". */
-const tab = (name: "People" | "Channels", count?: number) =>
+/** The Assign-to panel's tabs, named by their live counts: "People (1)". */
+const tab = (name: "Projects" | "People" | "Channels", count?: number) =>
   screen.getByRole("tab", { name: count === undefined ? new RegExp(`^${name}`) : new RegExp(`^${name} \\(${count}\\)`) });
 
 async function pickChannel(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
   await user.click(tab("Channels"));
   await user.click(await screen.findByRole("checkbox", { name }));
 }
+
+/** The <li> row for a channel by its visible name — used by the
+ *  Projects-tab-channel-sync tests, which check a row's checkbox and badge
+ *  rather than toggling it by accessible name alone (a project-derived row
+ *  and its "ordinary picker" counterpart would otherwise be ambiguous). */
+const channelRowLabel = (name: string) => screen.getByText(name, { selector: "span" }).closest("li")!;
 
 /** A start on Wednesday 16 Sep 2026, 09:00 — always in the future relative to
  *  OPENED_AT (Tue 15 Sep 10:00), on the 5-minute dial the clock offers. */
@@ -79,11 +93,17 @@ beforeEach(() => {
   vi.setSystemTime(OPENED_AT);
   useSession.setState({ user: ME });
   h.api.createTask.mockReset().mockResolvedValue({ taskId: "task-1" });
-  h.api.projectByName.mockReset().mockResolvedValue(null);
+  h.api.projects.mockReset().mockResolvedValue([]);
   h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(DIRECTORY));
   h.api.channelsPage.mockReset().mockImplementation(pagedChannels(CHANNELS));
   h.api.directory.mockReset();
-  h.api.channels.mockReset();
+  h.api.channels.mockReset().mockResolvedValue(CHANNELS);
+  // Default: everyone already a member of every channel, so the membership
+  // auto-add path is a no-op unless a test deliberately sets up a sparse
+  // channel (see "membership auto-add" below) — every other test's
+  // channel+people selections behave exactly as before.
+  h.api.channelMembers.mockReset().mockResolvedValue([ME.id, ADA.id, GRACE.id, LINUS.id]);
+  h.api.addChannelMembers.mockReset().mockResolvedValue(undefined);
   onClose.mockReset();
   vi.mocked(toast.error).mockReset();
   vi.mocked(toast.success).mockReset();
@@ -111,12 +131,13 @@ describe("layout", () => {
     expect(screen.getByRole("button", { name: "Create Task" })).toBeInTheDocument();
   });
 
-  it("opens the assignment panel on Channels before People", () => {
+  it("opens the assignment panel on Projects, Channels, People", () => {
     openDialog();
     const tabs = screen.getAllByRole("tab");
-    expect(tabs[0]).toHaveAccessibleName(/^Channels/);
-    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
-    expect(tabs[1]).toHaveAccessibleName(/^People/);
+    expect(tabs[0]).toHaveAccessibleName(/^Projects/);
+    expect(tabs[1]).toHaveAccessibleName(/^Channels/);
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[2]).toHaveAccessibleName(/^People/);
   });
 
   // jsdom has no layout engine, so the next two pin the STRUCTURE the real-browser
@@ -143,18 +164,19 @@ describe("layout", () => {
 });
 
 describe("Now", () => {
-  it("sends no scheduledAt/recurrence, and the assignee picked", async () => {
+  it("sends no scheduledAt/recurrence, and the assignee picked — title derived from the one person (Rule C)", async () => {
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
 
     expect(tab("People", 1)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Pick channels, people, or a project/)).toHaveValue("Ada Lovelace");
 
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
     const body = sent();
-    expect(body.title).toBe("Ship the report");
     expect(body.assigneeIds).toEqual([ADA.id]);
+    expect(body.projectId).toBeUndefined();
+    expect(body.newProjectName).toBeUndefined();
     expect(body.allocation).toBe("NOW");
     expect(body.scheduledFor).toBeUndefined();
     expect(body.recurrence).toBeUndefined();
@@ -163,7 +185,6 @@ describe("Now", () => {
 
   it("un-ticking a person drops that assignee", async () => {
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await pickAssignee(user, /Grace Hopper/);
     expect(tab("People", 2)).toBeInTheDocument();
@@ -176,71 +197,26 @@ describe("Now", () => {
 
   it("refuses to submit with no assignee picked", async () => {
     const user = openDialog();
-    await title(user);
     await user.click(screen.getByRole("button", { name: "Create Task" }));
-    expect(toast.error).toHaveBeenCalledWith("Pick at least one assignee");
+    expect(toast.error).toHaveBeenCalledWith("Select at least one channel, person, or project");
     expect(h.api.createTask).not.toHaveBeenCalled();
   });
 
-  it("a channel alone is counted on its tab and sent as channelIds only", async () => {
+  it("a channel alone is counted on its tab, sent as channelIds only, and derives the title (Rule A)", async () => {
     const user = openDialog();
-    await title(user);
     await pickChannel(user, /general/);
 
     expect(tab("Channels", 1)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Pick channels, people, or a project/)).toHaveValue("general");
 
     await user.click(screen.getByRole("button", { name: "Create Task" }));
     const body = sent();
     expect(body.channelIds).toEqual([GENERAL.id]);
     expect(body.channelId).toBeUndefined();
     expect(body.assigneeIds).toBeUndefined();
+    expect(body.projectId).toBeUndefined();
+    expect(body.newProjectName).toBeUndefined();
     expect(toast.success).toHaveBeenCalledWith("Task sent to #general — 12 members");
-  });
-
-  it("looks up an existing project by title and previews its locked channel without allocating to it", async () => {
-    const project = {
-      id: "00000000-0000-4000-8000-000000000001",
-      name: "Ship the report",
-      channelId: "00000000-0000-4000-8000-000000000002",
-    };
-    h.api.projectByName.mockResolvedValue(project);
-    const user = openDialog();
-    await title(user);
-    const preview = await screen.findByText("#Ship the report");
-    expect(preview.closest("li")).toHaveTextContent("Project channel");
-    expect(within(preview.closest("li")!).getByRole("checkbox")).toBeChecked();
-    expect(within(preview.closest("li")!).getByRole("checkbox")).toBeDisabled();
-    expect(h.api.projectByName).toHaveBeenCalledWith("Ship the report");
-
-    await pickAssignee(user, /Ada Lovelace/);
-    await user.click(screen.getByRole("button", { name: "Create Task" }));
-    expect(sent().channelIds).toEqual([project.channelId]);
-  });
-
-  it("refuses to submit on the locked project channel alone — task-svc never treats it as a recipient", async () => {
-    // task-svc's /api/v1/tasks strips a task's own project channel out of
-    // recipient resolution before checking for "at least one assignee"
-    // (tasks_write.py: "its existing members may have been assigned to
-    // other project tasks and must not be added to this task implicitly"),
-    // so a request carrying only that channel 400s regardless. Verified
-    // live against a real task-svc + messaging-svc dev stack: the client
-    // refusing it here, instead of letting the request round-trip and fail
-    // server-side, is the correct behavior to preserve.
-    const project = {
-      id: "00000000-0000-4000-8000-000000000001",
-      name: "test",
-      channelId: "00000000-0000-4000-8000-000000000002",
-    };
-    h.api.projectByName.mockResolvedValue(project);
-    const user = openDialog();
-    await title(user, "test");
-    const preview = await screen.findByText("#test");
-    expect(within(preview.closest("li")!).getByRole("checkbox")).toBeChecked();
-
-    await user.click(screen.getByRole("button", { name: "Create Task" }));
-
-    expect(toast.error).toHaveBeenCalledWith("Pick at least one assignee");
-    expect(h.api.createTask).not.toHaveBeenCalled();
   });
 
   it("un-ticking a channel clears the pick", async () => {
@@ -251,62 +227,51 @@ describe("Now", () => {
   });
 });
 
-describe("Task Title", () => {
-  it("is a field of its own, above Project Name, sent separately in the payload", async () => {
+describe("Smart Task Allocation title preview", () => {
+  it("asks for a project name only once the selection needs one, and sends it as newProjectName", async () => {
     const user = openDialog();
-    await user.type(screen.getByPlaceholderText("Enter task title"), "Fix the login bug");
-    await user.type(screen.getByPlaceholderText("Name this project"), "Website Redesign");
     await pickAssignee(user, /Ada Lovelace/);
-    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    // One person alone: no project-name field yet.
+    expect(screen.queryByPlaceholderText("Name this new project")).not.toBeInTheDocument();
 
+    await pickChannel(user, /general/);
+    // Person + channel (Rule H) now needs a project.
+    expect(screen.getByPlaceholderText("Name this new project")).toBeInTheDocument();
+    await fillNewProjectName(user, "Q3 Push");
+    expect(screen.getByPlaceholderText(/Pick channels, people, or a project/)).toHaveValue("Q3 Push");
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
     const body = sent();
-    expect(body.taskTitle).toBe("Fix the login bug");
-    expect(body.title).toBe("Website Redesign");
+    expect(body.newProjectName).toBe("Q3 Push");
+    expect(body.assigneeIds).toEqual([ADA.id]);
+    expect(body.channelIds).toEqual([GENERAL.id]);
   });
 
-  it("refuses to submit with no task title, even with a project name and an assignee picked", async () => {
+  it("refuses to submit a selection that needs a project name without one", async () => {
     const user = openDialog();
-    await user.type(screen.getByPlaceholderText("Name this project"), "Website Redesign");
     await pickAssignee(user, /Ada Lovelace/);
-    // The field's own `required` attribute would otherwise block a real click
-    // on Create Task via native constraint validation before React ever sees
-    // the submit — firing the form's submit event directly is how the rest of
-    // this file already reaches the JS-level checks (see "duplicate submission").
+    await pickChannel(user, /general/);
+    // The now-visible field's own `required` attribute would otherwise block
+    // a real click via native constraint validation before React ever sees
+    // the submit — firing the form's submit event directly reaches the
+    // JS-level check instead (see "duplicate submission" below).
     fireEvent.submit(document.querySelector("form")!);
 
-    expect(toast.error).toHaveBeenCalledWith("Give the task a title");
+    expect(toast.error).toHaveBeenCalledWith("Give this project a name");
     expect(h.api.createTask).not.toHaveBeenCalled();
   });
 
-  it("refuses to submit on a whitespace-only task title", async () => {
+  it("several channels alone also need a project name (Rule B)", async () => {
     const user = openDialog();
-    await user.type(screen.getByPlaceholderText("Enter task title"), "   ");
-    await user.type(screen.getByPlaceholderText("Name this project"), "Website Redesign");
-    await pickAssignee(user, /Ada Lovelace/);
+    await pickChannel(user, /general/);
+    await user.click(screen.getByRole("checkbox", { name: /design/ }));
+    expect(screen.getByPlaceholderText("Name this new project")).toBeInTheDocument();
+    await fillNewProjectName(user, "Website Redesign");
+
     await user.click(screen.getByRole("button", { name: "Create Task" }));
-
-    expect(toast.error).toHaveBeenCalledWith("Give the task a title");
-    expect(h.api.createTask).not.toHaveBeenCalled();
-  });
-
-  it("trims the task title before sending it", async () => {
-    const user = openDialog();
-    await user.type(screen.getByPlaceholderText("Enter task title"), "  Fix the login bug  ");
-    await user.type(screen.getByPlaceholderText("Name this project"), "Website Redesign");
-    await pickAssignee(user, /Ada Lovelace/);
-    await user.click(screen.getByRole("button", { name: "Create Task" }));
-
-    expect(sent().taskTitle).toBe("Fix the login bug");
-  });
-
-  it("refuses to submit with no project name, even with a task title and an assignee picked", async () => {
-    const user = openDialog();
-    await user.type(screen.getByPlaceholderText("Enter task title"), "Fix the login bug");
-    await pickAssignee(user, /Ada Lovelace/);
-    fireEvent.submit(document.querySelector("form")!);
-
-    expect(toast.error).toHaveBeenCalledWith("Give the task a project name");
-    expect(h.api.createTask).not.toHaveBeenCalled();
+    const body = sent();
+    expect(body.newProjectName).toBe("Website Redesign");
+    expect(body.channelIds.sort()).toEqual([GENERAL.id, DESIGN.id].sort());
   });
 });
 
@@ -315,7 +280,7 @@ describe("the Assign to panel in the dialog", () => {
     openDialog();
     const form = document.querySelector("form")!;
     const [left, right] = [...form.children] as HTMLElement[];
-    expect(within(left!).getByPlaceholderText("Name this project")).toBeInTheDocument();
+    expect(within(left!).getByPlaceholderText(/Pick channels, people, or a project/)).toBeInTheDocument();
     expect(within(left!).getByRole("radio", { name: /Now/ })).toBeInTheDocument();
     expect(within(left!).getByLabelText("Deadline", { selector: "select" })).toBeInTheDocument();
     expect(within(right!).getByRole("group", { name: /Assign to/ })).toBeInTheDocument();
@@ -416,11 +381,11 @@ describe("People + Channels together", () => {
   it("a pick that a later search hides is still sent", async () => {
     const user = openDialog();
     await user.click(tab("People"));
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await user.type(screen.getByRole("searchbox", { name: "Search people in your organisation" }), "grace");
     await vi.waitFor(() => expect(screen.queryByRole("checkbox", { name: /Ada Lovelace/ })).not.toBeInTheDocument());
     await pickAssignee(user, /Grace Hopper/);
+    await fillNewProjectName(user);
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
     expect(sent().assigneeIds.sort()).toEqual([ADA.id, GRACE.id].sort());
@@ -429,12 +394,12 @@ describe("People + Channels together", () => {
   it("a person picked from a LATER page is sent too, alongside one from the first", async () => {
     h.api.directoryPage.mockReset().mockImplementation(pagedDirectory(makeUsers(100)));
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Person 001/);
     const box = screen.getByLabelText("People to assign to");
     box.scrollTop = box.scrollHeight - box.clientHeight;
     fireEvent.scroll(box);
     await pickAssignee(user, /Person 040/);
+    await fillNewProjectName(user);
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
     const body = sent();
@@ -445,7 +410,6 @@ describe("People + Channels together", () => {
   it("a channel picked from a later page and one found by search are both sent as channelIds", async () => {
     h.api.channelsPage.mockReset().mockImplementation(pagedChannels(makeChannels(75)));
     const user = openDialog();
-    await title(user);
     await user.click(tab("Channels"));
     await user.click(await screen.findByRole("checkbox", { name: /team-001/ }));
     const box = screen.getByLabelText("Channels to assign to");
@@ -455,6 +419,7 @@ describe("People + Channels together", () => {
     await user.type(screen.getByRole("searchbox", { name: "Search your channels" }), "team-070");
     await user.click(await screen.findByRole("checkbox", { name: /team-070/ }));
     expect(tab("Channels", 3)).toBeInTheDocument();
+    await fillNewProjectName(user);
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
     const ids = makeChannels(75);
@@ -463,10 +428,10 @@ describe("People + Channels together", () => {
 
   it("people + channel is ONE request carrying both, with the channel left as a channel", async () => {
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await pickAssignee(user, /Grace Hopper/);
     await pickChannel(user, /general/);
+    await fillNewProjectName(user, "Ship the report");
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
     const body = sent();
@@ -474,7 +439,7 @@ describe("People + Channels together", () => {
     // Not expanded into the channel's members: the server owns that, so a later
     // joiner still reaches the task.
     expect(body.channelIds).toEqual([GENERAL.id]);
-    expect(body.title).toBe("Ship the report");
+    expect(body.newProjectName).toBe("Ship the report");
     expect(body.allocation).toBe("NOW");
     expect(toast.success).toHaveBeenCalledWith("Task sent");
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -482,9 +447,9 @@ describe("People + Channels together", () => {
 
   it("several channels are still one request, listing each channel once", async () => {
     const user = openDialog();
-    await title(user);
     await pickChannel(user, /general/);
     await user.click(screen.getByRole("checkbox", { name: /design/ }));
+    await fillNewProjectName(user);
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
     const body = sent();
@@ -494,10 +459,10 @@ describe("People + Channels together", () => {
 
   it("a person who may also be in the picked channel is sent once, as picked — one request, no client-side merging", async () => {
     const user = openDialog();
-    await title(user);
     // Everyone is in #general in real life; the client cannot and must not decide that.
     await pickAssignee(user, /Ada Lovelace/);
     await pickChannel(user, /general/);
+    await fillNewProjectName(user);
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
     const body = sent();
@@ -507,9 +472,9 @@ describe("People + Channels together", () => {
 
   it("a mixed selection keeps the schedule payload exactly as before", async () => {
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await pickChannel(user, /general/);
+    await fillNewProjectName(user);
     await user.click(screen.getByRole("radio", { name: /Schedule for later/ }));
     await pickFutureStart(user);
     expect(screen.getByText(/1 person, #general/)).toBeInTheDocument();
@@ -524,9 +489,9 @@ describe("People + Channels together", () => {
 
   it("a mixed selection keeps the recurrence payload exactly as before", async () => {
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await pickChannel(user, /general/);
+    await fillNewProjectName(user);
     await user.click(screen.getByRole("radio", { name: /Recurring task/ }));
     await pickFutureStart(user);
     await user.click(screen.getByRole("button", { name: "Create Task" }));
@@ -540,9 +505,9 @@ describe("People + Channels together", () => {
   it("a failed create keeps the dialog and the whole selection, and retrying sends one request again", async () => {
     h.api.createTask.mockRejectedValueOnce(new Error("boom"));
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await pickChannel(user, /general/);
+    await fillNewProjectName(user);
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
     await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not create task", expect.anything()));
@@ -562,7 +527,6 @@ describe("duplicate submission", () => {
     let resolve!: (v: { taskId: string; scheduleId: null }) => void;
     h.api.createTask.mockReturnValueOnce(new Promise((r) => (resolve = r)));
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     const form = (screen.getByRole("button", { name: "Create Task" }) as HTMLButtonElement).form!;
     // Two submits in the same tick (Enter held down / a double click): React has
@@ -581,7 +545,6 @@ describe("duplicate submission", () => {
 describe("Schedule for later", () => {
   it("reveals Start date + Start time and a small summary, and sends scheduledFor", async () => {
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await user.click(screen.getByRole("radio", { name: /Schedule for later/ }));
 
@@ -600,7 +563,6 @@ describe("Schedule for later", () => {
 
   it("refuses a past date/time", async () => {
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await user.click(screen.getByRole("radio", { name: /Schedule for later/ }));
 
@@ -616,7 +578,6 @@ describe("Schedule for later", () => {
 describe("Recurring task", () => {
   it("reveals the existing frequency/interval/end controls and sends recurrence", async () => {
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await user.click(screen.getByRole("radio", { name: /Recurring task/ }));
     await pickFutureStart(user);
@@ -649,7 +610,6 @@ describe("Recurring task", () => {
 
   it("refuses a recurring start in the past, even though Now's own untouched-start allowance does not apply here", async () => {
     const user = openDialog();
-    await title(user);
     await pickAssignee(user, /Ada Lovelace/);
     await user.click(screen.getByRole("radio", { name: /Recurring task/ }));
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-09-15" } });
@@ -658,6 +618,235 @@ describe("Recurring task", () => {
     await user.click(screen.getByRole("button", { name: "Create Task" }));
     expect(toast.error).toHaveBeenCalledWith("Choose a future recurring start");
     expect(h.api.createTask).not.toHaveBeenCalled();
+  });
+});
+
+describe("+ New project", () => {
+  it("opens the standalone project-creation dialog, and selects the project it creates", async () => {
+    h.api.channelsPage.mockReset().mockImplementation(pagedChannels(CHANNELS));
+    h.api.createProject.mockReset().mockResolvedValue({
+      id: "new-proj-1",
+      name: "Brand New Project",
+      channelId: GENERAL.id,
+      channelIds: [GENERAL.id],
+      status: "ACTIVE",
+      canComplete: true,
+    });
+    const user = openDialog();
+    await user.click(screen.getByRole("button", { name: "+ New" }));
+
+    const dialog = screen.getByRole("dialog", { name: "New Project" });
+    await user.type(within(dialog).getByPlaceholderText("Name this project"), "Brand New Project");
+    await user.click(await within(dialog).findByRole("checkbox", { name: /general/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Create Project" }));
+
+    await vi.waitFor(() => expect(h.api.createProject).toHaveBeenCalledWith("Brand New Project", [GENERAL.id]));
+    // The new project is now selected in the task form (Rule F): its name
+    // previews as the title, with no project-name field needed.
+    await vi.waitFor(() => expect(tab("Projects", 1)).toBeInTheDocument());
+    expect(screen.getByPlaceholderText(/Pick channels, people, or a project/)).toHaveValue("Brand New Project");
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    expect(sent().projectId).toBe("new-proj-1");
+  });
+});
+
+describe("Projects tab channel sync", () => {
+  const PROJECT = {
+    id: "00000000-0000-4000-8000-000000000055",
+    name: "Launch Plan",
+    channelId: GENERAL.id,
+    channelIds: [GENERAL.id, DESIGN.id],
+    status: "ACTIVE" as const,
+    canComplete: false,
+  };
+
+  it("selecting a project shows and checks its channels, and submits them as channelIds", async () => {
+    h.api.projects.mockResolvedValue([PROJECT]);
+    const user = openDialog();
+    await user.click(tab("Projects"));
+    await user.click(await screen.findByRole("checkbox", { name: /Launch Plan/ }));
+
+    await user.click(tab("Channels"));
+    expect(tab("Channels", 2)).toBeInTheDocument();
+    const generalRow = within(channelRowLabel("general")).getByRole("checkbox");
+    const designRow = within(channelRowLabel("design")).getByRole("checkbox");
+    expect(generalRow).toBeChecked();
+    expect(designRow).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    const body = sent();
+    expect(body.projectId).toBe(PROJECT.id);
+    expect(body.channelIds.sort()).toEqual([GENERAL.id, DESIGN.id].sort());
+  });
+
+  it("deselecting one project-derived channel removes it from the submission but keeps the project", async () => {
+    h.api.projects.mockResolvedValue([PROJECT]);
+    const user = openDialog();
+    await user.click(tab("Projects"));
+    await user.click(await screen.findByRole("checkbox", { name: /Launch Plan/ }));
+    await user.click(tab("Channels"));
+    await user.click(within(channelRowLabel("design")).getByRole("checkbox")); // deselect
+
+    expect(tab("Channels", 1)).toBeInTheDocument();
+    expect(tab("Projects", 1)).toBeInTheDocument(); // project stays selected
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    const body = sent();
+    expect(body.projectId).toBe(PROJECT.id); // Rule F still wins: title is the project's
+    expect(body.channelIds).toEqual([GENERAL.id]);
+  });
+
+  it("re-checking a deselected project-derived channel includes it again", async () => {
+    h.api.projects.mockResolvedValue([PROJECT]);
+    const user = openDialog();
+    await user.click(tab("Projects"));
+    await user.click(await screen.findByRole("checkbox", { name: /Launch Plan/ }));
+    await user.click(tab("Channels"));
+    const designCheckbox = within(channelRowLabel("design")).getByRole("checkbox");
+    await user.click(designCheckbox); // deselect
+    await user.click(designCheckbox); // re-select
+    expect(tab("Channels", 2)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    expect(sent().channelIds.sort()).toEqual([GENERAL.id, DESIGN.id].sort());
+  });
+
+  it("deselecting the project drops its channels unless one was also picked directly", async () => {
+    h.api.projects.mockResolvedValue([PROJECT]);
+    const user = openDialog();
+    await user.click(tab("Channels"));
+    await user.click(await screen.findByRole("checkbox", { name: /general/ })); // direct pick, pre-project
+    await user.click(tab("Projects"));
+    await user.click(await screen.findByRole("checkbox", { name: /Launch Plan/ })); // adds general (already direct) + design
+    expect(tab("Channels", 2)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: /Launch Plan/ })); // deselect the project
+    expect(tab("Projects", 0)).toBeInTheDocument();
+    // #general survives (it was also picked directly); #design does not.
+    expect(tab("Channels", 1)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Create Task" })); // Rule A: one channel alone needs no project name
+    expect(sent().channelIds).toEqual([GENERAL.id]);
+    expect(sent().projectId).toBeUndefined();
+  });
+});
+
+describe("membership auto-add", () => {
+  it("adds a missing person to the one selected channel before creating the task", async () => {
+    h.api.channelMembers.mockImplementation(async (id: string) => (id === GENERAL.id ? [ME.id, GRACE.id] : [ME.id, ADA.id, GRACE.id, LINUS.id]));
+    const user = openDialog();
+    await pickChannel(user, /general/);
+    await pickAssignee(user, /Ada Lovelace/);
+    await fillNewProjectName(user); // channel + person needs one (Rule H)
+    await vi.waitFor(() => expect(h.api.channelMembers).toHaveBeenCalledWith(GENERAL.id));
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await vi.waitFor(() => expect(h.api.createTask).toHaveBeenCalledTimes(1));
+    expect(h.api.addChannelMembers).toHaveBeenCalledWith(GENERAL.id, [ADA.id]);
+    expect(h.api.addChannelMembers.mock.invocationCallOrder[0]).toBeLessThan(
+      h.api.createTask.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("does not call addChannelMembers when everyone picked is already a member", async () => {
+    // Default beforeEach mock: ME/ADA/GRACE/LINUS are all already members.
+    const user = openDialog();
+    await pickChannel(user, /general/);
+    await pickAssignee(user, /Ada Lovelace/);
+    await fillNewProjectName(user);
+    await vi.waitFor(() => expect(h.api.channelMembers).toHaveBeenCalledWith(GENERAL.id));
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await vi.waitFor(() => expect(h.api.createTask).toHaveBeenCalledTimes(1));
+    expect(h.api.addChannelMembers).not.toHaveBeenCalled();
+  });
+
+  it("adds a person to every selected channel they are missing from, not just one", async () => {
+    h.api.channelMembers.mockImplementation(async (id: string) =>
+      id === GENERAL.id ? [ME.id] : id === DESIGN.id ? [ME.id, GRACE.id] : [ME.id, ADA.id, GRACE.id, LINUS.id],
+    );
+    const user = openDialog();
+    await pickChannel(user, /general/);
+    await user.click(screen.getByRole("checkbox", { name: /design/ }));
+    await pickAssignee(user, /Ada Lovelace/);
+    await fillNewProjectName(user); // channel + person needs one (Rule H)
+    await vi.waitFor(() => expect(h.api.channelMembers).toHaveBeenCalledWith(DESIGN.id));
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await vi.waitFor(() => expect(h.api.createTask).toHaveBeenCalledTimes(1));
+    expect(h.api.addChannelMembers).toHaveBeenCalledWith(GENERAL.id, [ADA.id]);
+    expect(h.api.addChannelMembers).toHaveBeenCalledWith(DESIGN.id, [ADA.id]);
+    expect(h.api.addChannelMembers).toHaveBeenCalledTimes(2);
+  });
+
+  it("a failed membership add blocks task creation and preserves the whole selection", async () => {
+    h.api.channelMembers.mockResolvedValue([ME.id, GRACE.id]); // missing Ada
+    h.api.addChannelMembers.mockRejectedValueOnce(new Error("forbidden"));
+    const user = openDialog();
+    await pickChannel(user, /general/);
+    await pickAssignee(user, /Ada Lovelace/);
+    await fillNewProjectName(user);
+    await vi.waitFor(() => expect(h.api.channelMembers).toHaveBeenCalledWith(GENERAL.id));
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await vi.waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Could not add everyone to the selected channel(s)", expect.anything()),
+    );
+    expect(h.api.createTask).not.toHaveBeenCalled();
+    expect(tab("People", 1)).toBeInTheDocument();
+    expect(tab("Channels", 1)).toBeInTheDocument();
+
+    // Retrying after the problem is fixed sends exactly one task-creation request.
+    h.api.addChannelMembers.mockResolvedValueOnce(undefined);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    await vi.waitFor(() => expect(h.api.createTask).toHaveBeenCalledTimes(1));
+  });
+
+  it("waits for channel membership to finish loading rather than guessing", async () => {
+    let resolveMembers!: (ids: string[]) => void;
+    h.api.channelMembers.mockReturnValueOnce(new Promise((r) => (resolveMembers = r)));
+    const user = openDialog();
+    await pickChannel(user, /general/);
+    await pickAssignee(user, /Ada Lovelace/);
+    await fillNewProjectName(user);
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    expect(toast.error).toHaveBeenCalledWith("Still checking channel membership — try again in a moment");
+    expect(h.api.createTask).not.toHaveBeenCalled();
+
+    resolveMembers([ME.id, ADA.id]);
+    await vi.waitFor(() => expect(h.api.channelMembers).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    await vi.waitFor(() => expect(h.api.createTask).toHaveBeenCalledTimes(1));
+    expect(h.api.addChannelMembers).not.toHaveBeenCalled(); // Ada was already a member once it loaded
+  });
+
+  it("never adds members for a channel pulled in only via a selected project", async () => {
+    const project = {
+      id: "00000000-0000-4000-8000-000000000099",
+      name: "Launch Plan",
+      channelId: GENERAL.id,
+      channelIds: [GENERAL.id],
+      status: "ACTIVE" as const,
+      canComplete: false,
+    };
+    h.api.projects.mockResolvedValue([project]);
+    h.api.channelMembers.mockResolvedValue([ME.id]); // Ada is NOT a member of #general
+    const user = openDialog();
+    await user.click(tab("Projects"));
+    await user.click(await screen.findByRole("checkbox", { name: /Launch Plan/ }));
+    await pickAssignee(user, /Ada Lovelace/);
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    await vi.waitFor(() => expect(h.api.createTask).toHaveBeenCalledTimes(1));
+    // #general was never picked directly in the Channels tab, only pulled in
+    // by the project, so Ada is never silently made a member of it.
+    expect(h.api.addChannelMembers).not.toHaveBeenCalled();
   });
 });
 

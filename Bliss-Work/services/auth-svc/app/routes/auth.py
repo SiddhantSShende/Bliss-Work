@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from .. import service
+from .. import billing_client, service
 from ..config import settings
 from crypto import cryptor
 from ..db import engine
@@ -665,6 +665,9 @@ async def leave_org(
         left_user_id = await leave_org_tx(
             conn, iid, org_id, ip=ip, user_agent=user_agent, request_id=request_id
         )
+    # Same reasoning as members.py's remove_member: a departure only ever
+    # decreases commitment, so this is a safe best-effort call after commit.
+    await billing_client.release_membership_commitment(org_id, left_user_id)
     log.info("org_left", user_id=left_user_id, org_id=org_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

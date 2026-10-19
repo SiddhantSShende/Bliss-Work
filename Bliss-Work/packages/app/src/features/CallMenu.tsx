@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CalendarClock, ChevronDown, Link, Phone, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button, cn } from "@taskboard/ui";
+import { AnchoredPopover } from "./AnchoredPopover";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 /**
@@ -12,9 +13,8 @@ import { usePopupDismiss } from "../lib/usePopupDismiss";
  * they only covered two of the four ways a call actually starts. One control
  * with a menu costs one slot and holds all four.
  *
- * Layout follows the navbar's GetAppButton dropdown (trigger + click-away
- * backdrop + absolutely-positioned panel) so the two menus in the app behave
- * the same way.
+ * Its panel is portalled and positioned against the trigger like the navbar's
+ * GetAppButton, so local stacking contexts do not cap its layer.
  *
  * `onSendLink` is optional because a channel call has no link to send: the
  * channel IS the guest list and the server refuses to mint one, so that row is
@@ -43,7 +43,9 @@ export function CallMenu({
 }) {
   const { t } = useTranslation("calls");
   const [open, setOpen] = useState(false);
-  const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
+  const panelRef = useRef<HTMLDivElement>(null);
+  const close = () => setOpen(false);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close, [panelRef]);
 
   /** Every row closes the menu first: each one either navigates away, opens a
    *  dialog, or fires a request, and none of them wants the panel left behind. */
@@ -74,9 +76,12 @@ export function CallMenu({
         // screen open, since a backdrop only knows about its own menu. Outside
         // clicks, Escape and the one-popup-at-a-time rule all come from
         // usePopupDismiss now.
-        <div
+        <AnchoredPopover
+          anchor={wrap}
+          panelRef={panelRef}
+          gap={6}
           role="menu"
-          className="absolute right-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
+          className="w-56 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-card"
         >
           <Item icon={<Phone size={15} />} label={t("menu.voiceCall")} onClick={pick(onVoiceCall)} />
           <Item icon={<Video size={15} />} label={t("menu.videoCall")} onClick={pick(onVideoCall)} />
@@ -93,7 +98,7 @@ export function CallMenu({
             label={t("menu.scheduleCall")}
             onClick={pick(onSchedule)}
           />
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );

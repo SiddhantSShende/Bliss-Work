@@ -216,11 +216,9 @@ export function MessageActions({
           ref={menuRef}
           role="menu"
           // Portalled to document.body and positioned in fixed coordinates
-          // via menuStyle (see usePopoverPosition) — same reason as
-          // EmojiPopup: a panel positioned inside the thread's scroll box is
-          // clipped by it, which is what let this menu render half-hidden
-          // behind the chat header for a message near the top of the thread.
-          className="fixed z-[1100] w-52 overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-1 shadow-soft"
+          // via menuStyle (see usePopoverPosition), so the thread's scroll box
+          // cannot clip it and it is not trapped below the chat header.
+          className="fixed z-[var(--z-popover)] w-52 overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-1 shadow-soft"
           style={menuStyle}
         >
           {onReply && (
