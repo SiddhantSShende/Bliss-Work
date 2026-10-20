@@ -42,6 +42,13 @@
     "turnOn": "Ativar",
     "turnOff": "Desativar"
   },
+  "screenshotProtection": {
+    "title": "Proteção de capturas de tela e compartilhamento",
+    "onDescription": "O BlissWork fica oculto em capturas de tela e compartilhamentos de tela quando seu sistema operacional oferece suporte a isso. Ainda avisaremos se detectarmos uma tentativa de captura.",
+    "offDescription": "O BlissWork pode aparecer em capturas de tela e compartilhamentos de tela, para apresentações ou reuniões. Os avisos de tentativa de captura continuam funcionando.",
+    "turnOn": "Ativar",
+    "turnOff": "Desativar"
+  },
   "about": {
     "title": "Sobre",
     "versionDesktop": "{{brand}} {{version}} · desktop",

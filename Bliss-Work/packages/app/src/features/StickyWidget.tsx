@@ -1,8 +1,10 @@
-import { Check, X, Flag, LogOut, PinOff, Minus, MessageCircle } from "lucide-react";
+import { useState } from "react";
+import { Check, X, Flag, LogOut, PinOff, Minus, MessageCircle, MessageSquareText } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
 import type { ParticipantTargets } from "./AddParticipantsPicker";
+import { CommentsPanel } from "./CommentsPanel";
 import { TaskDeadlineProgress } from "./TaskDeadlineProgress";
 import { TaskParticipantAdd, TaskParticipants } from "./TaskParticipants";
 import { TaskTimes } from "./TaskTimes";
@@ -128,6 +130,11 @@ export function StickyWidget({
   chatUnreadCount?: number;
 }) {
   const { t } = useTranslation("stickies");
+  // Comments: a text-only, task-scoped discussion thread, separate from Chat
+  // (onChat above). Local to the card — unlike Chat it needs no platform
+  // wiring (no separate Electron window, no IPC), so it is never an opt-in
+  // prop like onChat; every card that knows its own taskId can expand one.
+  const [commentsOpen, setCommentsOpen] = useState(false);
   // senderUsername is the email local-part, so "from j.okafor" is what a note
   // built from it alone says. This widget also renders in the desktop sticky
   // window, which has no directory query — hence the field on the DTO rather
@@ -396,8 +403,21 @@ export function StickyWidget({
           )}
         </ActionBtn>
       )}
+      <ActionBtn
+        tight={compact}
+        tone="ghost"
+        label={t("card.comments")}
+        onClick={() => setCommentsOpen((v) => !v)}
+      >
+        <MessageSquareText size={15} className={rowIcon} />
+        {t("card.comments")}
+      </ActionBtn>
     </div>
   );
+
+  const comments = commentsOpen ? (
+    <CommentsPanel taskId={task.taskId} currentUserId={currentUserId} />
+  ) : null;
 
   // Whole surface is the OS-window drag region so the user can grab the note
   // from anywhere — title, body, even the empty space below the description.
@@ -414,7 +434,9 @@ export function StickyWidget({
   return (
     <div
       data-task-card=""
-      className={`${compact ? "app-drag " : ""}flex min-w-0 flex-col rounded-2xl border bg-surface ${
+      className={`${compact ? "app-drag " : ""}flex min-w-0 flex-col rounded-2xl border ${
+        compact ? "bg-accent-soft" : "bg-surface"
+      } ${
         landscape ? `${TASK_CARD_ROOT} p-3` : "gap-3 p-4"
       } ${
         task.myStatus === "MISSED" ? "border-danger/40" : "border-border"
@@ -426,7 +448,19 @@ export function StickyWidget({
         // below) is what keeps the action row on screen; without it, shrinking
         // the note towards its minimum size clipped Acknowledge and Ignore
         // away entirely, with no scrollbar and no hint that they existed.
-        compact ? "max-h-full min-h-0 shadow-widget" : "shadow-soft"
+        //
+        // `overflow-y-auto` is the Comments panel's safety net, not the
+        // description's: an opened thread (composer + loaded comments +
+        // expanded replies) has no shrink-to-fit sizing of its own, so on a
+        // small note it can still ask for more height than max-h-full leaves.
+        // Without an overflow on THIS element that excess render past the
+        // card's own box with nowhere to go (the window itself can't scroll)
+        // — verified with a real-browser layout probe at the pin's actual
+        // 320x300 minimum, see the comment-panel review notes. A real
+        // scrollbar here is strictly better than silently losing the bottom
+        // of a thread the user explicitly chose to open; the always-visible
+        // action row is never affected, since it renders before the panel.
+        compact ? "max-h-full min-h-0 overflow-y-auto shadow-widget" : "shadow-soft"
       }`}
     >
       {landscape ? (
@@ -438,8 +472,19 @@ export function StickyWidget({
           </div>
           <div className={hideParticipants ? TASK_CARD_SIDE_SLIM : TASK_CARD_SIDE}>
             {participants}
-            {hideParticipants ? actions : cardAdd}
-            {hideParticipants ? cardAdd : actions}
+            {hideParticipants ? (
+              <>
+                {actions}
+                {comments}
+                {cardAdd}
+              </>
+            ) : (
+              <>
+                {cardAdd}
+                {actions}
+                {comments}
+              </>
+            )}
           </div>
         </div>
       ) : (
@@ -448,8 +493,19 @@ export function StickyWidget({
           {description}
           {times}
           {participants}
-          {hideParticipants ? actions : cardAdd}
-          {hideParticipants ? cardAdd : actions}
+          {hideParticipants ? (
+            <>
+              {actions}
+              {comments}
+              {cardAdd}
+            </>
+          ) : (
+            <>
+              {cardAdd}
+              {actions}
+              {comments}
+            </>
+          )}
         </>
       )}
     </div>

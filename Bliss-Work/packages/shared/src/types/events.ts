@@ -49,6 +49,10 @@ export const EventType = {
    *  assignment's deadline passed before it was completed. */
   TaskMissed: "task.missed",
   TaskReviewed: "task.reviewed",
+  /** A new top-level comment or reply was posted on a task. Signal-only (the
+   *  comment text is never on the event — see TaskCommentCreated below);
+   *  fanned out to every current participant (sender + all assignees). */
+  TaskCommentCreated: "task.comment_created",
   /** Internal-only, like OrgDeleted below: an admin hard-deleted the task via
    *  task-svc's internal by-title endpoint. Never pushed to a client socket —
    *  it exists so sticky-svc's pins and messaging-svc's inbox rows, which only
@@ -593,6 +597,24 @@ export const TaskReviewed = z.object({
   reviewerUsername: z.string(),
 });
 
+/** New comment or reply on a task (task-svc's routes/tasks_comments.py).
+ * Deliberately NOT built on `taskBase` — this isn't per-assignee (no
+ * assigneeId/statusVersion); `members` carries the full current recipient
+ * set (sender + every assignee) the same way task.assigned's channel-sourced
+ * path does, since ws-gateway's RecipientsOf must reach everyone on the
+ * task, not one assignee. Signal-only like TaskReviewed: the comment TEXT is
+ * user content and is never on the event — recipients refetch via
+ * GET /tasks/{id}/comments (or its replies endpoint). */
+export const TaskCommentCreated = z.object({
+  type: z.literal(EventType.TaskCommentCreated),
+  ...envelope,
+  taskId: z.string().uuid(),
+  commentId: z.string().uuid(),
+  parentCommentId: z.string().uuid().nullable(),
+  authorId: z.string().uuid(),
+  members: z.array(z.string().uuid()),
+});
+
 // ── Notification + Auth events ───────────────────────────────────────────────
 /**
  * A nudge from the desktop-note delivery watchdog (services/sticky-relay).
@@ -1044,6 +1066,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskLeft,
   TaskMissed,
   TaskReviewed,
+  TaskCommentCreated,
   NotificationCreated,
   NotificationRead,
   IntegrationActivityCreated,
@@ -1085,6 +1108,7 @@ export type TaskLeft = z.infer<typeof TaskLeft>;
 export type TaskMissed = z.infer<typeof TaskMissed>;
 export type TaskDeleted = z.infer<typeof TaskDeleted>;
 export type TaskReviewed = z.infer<typeof TaskReviewed>;
+export type TaskCommentCreated = z.infer<typeof TaskCommentCreated>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
 export type NotificationRead = z.infer<typeof NotificationRead>;
 export type IntegrationActivityCreated = z.infer<typeof IntegrationActivityCreated>;

@@ -1,57 +1,46 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button, PageHeader } from "@taskboard/ui";
-import type { ChannelDTO, ProjectDTO } from "@taskboard/shared";
+import type { ProjectDTO } from "@taskboard/shared";
 import { ChannelAnalyticsPanel } from "../features/ChannelAnalyticsPanel";
 import { ProjectAnalyticsSection } from "../features/ProjectAnalyticsSection";
 import { WorkspaceOverview } from "../features/WorkspaceOverview";
 import { useProjects } from "../features/useProjects";
-import { useRuntime } from "../lib/runtime";
-import { qk } from "../lib/queryBridge";
 
-type ProjectsEntry = { kind: "project" | "channel"; id: string; name: string };
+type ProjectsEntry = { kind: "project"; id: string; name: string };
 
 export function Analytics() {
   const { t } = useTranslation(["tasks", "chatList"]);
-  const { api } = useRuntime();
   const navigate = useNavigate();
   const { channelId, projectId } = useParams<{ channelId?: string; projectId?: string }>();
-  const { data: channels, isError, refetch } = useQuery({
-    queryKey: qk.channels,
-    queryFn: () => api.channels(),
-  });
   const projects = useProjects();
 
-  // Every project auto-provisions its own private, locked channel (see the
-  // doc comment on ProjectAnalyticsPanel) — that channel is never a
-  // task-assignment target in its own right, so it's excluded here to avoid
-  // listing the same project twice under two different ids.
+  // The channel-wise dashboard selection was removed (2026-10-20): the
+  // selector now only offers Overview + projects. A pre-existing
+  // /app/analytics/:channelId link (bookmarked or shared before this change)
+  // still renders ChannelAnalyticsPanel below as a graceful fallback — the
+  // route, panel, and backend endpoints are untouched, only unreachable from
+  // this dropdown now.
   const entries = useMemo<ProjectsEntry[]>(() => {
-    const projectChannelIds = new Set((projects.data ?? []).map((p: ProjectDTO) => p.channelId));
     const projectEntries: ProjectsEntry[] = (projects.data ?? []).map((p: ProjectDTO) => ({
       kind: "project",
       id: p.id,
       name: p.name,
     }));
-    const channelEntries: ProjectsEntry[] = (channels ?? [])
-      .filter((c: ChannelDTO) => !projectChannelIds.has(c.id))
-      .map((c: ChannelDTO) => ({ kind: "channel", id: c.id, name: c.name }));
-    return [...projectEntries, ...channelEntries].sort((a, b) => a.name.localeCompare(b.name));
-  }, [projects.data, channels]);
+    return projectEntries.sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects.data]);
 
-  const isErrorList = isError || projects.isError;
+  const isErrorList = projects.isError;
   const retryList = () => {
-    void refetch();
     void projects.refetch();
   };
 
   // The sidebar that used to list "Overview" + every project/channel was
-  // removed so the dashboard can use the full page width; project/channel
+  // removed so the dashboard can use the full page width; project
   // selection now happens through this header dropdown instead, which drives
-  // the same /app/analytics(/projects/:id|/:channelId) routes it used to.
-  const selected = projectId ? `project:${projectId}` : channelId ? `channel:${channelId}` : "";
+  // the same /app/analytics(/projects/:id) routes it used to.
+  const selected = projectId ? `project:${projectId}` : "";
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">

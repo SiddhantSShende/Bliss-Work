@@ -1002,6 +1002,35 @@ export const TaskExportRow = z.object({
 });
 export type TaskExportRow = z.infer<typeof TaskExportRow>;
 
+/** One task comment or reply (task-svc's routes/tasks_comments.py) — a
+ *  task-scoped, text-only thread, separate from Chat. `parentCommentId` is
+ *  null for a top-level comment; a reply's parent is always top-level (the
+ *  thread is two levels deep, never deeper). `replyCount` is only meaningful
+ *  on a top-level comment (always 0 on a reply). */
+export const TaskCommentDTO = z.object({
+  id: z.string().uuid(),
+  taskId: z.string().uuid(),
+  parentCommentId: z.string().uuid().nullable(),
+  authorId: z.string().uuid(),
+  authorUsername: z.string(),
+  authorDisplayName: z.string().default(""),
+  body: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  replyCount: z.number().int().nonnegative().default(0),
+});
+export type TaskCommentDTO = z.infer<typeof TaskCommentDTO>;
+
+/** One cursor-paginated page of comments or replies. `nextCursor` is opaque
+ *  (base64, server-defined) — pass it back verbatim to fetch the next page;
+ *  absent/null once `hasMore` is false. */
+export const TaskCommentPage = z.object({
+  comments: z.array(TaskCommentDTO),
+  nextCursor: z.string().nullable().optional(),
+  hasMore: z.boolean(),
+});
+export type TaskCommentPage = z.infer<typeof TaskCommentPage>;
+
 // ── Task & channel analytics (snapshot-only; see services/task-svc/app/
 // routes/tasks_analytics.py) ─────────────────────────────────────────────────
 //

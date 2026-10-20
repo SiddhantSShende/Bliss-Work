@@ -165,6 +165,28 @@ def task_deleted(
     }
 
 
+def task_comment_created(
+    *, org_id: str, task_id: str, comment_id: str, parent_comment_id: str | None,
+    author_id: str, members: list[str],
+) -> dict:
+    """New task comment or reply. Signal-only like task_reviewed below — the
+    comment TEXT is user content and is NEVER put on the event; recipients
+    refetch it via GET /tasks/{id}/comments (or its replies endpoint).
+    `members` is the full current recipient set (sender + every assignee,
+    resolved by the caller) so ws-gateway's RecipientsOf can route
+    task.comment_created the same way it already routes task.assigned's
+    channel-sourced path — by the member list alone, not a single
+    sender/assignee pair."""
+    return {
+        **_envelope(org_id, "task.comment_created"),
+        "taskId": task_id,
+        "commentId": comment_id,
+        "parentCommentId": parent_comment_id,
+        "authorId": author_id,
+        "members": members,
+    }
+
+
 def task_reviewed(
     *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
     status_version: int, reviewer_username: str,

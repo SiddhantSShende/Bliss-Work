@@ -385,6 +385,7 @@
       "locked": "Locked channel",
       "newProject": "+ New",
       "viaProject": "From a project",
+      "viaChannel": "From a channel",
       "members_one": "{{count}} member",
       "members_other": "{{count}} members",
       "projectChannelCount_one": "{{count}} channel",

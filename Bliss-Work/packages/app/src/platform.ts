@@ -334,6 +334,18 @@ export interface PlatformConfig {
     getDesktopEnabled: () => Promise<boolean>;
     setDesktopEnabled: (enabled: boolean) => Promise<void>;
   };
+  /** Present only in Electron: the "Protect BlissWork from screenshots and
+   *  screen sharing" preference (default on). Backed by
+   *  apps/desktop/src/main/screenshot-protection-prefs.ts, which main reads
+   *  before applying `setContentProtection` to each window — see
+   *  apps/desktop/src/main/screenshot-guard.ts. Absent on web/mobile, where
+   *  there is no OS window to exclude from capture. Does not affect the
+   *  screenshot-attempt notification, which stays on regardless of this
+   *  setting. */
+  screenshotProtection?: {
+    getEnabled: () => Promise<boolean>;
+    setEnabled: (enabled: boolean) => Promise<void>;
+  };
   /** Present only in Electron: mirrors the effective UI language to the main
    *  process, which owns the application menu, the tray and OS notifications and
    *  has no access to this renderer's localStorage (same reason as

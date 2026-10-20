@@ -26,7 +26,8 @@
     "navPrevious": "Vorherige angeheftete Aufgabe",
     "navNext": "Nächste angeheftete Aufgabe",
     "chat": "Chat",
-    "openTask": "Aufgabe öffnen"
+    "openTask": "Aufgabe öffnen",
+    "comments": "Kommentare"
   },
   "overlay": {
     "ariaLabel": "Schwebende Haftnotizen"
@@ -73,5 +74,29 @@
       "invite": "Meeting-Einladung",
       "call": "Eingehender Anruf"
     }
+  },
+  "comments": {
+    "title": "Kommentare",
+    "empty": "Noch keine Kommentare.",
+    "loading": "Kommentare werden geladen…",
+    "loadError": "Kommentare konnten nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "loadMore": "Mehr laden",
+    "loadingMore": "Wird geladen…",
+    "placeholder": "Kommentar schreiben…",
+    "post": "Veröffentlichen",
+    "posting": "Wird veröffentlicht…",
+    "postError": "Dein Kommentar konnte nicht veröffentlicht werden.",
+    "blank": "Kommentare dürfen nicht leer sein.",
+    "reply": "Antworten",
+    "replyPlaceholder": "Antwort schreiben…",
+    "cancelReply": "Abbrechen",
+    "loadReplies": "Antworten anzeigen",
+    "loadMoreReplies": "Weitere Antworten laden",
+    "repliesLoading": "Antworten werden geladen…",
+    "repliesError": "Antworten konnten nicht geladen werden.",
+    "replyCount_one": "{{count}} Antwort",
+    "replyCount_other": "{{count}} Antworten",
+    "you": "Du"
   }
 }

@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FolderKanban, Hash, Lock, Search, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -18,6 +18,9 @@ const SEARCH_DEBOUNCE_MS = 250;
 // Module-level so the hook's memo sees one stable function.
 const matchesChannel = (c: ChannelDTO, q: string) => !q || c.name.toLowerCase().includes(q.toLowerCase());
 const matchesProject = (p: ProjectDTO, q: string) => !q || p.name.toLowerCase().includes(q.toLowerCase());
+// Stable empty default so a caller that omits `channelMemberIds` doesn't
+// retrigger memos with a new Set identity on every render.
+const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 
 /**
  * "Assign to" for the New Task dialog: a People tab and a Channels tab, each a
@@ -41,6 +44,7 @@ export function AssignToPanel({
   channels,
   projects,
   projectDerivedChannels = [],
+  channelMemberIds = EMPTY_ID_SET,
   onTogglePerson,
   onToggleChannel,
   onToggleProject,
@@ -57,6 +61,16 @@ export function AssignToPanel({
    *  present here are hidden from the ordinary picker list below, so a
    *  channel never appears twice. */
   projectDerivedChannels?: ChannelPickLike[];
+  /** Ids of everyone who is already an effective task recipient merely by
+   *  belonging to one of `channels` (a direct pick or a project-derived
+   *  channel) — not because they were picked directly in the People tab.
+   *  Rendered there with the same "via" treatment as a project-derived
+   *  channel row: checked, softer fill, tooltip, and folded into the
+   *  People tab's count badge. Purely a display reconciliation of who the
+   *  task will actually reach — never used to add or remove real channel
+   *  membership, and never sent as an assignee id (the channel id already
+   *  carries them server-side). */
+  channelMemberIds?: ReadonlySet<string>;
   onTogglePerson: (user: UserDTO) => void;
   onToggleChannel: (channel: ChannelPickLike) => void;
   onToggleProject: (project: ProjectDTO) => void;
@@ -78,10 +92,17 @@ export function AssignToPanel({
     if (next === "channels") setChannelsOpened(true);
     if (next === "projects") setProjectsOpened(true);
   };
+  // The People badge counts everyone who will actually receive the task —
+  // explicit picks plus anyone included only via a selected channel — so it
+  // never understates the real recipient count.
+  const effectivePeopleCount = useMemo(
+    () => new Set([...people, ...channelMemberIds]).size,
+    [people, channelMemberIds],
+  );
   const tabs: { id: Tab; icon: React.ReactNode; count: number }[] = [
     { id: "projects", icon: <FolderKanban size={16} aria-hidden />, count: projects.size },
     { id: "channels", icon: <Hash size={16} aria-hidden />, count: channels.size },
-    { id: "people", icon: <User size={16} aria-hidden />, count: people.size },
+    { id: "people", icon: <User size={16} aria-hidden />, count: effectivePeopleCount },
   ];
 
   return (
@@ -146,7 +167,7 @@ export function AssignToPanel({
         </div>
       )}
       <div role="tabpanel" id={`${baseId}-panel-people`} aria-labelledby={`${baseId}-tab-people`} hidden={tab !== "people"} className="flex min-h-0 flex-1 flex-col">
-        <PeopleList query={queries.people} selected={people} onToggle={onTogglePerson} />
+        <PeopleList query={queries.people} selected={people} viaChannelIds={channelMemberIds} onToggle={onTogglePerson} />
       </div>
     </div>
   );
@@ -162,7 +183,19 @@ export function listCopy(t: (k: string) => string, kind: "people" | "channels" |
   };
 }
 
-function PeopleList({ query, selected, onToggle }: { query: string; selected: ReadonlySet<string>; onToggle: (u: UserDTO) => void }) {
+function PeopleList({
+  query,
+  selected,
+  viaChannelIds,
+  onToggle,
+}: {
+  query: string;
+  selected: ReadonlySet<string>;
+  /** Ids checked only as a side effect of a selected channel — see
+   *  AssignToPanel's `channelMemberIds` doc comment. */
+  viaChannelIds: ReadonlySet<string>;
+  onToggle: (u: UserDTO) => void;
+}) {
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const me = useSession((s) => s.user);
@@ -181,9 +214,15 @@ function PeopleList({ query, selected, onToggle }: { query: string; selected: Re
     >
       {list.items.map((u) => {
         const name = u.displayName || u.username;
-        const checked = selected.has(u.id);
+        const explicit = selected.has(u.id);
+        const viaChannel = !explicit && viaChannelIds.has(u.id);
         return (
-          <Row key={u.id} checked={checked} onToggle={() => onToggle(u)}>
+          <Row
+            key={u.id}
+            checked={explicit || viaChannel}
+            via={viaChannel ? t("createTaskDialog.assign.viaChannel") : undefined}
+            onToggle={() => onToggle(u)}
+          >
             <Avatar name={name} src={u.avatarUrl} size="md" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
               {name}

@@ -11,6 +11,7 @@ from . import (
     reviews,
     schedules,
     tasks_analytics,
+    tasks_comments,
     tasks_export,
     tasks_read,
     tasks_write,
@@ -30,5 +31,6 @@ router.include_router(tasks_export.router)
 router.include_router(availability.router)
 router.include_router(schedules.router)
 router.include_router(tasks_analytics.router)
+router.include_router(tasks_comments.router)
 
 __all__ = ["router"]

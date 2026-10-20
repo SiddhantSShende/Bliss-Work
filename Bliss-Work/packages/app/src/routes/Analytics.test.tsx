@@ -127,30 +127,29 @@ afterEach(() => {
 });
 
 describe("Analytics route", () => {
-  it("exposes channel selection in the header dropdown", async () => {
+  it("does not expose channel selection in the header dropdown (channel-wise dashboard removed)", async () => {
     h.channels.mockResolvedValue([CHANNEL]);
     h.projects.mockResolvedValue([]);
     h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
     mount("/app/analytics");
     const selector = await screen.findByRole("combobox", { name: "Projects" });
-    expect(await within(selector).findByRole("option", { name: "Design" })).toHaveValue(
-      `channel:${CHANNEL_ID}`,
-    );
+    await waitFor(() => expect(h.workspaceAnalyticsOverview).toHaveBeenCalled());
+    expect(within(selector).queryByRole("option", { name: "Design" })).not.toBeInTheDocument();
     expect(h.channelAnalytics).not.toHaveBeenCalled();
+    // The channel list is no longer fetched at all for this dropdown.
+    expect(h.channels).not.toHaveBeenCalled();
   });
 
-  it("navigates to a selected channel through the header dropdown", async () => {
+  it("still renders a pre-existing /app/analytics/:channelId link as a graceful fallback", async () => {
     h.channels.mockResolvedValue([CHANNEL]);
     h.channelAnalytics.mockResolvedValue(ANALYTICS);
     h.projects.mockResolvedValue([]);
-    h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
-    mount("/app/analytics");
+    mount(`/app/analytics/${CHANNEL_ID}`);
 
-    const selector = await screen.findByRole("combobox", { name: "Projects" });
-    await within(selector).findByRole("option", { name: "Design" });
-    await userEvent.selectOptions(selector, `channel:${CHANNEL_ID}`);
-
+    // Unreachable from the dropdown now, but a bookmarked/shared link to an
+    // old channel-wise dashboard must not 404 or redirect away silently.
     await waitFor(() => expect(h.channelAnalytics).toHaveBeenCalledWith(CHANNEL_ID));
+    expect((await screen.findByText("Total tasks")).parentElement).toHaveTextContent("3");
   });
 
   it("loads selected-channel analytics through the real panel", async () => {
@@ -190,7 +189,7 @@ describe("Analytics route", () => {
     expect(h.projectAnalytics).not.toHaveBeenCalled();
   });
 
-  it("excludes a project's own auto-created channel from the list, so the project appears once", async () => {
+  it("lists only projects — not channels, including a project's own auto-created one", async () => {
     h.channels.mockResolvedValue([CHANNEL, { ...CHANNEL, id: PROJECT_OWN_CHANNEL_ID, name: "Launch Plan" }]);
     h.projects.mockResolvedValue([PROJECT]);
     h.workspaceAnalyticsOverview.mockResolvedValue(EMPTY_OVERVIEW);
@@ -198,7 +197,7 @@ describe("Analytics route", () => {
 
     const selector = await screen.findByRole("combobox", { name: "Projects" });
     expect(await within(selector).findAllByRole("option", { name: /launch plan/i })).toHaveLength(1);
-    expect(within(selector).getByRole("option", { name: "Design" })).toHaveValue(`channel:${CHANNEL_ID}`);
+    expect(within(selector).queryByRole("option", { name: "Design" })).not.toBeInTheDocument();
   });
 
   it("loads the selected project's dashboard through the real panel, identifying the project", async () => {

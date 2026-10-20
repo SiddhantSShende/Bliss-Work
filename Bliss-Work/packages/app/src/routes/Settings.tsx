@@ -11,7 +11,7 @@
  * they sync across devices.
  */
 import { useEffect, useRef, useState } from "react";
-import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon, CreditCard } from "lucide-react";
+import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, EyeOff, ShieldCheck, MonitorSmartphone, Sun, Moon, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button, PageHeader, useTheme, THEMES, customThemeGradient, themeName, darkCounterpart, type CustomTheme, type ThemeDef, type ThemeId } from "@taskboard/ui";
@@ -48,6 +48,28 @@ export function Settings() {
     setDesktopNotifs(next);
     saveDesktopNotifs(next);
     void config.notificationPrefs?.setDesktopEnabled(next);
+  };
+
+  // Screenshot/screen-sharing protection — the value lives in the Electron
+  // main process (apps/desktop/src/main/screenshot-protection-prefs.ts), not
+  // localStorage, so it has to be fetched rather than read synchronously.
+  // Defaults to true until that fetch resolves, matching the main process's
+  // own "missing preference = enabled" default.
+  const [screenshotProtection, setScreenshotProtection] = useState(true);
+  useEffect(() => {
+    let active = true;
+    void config.screenshotProtection?.getEnabled().then((value) => {
+      if (active) setScreenshotProtection(value);
+    });
+    return () => {
+      active = false;
+    };
+  }, [config.screenshotProtection]);
+
+  const toggleScreenshotProtection = () => {
+    const next = !screenshotProtection;
+    setScreenshotProtection(next);
+    void config.screenshotProtection?.setEnabled(next);
   };
 
   return (
@@ -128,6 +150,25 @@ export function Settings() {
               </Button>
             }
           />
+
+          {config.screenshotProtection && (
+            <SettingRow
+              icon={screenshotProtection ? <ShieldCheck size={18} /> : <EyeOff size={18} />}
+              title={t("settings:screenshotProtection.title")}
+              description={
+                screenshotProtection
+                  ? t("settings:screenshotProtection.onDescription")
+                  : t("settings:screenshotProtection.offDescription")
+              }
+              action={
+                <Button variant="subtle" size="sm" onClick={toggleScreenshotProtection}>
+                  {screenshotProtection
+                    ? t("settings:screenshotProtection.turnOff")
+                    : t("settings:screenshotProtection.turnOn")}
+                </Button>
+              }
+            />
+          )}
 
           <AboutRow />
         </div>

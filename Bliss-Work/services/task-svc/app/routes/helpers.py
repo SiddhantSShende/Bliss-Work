@@ -76,3 +76,26 @@ async def task_sender(db: AsyncSession, org_id: str, task_id: str) -> str | None
         )
     ).first()
     return str(row.sender_id) if row else None
+
+
+async def task_participants(
+    db: AsyncSession, org_id: str, task_id: str
+) -> tuple[str, list[str]] | None:
+    """(sender_id, assignee_ids) for a task, or None if it doesn't exist in
+    this org. assignee_ids includes everyone currently in task_assignees
+    regardless of status (SENT/ACKNOWLEDGED/COMPLETED/IGNORED/LEFT/MISSED) —
+    matches tasks_read.py's /tasks/{id}/detail, which keeps a task visible to
+    an assignee at any status rather than revoking access once they act on
+    it. Used by routes/tasks_comments.py both to authorize ("is `me` the
+    sender or an assignee") and to compute the comment-event recipient list.
+    """
+    sender_id = await task_sender(db, org_id, task_id)
+    if sender_id is None:
+        return None
+    rows = (
+        await db.execute(
+            text("SELECT assignee_id FROM task_assignees WHERE task_id = :tid AND org_id = :org"),
+            {"tid": task_id, "org": org_id},
+        )
+    ).all()
+    return sender_id, [str(r.assignee_id) for r in rows]

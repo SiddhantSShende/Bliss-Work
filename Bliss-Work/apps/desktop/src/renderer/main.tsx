@@ -77,6 +77,10 @@ declare global {
         closeIncomingCall: () => void;
         onIncomingCallAction: (cb: (action: "accept" | "reject") => void) => () => void;
       };
+      screenshotProtection: {
+        getEnabled: () => Promise<boolean>;
+        setEnabled: (enabled: boolean) => Promise<void>;
+      };
       rtc: RtcTransport;
       fileSink: FileSink;
       hash: {
@@ -221,6 +225,7 @@ const config: PlatformConfig = {
   checkForUpdates: () => bridge.checkForUpdates(),
   onUpdateCheckFailed: (cb) => bridge.onUpdateCheckFailed(cb),
   notificationPrefs: bridge.notifications,
+  screenshotProtection: bridge.screenshotProtection,
   localePrefs: bridge.locale,
   // Omitted entirely for the meeting window: its events do not need to ride
   // the shared utilityProcess socket (there is nothing there for it — no

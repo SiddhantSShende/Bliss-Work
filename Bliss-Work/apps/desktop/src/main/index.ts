@@ -30,6 +30,7 @@ import {
   clearRefreshToken,
 } from "./session-token";
 import * as notificationPrefs from "./notification-prefs";
+import * as screenshotProtectionPrefs from "./screenshot-protection-prefs";
 import * as localePref from "./locale-pref";
 import { initMainLocale, mainT, onMainLocaleChange, setMainLocale } from "./i18n";
 import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
@@ -42,7 +43,7 @@ import { checkForUpdatesNow, checkOnWindowFocus, initAutoUpdate } from "./update
 import { installLocationProviderKey, hasPreciseLocationProvider } from "./geo-key";
 import { locationSettingsUrl } from "../shared/location-settings";
 import { mediaSettingsUrl } from "../shared/media-settings";
-import { initScreenshotGuard } from "./screenshot-guard";
+import { initScreenshotGuard, refreshContentProtectionForAllWindows } from "./screenshot-guard";
 import { initWindowStateGuard } from "./window-state-guard";
 import { incomingCallPopup, notificationPathFor, popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from "./notifier";
 import { openNotificationTarget } from "./notification-open";
@@ -901,6 +902,22 @@ ipcMain.handle("notifications:get-desktop-enabled", (e) => {
 ipcMain.handle("notifications:set-desktop-enabled", (e, enabled: unknown) => {
   if (!fromMainWindow(e)) return;
   notificationPrefs.setDesktopEnabled(enabled === true);
+});
+
+// ── Screenshot/screen-sharing protection preference ──────────────────────────
+// Default-on content-protection (screenshot-guard.ts's setContentProtection
+// call) can be turned off by the user when they intentionally want BlissWork
+// visible during a screen share. The screenshot-ATTEMPT notification is a
+// separate, always-on mechanism (watchCaptureKeys) and is never touched here.
+ipcMain.handle("screenshot-protection:get-enabled", (e) => {
+  if (!fromMainWindow(e)) return true;
+  return screenshotProtectionPrefs.getProtectionEnabled();
+});
+
+ipcMain.handle("screenshot-protection:set-enabled", (e, enabled: unknown) => {
+  if (!fromMainWindow(e)) return;
+  screenshotProtectionPrefs.setProtectionEnabled(enabled === true);
+  refreshContentProtectionForAllWindows();
 });
 
 // ── UI language ──────────────────────────────────────────────────────────────

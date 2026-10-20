@@ -42,6 +42,13 @@
     "turnOn": "Turn on",
     "turnOff": "Turn off"
   },
+  "screenshotProtection": {
+    "title": "Screenshot & screen-share protection",
+    "onDescription": "BlissWork is hidden from screenshots and screen shares where your operating system supports it. We'll still notify you if a screenshot attempt is detected.",
+    "offDescription": "BlissWork can be seen in screenshots and screen shares, for presentations or meetings. Screenshot-attempt notifications still work.",
+    "turnOn": "Turn on",
+    "turnOff": "Turn off"
+  },
   "about": {
     "title": "About",
     "versionDesktop": "{{brand}} {{version}} · desktop",

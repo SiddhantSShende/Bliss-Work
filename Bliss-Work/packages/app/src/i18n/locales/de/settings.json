@@ -42,6 +42,13 @@
     "turnOn": "Einschalten",
     "turnOff": "Ausschalten"
   },
+  "screenshotProtection": {
+    "title": "Schutz vor Screenshots und Bildschirmfreigabe",
+    "onDescription": "BlissWork wird vor Screenshots und Bildschirmfreigaben verborgen, soweit Ihr Betriebssystem dies unterstützt. Wir benachrichtigen Sie trotzdem, wenn ein Screenshot-Versuch erkannt wird.",
+    "offDescription": "BlissWork kann in Screenshots und Bildschirmfreigaben sichtbar sein, etwa für Präsentationen oder Meetings. Benachrichtigungen über Screenshot-Versuche funktionieren weiterhin.",
+    "turnOn": "Einschalten",
+    "turnOff": "Ausschalten"
+  },
   "about": {
     "title": "Info",
     "versionDesktop": "{{brand}} {{version}} · Desktop",

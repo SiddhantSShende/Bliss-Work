@@ -42,6 +42,13 @@
     "turnOn": "开启",
     "turnOff": "关闭"
   },
+  "screenshotProtection": {
+    "title": "截图与屏幕共享保护",
+    "onDescription": "在操作系统支持的情况下，BlissWork 会在截图和屏幕共享中被隐藏。若检测到截图尝试，我们仍会通知你。",
+    "offDescription": "为了演示或会议，BlissWork 可以出现在截图和屏幕共享中。截图尝试提醒仍会照常工作。",
+    "turnOn": "开启",
+    "turnOff": "关闭"
+  },
   "about": {
     "title": "关于",
     "versionDesktop": "{{brand}} {{version}} · 桌面版",

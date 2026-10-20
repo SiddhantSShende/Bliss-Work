@@ -75,11 +75,14 @@ function useSyncedTheme(): void {
       // The OS window is opaque, not transparent (see windows.ts), so its
       // native background is a fixed colour main doesn't otherwise know —
       // it has to be told. Read the RESOLVED colour off a throwaway element
-      // (never the raw --color-surface token, which could be oklch()/hex/
+      // (never the raw --color-accent-soft token, which could be oklch()/hex/
       // anything and isn't what setBackgroundColor accepts) so this works for
       // every theme family without hardcoding any of their values here.
+      // This renderer only ever shows the compact pin (StickyWidget `compact`),
+      // whose card background is bg-accent-soft — match it so a resize never
+      // flashes the old bg-surface colour behind the themed card.
       const probe = document.createElement("div");
-      probe.className = "bg-surface";
+      probe.className = "bg-accent-soft";
       probe.style.cssText = "position:fixed;width:0;height:0;overflow:hidden;pointer-events:none;";
       document.body.appendChild(probe);
       const resolved = getComputedStyle(probe).backgroundColor;

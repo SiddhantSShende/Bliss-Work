@@ -355,6 +355,19 @@ const api = {
     },
   },
 
+  /**
+   * "Protect BlissWork from screenshots and screen sharing" preference —
+   * default on. Mirrors apps/desktop/src/main/screenshot-protection-prefs.ts,
+   * the same way `notifications` mirrors notification-prefs.ts. Toggling it
+   * never affects the screenshot-ATTEMPT notification (security:screenshot-blocked),
+   * which is wired independently below.
+   */
+  screenshotProtection: {
+    getEnabled: (): Promise<boolean> => ipcRenderer.invoke("screenshot-protection:get-enabled"),
+    setEnabled: (enabled: boolean): Promise<void> =>
+      ipcRenderer.invoke("screenshot-protection:set-enabled", enabled),
+  },
+
   /** Phase 10 sender-side streaming sha256 — the renderer feeds file slices and
    *  main hashes them incrementally so a huge file isn't loaded into memory. */
   hash: {

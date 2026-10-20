@@ -231,6 +231,29 @@ export function CreateTaskDialog({
   // Server-side authorization (owner/admin/org_admin) is the real gate —
   // this is only about computing WHO is missing from WHERE.
   const channelMembership = useChannelMemberIds(selectedChannels.keys());
+
+  // Allocation sync fix (bug: picking a channel/project never reflected its
+  // members in the People tab). Resolves member ids for every EFFECTIVELY
+  // selected channel (direct picks and project-derived ones alike) so the
+  // People tab can show them as already-included, deduped across channels.
+  // Deliberately a SEPARATE useChannelMemberIds call from `channelMembership`
+  // above, which is scoped to only DIRECTLY-picked channels for the
+  // "add a missing person to that channel" feature — these answer two
+  // different questions (who already gets the task vs. who should be added
+  // to a channel) and must not be conflated. React Query dedupes the
+  // overlapping channel ids between the two calls itself. This never adds or
+  // removes real channel membership — see AssignToPanel's `channelMemberIds`
+  // doc comment for how it's rendered.
+  const effectiveChannelMembership = useChannelMemberIds(effectiveChannelIds);
+  const channelMemberPeopleIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const channelId of effectiveChannelIds) {
+      const members = effectiveChannelMembership.members.get(channelId);
+      if (members) for (const id of members) ids.add(id);
+    }
+    return ids;
+  }, [effectiveChannelIds, effectiveChannelMembership.members]);
+
   const missingChannelMembers = useMemo(() => {
     const entries: [string, string[]][] = [];
     for (const channelId of selectedChannels.keys()) {
@@ -682,6 +705,7 @@ export function CreateTaskDialog({
             channels={new Set(effectiveChannelIds)}
             projects={new Set(selectedProjects.keys())}
             projectDerivedChannels={projectDerivedChannels}
+            channelMemberIds={channelMemberPeopleIds}
             initialTab="channels"
             onTogglePerson={togglePerson}
             onToggleChannel={toggleChannel}

@@ -26,7 +26,8 @@
     "navPrevious": "前のピン留めタスク",
     "navNext": "次のピン留めタスク",
     "chat": "チャット",
-    "openTask": "タスクを開く"
+    "openTask": "タスクを開く",
+    "comments": "コメント"
   },
   "overlay": {
     "ariaLabel": "フローティング付箋"
@@ -73,5 +74,28 @@
       "invite": "ミーティングの招待",
       "call": "着信"
     }
+  },
+  "comments": {
+    "title": "コメント",
+    "empty": "まだコメントはありません。",
+    "loading": "コメントを読み込み中…",
+    "loadError": "コメントを読み込めませんでした。",
+    "retry": "再試行",
+    "loadMore": "もっと読み込む",
+    "loadingMore": "読み込み中…",
+    "placeholder": "コメントを書く…",
+    "post": "投稿",
+    "posting": "投稿中…",
+    "postError": "コメントを投稿できませんでした。",
+    "blank": "コメントを空にすることはできません。",
+    "reply": "返信",
+    "replyPlaceholder": "返信を書く…",
+    "cancelReply": "キャンセル",
+    "loadReplies": "返信を表示",
+    "loadMoreReplies": "さらに返信を読み込む",
+    "repliesLoading": "返信を読み込み中…",
+    "repliesError": "返信を読み込めませんでした。",
+    "replyCount_other": "返信{{count}}件",
+    "you": "あなた"
   }
 }

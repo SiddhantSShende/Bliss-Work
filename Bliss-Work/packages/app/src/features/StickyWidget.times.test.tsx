@@ -70,7 +70,10 @@ describe("task card times", () => {
     expect(screen.getByText("missed")).toBeInTheDocument();
     expect(within(times()).getByText("Missed")).toBeInTheDocument();
     expect(stamps()).toEqual([ASSIGNED, DEADLINE, "2026-09-19T16:00:03.000Z"]);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    // No lifecycle action remains on a missed task — Comments is always
+    // offered regardless of status (the thread stays readable/postable on a
+    // terminal task), so it is the one button left.
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Comments"]);
     expect(document.querySelector("[data-task-card]")).toHaveClass("border-danger/40");
   });
 

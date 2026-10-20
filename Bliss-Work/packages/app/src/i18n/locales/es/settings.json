@@ -42,6 +42,13 @@
     "turnOn": "Activar",
     "turnOff": "Desactivar"
   },
+  "screenshotProtection": {
+    "title": "Protección de capturas y pantalla compartida",
+    "onDescription": "BlissWork se oculta de las capturas de pantalla y la pantalla compartida donde tu sistema operativo lo admite. Aun así te avisaremos si detectamos un intento de captura.",
+    "offDescription": "BlissWork puede verse en capturas de pantalla y pantalla compartida, para presentaciones o reuniones. Los avisos de intento de captura siguen funcionando.",
+    "turnOn": "Activar",
+    "turnOff": "Desactivar"
+  },
   "about": {
     "title": "Acerca de",
     "versionDesktop": "{{brand}} {{version}} · escritorio",

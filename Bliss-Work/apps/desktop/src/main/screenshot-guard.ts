@@ -1,4 +1,5 @@
 import { app, BrowserWindow, globalShortcut, type WebContents } from "electron";
+import { getProtectionEnabled } from "./screenshot-protection-prefs";
 
 /**
  * Screenshot deterrence, detection, and an audit trail.
@@ -18,7 +19,10 @@ import { app, BrowserWindow, globalShortcut, type WebContents } from "electron";
  *     (NSWindowSharingNone): the captured region comes out black. On Linux/X11
  *     it is a documented NO-OP, and Linux is what the AppImage and .deb builds
  *     run on — so on the platform this repo builds natively, this is deterrence
- *     and detection only.
+ *     and detection only. The user can turn this off in Settings (default: on)
+ *     when they intentionally want BlissWork visible during a screen share —
+ *     see screenshot-protection-prefs.ts. The key-chord detection below is
+ *     unaffected either way: disabling protection never disables detection.
  *   • Intercepting the PrintScreen key while we hold focus. This covers one key
  *     on one keyboard. It does NOT cover Win+Shift+S, the Snipping Tool,
  *     macOS's Cmd+Shift+3/4/5 (OS-reserved, and unregistrable by an app),
@@ -182,21 +186,40 @@ export function captureChordOf(input: CaptureKeyInput): string | null {
 }
 
 /**
- * Exclude a window from OS screen capture.
+ * Exclude a window from OS screen capture, unless the user has turned the
+ * setting off (getProtectionEnabled()).
  *
  * Re-applied on `show` because Windows drops the capture affinity when a window
- * is hidden and re-shown, which the tray's hide-on-close does on every close.
+ * is hidden and re-shown, which the tray's hide-on-close does on every close —
+ * and re-reading the preference on every `show` means a toggle made while a
+ * window was hidden still takes effect the next time it appears.
  */
 export function applyContentProtection(win: BrowserWindow, label: string): void {
   const protect = () => {
     try {
-      win.setContentProtection(true);
+      win.setContentProtection(getProtectionEnabled());
     } catch (err) {
       console.warn(`[security] setContentProtection failed (${label})`, err);
     }
   };
   protect();
   win.on("show", protect);
+}
+
+/**
+ * Apply the current preference to every open window immediately, so toggling
+ * the setting takes effect without requiring a restart or a hide/show cycle.
+ */
+export function refreshContentProtectionForAllWindows(): void {
+  const protect = getProtectionEnabled();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    try {
+      win.setContentProtection(protect);
+    } catch (err) {
+      console.warn("[security] setContentProtection refresh failed", err);
+    }
+  }
 }
 
 /**

@@ -132,6 +132,11 @@ func (e *Event) RecipientsOf() []string {
 			return dedupe(e.Members)
 		}
 		return dedupe([]string{e.SenderID, e.AssigneeID})
+	case "task.comment_created":
+		// task-svc always sets Members to the full current recipient set
+		// (sender + every assignee) — there is no single sender/assignee pair
+		// to fall back to here, unlike task.assigned.
+		return dedupe(e.Members)
 	case "notification.created", "notification.read":
 		return dedupe([]string{e.RecipientID})
 	case "integration.activity.created":

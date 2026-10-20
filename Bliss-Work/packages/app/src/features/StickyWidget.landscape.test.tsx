@@ -151,7 +151,7 @@ describe("StickyWidget landscape", () => {
     expect(within(main).getByText(/free to use the whole width/)).toBeInTheDocument();
     expect(within(main).getByTestId("task-times")).toHaveTextContent(/assigned/i);
     expect(within(main).getByTestId("task-times")).toHaveTextContent(/deadline/i);
-    expect(within(side).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Add member"]);
+    expect(within(side).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Comments", "Add member"]);
     const add = within(side).getByRole("button", { name: "Add member" });
     expect(add).toBeEnabled();
     expect(add).toHaveClass("w-full");
@@ -163,7 +163,7 @@ describe("StickyWidget landscape", () => {
     const { card, onAddParticipants } = renderCard({ hideParticipants: true });
     expect(within(card).queryByText("piyush")).not.toBeInTheDocument();
     expect(within(card).queryByRole("button", { name: /Withdraw/ })).not.toBeInTheDocument();
-    expect(within(card).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Add member"]);
+    expect(within(card).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Comments", "Add member"]);
     expect(onAddParticipants).not.toHaveBeenCalled(); // opening the picker is not submitting it
   });
 

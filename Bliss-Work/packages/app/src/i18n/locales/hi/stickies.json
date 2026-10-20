@@ -26,7 +26,8 @@
     "navPrevious": "पिछला पिन किया टास्क",
     "navNext": "अगला पिन किया टास्क",
     "chat": "चैट",
-    "openTask": "टास्क खोलें"
+    "openTask": "टास्क खोलें",
+    "comments": "टिप्पणियाँ"
   },
   "overlay": {
     "ariaLabel": "तैरते स्टिकी नोट"
@@ -73,5 +74,29 @@
       "invite": "मीटिंग आमंत्रण",
       "call": "आने वाली कॉल"
     }
+  },
+  "comments": {
+    "title": "टिप्पणियाँ",
+    "empty": "अभी तक कोई टिप्पणी नहीं है।",
+    "loading": "टिप्पणियाँ लोड हो रही हैं…",
+    "loadError": "टिप्पणियाँ लोड नहीं हो सकीं।",
+    "retry": "फिर से कोशिश करें",
+    "loadMore": "और लोड करें",
+    "loadingMore": "और लोड हो रहा है…",
+    "placeholder": "एक टिप्पणी लिखें…",
+    "post": "पोस्ट करें",
+    "posting": "पोस्ट हो रहा है…",
+    "postError": "आपकी टिप्पणी पोस्ट नहीं हो सकी।",
+    "blank": "टिप्पणी खाली नहीं हो सकती।",
+    "reply": "जवाब दें",
+    "replyPlaceholder": "एक जवाब लिखें…",
+    "cancelReply": "रद्द करें",
+    "loadReplies": "जवाब देखें",
+    "loadMoreReplies": "और जवाब लोड करें",
+    "repliesLoading": "जवाब लोड हो रहे हैं…",
+    "repliesError": "जवाब लोड नहीं हो सके।",
+    "replyCount_one": "{{count}} जवाब",
+    "replyCount_other": "{{count}} जवाब",
+    "you": "आप"
   }
 }

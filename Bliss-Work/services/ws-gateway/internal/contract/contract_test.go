@@ -153,3 +153,29 @@ func TestRecipientsOf_TaskMissed(t *testing.T) {
 		t.Fatalf("RecipientsOf() = %v, want [\"user-sender\" \"user-assignee\"]", got)
 	}
 }
+
+func TestRecipientsOf_TaskCommentCreated(t *testing.T) {
+	ev := &Event{
+		Type:    "task.comment_created",
+		EventID: "evt-1",
+		Members: []string{"user-sender", "user-assignee-1", "user-assignee-2", "user-sender"},
+	}
+	got := ev.RecipientsOf()
+	want := []string{"user-sender", "user-assignee-1", "user-assignee-2"}
+	if len(got) != len(want) {
+		t.Fatalf("RecipientsOf() = %v, want %v", got, want)
+	}
+	for i, id := range want {
+		if got[i] != id {
+			t.Fatalf("RecipientsOf() = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestRecipientsOf_TaskCommentCreated_NoMembers_DropsCleanly(t *testing.T) {
+	ev := &Event{Type: "task.comment_created", EventID: "evt-1"}
+	got := ev.RecipientsOf()
+	if len(got) != 0 {
+		t.Fatalf("RecipientsOf() = %v, want empty", got)
+	}
+}

@@ -361,7 +361,8 @@
       "newProject": "+ New",
       "projectChannelCount_one": "{{count}} channel",
       "projectChannelCount_other": "{{count}} channels",
-      "viaProject": "From a project"
+      "viaProject": "From a project",
+      "viaChannel": "From a channel"
     }
   },
   "exportTasksDialog": {

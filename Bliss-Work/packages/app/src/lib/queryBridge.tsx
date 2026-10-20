@@ -172,6 +172,7 @@ export function WsEventBridge() {
         case EventType.TaskLeft:
         case EventType.TaskMissed:
         case EventType.TaskReviewed:
+        case EventType.TaskCommentCreated:
           handleTaskEvent(e, ctx);
           break;
         case EventType.NotificationCreated:
@@ -870,6 +871,16 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
         invalidate(qk.assigned);
         invalidate(qk.sticky);
         if (live) toast(i18n.t("tasks:liveEvents.taskReviewed", { reviewer: e.reviewerUsername }));
+      }
+      break;
+    }
+    case EventType.TaskCommentCreated: {
+      // Signal-only (no comment text on the event, see events.ts) — refetch
+      // the open thread. Skip the author's own echo: CommentsPanel already
+      // applied their own post optimistically from the create response.
+      if (e.authorId !== me) {
+        invalidate(qk.taskComments(e.taskId));
+        if (e.parentCommentId) invalidate(qk.taskCommentReplies(e.taskId, e.parentCommentId));
       }
       break;
     }

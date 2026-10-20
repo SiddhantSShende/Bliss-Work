@@ -21,6 +21,14 @@ export const qk = {
    *  (not parameterized per task) since the client always fetches the whole
    *  visible task list's discussions in one call. */
   taskDiscussions: ["tasks", "discussions"] as const,
+  /** Top-level comments thread for one task (CommentsPanel) — separate from
+   *  taskDiscussions above, which is Chat. TanStack keeps every loaded "Load
+   *  more" page under this one key (useInfiniteQuery). */
+  taskComments: (taskId: string) => ["tasks", "comments", taskId] as const,
+  /** Replies to one top-level comment. Its own key per (taskId, commentId)
+   *  so expanding one comment's replies never disturbs another's. */
+  taskCommentReplies: (taskId: string, commentId: string) =>
+    ["tasks", "comments", taskId, "replies", commentId] as const,
   /** Snapshot analytics (see TaskAnalyticsDTO) for one task or one channel's
    *  tasks. Parameterized per id — no invalidation path pushes these; they are
    *  refetched on normal TanStack staleness/refocus like any other snapshot. */

@@ -26,7 +26,8 @@
     "navPrevious": "Tarea fijada anterior",
     "navNext": "Tarea fijada siguiente",
     "chat": "Chat",
-    "openTask": "Abrir tarea"
+    "openTask": "Abrir tarea",
+    "comments": "Comentarios"
   },
   "overlay": {
     "ariaLabel": "Notas adhesivas flotantes"
@@ -73,5 +74,30 @@
       "invite": "Invitación a reunión",
       "call": "Llamada entrante"
     }
+  },
+  "comments": {
+    "title": "Comentarios",
+    "empty": "Todavía no hay comentarios.",
+    "loading": "Cargando comentarios…",
+    "loadError": "No se pudieron cargar los comentarios.",
+    "retry": "Reintentar",
+    "loadMore": "Cargar más",
+    "loadingMore": "Cargando más…",
+    "placeholder": "Escribe un comentario…",
+    "post": "Publicar",
+    "posting": "Publicando…",
+    "postError": "No se pudo publicar tu comentario.",
+    "blank": "Los comentarios no pueden estar vacíos.",
+    "reply": "Responder",
+    "replyPlaceholder": "Escribe una respuesta…",
+    "cancelReply": "Cancelar",
+    "loadReplies": "Ver respuestas",
+    "loadMoreReplies": "Cargar más respuestas",
+    "repliesLoading": "Cargando respuestas…",
+    "repliesError": "No se pudieron cargar las respuestas.",
+    "replyCount_one": "{{count}} respuesta",
+    "replyCount_many": "{{count}} de respuestas",
+    "replyCount_other": "{{count}} respuestas",
+    "you": "Tú"
   }
 }

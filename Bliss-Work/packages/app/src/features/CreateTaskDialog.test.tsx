@@ -339,20 +339,54 @@ describe("People + Channels together", () => {
     await pickAssignee(user, /Grace Hopper/);
     await pickChannel(user, /general/);
     await user.click(screen.getByRole("checkbox", { name: /design/ }));
-    expect(tab("People", 2)).toBeInTheDocument();
-    expect(tab("Channels", 2)).toBeInTheDocument();
+    // The People badge is the EFFECTIVE recipient count: Ada + Grace (explicit)
+    // union ME/Ada/Grace/Linus (the default mocked membership of #general AND
+    // #design — see beforeEach) is still just those four, once both channels'
+    // memberships resolve.
+    await vi.waitFor(() => {
+      expect(tab("People", 4)).toBeInTheDocument();
+      expect(tab("Channels", 2)).toBeInTheDocument();
+    });
 
     // Back on People the ticks are still there.
     await user.click(tab("People"));
     expect(screen.getByRole("checkbox", { name: /Ada Lovelace/ })).toBeChecked();
     await user.click(screen.getByRole("checkbox", { name: /Ada Lovelace/ }));
-    expect(tab("People", 1)).toBeInTheDocument();
+    // Ada stays checked and the count is unchanged: she is still an effective
+    // recipient via the two selected channels. Unchecking her here only drops
+    // her EXPLICIT pick — never silently excludes a channel member from the
+    // channel-level assignment by unchecking them individually (bug-fix spec,
+    // Section 15/16).
+    expect(screen.getByRole("checkbox", { name: /Ada Lovelace/ })).toBeChecked();
+    expect(tab("People", 4)).toBeInTheDocument();
 
     await user.click(tab("Channels"));
     await user.click(screen.getByRole("checkbox", { name: /design/ }));
     expect(tab("Channels", 1)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /general/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /design/ })).not.toBeChecked();
+  });
+
+  it("selecting a channel auto-checks its eligible members in the People tab, with no explicit pick", async () => {
+    // #general's default mocked membership (beforeEach): ME/Ada/Grace/Linus.
+    const user = openDialog();
+    expect(tab("People", 0)).toBeInTheDocument();
+
+    await pickChannel(user, /general/);
+    await vi.waitFor(() => expect(tab("People", 4)).toBeInTheDocument());
+
+    await user.click(tab("People"));
+    const adaCheckbox = await screen.findByRole("checkbox", { name: /Ada Lovelace/ });
+    expect(adaCheckbox).toBeChecked();
+    // Shown "via" the channel, not an explicit pick — the row carries the
+    // tooltip/accessible description Row gives a derived-only selection.
+    expect(adaCheckbox).toHaveAccessibleDescription("From a channel");
+
+    // Deselecting the channel drops the derived membership entirely — nobody
+    // was ever explicitly picked here.
+    await user.click(tab("Channels"));
+    await user.click(screen.getByRole("checkbox", { name: /general/ }));
+    expect(tab("People", 0)).toBeInTheDocument();
   });
 
   it("searches people and channels independently, on the server", async () => {
@@ -512,8 +546,12 @@ describe("People + Channels together", () => {
 
     await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not create task", expect.anything()));
     expect(onClose).not.toHaveBeenCalled();
-    expect(tab("People", 1)).toBeInTheDocument();
-    expect(tab("Channels", 1)).toBeInTheDocument();
+    // Effective count: Ada (explicit) union #general's default mocked members
+    // (ME/Ada/Grace/Linus) = those four, not just Ada.
+    await vi.waitFor(() => {
+      expect(tab("People", 4)).toBeInTheDocument();
+      expect(tab("Channels", 1)).toBeInTheDocument();
+    });
 
     await user.click(screen.getByRole("button", { name: "Create Task" }));
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -730,6 +768,25 @@ describe("Projects tab channel sync", () => {
     expect(sent().channelIds).toEqual([GENERAL.id]);
     expect(sent().projectId).toBeUndefined();
   });
+
+  it("deselecting the project preserves people who are still included via a directly-picked channel", async () => {
+    // #general and #design share the same default mocked membership
+    // (ME/Ada/Grace/Linus, see the root beforeEach) — #design only arrives
+    // via the project here, #general is picked directly.
+    h.api.projects.mockResolvedValue([PROJECT]);
+    const user = openDialog();
+    await user.click(tab("Channels"));
+    await user.click(await screen.findByRole("checkbox", { name: /general/ })); // direct pick, pre-project
+    await user.click(tab("Projects"));
+    await user.click(await screen.findByRole("checkbox", { name: /Launch Plan/ })); // adds general (already direct) + design
+    await vi.waitFor(() => expect(tab("People", 4)).toBeInTheDocument());
+
+    // Deselect the project: #design drops out, #general (picked directly)
+    // stays — and so does everyone #general still includes.
+    await user.click(screen.getByRole("checkbox", { name: /Launch Plan/ }));
+    expect(tab("Channels", 1)).toBeInTheDocument();
+    expect(tab("People", 4)).toBeInTheDocument();
+  });
 });
 
 describe("membership auto-add", () => {
@@ -798,7 +855,9 @@ describe("membership auto-add", () => {
       expect(toast.error).toHaveBeenCalledWith("Could not add everyone to the selected channel(s)", expect.anything()),
     );
     expect(h.api.createTask).not.toHaveBeenCalled();
-    expect(tab("People", 1)).toBeInTheDocument();
+    // Effective count: Ada (explicit) union #general's mocked members here
+    // (ME/Grace) = three people, not just Ada.
+    expect(tab("People", 3)).toBeInTheDocument();
     expect(tab("Channels", 1)).toBeInTheDocument();
 
     // Retrying after the problem is fixed sends exactly one task-creation request.

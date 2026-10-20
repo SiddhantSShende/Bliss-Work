@@ -80,6 +80,8 @@ import {
   SentTaskDTO,
   StickyTaskDTO,
   TaskExportRow,
+  TaskCommentDTO,
+  TaskCommentPage,
   TaskDiscussionDTO,
   TaskDiscussionSummaryDTO,
   TaskAnalyticsDTO,
@@ -2601,6 +2603,61 @@ export class ApiClient {
       ReviewResponse,
     );
   }
+  // ── task comments (text-only, task-scoped thread — separate from Chat) ─────────
+  /** Top-level comments for a task, newest-first. Omit `cursor` for the first
+   *  page (3 by default); pass back a previous page's `nextCursor` for
+   *  "Load more". 404s for anyone who isn't the task's sender or an assignee. */
+  taskComments(taskId: string, opts: { cursor?: string | null; limit?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (opts.cursor) qs.set("cursor", opts.cursor);
+    if (opts.limit != null) qs.set("limit", String(opts.limit));
+    const q = qs.toString();
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/comments${q ? `?${q}` : ""}`,
+      {},
+      TaskCommentPage,
+    );
+  }
+  /** Post a new top-level comment. Plain text only; blank/whitespace-only is
+   *  rejected (422). */
+  createTaskComment(taskId: string, body: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/comments`,
+      { method: "POST", body: JSON.stringify({ body }) },
+      TaskCommentDTO,
+    );
+  }
+  /** Replies to one TOP-LEVEL comment, oldest-first — same cursor pattern as
+   *  `taskComments`. A reply cannot itself be replied to (404 if `commentId`
+   *  is not top-level). */
+  taskCommentReplies(
+    taskId: string,
+    commentId: string,
+    opts: { cursor?: string | null; limit?: number } = {},
+  ) {
+    const qs = new URLSearchParams();
+    if (opts.cursor) qs.set("cursor", opts.cursor);
+    if (opts.limit != null) qs.set("limit", String(opts.limit));
+    const q = qs.toString();
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/comments/${commentId}/replies${q ? `?${q}` : ""}`,
+      {},
+      TaskCommentPage,
+    );
+  }
+  /** Post a reply to a top-level comment. Same text rules as `createTaskComment`. */
+  createTaskCommentReply(taskId: string, commentId: string, body: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/comments/${commentId}/replies`,
+      { method: "POST", body: JSON.stringify({ body }) },
+      TaskCommentDTO,
+    );
+  }
+
   /**
    * Export the caller's task timeline as rows (one per (task, assignee)). scope
    * selects tasks I allocated ("sent"), tasks allocated to me ("received"), or

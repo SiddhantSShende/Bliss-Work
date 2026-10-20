@@ -484,6 +484,47 @@ class TransitionResponse(BaseModel):
     statusVersion: int
 
 
+# ── Task comments (sender + assignees, two levels deep — see
+# migrations/019_task_comments.sql) ──────────────────────────────────────────
+# Same bound as ReviewRequest.text below: plain text, no markup, no media.
+MAX_COMMENT_LENGTH = 4_000
+
+
+class CreateTaskCommentRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=MAX_COMMENT_LENGTH)
+
+    @field_validator("body")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        # min_length=1 alone lets a single space through; reject anything
+        # that is ALL whitespace while preserving the author's own
+        # whitespace/newlines otherwise (never silently trimmed).
+        if not v.strip():
+            raise ValueError("comment body must not be blank")
+        return v
+
+
+class TaskCommentDTO(BaseModel):
+    id: str
+    taskId: str
+    parentCommentId: str | None = None
+    authorId: str
+    authorUsername: str
+    authorDisplayName: str = ""
+    body: str
+    createdAt: str
+    updatedAt: str
+    # Only meaningful on a top-level comment (always 0 on a reply — replies
+    # cannot themselves be replied to).
+    replyCount: int = 0
+
+
+class TaskCommentPage(BaseModel):
+    comments: list[TaskCommentDTO]
+    nextCursor: str | None = None
+    hasMore: bool
+
+
 # ── Reviews (allocator → completed assignee) ──────────────────────────────────
 class ReviewRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4_000)

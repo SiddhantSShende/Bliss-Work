@@ -26,7 +26,8 @@
     "navPrevious": "이전 고정 태스크",
     "navNext": "다음 고정 태스크",
     "chat": "채팅",
-    "openTask": "태스크 열기"
+    "openTask": "태스크 열기",
+    "comments": "댓글"
   },
   "overlay": {
     "ariaLabel": "떠 있는 스티커 메모"
@@ -73,5 +74,28 @@
       "invite": "미팅 초대",
       "call": "수신 전화"
     }
+  },
+  "comments": {
+    "title": "댓글",
+    "empty": "아직 댓글이 없어요.",
+    "loading": "댓글을 불러오는 중…",
+    "loadError": "댓글을 불러올 수 없어요.",
+    "retry": "다시 시도",
+    "loadMore": "더 보기",
+    "loadingMore": "더 불러오는 중…",
+    "placeholder": "댓글을 작성하세요…",
+    "post": "게시",
+    "posting": "게시 중…",
+    "postError": "댓글을 게시할 수 없어요.",
+    "blank": "댓글을 비워 둘 수 없어요.",
+    "reply": "답글",
+    "replyPlaceholder": "답글을 작성하세요…",
+    "cancelReply": "취소",
+    "loadReplies": "답글 보기",
+    "loadMoreReplies": "답글 더 보기",
+    "repliesLoading": "답글을 불러오는 중…",
+    "repliesError": "답글을 불러올 수 없어요.",
+    "replyCount_other": "답글 {{count}}개",
+    "you": "나"
   }
 }
