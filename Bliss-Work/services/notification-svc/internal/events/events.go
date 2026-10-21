@@ -16,6 +16,10 @@ const (
 	// This means the consumer group receives every chat message on the platform.
 	// Irrelevant event types are discarded by a type check before database work.
 	TopicMessaging = "messaging.events.v1"
+	// TopicBilling is read for the low-credit notification kinds
+	// billing-svc's outbox poller publishes (membership.grace_started,
+	// membership.suspended, membership.low_balance). See BillingEvent.
+	TopicBilling = "billing.events.v1"
 )
 
 // Event type discriminants.
@@ -68,7 +72,43 @@ const (
 	// see messaging-svc's events.TypeCallMissed doc comment for why: its
 	// recipient may not have been looking at a screen when the ring expired.
 	KindCallMissed = "CALL_MISSED"
+	// KindMembershipGraceStarted / KindMembershipSuspended tell the affected
+	// member their own membership billing lapsed. See BillingEvent's doc
+	// comment for why these go to the member rather than "org admins".
+	KindMembershipGraceStarted = "MEMBERSHIP_GRACE_STARTED"
+	KindMembershipSuspended    = "MEMBERSHIP_SUSPENDED"
 )
+
+// Billing event kind discriminants (billing-svc's outbox payload `kind`
+// field — a distinct field name from `type` used by every other producer
+// here, because it predates this consumer; see billing-svc/app/renewal.py
+// and app/ledger.py, which this consumer's shape must match exactly).
+const (
+	BillingKindGraceStarted = "membership.grace_started"
+	BillingKindSuspended    = "membership.suspended"
+	BillingKindLowBalance   = "membership.low_balance"
+)
+
+// BillingEvent is the shape consumed off billing.events.v1. All three kinds
+// share this struct; fields irrelevant to a given kind are simply empty.
+//
+// Deliberately minimal (org_id, user_id, timestamps, numbers) — see
+// billing-svc/app/renewal.py and app/ledger.py, which enqueue only these
+// fields, no PII beyond the ids already in play.
+//
+// No `eventId` field: billing-svc's outbox payload doesn't carry one (see
+// enqueue_outbox call sites), unlike every other producer's envelope here.
+// This consumer's dedup therefore hashes the raw message bytes instead of an
+// eventId — see billing.go's dedup comment.
+type BillingEvent struct {
+	Kind             string `json:"kind"`
+	OrgID            string `json:"orgId"`
+	UserID           string `json:"userId,omitempty"`
+	PeriodStart      string `json:"periodStart,omitempty"`
+	Balance          int64  `json:"balance,omitempty"`
+	ThresholdCredits int64  `json:"thresholdCredits,omitempty"`
+	OccurredAt       string `json:"occurredAt,omitempty"`
+}
 
 // TaskEvent is the shape consumed off task.events.v1. It is a superset that
 // captures every field used by acknowledged/completed events; the discriminant

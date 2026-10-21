@@ -45,9 +45,11 @@ type Consumer struct {
 //     previews, so an erased workspace has to take them with it.
 //   - messaging.events.v1 → channel.member.joined and message-created events.
 //     messaging-svc is the source of these notification-worthy events.
+//   - billing.events.v1 → membership.grace_started / membership.suspended /
+//     membership.low_balance from billing-svc. See billing.go.
 //
 // GroupTopics rather than one reader each — a single consumer group covering
-// all three keeps offset management and rebalancing in one place.
+// all topics keeps offset management and rebalancing in one place.
 //
 // stop is called if a batch is ever abandoned uncommitted (see runBatch) —
 // pass the same signal.NotifyContext stop func main.go uses for its rootCtx,
@@ -57,7 +59,7 @@ func New(pool *pgxpool.Pool, brokers []string, log *slog.Logger, stop func()) *C
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        "notification-svc",
-		GroupTopics:    []string{events.TopicTask, events.TopicAuth, events.TopicMessaging},
+		GroupTopics:    []string{events.TopicTask, events.TopicAuth, events.TopicMessaging, events.TopicBilling},
 		MinBytes:       1,
 		MaxBytes:       10e6,
 		CommitInterval: 0, // commit synchronously after successful handling
@@ -299,6 +301,15 @@ func (c *Consumer) handle(ctx context.Context, tx pgx.Tx, value []byte) error {
 	if ev.Type == events.TypeChannelMessageCreated {
 		return c.channelMessageCreated(ctx, tx, value)
 	}
+	// billing-svc's events (billing.events.v1) carry no `type` field at all —
+	// they discriminate on `kind` instead (see events.BillingEvent's doc
+	// comment) — so an empty Type here is this consumer's only signal to try
+	// that shape instead of falling through to the task-event switch below,
+	// where it would just hit the `default: ignore` case anyway.
+	if ev.Type == "" {
+		return c.billingEvent(ctx, tx, value)
+	}
+
 	// The call events that tell a PERSON something about a meeting: scheduled (or
 	// edited), invited, starting, cancelled. call.participant_added is addressed to
 	// the whole room as a "refresh who is here" signal and always accompanies a

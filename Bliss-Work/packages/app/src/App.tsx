@@ -61,6 +61,8 @@ import { ForgotPassword } from "./routes/ForgotPassword";
 import { ResetPassword } from "./routes/ResetPassword";
 import { VerifyEmail } from "./routes/VerifyEmail";
 import { MfaChallenge } from "./routes/MfaChallenge";
+import { SuperAdminLogin } from "./routes/SuperAdminLogin";
+import { SuperAdminDashboard } from "./routes/SuperAdminDashboard";
 
 // AppShell is separate from the routes it frames: it is needed by EVERY
 // authenticated route, so it belongs in the app-core chunk rather than being
@@ -249,6 +251,15 @@ export function App({ config }: { config: PlatformConfig }) {
                       is still owed — carries its pendingToken only in router
                       state, never the URL. */}
                   <Route path="/mfa-challenge" element={<MfaChallenge />} />
+                  {/* Super Admin — a single operator credential, wholly
+                      separate from the org login above: no registration,
+                      no CAPTCHA/MFA flow of its own. Auth-gating for the
+                      dashboard happens INSIDE SuperAdminDashboard (re-checks
+                      the token against the server on every mount), not via
+                      a route-level guard, since this session is not stored
+                      in store/session.ts. */}
+                  <Route path="/super-admin/login" element={<SuperAdminLogin />} />
+                  <Route path="/super-admin/dashboard" element={<SuperAdminDashboard />} />
                   {/* Meeting invite links land here, OUTSIDE /app so someone
                       in another organisation is not bounced through an app
                       shell scoped to an org they do not belong to. Auth-gating

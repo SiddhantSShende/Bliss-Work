@@ -92,6 +92,10 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
 # honest limit.
 _SENSITIVE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     ("POST", "/auth/login"): (10, 60),
+    # Single-credential surface (routes/super_admin.py) — no identity-level
+    # lockout backstop like /auth/login has, so this per-IP budget is the
+    # only throttle on guessing it. Tighter than /auth/login on purpose.
+    ("POST", "/auth/super-admin/login"): (5, 60),
     ("POST", "/auth/orgs"): (5, 60),
     ("POST", "/auth/refresh"): (30, 60),
     # Email-secret flows: tight per-IP budgets so an attacker can't spray reset

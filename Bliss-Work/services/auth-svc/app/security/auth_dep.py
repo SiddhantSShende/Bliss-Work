@@ -153,3 +153,16 @@ def require_org_admin(principal: Principal = Depends(get_principal)) -> Principa
     if "org_admin" not in principal.roles:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "org_admin role required")
     return principal
+
+
+def require_super_admin(principal: Principal = Depends(get_principal)) -> Principal:
+    """Gates routes/super_admin.py's /me and any future super-admin-only route.
+
+    `super_admin` is a role claim ONLY routes/super_admin.py's login mints
+    (see keys.py's mint_access_token call there) — no org-session JWT can
+    carry it, so an ordinary org_admin or member token is rejected here
+    exactly like an unauthenticated one, by the same verified-JWT path
+    get_principal already runs for every other route."""
+    if "super_admin" not in principal.roles:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "super_admin role required")
+    return principal

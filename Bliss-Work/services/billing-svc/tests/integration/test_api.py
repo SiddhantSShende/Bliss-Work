@@ -181,12 +181,16 @@ async def test_pricing_defaults_seeded_by_migration(db_app):
         r = await c.get("/api/v1/billing/pricing")
     assert r.status_code == 200
     values = {row["key"]: row["value"] for row in r.json()}
-    assert values["admin_monthly_credits"] == 3
-    assert values["member_monthly_credits"] == 1
+    # admin/member monthly credits are set by migrations/0002 (3/1) and then
+    # overridden by migrations/0004's confirmed-rate UPDATE (5/2).
+    assert values["admin_monthly_credits"] == 5
+    assert values["member_monthly_credits"] == 2
     assert values["admin_reference_price_cents"] == 800
     assert values["member_reference_price_cents"] == 500
     assert values["admin_current_price_cents"] == 300
     assert values["member_current_price_cents"] == 100
+    assert values["low_balance_threshold_credits"] == 20
+    assert values["grace_period_days"] == 7
 
 
 @pytest.mark.asyncio

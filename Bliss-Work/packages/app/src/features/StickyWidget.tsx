@@ -5,6 +5,7 @@ import { Avatar, Badge } from "@taskboard/ui";
 import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
 import type { ParticipantTargets } from "./AddParticipantsPicker";
 import { CommentsPanel } from "./CommentsPanel";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { TaskDeadlineProgress } from "./TaskDeadlineProgress";
 import { TaskParticipantAdd, TaskParticipants } from "./TaskParticipants";
 import { TaskTimes } from "./TaskTimes";
@@ -415,8 +416,25 @@ export function StickyWidget({
     </div>
   );
 
+  // CommentsPanel needs the app's RuntimeProvider/QueryClient (for the comments
+  // API + react-query cache), which only the main app window provides — the
+  // Electron floating note is a separate, provider-less renderer (like the
+  // sticky overlay's Chat button, which forwards to the main window instead
+  // of fetching inline; see sticky.tsx's onChat). Without this boundary, that
+  // missing context throws during render and React unmounts the WHOLE note
+  // window, leaving it blank. The boundary contains that failure to a short,
+  // readable message inside the comments panel instead.
   const comments = commentsOpen ? (
-    <CommentsPanel taskId={task.taskId} currentUserId={currentUserId} initialVisibleCount={compact ? 2 : undefined} />
+    <ErrorBoundary
+      resetKey={task.taskId}
+      fallback={() => (
+        <div className="app-no-drag mt-2 rounded-xl border border-border/60 bg-surface-2 p-3 text-sm text-muted">
+          {t("comments.unavailable")}
+        </div>
+      )}
+    >
+      <CommentsPanel taskId={task.taskId} currentUserId={currentUserId} initialVisibleCount={2} />
+    </ErrorBoundary>
   ) : null;
 
   // Whole surface is the OS-window drag region so the user can grab the note
@@ -432,13 +450,13 @@ export function StickyWidget({
   // card in the main window's task list marked as one would swallow the gesture
   // (mouse wheel still worked) — and dragging a card would move the whole window.
   return (
+    // Outer widget container: always a pure white surface, independent of
+    // the selected theme. Only the inner content panel below carries the
+    // theme's background color — splitting the two keeps the OS window /
+    // list-item chrome neutral while the themed card content stays themed.
     <div
       data-task-card=""
-      className={`${compact ? "app-drag " : ""}flex min-w-0 flex-col rounded-2xl border ${
-        compact ? "bg-accent-soft" : "bg-surface"
-      } ${
-        landscape ? `${TASK_CARD_ROOT} p-3` : "gap-3 p-4"
-      } ${
+      className={`${compact ? "app-drag " : ""}flex min-w-0 flex-col rounded-2xl border bg-white ${
         task.myStatus === "MISSED" ? "border-danger/40" : "border-border"
       } ${
         // The floating note lives in a fixed-size, user-resizable OS window
@@ -463,6 +481,12 @@ export function StickyWidget({
         compact ? "max-h-full min-h-0 overflow-y-auto shadow-widget" : "shadow-soft"
       }`}
     >
+      <div
+        data-task-card-content=""
+        className={`flex min-w-0 flex-1 flex-col rounded-[14px] ${compact ? "bg-accent-soft" : "bg-surface"} ${
+          landscape ? `${TASK_CARD_ROOT} p-3` : "gap-3 p-4"
+        }`}
+      >
       {landscape ? (
         <div className={hideParticipants ? TASK_CARD_BODY_SLIM : TASK_CARD_BODY}>
           <div className={TASK_CARD_MAIN}>
@@ -508,6 +532,7 @@ export function StickyWidget({
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

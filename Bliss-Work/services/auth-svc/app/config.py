@@ -35,6 +35,25 @@ class Settings(BaseSettings):
     jwt_kid: str = "dev-ed25519-1"
     jwks_url: str = "http://auth-svc:8001/.well-known/jwks.json"
 
+    # ── Super Admin (platform-wide, single operator credential) ──────────────
+    # Deliberately NOT a row in `users`/`orgs` and NOT created by any
+    # registration endpoint — the only way to set this credential is for
+    # whoever controls the deployment's environment to configure it here.
+    # Empty (the default) disables the surface entirely: routes/super_admin.py
+    # answers 503 rather than silently accepting any password.
+    #
+    # SUPER_ADMIN_PASSWORD_HASH is an Argon2id hash (see security/passwords.py),
+    # never the plaintext password — generate it with:
+    #   docker compose exec auth-svc python -c \
+    #     "from app.security.passwords import hash_password; print(hash_password('your-password'))"
+    super_admin_email: str = ""
+    super_admin_password_hash: str = ""
+    # Longer than jwt_access_ttl_seconds (5 min): this surface has no refresh
+    # token (no `users` row to rotate one against), so a short TTL would force
+    # a re-login every few minutes. Still bounded, and the only mitigation
+    # logout has — see routes/super_admin.py.
+    super_admin_session_ttl_seconds: int = 3600
+
     # Public URLs
     web_origin: str = "http://localhost:5173"
     invite_base_url: str = "http://localhost:5173/invite"

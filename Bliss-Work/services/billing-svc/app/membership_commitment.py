@@ -90,6 +90,19 @@ async def apply_membership_commitment(
     if projected_total > balance:
         return False, projected_total, balance
 
+    # Trial/anchor columns are only ever set on a genuine first INSERT (a
+    # brand-new (org_id, user_id) row) — the ON CONFLICT branch below never
+    # touches them, so a role change or rejoin can never reset or re-grant a
+    # trial. init_membership_trial is called separately, after we know
+    # whether this was an insert or an update.
+    existing = (
+        await db.execute(
+            text("SELECT 1 FROM org_membership_billing WHERE org_id = :o AND user_id = :u"),
+            {"o": org_id, "u": user_id},
+        )
+    ).first()
+    is_new_row = existing is None
+
     await db.execute(
         text(
             "INSERT INTO org_membership_billing (org_id, user_id, monthly_credits, pending_monthly_credits, status) "
@@ -99,7 +112,29 @@ async def apply_membership_commitment(
         ),
         {"o": org_id, "u": user_id, "cost": cost},
     )
+    if is_new_row:
+        await init_membership_trial(db, org_id, user_id)
     return True, projected_total, balance
+
+
+async def init_membership_trial(db: AsyncSession, org_id: str, user_id: str) -> None:
+    """Starts the 7-day free trial and this membership's own renewal anchor.
+    Guarded by `trial_started_at IS NULL` (not just "called once at INSERT
+    time") so that even if this were ever called again for the same row — a
+    rejoin reusing the never-deleted row — it is a no-op and cannot grant a
+    second trial or push the anchor out."""
+    await db.execute(
+        text(
+            "UPDATE org_membership_billing SET "
+            "trial_started_at = now(), "
+            "trial_ends_at = now() + interval '7 days', "
+            "next_renewal_at = now() + interval '7 days', "
+            "cycle_status = 'trial', "
+            "anchor_day = extract(day from now()) "
+            "WHERE org_id = :o AND user_id = :u AND trial_started_at IS NULL"
+        ),
+        {"o": org_id, "u": user_id},
+    )
 
 
 async def release_membership_commitment(db: AsyncSession, org_id: str, user_id: str) -> None:

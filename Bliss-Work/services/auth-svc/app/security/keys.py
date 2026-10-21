@@ -113,6 +113,7 @@ def mint_access_token(
     plan: str = "free",
     memberships: list[dict] | None = None,
     session_id: str | None = None,
+    ttl_seconds: int | None = None,
 ) -> tuple[str, int]:
     """Return (signed JWT, expires_in_seconds).
 
@@ -144,7 +145,10 @@ def mint_access_token(
     a valid, just less precisely revocable, token.
     """
     now = int(time.time())
-    ttl = settings.jwt_access_ttl_seconds
+    # Overridable per-mint: routes/super_admin.py has no refresh token to rotate
+    # against (no `users` row to key one on), so its tokens use a longer TTL than
+    # the org-session default. Omitted (the common case) keeps today's behavior.
+    ttl = ttl_seconds if ttl_seconds is not None else settings.jwt_access_ttl_seconds
     claims = {
         "sub": user_id,
         "org_id": org_id,

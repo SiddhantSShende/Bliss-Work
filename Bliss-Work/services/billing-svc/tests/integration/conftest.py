@@ -58,6 +58,7 @@ async def db_app(database_url):
         # delete the seeded defaults for every test after the first.
         for table in (
             "billing_renewal_runs",
+            "membership_renewal_runs",
             "org_membership_billing",
             "org_billing_state",
             "credit_purchases",

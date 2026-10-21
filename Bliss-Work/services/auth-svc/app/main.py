@@ -39,6 +39,7 @@ from .routes import mfa_totp as mfa_totp_routes
 from .routes import org_lifecycle as org_routes
 from .routes import password_reset as password_reset_routes
 from .routes import sessions as sessions_routes
+from .routes import super_admin as super_admin_routes
 from .security.keys import jwks  # warm key load
 from .tracing import setup_tracing
 from tracing import shutdown_tracing
@@ -165,5 +166,6 @@ app.include_router(email_verify_routes.router)
 app.include_router(mfa_totp_routes.router)
 app.include_router(mfa_challenge_routes.router)
 app.include_router(sessions_routes.router)
+app.include_router(super_admin_routes.router)
 app.include_router(internal_routes.router)
 app.include_router(internal_file_audit_routes.router)

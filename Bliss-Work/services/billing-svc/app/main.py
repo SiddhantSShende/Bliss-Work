@@ -11,6 +11,7 @@ from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
 from .middleware import BodySizeLimitMiddleware, RequestIDMiddleware
+from .outbox_poller import poller as outbox_poller
 from .routes import internal_router, router
 
 configure_logging(settings.log_level)
@@ -20,10 +21,15 @@ configure_logging(settings.log_level)
 async def lifespan(app: FastAPI):
     init_engine()
     await run_migrations()
+    # Outbox -> Kafka. The ONLY path that emits billing.events.v1 (see
+    # app/outbox_poller.py); writes to `outbox` happen in the same
+    # transaction as the billing state change that caused them.
+    await outbox_poller.start()
     log.info("billing_svc_started", port=settings.port)
     try:
         yield
     finally:
+        await outbox_poller.stop()
         await dispose_engine()
         log.info("billing_svc_stopped")
 

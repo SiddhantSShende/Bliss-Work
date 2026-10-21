@@ -2,6 +2,7 @@ fastapi==0.140.0
 uvicorn[standard]==0.34.0
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
+aiokafka==0.12.0
 pyjwt[crypto]==2.13.0
 structlog==24.4.0
 uuid6==2024.7.10
@@ -11,6 +12,24 @@ pydantic-settings==2.7.1
 # structlog -> stdout JSON bootstrap, shared with every other Python service.
 # See services/shared/logging_setup/shared_logging_setup.py.
 ../shared/logging_setup
+
+# Kafka SASL/TLS config, shared with every other Python service. See
+# services/shared/kafka_security/kafka_security.py.
+../shared/kafka_security
+
+# OTel Kafka context-propagation helpers, shared with every other Python
+# service. See services/shared/tracing/tracing.py.
+../shared/tracing
+
+# Quarantine for outbox rows that can never be published, shared with every
+# Python service that has a poller. See
+# services/shared/outbox_dlq/outbox_dlq.py.
+../shared/outbox_dlq
+
+# Connect-on-first-use AIOKafkaProducer for the outbox poller, shared with
+# auth-svc, task-svc, sticky-svc and integrations-svc. See
+# services/shared/kafka_lazy_producer/kafka_lazy_producer.py.
+../shared/kafka_lazy_producer
 
 # Hardened JWKS fetch-and-cache (single-flighted refresh + kid-miss cooldown),
 # shared with auth-svc, task-svc, integrations-svc. See

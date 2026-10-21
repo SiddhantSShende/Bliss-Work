@@ -23,10 +23,16 @@ caller commits (or rolls back) the whole unit of work.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 import uuid6
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from . import outbox_helpers
+
+BILLING_EVENTS_TOPIC = "billing.events.v1"
+_DEFAULT_LOW_BALANCE_THRESHOLD_CREDITS = 20
 
 
 class InsufficientCreditsError(Exception):
@@ -162,8 +168,101 @@ async def _apply_delta(
             "key": idempotency_key,
         },
     )
+    # Low-balance alert: every ledger mutation (grant or debit) is a balance
+    # change, and this table is where every one of them is centralized — the
+    # single choke point the plan asks for, rather than duplicating this check
+    # into renewal.py's and any future caller's own debit site.
+    await _sync_low_balance_alert(db, org_id, new_balance)
+
     return LedgerEntry(
         entry_id, org_id, delta, new_balance, reason, reference_type, reference_id, idempotency_key
+    )
+
+
+async def _low_balance_threshold(db: AsyncSession) -> int:
+    row = (
+        await db.execute(
+            text("SELECT value FROM billing_pricing WHERE key = 'low_balance_threshold_credits'")
+        )
+    ).first()
+    if row is None or not isinstance(row[0], (int, float)):
+        # billing_pricing is seeded by migrations/0004; fall back rather than
+        # fail a ledger mutation over a missing config row.
+        return _DEFAULT_LOW_BALANCE_THRESHOLD_CREDITS
+    return int(row[0])
+
+
+async def _sync_low_balance_alert(db: AsyncSession, org_id: str, new_balance: int) -> None:
+    """Emit `membership.low_balance` at most once per org per calendar day
+    while the balance stays under `low_balance_threshold_credits`, and re-arm
+    so a top-up that crosses back above the threshold makes the NEXT dip fire
+    immediately rather than waiting for the alert's last calendar day to roll
+    over (see migrations/0006_low_balance_alert_state.sql).
+
+    Runs inside the caller's transaction: the alert's outbox row and the
+    alert-state row land in the same commit as the balance change that caused
+    them, same as every other write here.
+    """
+    threshold = await _low_balance_threshold(db)
+
+    if new_balance >= threshold:
+        # Re-arm unconditionally. Upsert because a org's first-ever ledger
+        # mutation (grant or debit) has no state row yet.
+        await db.execute(
+            text(
+                "INSERT INTO org_low_balance_alert_state (org_id, armed, last_alerted_on, updated_at) "
+                "VALUES (:org, true, NULL, now()) "
+                "ON CONFLICT (org_id) DO UPDATE SET armed = true, updated_at = now() "
+                "WHERE org_low_balance_alert_state.armed = false"
+            ),
+            {"org": org_id},
+        )
+        return
+
+    # Below threshold: upsert the row into existence, then read it locked so
+    # two concurrent debits on the same org can't both decide "armed" at once
+    # — the account row itself is already FOR UPDATE-locked by the caller
+    # (_lock_or_create_account, above), so this SELECT is uncontended in
+    # practice, but FOR UPDATE here keeps it correct even if that ever changes.
+    await db.execute(
+        text(
+            "INSERT INTO org_low_balance_alert_state (org_id, armed, last_alerted_on) "
+            "VALUES (:org, true, NULL) ON CONFLICT (org_id) DO NOTHING"
+        ),
+        {"org": org_id},
+    )
+    row = (
+        await db.execute(
+            text(
+                "SELECT armed, last_alerted_on FROM org_low_balance_alert_state "
+                "WHERE org_id = :org FOR UPDATE"
+            ),
+            {"org": org_id},
+        )
+    ).first()
+    armed, last_alerted_on = bool(row[0]), row[1]
+    today = datetime.now(timezone.utc).date()
+    if not armed and last_alerted_on == today:
+        return  # already alerted today, still below threshold — no duplicate
+
+    await db.execute(
+        text(
+            "UPDATE org_low_balance_alert_state SET armed = false, last_alerted_on = :today, "
+            "updated_at = now() WHERE org_id = :org"
+        ),
+        {"today": today, "org": org_id},
+    )
+    await outbox_helpers.enqueue_outbox(
+        db,
+        BILLING_EVENTS_TOPIC,
+        org_id,
+        {
+            "kind": "membership.low_balance",
+            "orgId": org_id,
+            "balance": new_balance,
+            "thresholdCredits": threshold,
+            "occurredAt": datetime.now(timezone.utc).isoformat(),
+        },
     )
 
 

@@ -72,7 +72,7 @@ async def test_commitment_check_succeeds_and_release_is_idempotent(db_app):
             headers={"X-Internal-Token": TOKEN},
         )
         assert r.status_code == 200, r.text
-        assert r.json() == {"ok": True, "projectedTotal": 1, "balance": 5}
+        assert r.json() == {"ok": True, "projectedTotal": 2, "balance": 5}
 
         r1 = await c.delete(f"/internal/v1/billing/orgs/{org}/memberships/{user}", headers={"X-Internal-Token": TOKEN})
         r2 = await c.delete(f"/internal/v1/billing/orgs/{org}/memberships/{user}", headers={"X-Internal-Token": TOKEN})

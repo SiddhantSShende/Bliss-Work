@@ -42,6 +42,9 @@ const task = (over: Partial<StickyTaskDTO> = {}): StickyTaskDTO =>
     ...over,
   }) as StickyTaskDTO;
 
+// `card` is the outer widget container (always a pure-white surface); `content`
+// is the inner themed panel that now carries the layout/container-query classes
+// landscape mode relies on — see StickyWidget's Area 1 / Area 2 split.
 function renderCard(props: Partial<React.ComponentProps<typeof StickyWidget>> = {}, t: StickyTaskDTO = task()) {
   const onAction = vi.fn();
   const onWithdrawSelf = vi.fn();
@@ -58,16 +61,17 @@ function renderCard(props: Partial<React.ComponentProps<typeof StickyWidget>> = 
     />,
   );
   const card = view.container.querySelector("[data-task-card]") as HTMLElement;
-  return { card, onAction, onWithdrawSelf, onAddParticipants };
+  const content = view.container.querySelector("[data-task-card-content]") as HTMLElement;
+  return { card, content, onAction, onWithdrawSelf, onAddParticipants };
 }
 
 describe("StickyWidget landscape", () => {
   it("is a container whose body splits into a main column and a side column", () => {
-    const { card } = renderCard({ landscape: true });
-    expect(card).toHaveClass(...TASK_CARD_ROOT.split(" "), "p-3");
-    expect(card).not.toHaveClass("gap-3", "p-4");
+    const { content } = renderCard({ landscape: true });
+    expect(content).toHaveClass(...TASK_CARD_ROOT.split(" "), "p-3");
+    expect(content).not.toHaveClass("gap-3", "p-4");
 
-    const body = card.firstElementChild as HTMLElement;
+    const body = content.firstElementChild as HTMLElement;
     expect(body.className).toBe(TASK_CARD_BODY);
     const main = body.firstElementChild as HTMLElement;
     const side = body.lastElementChild as HTMLElement;
@@ -76,8 +80,8 @@ describe("StickyWidget landscape", () => {
   });
 
   it("puts the task in the main column and the people and every action in the side column", () => {
-    const { card } = renderCard({ landscape: true });
-    const body = card.firstElementChild as HTMLElement;
+    const { content } = renderCard({ landscape: true });
+    const body = content.firstElementChild as HTMLElement;
     const main = body.firstElementChild as HTMLElement;
     const side = body.lastElementChild as HTMLElement;
 
@@ -116,8 +120,8 @@ describe("StickyWidget landscape", () => {
   });
 
   it("a SENT task keeps Acknowledge and Ignore in the side column", () => {
-    const { card } = renderCard({ landscape: true }, task({ myStatus: "SENT", actions: actionsFor("SENT") }));
-    const side = (card.firstElementChild as HTMLElement).lastElementChild as HTMLElement;
+    const { content } = renderCard({ landscape: true }, task({ myStatus: "SENT", actions: actionsFor("SENT") }));
+    const side = (content.firstElementChild as HTMLElement).lastElementChild as HTMLElement;
     expect(within(side).getByRole("button", { name: /Acknowledge/ })).toBeInTheDocument();
     expect(within(side).getByRole("button", { name: /Ignore/ })).toBeInTheDocument();
   });
@@ -133,8 +137,8 @@ describe("StickyWidget landscape", () => {
   });
 
   it("hideParticipants drops the whole block but keeps Add member, under the actions in the slim side column", () => {
-    const { card } = renderCard({ landscape: true, hideParticipants: true });
-    const body = card.firstElementChild as HTMLElement;
+    const { card, content } = renderCard({ landscape: true, hideParticipants: true });
+    const body = content.firstElementChild as HTMLElement;
     expect(body.className).toBe(TASK_CARD_BODY_SLIM);
     const main = body.firstElementChild as HTMLElement;
     const side = body.lastElementChild as HTMLElement;
@@ -168,13 +172,13 @@ describe("StickyWidget landscape", () => {
   });
 
   it("is opt-in: without it the card is unchanged — one column of sections, no container", () => {
-    const { card } = renderCard();
-    expect(card).toHaveClass("gap-3", "p-4");
-    expect(card).not.toHaveClass("@container/card");
-    expect(card.querySelector(`.${CSS.escape("@container/card")}`)).toBeNull();
+    const { content } = renderCard();
+    expect(content).toHaveClass("gap-3", "p-4");
+    expect(content).not.toHaveClass("@container/card");
+    expect(content.querySelector(`.${CSS.escape("@container/card")}`)).toBeNull();
     // Header, description, times, participants and the action row are direct children, as before.
-    expect(card.children.length).toBeGreaterThanOrEqual(4);
-    expect(within(card).getByText(/free to use the whole width/)).toHaveClass("leading-relaxed");
-    expect(screen.getByRole("button", { name: /Complete/ }).parentElement?.parentElement).toBe(card);
+    expect(content.children.length).toBeGreaterThanOrEqual(4);
+    expect(within(content).getByText(/free to use the whole width/)).toHaveClass("leading-relaxed");
+    expect(screen.getByRole("button", { name: /Complete/ }).parentElement?.parentElement).toBe(content);
   });
 });

@@ -1,23 +1,22 @@
-"""Monthly renewal: debit each due org for its current membership commitment.
+"""Monthly renewal: debit each due MEMBERSHIP for its own per-membership cost.
 
     python -m app.jobs.run_renewals
     python -m app.jobs.run_renewals --dry-run
 
-Debit-only (phase 5): charges `billing_accounts` via the normal ledger and
-advances `org_billing_state.next_renewal_at`. An org that cannot afford its
-renewal gets a `billing_renewal_runs` row with status 'insufficient_funds'
-and is otherwise left untouched — no suspension, no grace timer, no
-notification. Those are a later phase, deliberately not here.
+Per-membership (revised plan, phase 6): each membership has its own trial
+window and renewal anchor. Charges `billing_accounts` via the normal ledger
+and advances the membership's `next_renewal_at`. A membership that can't
+afford its renewal moves to `cycle_status='grace'` (first miss) and then
+`'suspended'` (grace deadline passed) — see `app/renewal.py` for the full
+state machine and the outbox events it emits.
 
-`--dry-run` reports what each due org would be charged without debiting,
-writing a renewal_runs row, or advancing the org's renewal date.
+`--dry-run` reports what each due membership would be charged without
+debiting, writing a renewal_runs row, or advancing its renewal date.
 
 Scheduling: not yet wired into infra/systemd — see infra/systemd/README.md
 for the convention this should follow once enabled (a oneshot .service +
 daily .timer, invoked via `scripts/run-billing-renewals.sh` the same way
-`scripts/purge-orgs.sh` drives auth-svc's purge job). Left as a documented,
-dry-run-testable entry point rather than wiring a timer in prod before
-grace/suspension exist to act on an insufficient-funds outcome.
+`scripts/purge-orgs.sh` drives auth-svc's purge job).
 """
 from __future__ import annotations
 
@@ -36,12 +35,13 @@ async def main(dry_run: bool) -> int:
         log.info(
             "renewal_outcome",
             org_id=o.org_id,
+            user_id=o.user_id,
             status=o.status,
             credits_due=o.credits_due,
             reason=o.reason,
             dry_run=dry_run,
         )
-        if o.status == "insufficient_funds":
+        if o.status in ("insufficient_funds", "suspended"):
             failures += 1
     log.info("renewal_run_complete", total=len(outcomes), insufficient_funds=failures, dry_run=dry_run)
     return 0

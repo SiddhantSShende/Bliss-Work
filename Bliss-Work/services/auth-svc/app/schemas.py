@@ -62,6 +62,23 @@ class RefreshRequest(BaseModel):
     token: str | None = Field(default=None, max_length=4096)
 
 
+class SuperAdminLoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=256)
+
+
+class SuperAdminSessionDTO(BaseModel):
+    """Deliberately NOT SessionDTO: there is no `users` row, no `orgId`, and
+    `roles` is not the closed `Role` literal — reusing SessionDTO would either
+    fabricate those fields or require widening Role for every ordinary org
+    session. `accessToken`/`expiresIn` are empty/0 on GET /me (a re-check, not
+    a fresh login) — see routes/super_admin.py."""
+
+    accessToken: str
+    expiresIn: int
+    email: str
+
+
 class CreateInviteRequest(BaseModel):
     email: EmailStr
     role: Role
