@@ -84,7 +84,7 @@ func (p *stallingRedisProxy) serve(client net.Conn, upstreamAddr string) {
 	_ = client.Close()
 }
 
-func (p *stallingRedisProxy) redisURL(t *testing.T, real string) string {
+func (p *stallingRedisProxy) redisURL(real string) string {
 	u, _ := url.Parse(real)
 	u.Host = p.ln.Addr().String()
 	return u.String()
@@ -102,7 +102,7 @@ func TestHeartbeatInFlightDoesNotResurrectClosedSocketPresence(t *testing.T) {
 	t.Cleanup(func() { heartbeatInterval = old })
 
 	proxy := newStallingRedisProxy(t, testRedisURL(), 700*time.Millisecond)
-	st, err := store.New(proxy.redisURL(t, testRedisURL()))
+	st, err := store.New(proxy.redisURL(testRedisURL()))
 	if err != nil {
 		t.Fatalf("store.New: %v", err)
 	}

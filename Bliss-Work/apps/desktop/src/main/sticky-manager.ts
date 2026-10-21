@@ -542,11 +542,13 @@ export class StickyManager {
   }
 
   /**
-   * Keep the note window's native (opaque, not transparent — see
-   * ./windows.ts) background in step with its own renderer's resolved theme.
-   * The renderer computes the colour itself off the DOM (never a raw theme
-   * token trusted verbatim) and reports it here; a malformed value is simply
-   * dropped rather than handed to the native window.
+   * Keep the note window's native background in step with its own renderer's
+   * resolved theme. Only meaningful on Linux, where the window stays opaque
+   * (see ./windows.ts) — on Windows/macOS the window is natively transparent
+   * and the renderer never calls this. The renderer computes the colour
+   * itself off the DOM (never a raw theme token trusted verbatim) and
+   * reports it here; a malformed value is simply dropped rather than handed
+   * to the native window.
    */
   setBackgroundColor(color: string): void {
     const w = this.win;

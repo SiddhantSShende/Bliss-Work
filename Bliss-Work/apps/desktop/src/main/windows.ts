@@ -226,22 +226,22 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
     maxWidth: STICKY_MAX_SIZE.width,
     maxHeight: STICKY_MAX_SIZE.height,
     frame: false,
-    // false, not true: a transparent frameless window needs GPU compositing
-    // to actually render as see-through, and on a Linux session without a
-    // compositing window manager (common — no WM here at all is the extreme
-    // case, but plenty of real ones run without compositing too) Chromium
-    // falls back to painting the FULL window rectangle opaque instead — the
-    // small task card ends up sitting inside a large, wrongly-coloured block
-    // that reads as "the whole background came with it". An ordinary opaque
-    // window has no such fallback to fail: it always renders exactly what it
-    // is asked to. `backgroundColor` below keeps the tiny rounded-corner
-    // cutouts around the card (the only bit of the window the card doesn't
-    // paint itself) matching the active theme's page background instead of
-    // showing a visible square edge — see useSyncedTheme in
-    // ../renderer/sticky.tsx, which keeps it in step with the active theme
-    // over "sticky:bg".
-    transparent: false,
-    backgroundColor: "#ffffff",
+    // true everywhere EXCEPT Linux: a transparent frameless window needs GPU
+    // compositing to actually render as see-through, and on a Linux session
+    // without a compositing window manager (common — no WM here at all is the
+    // extreme case, but plenty of real ones run without compositing too)
+    // Chromium falls back to painting the FULL window rectangle opaque instead
+    // — the small task card ends up sitting inside a large, wrongly-coloured
+    // block that reads as "the whole background came with it". There is no
+    // reliable way to detect compositor support from Electron's API, so Linux
+    // keeps the old safe opaque fallback; Windows/macOS compositing is always
+    // present, so the water-glass board can be genuinely transparent there.
+    // `backgroundColor` below is the opaque-fallback colour, only actually
+    // painted on Linux — see useSyncedTheme in ../renderer/sticky.tsx, which
+    // keeps it in step with the active theme over "sticky:bg", and the
+    // renderer's glass CSS, which supplies the translucent look on top.
+    transparent: process.platform !== "linux",
+    backgroundColor: process.platform !== "linux" ? "#00000000" : "#ffffff",
     // Resizable everywhere. On Linux the window manager never sees this window
     // (focusable:false makes it override-redirect), so the native resize border
     // is a dead cursor there and setNoteResizable swaps it for the renderer's

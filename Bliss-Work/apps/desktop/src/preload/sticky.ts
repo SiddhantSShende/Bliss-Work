@@ -50,18 +50,28 @@ const api = {
    *  body drags itself. */
   manualResize: process.platform === "linux",
 
+  /** False only on Linux: the native window there stays opaque (see
+   *  main/windows.ts's `transparent` option) because a non-compositing window
+   *  manager paints a transparent frameless window as a solid block instead.
+   *  Everywhere else the window is genuinely see-through, so the renderer's
+   *  water-glass board shows the real desktop behind it; on Linux it still
+   *  applies the same glass CSS, but over the opaque fallback colour sent via
+   *  setBackgroundColor instead of the actual desktop. */
+  nativeTransparency: process.platform !== "linux",
+
   /** A resize handle or the note body ("move") was pressed / released; main
    *  follows the cursor in between. */
   dragStart: (drag: string) => ipcRenderer.send("sticky:drag-start", { drag }),
   dragEnd: () => ipcRenderer.send("sticky:drag-end"),
 
-  /** The window is opaque, not transparent (see windows.ts), so its native
-   *  background has to be told what colour to be — it can't just inherit
-   *  whatever CSS variable the theme resolves to. Sent as a resolved `#rrggbb`
-   *  hex string (read off the DOM and converted, never a raw theme token —
-   *  see sticky.tsx's toHex) whenever the active theme changes, so the
-   *  rounded-corner cutouts around the card stay matched instead of showing a
-   *  stale colour. */
+  /** Linux only (see `nativeTransparency` above): the window there is opaque,
+   *  not transparent, so its native background has to be told what colour to
+   *  be — it can't just inherit whatever CSS variable the theme resolves to.
+   *  Sent as a resolved `#rrggbb` hex string (read off the DOM and converted,
+   *  never a raw theme token — see sticky.tsx's toHex) whenever the active
+   *  theme changes, so the rounded-corner cutouts around the card stay
+   *  matched instead of showing a stale colour. Never called where the
+   *  window is natively transparent. */
   setBackgroundColor: (color: string) => ipcRenderer.send("sticky:bg", { color }),
 
   /** Unpin the given task from the desktop popup. Distinct from

@@ -9,8 +9,6 @@ import {
   isThemeId,
   readStoredCustomTheme,
   defaultThemeFor,
-  type ThemeId,
-  type CustomTheme,
 } from "@taskboard/ui";
 import { Pin, Maximize2, ChevronLeft, ChevronRight } from "lucide-react";
 import "@taskboard/ui/styles.css";
@@ -35,6 +33,7 @@ declare global {
       prev: () => void;
       setCollapsed: (collapsed: boolean) => void;
       setBackgroundColor: (color: string) => void;
+      nativeTransparency: boolean;
       ready: () => void;
       unpin: (taskId: string) => void;
       openChat: (taskId: string) => void;
@@ -69,33 +68,22 @@ function toHex(resolved: string): string {
   return `#${hex(r!)}${hex(g!)}${hex(b!)}`;
 }
 
-/** The light-mode counterpart of any ThemeId — "rose-dark" → "rose", "rose" →
- *  "rose" — i.e. the inverse of darkCounterpart, kept local since callers here
- *  only ever need the light half (see resolveBoardAccent). */
-function lightCounterpart(id: ThemeId): ThemeId {
-  return (id.endsWith("-dark") ? id.slice(0, -"-dark".length) : id) as ThemeId;
-}
-
-/** Resolve the board's colour as the Complete button's own accent token
- *  (`bg-accent` / `--color-accent`), NOT the button's brand-gradient stops —
- *  the gradient is a presentational flourish on the button itself and
- *  (unlike the accent token) isn't guaranteed stable across light/dark.
- *  Resolved off a DETACHED probe carrying the current family/custom theme
- *  forced to its LIGHT half, so the board stays the same colour whether the
- *  user is in light or dark mode — only switching the accent family (or a
- *  custom theme's colours) changes it. Never touches `document.documentElement`,
- *  so the real card (StickyWidget) keeps resolving its own light/dark colours
- *  completely independently. */
-function resolveBoardAccentHex(themeId: ThemeId, custom: CustomTheme | null): string {
-  const probe = document.createElement("div");
-  probe.style.cssText = "position:fixed;width:0;height:0;overflow:hidden;pointer-events:none;";
-  document.body.appendChild(probe);
-  applyTheme(probe, lightCounterpart(themeId), custom);
-  probe.classList.add("bg-accent");
-  const resolved = getComputedStyle(probe).backgroundColor;
-  document.body.removeChild(probe);
-  return toHex(resolved);
-}
+/** The board's water-glass surface, independent of accent colour: a faint
+ *  tint (white in light mode, near-black in dark mode) plus a blur, so the
+ *  real desktop behind the window reads through while staying readable
+ *  whatever wallpaper sits behind it. Picked off `themeId` alone — never the
+ *  accent family/custom theme — so switching the accent colour never changes
+ *  the board, only light/dark does. */
+const GLASS_SURFACE = {
+  light: {
+    background: "linear-gradient(155deg, rgba(255,255,255,0.30), rgba(255,255,255,0.12))",
+    border: "1px solid rgba(255,255,255,0.45)",
+  },
+  dark: {
+    background: "linear-gradient(155deg, rgba(20,20,26,0.38), rgba(20,20,26,0.20))",
+    border: "1px solid rgba(255,255,255,0.10)",
+  },
+} as const;
 
 /** Apply the persisted theme on the sticky window's <html> so the note's
  *  surface/fg/border colours match the main app rather than being stuck on
@@ -106,13 +94,12 @@ function resolveBoardAccentHex(themeId: ThemeId, custom: CustomTheme | null): st
  *  user clicking "Dark mode" in the menu instantly recolours every floating
  *  note without any IPC plumbing.
  *
- *  Returns the resolved board-accent hex so the caller can paint it onto the
- *  window body too (see StickyApp) — the colour behind/around the card and
- *  the nav arrows, Layer 1 in the two-layer model (Layer 2 is the card
- *  itself, which keeps following light/dark normally via the classes this
- *  applies to <html>). */
-function useSyncedTheme(): string {
-  const [boardAccent, setBoardAccent] = useState("#ffffff");
+ *  Returns which glass surface (light/dark) the board should paint, Layer 1
+ *  in the two-layer model — Layer 2 is the card itself (StickyWidget), which
+ *  keeps following light/dark normally via the classes this applies to
+ *  <html>, completely independently of the board. */
+function useSyncedTheme(): "light" | "dark" {
+  const [mode, setMode] = useState<"light" | "dark">("light");
   useEffect(() => {
     const apply = () => {
       const stored = localStorage.getItem("tb-theme");
@@ -120,29 +107,35 @@ function useSyncedTheme(): string {
       const custom = readStoredCustomTheme();
       const activeCustom = custom && isCustomThemeActive() ? custom : null;
       applyTheme(document.documentElement, themeId, activeCustom);
+      setMode(themeId.endsWith("-dark") ? "dark" : "light");
 
-      // The OS window is opaque, not transparent (see windows.ts), so its
-      // native background is a fixed colour main doesn't otherwise know —
-      // it has to be told. Read the RESOLVED colour off a throwaway element
-      // (never the raw CSS token, which could be oklch()/hex/anything and
-      // isn't what setBackgroundColor accepts) so this works for every theme
-      // family without hardcoding any of their values here. This is now the
-      // SAME board-accent colour CSS paints behind the card (see below), so
-      // the native window background and the painted board never mismatch
-      // during a resize or before the page has painted.
-      const accentHex = resolveBoardAccentHex(themeId, activeCustom);
-      setBoardAccent(accentHex);
-      window.sticky.setBackgroundColor(accentHex);
+      // Only Linux keeps an opaque native window (see windows.ts) — its
+      // native background is a fixed colour main doesn't otherwise know, so
+      // it has to be told. This paints it with the plain page background
+      // (never the accent token), read off a throwaway probe so it works for
+      // every theme family without hardcoding any of their values here. On
+      // Windows/macOS the window is natively transparent, so this is skipped
+      // entirely — there is no native fallback colour to keep in sync.
+      if (!window.sticky.nativeTransparency) {
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:fixed;width:0;height:0;overflow:hidden;pointer-events:none;";
+        document.body.appendChild(probe);
+        probe.classList.add("bg-bg");
+        const pageBgHex = toHex(getComputedStyle(probe).backgroundColor);
+        document.body.removeChild(probe);
+        window.sticky.setBackgroundColor(pageBgHex);
+      }
     };
     apply();
     window.addEventListener("storage", apply);
     return () => window.removeEventListener("storage", apply);
   }, []);
-  return boardAccent;
+  return mode;
 }
 
 function StickyApp() {
-  const boardAccent = useSyncedTheme();
+  const mode = useSyncedTheme();
+  const glass = GLASS_SURFACE[mode];
   const moveProps = useManualMove();
   const { t } = useTranslation("stickies");
   useEffect(() => {
@@ -217,12 +210,20 @@ function StickyApp() {
   // one-note widget, with no dead controls.
   return (
     // Layer 1 — the board: everything around the card (this padding, and the
-    // nav-arrow buttons below) sits directly on this div, now painted with
-    // the Complete button's own accent colour (useSyncedTheme/
-    // resolveBoardAccentHex) instead of the page background. The card itself
+    // nav-arrow buttons below) sits directly on this div, painted as a
+    // translucent water-glass surface (useSyncedTheme/GLASS_SURFACE) rather
+    // than any solid colour — on Windows/macOS the window itself is natively
+    // transparent (see main/windows.ts), so the real desktop shows through;
+    // on Linux the window stays opaque behind this (same platform limitation
+    // that keeps resize manual there), so the blur/tint still applies but
+    // over the native fallback colour, not the desktop. The card itself
     // (StickyWidget, Layer 2) keeps resolving its own light/dark surface
     // completely independently of this.
-    <div {...moveProps} className="flex h-full items-stretch p-1" style={{ backgroundColor: boardAccent }}>
+    <div
+      {...moveProps}
+      className="flex h-full items-stretch rounded-xl p-1"
+      style={{ background: glass.background, border: glass.border, backdropFilter: "blur(18px) saturate(140%)" }}
+    >
       {resizeHandles}
       {/* w-4, no gap: every pixel here comes straight out of the card's own
           width budget (see windows.ts's FULL_W/minWidth, sized to compensate),
