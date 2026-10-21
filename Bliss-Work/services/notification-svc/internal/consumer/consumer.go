@@ -14,6 +14,7 @@ import (
 	"github.com/segmentio/kafka-go"
 
 	"github.com/task-board/notification-svc/internal/events"
+	"github.com/task-board/notification-svc/internal/orgadmins"
 	"github.com/task-board/notification-svc/internal/outbox"
 	"github.com/task-board/shared-kafkaauth"
 )
@@ -35,6 +36,13 @@ type Consumer struct {
 	// uncommitted — see runBatch's doc comment for why that must end this
 	// process rather than let the loop keep going on the same reader.
 	stop func()
+	// orgAdmins resolves an org's current active org_admin ids from auth-svc,
+	// for billing.go's admin-routed notifications (membership.low_balance,
+	// and membership.grace_started/suspended fanning out to admins as well as
+	// the affected member). nil (e.g. in tests that don't exercise this path,
+	// or AUTH_INTERNAL_TOKEN unset) is treated as "no admins" rather than a
+	// crash — see lookupAdmins in billing.go.
+	orgAdmins orgadmins.Lookup
 }
 
 // New constructs a Consumer subscribed to task.events.v1, auth.events and
@@ -55,7 +63,7 @@ type Consumer struct {
 // pass the same signal.NotifyContext stop func main.go uses for its rootCtx,
 // so this triggers the identical graceful-shutdown-then-restart path as any
 // other fatal condition in the process.
-func New(pool *pgxpool.Pool, brokers []string, log *slog.Logger, stop func()) *Consumer {
+func New(pool *pgxpool.Pool, brokers []string, log *slog.Logger, stop func(), authInternalBase, authInternalToken string) *Consumer {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        "notification-svc",
@@ -89,7 +97,14 @@ func New(pool *pgxpool.Pool, brokers []string, log *slog.Logger, stop func()) *C
 		RequiredAcks: kafka.RequireAll,
 		BatchTimeout: 50 * time.Millisecond,
 	}
-	return &Consumer{pool: pool, reader: r, dlq: dlq, log: log, stop: stop}
+	// nil when AUTH_INTERNAL_TOKEN is unset — the same optional posture as
+	// auth-svc's own billing_client.py (if the peer isn't configured, the
+	// call becomes a no-op rather than a hard dependency at startup).
+	var admins orgadmins.Lookup
+	if authInternalToken != "" {
+		admins = orgadmins.New(authInternalBase, authInternalToken)
+	}
+	return &Consumer{pool: pool, reader: r, dlq: dlq, log: log, stop: stop, orgAdmins: admins}
 }
 
 // Run consumes until ctx is cancelled. The loop body is wrapped so a panic in

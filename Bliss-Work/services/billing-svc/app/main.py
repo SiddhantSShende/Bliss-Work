@@ -12,7 +12,7 @@ from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
 from .middleware import BodySizeLimitMiddleware, RequestIDMiddleware
 from .outbox_poller import poller as outbox_poller
-from .routes import internal_router, router
+from .routes import cashfree_webhook_router, internal_router, router
 
 configure_logging(settings.log_level)
 
@@ -55,6 +55,7 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(internal_router)
+app.include_router(cashfree_webhook_router)
 
 
 @app.get("/healthz")

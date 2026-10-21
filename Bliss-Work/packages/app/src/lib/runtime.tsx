@@ -120,6 +120,14 @@ export function useRuntime(): Runtime {
   return r;
 }
 
+/** Non-throwing variant for components that may render outside a
+ *  RuntimeProvider — e.g. the Electron floating note window, which has no
+ *  API client of its own and instead falls back to an IPC bridge (see
+ *  useTaskComments.ts). */
+export function useRuntimeOptional(): Runtime | null {
+  return useContext(RuntimeCtx);
+}
+
 /**
  * Connects whichever realtime transport this platform uses, for a route that
  * sits outside /app.

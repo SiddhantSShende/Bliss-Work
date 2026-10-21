@@ -339,5 +339,43 @@ parent.on("message", async (raw: unknown) => {
       );
       break;
     }
+    case "comments": {
+      // The floating note window has no RuntimeProvider/API client of its own
+      // (see StickyWidget's doc comment on CommentsPanel) — main forwards its
+      // comments requests here, the ONE process that already owns an
+      // authenticated ApiClient, and relays the task-svc response back by
+      // reqId. Auth/task-access is enforced by task-svc itself (same 404 it
+      // already gives the main window for a non-sender/assignee), so this
+      // adds no new trust boundary.
+      const reqId = m.reqId as string;
+      try {
+        if (!api) throw new Error("not signed in");
+        const taskId = m.taskId as string;
+        let data: unknown;
+        switch (m.action) {
+          case "list":
+            data = await api.taskComments(taskId, { cursor: m.cursor as string | null, limit: m.limit as number });
+            break;
+          case "post":
+            data = await api.createTaskComment(taskId, m.body as string);
+            break;
+          case "replies":
+            data = await api.taskCommentReplies(taskId, m.commentId as string, {
+              cursor: m.cursor as string | null,
+              limit: m.limit as number,
+            });
+            break;
+          case "reply-post":
+            data = await api.createTaskCommentReply(taskId, m.commentId as string, m.body as string);
+            break;
+          default:
+            throw new Error(`unknown comments action: ${String(m.action)}`);
+        }
+        send({ type: "comments-result", reqId, ok: true, data });
+      } catch (e) {
+        send({ type: "comments-result", reqId, ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+      break;
+    }
   }
 });

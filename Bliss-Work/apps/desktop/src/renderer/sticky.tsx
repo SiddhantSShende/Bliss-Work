@@ -1,8 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StickyWidget, type StickyTaskDTO, type TaskAction } from "@taskboard/app";
 import { followStoredLocale, useTranslation } from "@taskboard/app/i18n/windowLocale";
-import { applyTheme, isCustomThemeActive, isThemeId, readStoredCustomTheme, defaultThemeFor } from "@taskboard/ui";
+import {
+  applyTheme,
+  isCustomThemeActive,
+  isThemeId,
+  readStoredCustomTheme,
+  defaultThemeFor,
+  type ThemeId,
+  type CustomTheme,
+} from "@taskboard/ui";
 import { Pin, Maximize2, ChevronLeft, ChevronRight } from "lucide-react";
 import "@taskboard/ui/styles.css";
 import "./index.css";
@@ -29,6 +38,12 @@ declare global {
       ready: () => void;
       unpin: (taskId: string) => void;
       openChat: (taskId: string) => void;
+      comments: {
+        list: (taskId: string, cursor: string | null, limit: number) => Promise<unknown>;
+        post: (taskId: string, body: string) => Promise<unknown>;
+        replies: (taskId: string, commentId: string, cursor: string | null, limit: number) => Promise<unknown>;
+        postReply: (taskId: string, commentId: string, body: string) => Promise<unknown>;
+      };
     };
   }
 }
@@ -54,6 +69,34 @@ function toHex(resolved: string): string {
   return `#${hex(r!)}${hex(g!)}${hex(b!)}`;
 }
 
+/** The light-mode counterpart of any ThemeId — "rose-dark" → "rose", "rose" →
+ *  "rose" — i.e. the inverse of darkCounterpart, kept local since callers here
+ *  only ever need the light half (see resolveBoardAccent). */
+function lightCounterpart(id: ThemeId): ThemeId {
+  return (id.endsWith("-dark") ? id.slice(0, -"-dark".length) : id) as ThemeId;
+}
+
+/** Resolve the board's colour as the Complete button's own accent token
+ *  (`bg-accent` / `--color-accent`), NOT the button's brand-gradient stops —
+ *  the gradient is a presentational flourish on the button itself and
+ *  (unlike the accent token) isn't guaranteed stable across light/dark.
+ *  Resolved off a DETACHED probe carrying the current family/custom theme
+ *  forced to its LIGHT half, so the board stays the same colour whether the
+ *  user is in light or dark mode — only switching the accent family (or a
+ *  custom theme's colours) changes it. Never touches `document.documentElement`,
+ *  so the real card (StickyWidget) keeps resolving its own light/dark colours
+ *  completely independently. */
+function resolveBoardAccentHex(themeId: ThemeId, custom: CustomTheme | null): string {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;width:0;height:0;overflow:hidden;pointer-events:none;";
+  document.body.appendChild(probe);
+  applyTheme(probe, lightCounterpart(themeId), custom);
+  probe.classList.add("bg-accent");
+  const resolved = getComputedStyle(probe).backgroundColor;
+  document.body.removeChild(probe);
+  return toHex(resolved);
+}
+
 /** Apply the persisted theme on the sticky window's <html> so the note's
  *  surface/fg/border colours match the main app rather than being stuck on
  *  one preset. localStorage is shared across same-origin BrowserWindows in
@@ -61,45 +104,45 @@ function toHex(resolved: string): string {
  *  the main app's ThemeProvider writes to "tb-theme" and the sticky reads it
  *  here. The `storage` event fires when the main window toggles theme, so a
  *  user clicking "Dark mode" in the menu instantly recolours every floating
- *  note without any IPC plumbing. */
-function useSyncedTheme(): void {
+ *  note without any IPC plumbing.
+ *
+ *  Returns the resolved board-accent hex so the caller can paint it onto the
+ *  window body too (see StickyApp) — the colour behind/around the card and
+ *  the nav arrows, Layer 1 in the two-layer model (Layer 2 is the card
+ *  itself, which keeps following light/dark normally via the classes this
+ *  applies to <html>). */
+function useSyncedTheme(): string {
+  const [boardAccent, setBoardAccent] = useState("#ffffff");
   useEffect(() => {
     const apply = () => {
       const stored = localStorage.getItem("tb-theme");
+      const themeId = stored && isThemeId(stored) ? stored : defaultThemeFor(false);
       const custom = readStoredCustomTheme();
-      applyTheme(
-        document.documentElement,
-        stored && isThemeId(stored) ? stored : defaultThemeFor(false),
-        custom && isCustomThemeActive() ? custom : null,
-      );
+      const activeCustom = custom && isCustomThemeActive() ? custom : null;
+      applyTheme(document.documentElement, themeId, activeCustom);
+
       // The OS window is opaque, not transparent (see windows.ts), so its
       // native background is a fixed colour main doesn't otherwise know —
       // it has to be told. Read the RESOLVED colour off a throwaway element
-      // (never the raw --color-bg token, which could be oklch()/hex/anything
-      // and isn't what setBackgroundColor accepts) so this works for every
-      // theme family without hardcoding any of their values here.
-      // Deliberately --color-bg (the app's page background), NOT the card's
-      // own bg-accent-soft: this colours only the thin OS-window margin
-      // outside the card's rounded corners (the "outer" area), while the
-      // card itself — the comment on StickyWidget's root div — keeps its own
-      // background untouched. Using the page token also means a resize never
-      // flashes an unthemed colour behind the card.
-      const probe = document.createElement("div");
-      probe.className = "bg-bg";
-      probe.style.cssText = "position:fixed;width:0;height:0;overflow:hidden;pointer-events:none;";
-      document.body.appendChild(probe);
-      const resolved = getComputedStyle(probe).backgroundColor;
-      document.body.removeChild(probe);
-      window.sticky.setBackgroundColor(toHex(resolved));
+      // (never the raw CSS token, which could be oklch()/hex/anything and
+      // isn't what setBackgroundColor accepts) so this works for every theme
+      // family without hardcoding any of their values here. This is now the
+      // SAME board-accent colour CSS paints behind the card (see below), so
+      // the native window background and the painted board never mismatch
+      // during a resize or before the page has painted.
+      const accentHex = resolveBoardAccentHex(themeId, activeCustom);
+      setBoardAccent(accentHex);
+      window.sticky.setBackgroundColor(accentHex);
     };
     apply();
     window.addEventListener("storage", apply);
     return () => window.removeEventListener("storage", apply);
   }, []);
+  return boardAccent;
 }
 
 function StickyApp() {
-  useSyncedTheme();
+  const boardAccent = useSyncedTheme();
   const moveProps = useManualMove();
   const { t } = useTranslation("stickies");
   useEffect(() => {
@@ -173,7 +216,13 @@ function StickyApp() {
   // zero floating tasks, so a single pinned task looks exactly like the old
   // one-note widget, with no dead controls.
   return (
-    <div {...moveProps} className="flex h-full items-stretch p-1">
+    // Layer 1 — the board: everything around the card (this padding, and the
+    // nav-arrow buttons below) sits directly on this div, now painted with
+    // the Complete button's own accent colour (useSyncedTheme/
+    // resolveBoardAccentHex) instead of the page background. The card itself
+    // (StickyWidget, Layer 2) keeps resolving its own light/dark surface
+    // completely independently of this.
+    <div {...moveProps} className="flex h-full items-stretch p-1" style={{ backgroundColor: boardAccent }}>
       {resizeHandles}
       {/* w-4, no gap: every pixel here comes straight out of the card's own
           width budget (see windows.ts's FULL_W/minWidth, sized to compensate),
@@ -218,8 +267,16 @@ function StickyApp() {
 // the catalog lands, then re-renders in place.
 void followStoredLocale();
 
+// CommentsPanel (rendered inside StickyWidget) uses react-query, which needs
+// a QueryClient in context regardless of how its queryFn actually fetches —
+// this window has no RuntimeProvider (see useTaskComments' IPC bridge path),
+// but still needs this for the cache/mutation plumbing to work at all.
+const queryClient = new QueryClient();
+
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <StickyApp />
+    <QueryClientProvider client={queryClient}>
+      <StickyApp />
+    </QueryClientProvider>
   </React.StrictMode>,
 );

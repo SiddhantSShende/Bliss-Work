@@ -80,6 +80,7 @@
     "empty": "No comments yet.",
     "loading": "Loading comments…",
     "loadError": "Couldn't load comments.",
+    "unavailable": "Comments aren't available in this window. Open the task from the main window to see and add comments.",
     "retry": "Retry",
     "loadMore": "Load more",
     "loadingMore": "Loading more…",

@@ -94,7 +94,7 @@ func main() {
 		pub.Run(rootCtx)
 	}()
 
-	cons := consumer.New(pool, cfg.KafkaBrokers, logger, stop)
+	cons := consumer.New(pool, cfg.KafkaBrokers, logger, stop, cfg.AuthInternalBase, cfg.AuthInternalToken)
 	workers.Add(1)
 	go func() {
 		defer workers.Done()

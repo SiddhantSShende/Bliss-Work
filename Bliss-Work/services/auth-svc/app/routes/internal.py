@@ -21,6 +21,7 @@ from crypto import cryptor
 from ..db import engine
 from ..events.outbox import SECRET_EVENT_TYPES, TOPIC_AUTH, build_event, enqueue_event
 from ..schemas import UserDTO
+from . import members_service
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -121,6 +122,32 @@ async def reproject_org_users(
             await enqueue_event(conn, topic=TOPIC_AUTH, kafka_key=dto.id, event=event)
             emitted += 1
     return {"orgId": org_id, "emitted": emitted, "truncated": emitted == _REPROJECT_MAX}
+
+
+@router.get("/v1/orgs/{org_id}/admins")
+async def internal_org_admins(
+    org_id: str,
+    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+) -> dict:
+    """Return the user ids of `org_id`'s CURRENT active org_admin members.
+
+    Built for notification-svc's billing consumer, which needs "the org's
+    admins" to route membership.low_balance / grace_started / suspended
+    notices (see services/notification-svc/internal/consumer/billing.go).
+    Reuses `members_service._active_admin_ids` — the exact same query that
+    already guards the no-last-admin invariant elsewhere in this service —
+    rather than standing up a second source of truth for who administers an
+    org.
+
+    No PII: ids only, no emails/usernames. Trusted service-to-service call,
+    same X-Internal-Token pattern as every other endpoint in this module.
+    """
+    if not internal_token_matches(x_internal_token, _INTERNAL_TOKEN):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bad internal token")
+    async with engine.connect() as conn:
+        await service.set_org_guc(conn, org_id)
+        admin_ids = await members_service._active_admin_ids(conn, org_id)
+    return {"adminUserIds": sorted(admin_ids)}
 
 
 @router.get("/outbox-events/{outbox_id}")

@@ -76,6 +76,14 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 5173,
     strictPort: true,
+    // Bind every interface (IPv4 0.0.0.0 AND IPv6 ::), not just whichever
+    // address Node's "localhost" resolution happens to pick first on this
+    // host. Without this, the dev server was observed binding [::1] (IPv6)
+    // only, so a tool/tunnel/port-forward targeting 127.0.0.1 specifically
+    // (common for VS Code Remote-SSH, which this proxy setup is explicitly
+    // built for — see the comment below) could not reach it at all, even
+    // though the server was genuinely up.
+    host: true,
     /**
      * Dev-only reverse proxy, so the whole app is reachable through ONE port.
      *

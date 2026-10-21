@@ -74,6 +74,22 @@ const api = {
    *  own, so this asks main to focus/show the main window and tell IT to open
    *  the discussion — see main/task-chat-open.ts. */
   openChat: (taskId: string) => ipcRenderer.send("sticky:open-chat", taskId),
+
+  /** Task comments, relayed through ws-process — the one process that already
+   *  holds an authenticated ApiClient (see main/index.ts's requestComments and
+   *  ws-process.ts's "comments" case). This window has neither a RuntimeProvider
+   *  nor its own API client, so every call round-trips through main instead of
+   *  hitting task-svc directly. Each returns the same TaskCommentPage/
+   *  TaskCommentDTO shape the main window's ApiClient methods do. */
+  comments: {
+    list: (taskId: string, cursor: string | null, limit: number) =>
+      ipcRenderer.invoke("sticky:comments-list", taskId, cursor, limit),
+    post: (taskId: string, body: string) => ipcRenderer.invoke("sticky:comments-post", taskId, body),
+    replies: (taskId: string, commentId: string, cursor: string | null, limit: number) =>
+      ipcRenderer.invoke("sticky:comments-replies", taskId, commentId, cursor, limit),
+    postReply: (taskId: string, commentId: string, body: string) =>
+      ipcRenderer.invoke("sticky:comments-reply-post", taskId, commentId, body),
+  },
 };
 
 contextBridge.exposeInMainWorld("sticky", api);

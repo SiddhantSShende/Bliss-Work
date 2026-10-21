@@ -33,6 +33,32 @@ class Settings(BaseSettings):
     # env — the two must be the same value, but each service validates its own.
     internal_token: str = Field(default="", validation_alias="BILLING_INTERNAL_TOKEN")
 
+    # Cashfree payment gateway — OFF by default (see app/cashfree.py). Real
+    # outbound calls only happen when cashfree_enabled is true AND both
+    # credentials are non-empty. Never log/echo these; never send to frontend.
+    cashfree_enabled: bool = Field(default=False, validation_alias="CASHFREE_ENABLED")
+    cashfree_env: str = Field(default="sandbox", validation_alias="CASHFREE_ENV")  # "sandbox" | "production"
+    cashfree_client_id: str = Field(default="", validation_alias="CASHFREE_CLIENT_ID")
+    cashfree_client_secret: str = Field(default="", validation_alias="CASHFREE_CLIENT_SECRET")
+    cashfree_webhook_secret: str = Field(default="", validation_alias="CASHFREE_WEBHOOK_SECRET")
+    cashfree_api_version: str = Field(default="2023-08-01", validation_alias="CASHFREE_API_VERSION")
+    checkout_return_url: str = Field(
+        default="http://localhost:5173/billing/purchase/return",
+        validation_alias="CHECKOUT_RETURN_URL",
+    )
+
+    @property
+    def cashfree_ready(self) -> bool:
+        return bool(
+            self.cashfree_enabled and self.cashfree_client_id and self.cashfree_client_secret
+        )
+
+    @property
+    def cashfree_base_url(self) -> str:
+        if self.cashfree_env.strip().lower() in {"production", "prod"}:
+            return "https://api.cashfree.com/pg"
+        return "https://sandbox.cashfree.com/pg"
+
     @property
     def sqlalchemy_url(self) -> str:
         url = self._strip_query(self.billing_database_url)

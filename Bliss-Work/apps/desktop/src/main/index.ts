@@ -15,6 +15,7 @@ import {
 } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import type { StickyTaskDTO } from "@taskboard/shared";
 import { createMainWindow, syncMainTitleBarZoom } from "./windows";
 import { StickyManager } from "./sticky-manager";
@@ -567,6 +568,11 @@ function startWsProcess() {
       clientMsgId?: string;
       // Phase 10: inbound rtc.* control frame to relay to the renderer.
       frame?: unknown;
+      // Comments relay (floating note window): matches requestComments's reqId.
+      reqId?: string;
+      ok?: boolean;
+      data?: unknown;
+      error?: string;
     }) => {
       // Any inbound message means the child is alive and talking — reset the
       // restart backoff so a later crash again starts from a short delay.
@@ -612,10 +618,63 @@ function startWsProcess() {
         case "need-token":
           sendToMain("token:request");
           break;
+        case "comments-result": {
+          const reqId = m.reqId as string | undefined;
+          const pending = reqId ? pendingCommentRequests.get(reqId) : undefined;
+          if (pending && reqId) {
+            pendingCommentRequests.delete(reqId);
+            clearTimeout(pending.timer);
+            if (m.ok) pending.resolve(m.data);
+            else pending.reject(new Error((m.error as string) || "comments request failed"));
+          }
+          break;
+        }
       }
     },
   );
 }
+
+/** How long a floating note's comments request (list/post/replies/reply)
+ *  waits on ws-process before giving up — long enough for a slow network,
+ *  short enough that the panel's own error state (not a hang) is what the
+ *  user sees if the app is offline or signed out. */
+const COMMENTS_REQUEST_TIMEOUT_MS = 15_000;
+
+const pendingCommentRequests = new Map<
+  string,
+  { resolve: (data: unknown) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
+>();
+
+/**
+ * The floating note window has no API client of its own (see ws-process's
+ * "comments" case) — relay its comments requests to ws-process, the one
+ * process that already holds an authenticated ApiClient, and resolve once
+ * its "comments-result" reply (matched by reqId) comes back.
+ */
+function requestComments(action: string, payload: Record<string, unknown>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const reqId = randomUUID();
+    const timer = setTimeout(() => {
+      pendingCommentRequests.delete(reqId);
+      reject(new Error("comments request timed out"));
+    }, COMMENTS_REQUEST_TIMEOUT_MS);
+    pendingCommentRequests.set(reqId, { resolve, reject, timer });
+    wsProc?.postMessage({ type: "comments", reqId, action, ...payload });
+  });
+}
+
+ipcMain.handle("sticky:comments-list", (_e, taskId: unknown, cursor: unknown, limit: unknown) =>
+  requestComments("list", { taskId, cursor, limit }),
+);
+ipcMain.handle("sticky:comments-post", (_e, taskId: unknown, body: unknown) =>
+  requestComments("post", { taskId, body }),
+);
+ipcMain.handle("sticky:comments-replies", (_e, taskId: unknown, commentId: unknown, cursor: unknown, limit: unknown) =>
+  requestComments("replies", { taskId, commentId, cursor, limit }),
+);
+ipcMain.handle("sticky:comments-reply-post", (_e, taskId: unknown, commentId: unknown, body: unknown) =>
+  requestComments("reply-post", { taskId, commentId, body }),
+);
 
 /**
  * Raise an OS notification for one live event, if it deserves one and the app

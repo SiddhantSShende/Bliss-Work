@@ -72,11 +72,15 @@ const (
 	// see messaging-svc's events.TypeCallMissed doc comment for why: its
 	// recipient may not have been looking at a screen when the ring expired.
 	KindCallMissed = "CALL_MISSED"
-	// KindMembershipGraceStarted / KindMembershipSuspended tell the affected
-	// member their own membership billing lapsed. See BillingEvent's doc
-	// comment for why these go to the member rather than "org admins".
+	// KindMembershipGraceStarted / KindMembershipSuspended tell a recipient
+	// (the affected member, and now also the org's admins — see billing.go's
+	// doc comment) that a membership's billing lapsed or was suspended.
 	KindMembershipGraceStarted = "MEMBERSHIP_GRACE_STARTED"
 	KindMembershipSuspended    = "MEMBERSHIP_SUSPENDED"
+	// KindMembershipLowBalance tells an org admin the org's credit balance is
+	// below its configured threshold. Admin-only: there is no "affected
+	// member" for an org-wide balance.
+	KindMembershipLowBalance = "MEMBERSHIP_LOW_BALANCE"
 )
 
 // Billing event kind discriminants (billing-svc's outbox payload `kind`

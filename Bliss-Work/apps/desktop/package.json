@@ -154,6 +154,7 @@
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
     "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/react-query": "^5.62.0",
     "@taskboard/app": "*",
     "@taskboard/shared": "*",
     "@taskboard/ui": "*",

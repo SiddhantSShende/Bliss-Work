@@ -15,6 +15,13 @@ type Config struct {
 	JWTIssuer    string
 	WebOrigin    string
 	LogLevel     string
+	// AuthInternalBase / AuthInternalToken: auth-svc's internal base URL and
+	// shared X-Internal-Token secret, used to resolve an org's admins for
+	// billing notifications (see internal/orgadmins and internal/consumer/
+	// billing.go). Same env var names as email-worker and telemetry-svc,
+	// which already call auth-svc's internal endpoints this same way.
+	AuthInternalBase  string
+	AuthInternalToken string
 }
 
 // Load reads configuration from environment variables, applying sensible
@@ -29,6 +36,12 @@ func Load() (*Config, error) {
 		JWTIssuer:   getEnv("JWT_ISSUER", "task-board"),
 		WebOrigin:   getEnv("WEB_ORIGIN", "http://localhost:5173"),
 		LogLevel:    getEnv("LOG_LEVEL", "info"),
+		// Optional: unset means the admins lookup is never attempted (see
+		// orgadmins wiring in main.go) rather than the service failing to
+		// start — mirrors billing_internal_base's own optional posture in
+		// auth-svc's app/config.py.
+		AuthInternalBase:  getEnv("AUTH_INTERNAL_BASE", "http://auth-svc:8001"),
+		AuthInternalToken: os.Getenv("AUTH_INTERNAL_TOKEN"),
 	}
 
 	brokers := getEnv("KAFKA_BROKERS", "kafka:9092")

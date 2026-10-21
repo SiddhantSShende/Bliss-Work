@@ -450,13 +450,18 @@ export function StickyWidget({
   // card in the main window's task list marked as one would swallow the gesture
   // (mouse wheel still worked) — and dragging a card would move the whole window.
   return (
-    // Outer widget container: always a pure white surface, independent of
-    // the selected theme. Only the inner content panel below carries the
-    // theme's background color — splitting the two keeps the OS window /
-    // list-item chrome neutral while the themed card content stays themed.
+    // The task note/card — Layer 2 in the floating-pin model (the board
+    // surrounding it, including the OS window margin and nav arrows, is
+    // Layer 1; see apps/desktop/src/renderer/sticky.tsx's useSyncedTheme).
+    // This card follows the selected light/dark theme normally, same as the
+    // in-app Tasks list card.
     <div
       data-task-card=""
-      className={`${compact ? "app-drag " : ""}flex min-w-0 flex-col rounded-2xl border bg-white ${
+      className={`${compact ? "app-drag " : ""}flex min-w-0 flex-col rounded-2xl border ${
+        compact ? "bg-accent-soft" : "bg-surface"
+      } ${
+        landscape ? `${TASK_CARD_ROOT} p-3` : "gap-3 p-4"
+      } ${
         task.myStatus === "MISSED" ? "border-danger/40" : "border-border"
       } ${
         // The floating note lives in a fixed-size, user-resizable OS window
@@ -481,12 +486,6 @@ export function StickyWidget({
         compact ? "max-h-full min-h-0 overflow-y-auto shadow-widget" : "shadow-soft"
       }`}
     >
-      <div
-        data-task-card-content=""
-        className={`flex min-w-0 flex-1 flex-col rounded-[14px] ${compact ? "bg-accent-soft" : "bg-surface"} ${
-          landscape ? `${TASK_CARD_ROOT} p-3` : "gap-3 p-4"
-        }`}
-      >
       {landscape ? (
         <div className={hideParticipants ? TASK_CARD_BODY_SLIM : TASK_CARD_BODY}>
           <div className={TASK_CARD_MAIN}>
@@ -532,7 +531,6 @@ export function StickyWidget({
           )}
         </>
       )}
-      </div>
     </div>
   );
 }

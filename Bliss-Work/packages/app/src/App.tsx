@@ -467,9 +467,22 @@ function SessionBootstrap({
 }) {
   const { t } = useTranslation("common");
   const status = useSession((s) => s.status);
-  const [ready, setReady] = useState(false);
+  // The Super Admin surface (routes/SuperAdminLogin.tsx, SuperAdminDashboard.tsx)
+  // has no org, no `users` row, and no refresh-token cookie to rotate — it is a
+  // wholly separate credential (see auth-svc/app/routes/super_admin.py). Before
+  // this check, EVERY load of /super-admin/login or /super-admin/dashboard sat
+  // behind this component's own refreshSession() call below (an attempt to
+  // refresh a session that was never going to exist on this path), showing a
+  // blocking "Loading…" screen ahead of anything that route renders — the
+  // visible extra step reported as still appearing after the dashboard's own
+  // redundant /me check was removed. That earlier fix was correct but
+  // addressed a different, inner layer; this is the actual gate every
+  // /super-admin/* load was passing through first.
+  const isSuperAdminRoute = useLocation().pathname.startsWith("/super-admin");
+  const [ready, setReady] = useState(isSuperAdminRoute);
 
   useEffect(() => {
+    if (isSuperAdminRoute) return;
     let alive = true;
     (async () => {
       // The Electron meeting window's own credential IPC is deliberately
@@ -493,6 +506,7 @@ function SessionBootstrap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  if (isSuperAdminRoute) return <>{children}</>;
   if (!ready || status === "loading")
     return (
       <div className="flex h-full items-center justify-center text-[var(--color-muted)]">

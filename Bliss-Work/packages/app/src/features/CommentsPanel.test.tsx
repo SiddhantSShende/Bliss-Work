@@ -17,7 +17,10 @@ const h = vi.hoisted(() => ({
     createTaskCommentReply: vi.fn(),
   },
 }));
-vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
+vi.mock("../lib/runtime", () => ({
+  useRuntime: () => ({ api: h.api, config: {} }),
+  useRuntimeOptional: () => ({ api: h.api, config: {} }),
+}));
 
 import { CommentsPanel } from "./CommentsPanel";
 
