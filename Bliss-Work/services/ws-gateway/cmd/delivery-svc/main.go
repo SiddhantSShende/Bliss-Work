@@ -104,7 +104,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	r := router.New(st, push.NewClient(cfg.WSGatewayInternalToken), log)
+	pushClient, err := push.NewClientFromConfig(cfg.WSGatewayInternalToken, push.CallerDeliverySvc, cfg.PushSigningKey)
+	if err != nil {
+		log.Error("push signing key misconfigured", "err", err)
+		os.Exit(1)
+	}
+	if cfg.PushSigningKey == "" {
+		log.Warn("push: WS_GATEWAY_PUSH_SIGNING_KEY not set; using deprecated shared-token+header-only internal caller identity")
+	}
+	r := router.New(st, pushClient, log)
 	consumer := router.NewConsumer(cfg.KafkaBrokers, r, log)
 	safego.Go(log, "delivery-svc.consumer", func() { consumer.Run(rootCtx) })
 

@@ -203,6 +203,12 @@
       "done_other": "Aufgabe an {{count}} Personen zurückgesendet",
       "failed": "Diese Aufgabe konnte nicht neu zugewiesen werden"
     },
+    "reassignMember": {
+      "label": "Wieder hinzufügen",
+      "pending": "Wird hinzugefügt…",
+      "done": "{{name}} ist wieder bei dieser Aufgabe dabei",
+      "failed": "Diese Person konnte nicht wieder hinzugefügt werden"
+    },
     "milestones": {
       "allocated": "Zugewiesen",
       "acknowledged": "Bestätigt",

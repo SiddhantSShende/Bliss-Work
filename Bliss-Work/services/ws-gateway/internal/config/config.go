@@ -46,6 +46,29 @@ type Config struct {
 	// cmd/ws-gateway and cmd/delivery-svc refuse to start when this is empty
 	// rather than falling back to a well-known development value.
 	WSGatewayInternalToken string
+
+	// ── Cryptographic internal-caller identity (/internal/push) ────────────
+	// See services/ws-gateway/internal/push/svcjwt.go for the full design
+	// rationale. These are additive to WSGatewayInternalToken above, not a
+	// replacement for it: a process with none of these set keeps using
+	// exactly the pre-existing shared-token + self-asserted-header behaviour.
+	//
+	// PushSigningKey is set on a CLIENT process (cmd/delivery-svc or
+	// cmd/ws-gateway) to its own Ed25519 private key (base64 seed or raw
+	// key) — the credential that process signs its pushes with. A given
+	// process acts under exactly one role, so one env var name is reused for
+	// whichever role that deployment is.
+	PushSigningKey string
+	// PushVerifyKeyDeliverySvc / PushVerifyKeyGatewayPeer are set on the
+	// SERVER (cmd/ws-gateway's handlePush) to the PUBLIC half of each role's
+	// keypair. A caller's role is derived from which of these verifies its
+	// signature — never from the X-Internal-Caller header. Either or both
+	// may be empty, in which case the signed path is simply unavailable for
+	// that role and handlePush falls back to the legacy header for it (see
+	// push.go's handlePush doc comment).
+	PushVerifyKeyDeliverySvc string
+	PushVerifyKeyGatewayPeer string
+
 	// MaxConnections caps the number of concurrent WebSockets this node accepts.
 	// Beyond it the upgrade is rejected (1013 Try Again Later) so a connection
 	// storm can't OOM the pod. 0 = unlimited.
@@ -154,10 +177,13 @@ func Load() Config {
 		LogLevel:              getenv("LOG_LEVEL", "info"),
 		MessagingBaseInternal: getenv("TB_MESSAGING_INTERNAL_BASE", "http://messaging-svc:8004"),
 		// Secrets get no default — see the field comments above.
-		MessagingInternalToken: os.Getenv("MESSAGING_INTERNAL_TOKEN"),
-		WSGatewayInternalToken: os.Getenv("WS_GATEWAY_INTERNAL_TOKEN"),
-		MaxConnections:         getenvInt("WS_MAX_CONNECTIONS", 50000),
-		MaxConnsPerUser:        getenvInt("WS_MAX_CONNS_PER_USER", 20),
+		MessagingInternalToken:   os.Getenv("MESSAGING_INTERNAL_TOKEN"),
+		WSGatewayInternalToken:   os.Getenv("WS_GATEWAY_INTERNAL_TOKEN"),
+		PushSigningKey:           os.Getenv("WS_GATEWAY_PUSH_SIGNING_KEY"),
+		PushVerifyKeyDeliverySvc: os.Getenv("WS_GATEWAY_PUSH_VERIFY_KEY_DELIVERY_SVC"),
+		PushVerifyKeyGatewayPeer: os.Getenv("WS_GATEWAY_PUSH_VERIFY_KEY_GATEWAY_PEER"),
+		MaxConnections:           getenvInt("WS_MAX_CONNECTIONS", 50000),
+		MaxConnsPerUser:          getenvInt("WS_MAX_CONNS_PER_USER", 20),
 		// Defaults to the existing behaviour. Routed delivery is opt-in, and
 		// stays that way until an operator has delivery-svc running.
 		FanoutMode:       normalizeFanoutMode(getenv("WS_FANOUT_MODE", FanoutBroadcast)),

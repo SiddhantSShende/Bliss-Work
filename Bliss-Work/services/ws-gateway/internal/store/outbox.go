@@ -22,7 +22,20 @@ const outboxTTL = 24 * time.Hour
 
 // maxReplayDefault is how many recent events are replayed when a client sends
 // hello with lastSeenSeq == 0.
-const maxReplayDefault = 200
+//
+// This is an upper bound requested at READ time, not a guarantee of what is
+// available: AppendOutbox/AppendOutboxMulti unconditionally trim every
+// user's outbox ZSET to maxReplayHard members on every WRITE (see below).
+// Was 200, which exceeded maxReplayHard (100) and was therefore dead
+// configuration — the key could never hold more than 100 entries, so a
+// fresh client's request for "the most recent 200" could never return more
+// than 100 in practice. Lowered to match maxReplayHard exactly (Option A of
+// batch-7-replay-capacity-decision.md, WebSocket engineering reports): the
+// read-time ceiling can never usefully exceed the write-time hard cap, so
+// the two now agree and the fresh-client contract is honest about what it
+// can actually receive. This is a doc/behavior-alignment change only — it
+// does not change what is stored in Redis or increase retention.
+const maxReplayDefault = 100
 
 // maxReplayHard caps catch-up replay when a client presents a cursor
 // (lastSeenSeq > 0) but is far behind — e.g. it was offline while a busy org
@@ -130,7 +143,34 @@ func (s *Store) AppendOutboxMulti(
 // but changes the score, the client cursor and the wire contract together. This
 // is the correction that can ship without a flag day, and it fails in the
 // direction that the client already handles.
-func (s *Store) Replay(ctx context.Context, userID string, lastSeenSeq int64) (out [][]byte, err error) {
+//
+// ── truncated ────────────────────────────────────────────────────────────
+//
+// AppendOutbox/AppendOutboxMulti hard-trim each user's ZSET to maxReplayHard
+// members on EVERY write (ZRemRangeByRank), not just at read time — so the
+// key itself can never hold more than maxReplayHard entries, and the
+// Count:maxReplayHard cap on the ZRevRangeByScore call below can only ever
+// bind when the client's cursor is at or before everything currently in the
+// key (the common, fully-recoverable case). The real loss case is
+// different: once a busy user's backlog pushes the key's membership past
+// maxReplayHard, the OLDEST entries are trimmed away immediately, at
+// append time, regardless of whether any client ever asked for them. A
+// client that was offline through that churn reconnects with a cursor
+// older than anything the key still has — and before this check, got back
+// whatever remained with an identical, un-flagged `replay.done`, silently
+// skipping everything in between.
+//
+// Detected here by comparing the cursor against the score of the OLDEST
+// member still in the key (ZRangeWithScores 0 0): if that score is strictly
+// after lastSeenSeq, something between the two was trimmed before this
+// client could ever see it. One cheap O(log N) command, independent of the
+// Count cap, run whenever a cursor was supplied.
+//
+// Fresh-client replay (lastSeenSeq <= 0) is never marked truncated: there is
+// no prior cursor to measure a gap against, and "give me the most recent
+// 200" is the intended, complete behavior for that case, not a cap hitting
+// a real backlog.
+func (s *Store) Replay(ctx context.Context, userID string, lastSeenSeq int64) (out [][]byte, truncated bool, err error) {
 	defer observe(metrics.PurposeOutbox, time.Now(), &err)
 	key := s.outboxKey(userID)
 	var raws []string
@@ -150,14 +190,21 @@ func (s *Store) Replay(ctx context.Context, userID string, lastSeenSeq int64) (o
 			for i, j := 0, len(raws)-1; i < j; i, j = i+1, j-1 {
 				raws[i], raws[j] = raws[j], raws[i]
 			}
+			var oldest []redis.Z
+			if oldest, err = s.rdb.ZRangeWithScores(ctx, key, 0, 0).Result(); err == nil && len(oldest) == 1 {
+				truncated = oldest[0].Score > float64(lastSeenSeq)
+			}
 		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if truncated {
+		metrics.ReplayTruncatedTotal.Inc()
 	}
 	out = make([][]byte, 0, len(raws))
 	for _, r := range raws {
 		out = append(out, []byte(r))
 	}
-	return out, nil
+	return out, truncated, nil
 }

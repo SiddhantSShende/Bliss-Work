@@ -138,6 +138,19 @@ export function isReassignableTask(task: Pick<SentTaskDTO, "assignees">): boolea
   return assignees.length > 0 && assignees.every((a) => a.status === first) && (first === "LEFT" || first === "IGNORED");
 }
 
+/**
+ * A single participant row is eligible for the member-level "Re-add" action —
+ * the same rule task-svc applies to `POST /tasks/{id}/assignees/{userId}/reassign`
+ * — when that one row is COMPLETED, LEFT, or IGNORED. Unlike `isReassignableTask`,
+ * this never looks at anyone else's row: it is what lets one person (say, someone
+ * who ignored their part) come back onto a task the rest of the team is still
+ * actively working. MISSED is excluded, same as the whole-task route: that is the
+ * deadline sweeper's outcome, and the deadline itself is not reopened either way.
+ */
+export function isMemberReassignable(status: AssigneeStatus): boolean {
+  return status === "COMPLETED" || status === "LEFT" || status === "IGNORED";
+}
+
 export interface PersonOption {
   id: string;
   /** The DTO's own label (email local-part; may be ""), used until a real name resolves. */

@@ -227,6 +227,12 @@
       "done_other": "Task sent back to {{count}} people",
       "failed": "Couldn't reassign this task"
     },
+    "reassignMember": {
+      "label": "Re-add",
+      "pending": "Re-adding…",
+      "done": "{{name}} is back on this task",
+      "failed": "Couldn't re-add this person"
+    },
     "milestones": {
       "allocated": "Allocated",
       "acknowledged": "Acknowledged",

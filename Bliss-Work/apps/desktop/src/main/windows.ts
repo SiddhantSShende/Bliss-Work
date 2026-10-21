@@ -236,9 +236,10 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
     // window has no such fallback to fail: it always renders exactly what it
     // is asked to. `backgroundColor` below keeps the tiny rounded-corner
     // cutouts around the card (the only bit of the window the card doesn't
-    // paint itself) matching the card's own colour instead of showing a
-    // visible square edge — see useSyncedTheme in ../renderer/sticky.tsx,
-    // which keeps it in step with the active theme over "sticky:bg".
+    // paint itself) matching the active theme's page background instead of
+    // showing a visible square edge — see useSyncedTheme in
+    // ../renderer/sticky.tsx, which keeps it in step with the active theme
+    // over "sticky:bg".
     transparent: false,
     backgroundColor: "#ffffff",
     // Resizable everywhere. On Linux the window manager never sees this window

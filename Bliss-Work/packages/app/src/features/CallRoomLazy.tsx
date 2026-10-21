@@ -71,7 +71,7 @@ const LazyCallRoom = lazy(() =>
 function CallRoomFallback() {
   const { t } = useTranslation("calls");
   return (
-    <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 z-[100] flex items-center justify-center text-sm text-muted">
+    <div className="meeting-surface meeting-mesh fixed inset-0 z-[100] flex items-center justify-center text-sm text-muted">
       {t("roomLazy.connecting")}
     </div>
   );
@@ -94,7 +94,7 @@ function CallRoomFallback() {
 function CallRoomLoadError() {
   const { t } = useTranslation("calls");
   return (
-    <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 p-6 text-center">
+    <div className="meeting-surface meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 p-6 text-center">
       <div className="text-sm font-medium text-fg">{t("roomLazy.error.title")}</div>
       <div className="max-w-xs text-xs text-muted">{t("roomLazy.error.hint")}</div>
       <button

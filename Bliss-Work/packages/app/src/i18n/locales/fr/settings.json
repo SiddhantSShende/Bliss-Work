@@ -43,7 +43,7 @@
     "turnOff": "Désactiver"
   },
   "screenshotProtection": {
-    "title": "Protection contre les captures d'écran et le partage d'écran",
+    "title": "Protection du partage d'écran",
     "onDescription": "BlissWork est masqué des captures d'écran et du partage d'écran lorsque votre système d'exploitation le permet. Nous vous avertirons toujours si une tentative de capture est détectée.",
     "offDescription": "BlissWork peut apparaître dans les captures d'écran et le partage d'écran, pour des présentations ou des réunions. Les notifications de tentative de capture continuent de fonctionner.",
     "turnOn": "Activer",

@@ -16,6 +16,7 @@ import type { MailDTO, MailRecipientDTO } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useRuntime } from "../lib/runtime";
+import { useUserLabels } from "../lib/userLabel";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { errorText } from "../lib/errorText";
@@ -91,6 +92,7 @@ function MailDetailContent({ mailId }: { mailId: string }) {
 
   const q = useQuery({ queryKey: qk.mail(mailId), queryFn: () => api.mail(mailId) });
   const mail = q.data;
+  const { nameOf } = useUserLabels();
 
   // Mark read on open. Idempotent server-side (read_at is only stamped once),
   // so the feed's own mark-on-peer-open and this can both fire safely.
@@ -145,7 +147,14 @@ function MailDetailContent({ mailId }: { mailId: string }) {
     );
   }
 
-  const senderLabel = mail.fromName || mail.fromAddress || t("detail.unknownSender");
+  // `mail.fromName` is the display name snapshotted at send time (see
+  // messaging-svc's `mailAuthor` comment) — correct, but it goes stale against
+  // a later rename the same way `peerUsername` does in the list row (see
+  // MailRow). Resolving it live through the directory keeps the thread header
+  // and the list in agreement; the snapshot is still the fallback for anyone
+  // no longer in the directory, exactly as nameOf already does elsewhere.
+  const senderLabel =
+    nameOf(mail.fromUserId, mail.fromName) || mail.fromAddress || t("detail.unknownSender");
   const to = mail.recipients.filter((r) => r.kind === "TO");
   const cc = mail.recipients.filter((r) => r.kind === "CC");
   const bcc = mail.recipients.filter((r) => r.kind === "BCC");

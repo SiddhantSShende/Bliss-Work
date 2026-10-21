@@ -43,7 +43,7 @@
     "turnOff": "끄기"
   },
   "screenshotProtection": {
-    "title": "스크린샷 및 화면 공유 보호",
+    "title": "화면 공유 보호",
     "onDescription": "운영체제가 지원하는 경우 BlissWork가 스크린샷과 화면 공유에서 숨겨져요. 스크린샷 시도가 감지되면 여전히 알려드려요.",
     "offDescription": "발표나 회의를 위해 BlissWork가 스크린샷과 화면 공유에 보일 수 있어요. 스크린샷 시도 알림은 계속 작동해요.",
     "turnOn": "켜기",

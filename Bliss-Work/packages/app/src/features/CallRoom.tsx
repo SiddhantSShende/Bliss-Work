@@ -906,7 +906,7 @@ export function CallRoom({
   // something that cannot be retried, and not a credentials error.
   if (endedBeforeJoin || (status === "failed" && failStage === "ended")) {
     return (
-      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
+      <div className="meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
           <AlertCircle size={24} />
         </div>
@@ -939,7 +939,7 @@ export function CallRoom({
       : t("preJoin.readyToJoinLabel");
 
     return (
-      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col text-fg">
+      <div className="meeting-surface meeting-mesh fixed inset-0 z-[100] flex flex-col text-fg">
         <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-5 py-3">
           <div className="min-w-0">
             <div className="truncate font-semibold">{title}</div>
@@ -1095,7 +1095,7 @@ export function CallRoom({
     // not reachable from here, so this is a guard rather than a state the room
     // can normally be in.
     return (
-      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
+      <div className="meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
           <Clock size={24} />
         </div>
@@ -1141,7 +1141,7 @@ export function CallRoom({
    */
   if (status === "switch_required") {
     return (
-      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
+      <div className="meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-from/15 to-brand-to/15 text-accent">
           <AlertCircle size={24} />
         </div>
@@ -1183,7 +1183,7 @@ export function CallRoom({
             ? tc("joinFailed.displacedHint")
             : tc("joinFailed.genericHint");
     return (
-      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
+      <div className="meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-danger/10 text-danger">
           <AlertCircle size={24} />
         </div>
@@ -1262,7 +1262,7 @@ export function CallRoom({
           posts the leave (see useCallRoom's cleanup), so keeping this in the
           DOM is precisely what lets the meeting outlive a minimise. */}
       <div
-        className={minimized ? "hidden" : "meeting-surface meeting-theme meeting-mesh fixed inset-0 z-[100] flex min-h-0 min-w-0 flex-col-reverse text-fg sm:flex-row"}
+        className={minimized ? "hidden" : "meeting-surface meeting-mesh fixed inset-0 z-[100] flex min-h-0 min-w-0 flex-col-reverse text-fg sm:flex-row"}
       >
         <CallSidebar
           micOn={micOn}

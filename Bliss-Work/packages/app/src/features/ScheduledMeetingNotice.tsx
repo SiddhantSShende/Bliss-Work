@@ -29,6 +29,7 @@ import { dayLabel, timeLabel } from "../lib/meetingTime";
 import { qk } from "../lib/queryKeys";
 import { useRuntime } from "../lib/runtime";
 import { onScheduledMeetingAnnounced, type ScheduledMeeting } from "../lib/scheduledMeetingNotice";
+import { useUserLabels } from "../lib/userLabel";
 
 /** Longer than IncomingMeetingNotice's 12s: this one asks to be read, not
  *  answered, and nobody is being kept waiting on a ring. */
@@ -144,11 +145,14 @@ export function ScheduledMeetingNotice() {
     retry: false,
   });
 
+  const { nameOf } = useUserLabels();
+
   if (!notice) return null;
 
   const title = notice.title || t("scheduledNotice.untitledMeeting");
   const when = whenParts(notice.scheduledAt, call?.endsAt);
-  const organizer = call?.participants.find((p) => p.role === "HOST")?.username ?? "";
+  const host = call?.participants.find((p) => p.role === "HOST");
+  const organizer = host ? nameOf(host.userId, host.username) : "";
   const dismiss = () => setNotice(null);
   const join = () => {
     requestMeetingJoin(notice.callId);

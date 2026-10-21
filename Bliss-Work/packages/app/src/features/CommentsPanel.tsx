@@ -179,15 +179,33 @@ function CommentThread({
  * pin's window cannot scroll itself (see StickyWidget's doc comment), so an
  * unbounded panel would silently push the action row off-screen instead.
  */
-export function CommentsPanel({ taskId, currentUserId }: { taskId: string; currentUserId?: string }) {
+export function CommentsPanel({
+  taskId,
+  currentUserId,
+  initialVisibleCount,
+}: {
+  taskId: string;
+  currentUserId?: string;
+  /** Caps how many of the already-loaded comments render before "Show more"/
+   *  "Load more" is used. Omitted (the in-app Tasks card), every loaded
+   *  comment shows. The desktop pin passes 2 so its initial view stays short
+   *  on a small window; the underlying fetch size is unchanged either way. */
+  initialVisibleCount?: number;
+}) {
   const { t } = useTranslation("stickies");
   const { comments, isLoading, isError, hasMore, isLoadingMore, loadMore, retry, post } = useTaskComments(
     taskId,
     true,
   );
+  const [expanded, setExpanded] = useState(!initialVisibleCount);
+  const collapsed = !expanded && !!initialVisibleCount;
+  const visibleComments = collapsed ? comments.slice(0, initialVisibleCount) : comments;
+  // Shown whenever there is something beyond the initial slice to reveal —
+  // either already-loaded comments past the cap, or more still on the server.
+  const moreToReveal = collapsed && (comments.length > initialVisibleCount! || hasMore);
 
   return (
-    <div className="app-no-drag mt-2 flex flex-col gap-2 rounded-xl border border-border/60 bg-surface-1 p-3">
+    <div className="app-no-drag mt-2 flex flex-col gap-2 rounded-xl border border-border/60 bg-surface-2 p-3">
       <Composer
         placeholder={t("comments.placeholder")}
         busyLabel={t("comments.posting")}
@@ -211,12 +229,21 @@ export function CommentsPanel({ taskId, currentUserId }: { taskId: string; curre
           <p className="py-3 text-center text-sm text-muted">{t("comments.empty")}</p>
         ) : (
           <ul className="m-0 list-none p-0">
-            {comments.map((c) => (
+            {visibleComments.map((c) => (
               <CommentThread key={c.id} taskId={taskId} comment={c} currentUserId={currentUserId} />
             ))}
           </ul>
         )}
-        {hasMore && (
+        {moreToReveal && (
+          <button
+            type="button"
+            className="w-full py-2 text-xs font-medium text-accent hover:underline"
+            onClick={() => setExpanded(true)}
+          >
+            {t("comments.loadMore")}
+          </button>
+        )}
+        {!collapsed && hasMore && (
           <button
             type="button"
             disabled={isLoadingMore}

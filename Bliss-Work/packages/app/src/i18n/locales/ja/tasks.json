@@ -197,6 +197,12 @@
       "done_other": "{{count}}人にタスクを戻しました",
       "failed": "このタスクを再割り当てできませんでした"
     },
+    "reassignMember": {
+      "label": "再追加",
+      "pending": "再追加中…",
+      "done": "{{name}}さんがこのタスクに戻りました",
+      "failed": "このメンバーを再追加できませんでした"
+    },
     "milestones": {
       "allocated": "割り当て",
       "acknowledged": "確認",

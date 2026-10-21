@@ -395,7 +395,18 @@ export class WsClient {
         }
       }
       // Catch-up is over; everything from here is genuinely new.
-      if (control.data.type === "replay.done") this.endReplay();
+      if (control.data.type === "replay.done") {
+        this.endReplay();
+        // The gateway capped the backlog since our cursor (see
+        // store.Replay/onHello server-side) — this burst was not the full
+        // set of what we missed. Logged here unconditionally so the gap is
+        // never silent even if nothing downstream happens to be subscribed
+        // via onControl; subscribers also receive `truncated` on the frame
+        // itself and may choose to trigger a REST catch-up.
+        if (control.data.truncated) {
+          logger.warn("[ws] replay truncated: reconnect backlog exceeded the replay cap; some events may only be recoverable via REST catch-up");
+        }
+      }
       // Fan out rtc.* signaling (and other control frames) to the WebRTC layer.
       for (const h of this.controlHandlers) {
         try {

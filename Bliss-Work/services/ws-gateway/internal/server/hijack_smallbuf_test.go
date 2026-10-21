@@ -101,11 +101,13 @@ func TestHandleWS_PipelinedBacklogFallsBackToDefaultBuffers(t *testing.T) {
 		"Connection: Upgrade\r\n" +
 		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
 		"Sec-WebSocket-Version: 13\r\n" +
+		"Origin: http://localhost:5173\r\n" +
 		"\r\n"
 
 	// Request + frame in ONE write, before any read: the request handler
-	// (InsecureSkipVerify is set, so Origin is irrelevant here) sees both in
-	// the same underlying read.
+	// sees both in the same underlying read. Origin must be present and
+	// allowed (isAllowedOrigin), since handleWS now enforces it before the
+	// upgrade regardless of InsecureSkipVerify.
 	if _, err := conn.Write(append([]byte(req), wireFrame...)); err != nil {
 		t.Fatalf("write request+frame: %v", err)
 	}

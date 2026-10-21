@@ -616,7 +616,7 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 	if lastSeenSeq != nil {
 		seq = *lastSeenSeq
 	}
-	events, err := s.store.Replay(ctx, sess.claims.Load().UserID, seq)
+	events, truncated, err := s.store.Replay(ctx, sess.claims.Load().UserID, seq)
 	if err != nil {
 		s.log.Error("replay failed", "user", sess.claims.Load().UserID, "err", err)
 		return
@@ -656,7 +656,15 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 	// carry SERVER timestamps, and a client whose clock disagrees would either
 	// silence live events or announce replayed ones. Sent even when the replay
 	// was empty, so the client always leaves catch-up mode.
-	s.deliverJSONCtx(ctx, conn, map[string]string{"type": "replay.done"})
+	//
+	// `truncated` tells the client whether this burst was the FULL backlog
+	// since its cursor or only the most recent maxReplayHard of it (see
+	// store.Replay's doc comment). Without this, a client whose backlog
+	// exceeded the cap advanced its cursor past the gap believing it was
+	// caught up — silent, permanent loss of everything older than the cap.
+	// Omitted (false) when there was nothing to truncate, so old/new servers
+	// and old/new clients both see a well-formed frame either way.
+	s.deliverJSONCtx(ctx, conn, map[string]any{"type": "replay.done", "truncated": truncated})
 }
 
 // deliverCtx pushes one frame to the connection's outbound buffer with

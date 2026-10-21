@@ -17,9 +17,9 @@ import (
 	"github.com/task-board/ws-gateway/internal/blocklist"
 	"github.com/task-board/ws-gateway/internal/config"
 	"github.com/task-board/ws-gateway/internal/delivery"
-	"github.com/task-board/ws-gateway/internal/hydrate"
 	"github.com/task-board/ws-gateway/internal/fanout"
 	"github.com/task-board/ws-gateway/internal/hub"
+	"github.com/task-board/ws-gateway/internal/hydrate"
 	"github.com/task-board/ws-gateway/internal/presence"
 	"github.com/task-board/ws-gateway/internal/push"
 	"github.com/task-board/ws-gateway/internal/revoke"
@@ -125,7 +125,15 @@ func main() {
 	// bare *push.Client used to compile — the signatures matched — and then posted
 	// every cross-node delivery to "<node-id>/internal/push", so RTC signalling and
 	// presence never crossed a pod boundary. See push.Client.SendTo.
-	pushTransport := push.NewHTTPTransport(push.NewClient(cfg.WSGatewayInternalToken), st)
+	peerPushClient, err := push.NewClientFromConfig(cfg.WSGatewayInternalToken, push.CallerGatewayPeer, cfg.PushSigningKey)
+	if err != nil {
+		log.Error("push signing key misconfigured", "err", err)
+		os.Exit(1)
+	}
+	if cfg.PushSigningKey == "" {
+		log.Warn("push: WS_GATEWAY_PUSH_SIGNING_KEY not set; using deprecated shared-token+header-only internal caller identity")
+	}
+	pushTransport := push.NewHTTPTransport(peerPushClient, st)
 	var nodeFanout *push.Fanout
 	if cfg.AdvertiseAddr != "" {
 		startNodeRegistration(rootCtx, st, nodeID, cfg.AdvertiseAddr, log)
@@ -251,10 +259,12 @@ func main() {
 	presenceBroadcaster := presence.New(h, st, nodeFanout, log)
 
 	srv := server.New(server.Config{
-		WebOrigin:              cfg.WebOrigin,
-		MaxConnections:         cfg.MaxConnections,
-		MaxConnsPerUser:        cfg.MaxConnsPerUser,
-		WSGatewayInternalToken: cfg.WSGatewayInternalToken,
+		WebOrigin:                cfg.WebOrigin,
+		MaxConnections:           cfg.MaxConnections,
+		MaxConnsPerUser:          cfg.MaxConnsPerUser,
+		WSGatewayInternalToken:   cfg.WSGatewayInternalToken,
+		PushVerifyKeyDeliverySvc: cfg.PushVerifyKeyDeliverySvc,
+		PushVerifyKeyGatewayPeer: cfg.PushVerifyKeyGatewayPeer,
 	}, verifier, h, st, dispatcher, hydrator, signalDispatcher, presenceBroadcaster, nodeID, log, rootCtx)
 
 	// Wrap the root handler with otelhttp so every request becomes a server span

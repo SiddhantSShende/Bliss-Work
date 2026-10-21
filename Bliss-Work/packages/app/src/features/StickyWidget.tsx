@@ -416,7 +416,7 @@ export function StickyWidget({
   );
 
   const comments = commentsOpen ? (
-    <CommentsPanel taskId={task.taskId} currentUserId={currentUserId} />
+    <CommentsPanel taskId={task.taskId} currentUserId={currentUserId} initialVisibleCount={compact ? 2 : undefined} />
   ) : null;
 
   // Whole surface is the OS-window drag region so the user can grab the note

@@ -138,7 +138,7 @@ export function CallWindow() {
 
   if (isLoading) {
     return (
-      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex items-center justify-center text-sm text-muted">
+      <div className="meeting-surface meeting-mesh fixed inset-0 flex items-center justify-center text-sm text-muted">
         {t("window.loading")}
       </div>
     );
@@ -149,7 +149,7 @@ export function CallWindow() {
   // something a retry can plausibly fix, that one is not.
   if (isError || !call) {
     return (
-      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
+      <div className="meeting-surface meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
           title={t("window.loadError.title")}
@@ -178,7 +178,7 @@ export function CallWindow() {
     // never happened, and keeps the vaguer wording that also covers losing access.
     const cancelled = call.status === "CANCELLED";
     return (
-      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
+      <div className="meeting-surface meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
           title={cancelled ? t("window.unavailable.title") : t("window.ended.title")}

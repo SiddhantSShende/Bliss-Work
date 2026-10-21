@@ -271,6 +271,14 @@ export class CallSession {
     await this.acquire();
   }
 
+  /** Caller: acquire media as soon as the ring goes out, so the caller's own
+   *  preview is live immediately instead of waiting for startCaller() at
+   *  call.accept. acquire() is idempotent, so startCaller() calling it again
+   *  later is a no-op that reuses this same stream. */
+  async prepareCaller(): Promise<void> {
+    await this.acquire();
+  }
+
   /** Run a signaling step after all earlier ones finish, and never on a closed
    *  session. One step throwing must not wedge the queue for the rest.
    *  Returns `undefined` (instead of running `fn`) if the session had already

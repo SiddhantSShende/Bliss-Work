@@ -209,6 +209,12 @@
       "done_other": "Tarea devuelta a {{count}} personas",
       "failed": "No se pudo reasignar esta tarea"
     },
+    "reassignMember": {
+      "label": "Volver a añadir",
+      "pending": "Añadiendo de nuevo…",
+      "done": "{{name}} está de vuelta en esta tarea",
+      "failed": "No se pudo volver a añadir a esta persona"
+    },
     "milestones": {
       "allocated": "Asignada",
       "acknowledged": "Confirmada",

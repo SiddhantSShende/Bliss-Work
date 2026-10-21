@@ -117,6 +117,18 @@ var (
 		Help: "Event-recipient pairs computed on this node for users it does not hold.",
 	})
 
+	// ReplayTruncatedTotal counts reconnect replays where the client's cursor
+	// was further behind than maxReplayHard entries, so the batch sent back
+	// was NOT the full backlog since that cursor — see store.Replay. Each
+	// occurrence is paired with a `replay.done{truncated:true}` frame sent to
+	// that same client (internal/server/conn.go onHello), so this counter is
+	// the server-side half of "did we tell the client recovery was
+	// incomplete," distinct from a routine, fully-served replay.
+	ReplayTruncatedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ws_replay_truncated_total",
+		Help: "Reconnect replays where the cursor-to-now backlog exceeded maxReplayHard and the client was told so.",
+	})
+
 	// FanoutOutboxWritesTotal counts replay-outbox writes attempted.
 	//
 	// Tracks FanoutRecipientsTotal, because the outbox is written for every
@@ -143,6 +155,17 @@ var (
 	RouteRetriesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "ws_route_retries_total",
 		Help: "Routed-delivery attempts retried after a transient dependency failure.",
+	})
+
+	// FanoutRetriesTotal counts broadcast-mode fan-out attempts that failed to
+	// durably write a recipient's replay outbox after exhausting
+	// outboxWriteMaxAttempts, and were retried without committing the Kafka
+	// offset. Mirrors RouteRetriesTotal for the sibling (routed) path; a
+	// sustained rate means this node is stalled behind a Redis problem, which
+	// is the correct behaviour and worth an alert.
+	FanoutRetriesTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ws_fanout_retries_total",
+		Help: "Broadcast-mode fan-out attempts retried after a durable outbox-write failure.",
 	})
 )
 
@@ -193,6 +216,27 @@ var (
 		Name: "ws_push_received_total",
 		Help: "Deliveries received by this node from the delivery service.",
 	}, []string{"result"})
+
+	// PushNodeExpiredTotal counts deliveries dropped because the node that was
+	// supposed to receive them had no address in the registry by push time —
+	// NOT because an HTTP push was attempted and failed.
+	//
+	// Before this existed, that case was folded into
+	// PushRequestsTotal/PushSentTotal{result="error"} alongside a push that
+	// really was sent and really did fail (bad status, timeout, connection
+	// refused). Both looked identical on a dashboard, but they mean different
+	// things: this one means "the registry already knew this node was gone, so
+	// delivery-svc never dialed it," which is the ORDINARY case for a pod that
+	// crashed or rolled between the presence read and the push — one line in
+	// `pushAll`, no network call, nothing to retry. A real push failure means a
+	// registered, apparently-live node did not answer, which is the case worth
+	// paging on if it persists. Splitting them is what lets an alert on
+	// sustained push failure actually mean "a live-looking node is unreachable"
+	// instead of firing every time a pod recycles.
+	PushNodeExpiredTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ws_push_node_expired_total",
+		Help: "Deliveries dropped because the target node had no registered address; no push was attempted.",
+	})
 )
 
 // ── Cross-node RTC and presence ──────────────────────────────────────────────
@@ -372,6 +416,7 @@ func init() {
 		ConnectionsRejectedTotal,
 		ConnectionsShedTotal,
 		SendBufferDepth,
+		ReplayTruncatedTotal,
 		FanoutEventsConsumed,
 		FanoutRecipientsTotal,
 		FanoutDeliveredTotal,
@@ -379,10 +424,12 @@ func init() {
 		FanoutOutboxWritesTotal,
 		FanoutEventsSkippedTotal,
 		RouteRetriesTotal,
+		FanoutRetriesTotal,
 		PushSentTotal,
 		PushRequestsTotal,
 		PushUnroutableTotal,
 		PushReceivedTotal,
+		PushNodeExpiredTotal,
 		NodeFanoutRequestsTotal,
 		NodeFanoutRecipientsTotal,
 		NodeFanoutUnroutableTotal,

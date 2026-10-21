@@ -5,11 +5,13 @@ is about to make.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Header, HTTPException, status
 from internal_auth import internal_token_matches
 from pydantic import BaseModel
 
-from .. import membership_commitment
+from .. import membership_commitment, renewal
 from ..config import settings
 from ..db import session
 
@@ -23,6 +25,28 @@ def _require_internal(token: str | None) -> None:
 
 class MembershipCommitmentRequest(BaseModel):
     role: str
+
+
+class InitOrgBillingRequest(BaseModel):
+    createdAt: datetime
+
+
+@router.put("/orgs/{org_id}/init")
+async def init_org_billing(
+    org_id: str,
+    body: InitOrgBillingRequest,
+    x_internal_token: str | None = Header(default=None),
+):
+    """Called once by auth-svc right after an org is created — billing-svc
+    owns its own database with no FK to `orgs`, so `created_at` (the renewal
+    anchor) has to be handed over explicitly rather than read locally.
+    Idempotent: a retried or duplicate call never moves an already-set
+    anchor (see renewal.ensure_org_billing_state)."""
+    _require_internal(x_internal_token)
+    async with session() as db:
+        await renewal.ensure_org_billing_state(db, org_id, body.createdAt)
+        await db.commit()
+    return {"ok": True}
 
 
 @router.post("/orgs/{org_id}/memberships/{user_id}")

@@ -209,6 +209,12 @@
       "done_other": "Tâche renvoyée à {{count}} personnes",
       "failed": "Impossible de réattribuer cette tâche"
     },
+    "reassignMember": {
+      "label": "Réajouter",
+      "pending": "Réajout…",
+      "done": "{{name}} est de retour sur cette tâche",
+      "failed": "Impossible de réajouter cette personne"
+    },
     "milestones": {
       "allocated": "Attribuée",
       "acknowledged": "Prise en compte",

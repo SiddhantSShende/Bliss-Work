@@ -353,8 +353,29 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         recordMissedCall(peerId, media);
         teardown("ended", t("endedReasons.noAnswer"));
       }, RING_TIMEOUT_MS);
+
+      // Acquire the camera/mic now, rather than waiting for call.accept, so
+      // the caller sees their own preview the moment the call UI opens —
+      // not just once the callee picks up. Never awaited by invite() itself:
+      // the ring must go out immediately regardless of how long the
+      // permission prompt or ICE fetch takes.
+      void (async () => {
+        const cfg = await iceConfig();
+        // Cancelled, declined, or superseded by a new call while we were
+        // fetching ICE creds — teardown() already ran and reset callId.
+        if (stateRef.current.callId !== callId) return;
+        const s = newSession(callId, peerId, media, cfg);
+        try {
+          await s.prepareCaller();
+        } catch {
+          teardown("ended", t("endedReasons.mediaBlocked"));
+          return;
+        }
+        if (stateRef.current.callId !== callId || sessionRef.current !== s) return;
+        setState((st) => ({ ...st, localStream: s.localStream }));
+      })();
     },
-    [me, rtc, teardown, recordMissedCall, backWithRecord, t],
+    [me, rtc, teardown, recordMissedCall, backWithRecord, iceConfig, newSession, t],
   );
 
   const accept = useCallback(() => {
@@ -528,7 +549,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             // (see accept()'s identical guard in this same file for the
             // callee side of this race).
             if (stateRef.current.callId !== f.callId) return;
-            const s = newSession(f.callId, f.fromUserId, cur.media ?? "audio", cfg);
+            // invite() already created this session and started acquiring
+            // media the moment the ring went out — reuse it so startCaller()
+            // just reads the already-acquired stream instead of re-prompting.
+            // Fall back to building one here if that never happened (media
+            // acquisition failed earlier, or is still mid-flight and will
+            // lose this race — acquire() is idempotent either way).
+            const s = sessionRef.current ?? newSession(f.callId, f.fromUserId, cur.media ?? "audio", cfg);
             try {
               await s.startCaller();
             } catch {

@@ -115,7 +115,7 @@ function JoinCallRedeem({ token }: { token: string }) {
 
   if (!me) {
     return (
-      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex items-center justify-center p-6">
+      <div className="meeting-surface meeting-mesh fixed inset-0 flex items-center justify-center p-6">
         <EmptyState
           icon={<Video size={24} />}
           title={t("join.signIn.title")}
@@ -127,7 +127,7 @@ function JoinCallRedeem({ token }: { token: string }) {
 
   if (pending) {
     return (
-      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex items-center justify-center text-sm text-muted">
+      <div className="meeting-surface meeting-mesh fixed inset-0 flex items-center justify-center text-sm text-muted">
         {t("join.joining")}
       </div>
     );
@@ -135,7 +135,7 @@ function JoinCallRedeem({ token }: { token: string }) {
 
   if (failed || !call) {
     return (
-      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
+      <div className="meeting-surface meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
           title={t("join.invalid.title")}
@@ -183,7 +183,7 @@ function HandOff({ call }: { call: CallDTO }) {
 
   if (timedOut) {
     return (
-      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
+      <div className="meeting-surface meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
           title={t("join.timeout.title")}
@@ -197,7 +197,7 @@ function HandOff({ call }: { call: CallDTO }) {
   }
 
   return (
-    <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex items-center justify-center text-sm text-muted">
+    <div className="meeting-surface meeting-mesh fixed inset-0 flex items-center justify-center text-sm text-muted">
       {t("join.handoff.joining")}
     </div>
   );

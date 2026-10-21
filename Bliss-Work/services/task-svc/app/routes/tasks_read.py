@@ -60,6 +60,9 @@ async def _sticky_list(
                     "       ta.review_enc, ta.review_rating, ta.missed_at, t.deadline_at, "
                     "       COALESCE(up.username, '') AS sender_username, "
                     "       COALESCE(up.display_name, '') AS sender_display_name, "
+                    "       (SELECT tc.channel_id FROM task_channels tc "
+                    "          WHERE tc.task_id = t.id AND tc.org_id = t.org_id "
+                    "          ORDER BY tc.created_at, tc.channel_id LIMIT 1) AS channel_id, "
                     "       COALESCE((SELECT json_agg(json_build_object("
                     "         'userId', p.assignee_id, 'username', COALESCE(pu.username, ''), "
                     "         'displayName', COALESCE(pu.display_name, ''), 'status', p.status) "
@@ -111,6 +114,7 @@ async def _sticky_list(
                 title=title or "",
                 description=description or "",
                 projectId=str(r.project_id) if r.project_id is not None else None,
+                channelId=str(r.channel_id) if r.channel_id is not None else None,
                 senderId=str(r.sender_id),
                 senderUsername=r.sender_username,
                 senderDisplayName=r.sender_display_name,
@@ -175,6 +179,9 @@ async def task_detail(
                     "       ta.review_enc, ta.review_rating, ta.missed_at, t.deadline_at, "
                     "       COALESCE(up.username, '') AS sender_username, "
                     "       COALESCE(up.display_name, '') AS sender_display_name, "
+                    "       (SELECT tc.channel_id FROM task_channels tc "
+                    "          WHERE tc.task_id = t.id AND tc.org_id = t.org_id "
+                    "          ORDER BY tc.created_at, tc.channel_id LIMIT 1) AS channel_id, "
                     "       COALESCE((SELECT json_agg(json_build_object("
                     "         'userId', p.assignee_id, 'username', COALESCE(pu.username, ''), "
                     "         'displayName', COALESCE(pu.display_name, ''), 'status', p.status) "
@@ -205,6 +212,7 @@ async def task_detail(
             title=await cryptor().decrypt(db, org, row.title_enc) or "",
             description=await cryptor().decrypt(db, org, row.description_enc) or "",
             projectId=str(row.project_id) if row.project_id is not None else None,
+            channelId=str(row.channel_id) if row.channel_id is not None else None,
             senderId=str(row.sender_id),
             senderUsername=row.sender_username,
             senderDisplayName=row.sender_display_name,

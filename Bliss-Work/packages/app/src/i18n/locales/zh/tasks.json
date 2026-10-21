@@ -197,6 +197,12 @@
       "done_other": "任务已退回给 {{count}} 人",
       "failed": "无法重新分配此任务"
     },
+    "reassignMember": {
+      "label": "重新加入",
+      "pending": "正在重新加入…",
+      "done": "{{name}} 已重新加入此任务",
+      "failed": "无法重新加入此成员"
+    },
     "milestones": {
       "allocated": "已分配",
       "acknowledged": "已知悉",

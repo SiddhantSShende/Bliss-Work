@@ -37,6 +37,7 @@ import {
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { createRingtone } from "../lib/ringtone";
+import { useUserLabels } from "../lib/userLabel";
 
 interface Incoming {
   callId: string;
@@ -147,7 +148,21 @@ export function IncomingMeetingNotice() {
   // platforms. Mounted unconditionally (not inside the `!incoming` guard
   // below) since the popup window can outlive this component's own
   // `incoming` state — it has its own 12s auto-dismiss timer, not this one's.
-  useEffect(() => config.onMeetingInviteAction?.(requestMeetingJoin), [config]);
+  useEffect(
+    () =>
+      config.onMeetingInviteAction?.((callId, media) => {
+        requestMeetingJoin(callId, media);
+        // Unlike the in-page Join buttons below (see `join`), this fires from
+        // the Electron popup's own window — a separate BrowserWindow with no
+        // access to `dismiss()`. Without clearing `incoming` here too, the
+        // ring effect above never tears down: its cleanup only runs when
+        // `incoming` changes, and joining through the native popup was the
+        // one accept path that never touched it, so the ring kept playing
+        // in the renderer after the user had already joined.
+        if (incomingRef.current?.callId === callId) setIncoming(null);
+      }),
+    [config],
+  );
 
   /** Explicit "no" to an ad-hoc ring. The card is dismissed immediately,
    *  while a failed request is surfaced so the user knows the other person
@@ -199,7 +214,9 @@ export function IncomingMeetingNotice() {
     staleTime: 60_000,
   });
   const adhoc = !!incoming?.adhoc;
-  const organizer = adhoc ? "" : (call?.participants.find((p) => p.role === "HOST")?.username ?? "");
+  const { nameOf } = useUserLabels();
+  const host = adhoc ? undefined : call?.participants.find((p) => p.role === "HOST");
+  const organizer = host ? nameOf(host.userId, host.username) : "";
   // "X added you to a conference call" when the server named X, else just what it is.
   const heading = !incoming
     ? ""

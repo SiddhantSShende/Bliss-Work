@@ -18,8 +18,14 @@
  * row (or two on a very wide one) rather than a strip of narrow, tall ones.
  */
 
-/** Cards flow into as many 34rem+ columns as fit; `min(100%, ...)` stops a phone overflowing. */
-export const TASK_CARD_GRID = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,34rem),1fr))] gap-3";
+/**
+ * Cards flow into as many 26rem+ columns as fit; `min(100%, ...)` stops a phone
+ * overflowing. 26rem (not the 34rem the card's own landscape split uses, below)
+ * keeps two columns active on common desktop widths (1366-1920px) across the
+ * 90%-110% browser zoom range, while a card narrower than 34rem still falls
+ * back to its own stacked layout rather than clipping — see TASK_CARD_BODY.
+ */
+export const TASK_CARD_GRID = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,26rem),1fr))] gap-3";
 
 /** Makes the card the container the BODY / SIDE queries below measure. */
 export const TASK_CARD_ROOT = "@container/card";

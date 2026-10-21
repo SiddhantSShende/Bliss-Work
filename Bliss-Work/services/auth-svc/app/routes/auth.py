@@ -208,6 +208,11 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
     # Slack outage must never delay — or fail — a signup that has already
     # succeeded. See routing/notify.py.
     notify_capacity_alerts(placed.alerts)
+    # Also after commit, best-effort: billing-svc needs this org's creation
+    # time to anchor its monthly renewal date, but it owns no FK into `orgs`
+    # to read it itself. A lost call here just leaves the org's renewal
+    # anchor uninitialized until retried — never blocks or fails signup.
+    await billing_client.init_org_billing(org_id, datetime.now(timezone.utc))
     log.info(
         "org_created",
         org_id=org_id,

@@ -197,6 +197,12 @@
       "done_other": "{{count}}명에게 태스크를 다시 보냈어요",
       "failed": "이 태스크를 재할당하지 못했어요"
     },
+    "reassignMember": {
+      "label": "다시 추가",
+      "pending": "다시 추가하는 중…",
+      "done": "{{name}}님이 이 태스크에 다시 참여했어요",
+      "failed": "이 사람을 다시 추가하지 못했어요"
+    },
     "milestones": {
       "allocated": "할당됨",
       "acknowledged": "확인함",

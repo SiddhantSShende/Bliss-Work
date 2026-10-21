@@ -223,6 +223,60 @@ describe("callee video transceiver reassociation (the recvonly bug)", () => {
   });
 });
 
+describe("caller sees its own preview before the callee answers", () => {
+  it("prepareCaller() acquires the camera/mic immediately, before any offer is sent", async () => {
+    const sendFrame = vi.fn();
+    const session = new CallSession({
+      callId: "call-1",
+      peerId: "peer-1",
+      media: "video",
+      iceConfig: {},
+      sendFrame,
+      onRemoteStream: vi.fn(),
+      onConnected: vi.fn(),
+      onClosed: vi.fn(),
+    });
+
+    await session.prepareCaller();
+
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(session.localStream?.getVideoTracks()).toHaveLength(1);
+    // No signaling yet — invite() only rings; the offer goes out later, once
+    // the callee actually accepts.
+    expect(sendFrame).not.toHaveBeenCalled();
+  });
+
+  it("startCaller() reuses the stream prepareCaller() already acquired instead of re-prompting for the camera", async () => {
+    const session = makeSession("video");
+    await session.prepareCaller();
+    const stream = session.localStream;
+
+    await session.startCaller();
+
+    expect(getUserMedia).toHaveBeenCalledTimes(1); // still just the one call
+    expect(session.localStream).toBe(stream); // same stream, not a fresh capture
+    expect(pc.signalingState).toBe("have-local-offer");
+  });
+
+  it("closing the session while prepareCaller()'s permission prompt is still pending stops the camera the moment it resolves", async () => {
+    let resolveGum!: (v: unknown) => void;
+    getUserMedia.mockImplementationOnce(() => new Promise((resolve) => (resolveGum = resolve)));
+    const session = makeSession("video");
+    const pending = session.prepareCaller();
+
+    session.close(); // the caller cancels before the browser's prompt resolves
+
+    const audio = { kind: "audio", stop: vi.fn(), enabled: true, id: "audio-track" };
+    const video = { kind: "video", stop: vi.fn(), enabled: true, id: "camera-track" };
+    resolveGum({ getTracks: () => [audio, video], getAudioTracks: () => [audio], getVideoTracks: () => [video] });
+    await pending;
+
+    expect(audio.stop).toHaveBeenCalledTimes(1);
+    expect(video.stop).toHaveBeenCalledTimes(1);
+    expect(session.localStream).toBeUndefined();
+  });
+});
+
 describe("microphone capture", () => {
   it("asks for the shared audio-processing constraints, not a bare `audio: true`", async () => {
     await makeSession("audio").prepareCallee();

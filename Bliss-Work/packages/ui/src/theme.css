@@ -97,6 +97,10 @@
      validator — see WorkspaceOverviewParts.tsx for the categorical set. */
   --color-status-acknowledged: oklch(0.55 0.2 295);
   --color-status-sent: oklch(0.62 0.22 340);
+  /* "Left" needs its own identity distinct from "ignored" (--color-muted
+     gray) — same validation pass as acknowledged/sent above, hue chosen away
+     from every other status/chart/scatter hue in this file. */
+  --color-status-left: oklch(0.58 0.19 220);
 
   /* Categorical colors for Workspace Analytics workload quadrants. These
      semantic identities stay stable across theme families. */
@@ -167,6 +171,7 @@
      same hues. */
   --color-status-acknowledged: oklch(0.62 0.19 295);
   --color-status-sent: oklch(0.6 0.2 340);
+  --color-status-left: oklch(0.68 0.16 220);
 
   --color-scatter-high-high: oklch(0.78 0.13 190);
   --color-scatter-high-low: oklch(0.82 0.14 78);
@@ -490,63 +495,24 @@
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
-/* ── Meeting screen theme ─────────────────────────────────────────────────
-   The call surface (CallRoom) always renders dark, regardless of the
-   workspace's own light/dark/family choice — video is easier to read against
-   a dark ground, and a meeting in progress shouldn't flip between light and
-   dark as someone's theme setting changes underneath it. Scoped as a class
-   (not tied to `.dark`) so it overrides the CSS custom properties for its
-   subtree no matter what theme classes are on <html>.
-
-   Cyan/magenta neon-on-deep-space palette — a deliberate one-off, not derived
-   from any selectable family: this surface's whole point is to look like
-   nothing else in the app. `--color-accent-2` (magenta) is NOT one of
-   the base tokens in the root `@theme` block above, so it has no generated
-   `bg-accent-2`/`text-accent-2` utility — reference it with Tailwind's
-   arbitrary-value syntax instead, e.g. `text-[var(--color-accent-2)]` or
-   `shadow-[0_0_20px_-4px_var(--color-accent-2)]`, same as `--glass-*` below. */
-.meeting-theme {
-  --color-bg: #05060f;
-  --color-surface: #0b0f24;
-  --color-surface-2: #121736;
-  --color-border: #262c55;
-  --color-muted: #8b93c9;
-  --color-fg: #eef1ff;
-  --color-accent: #22d3ee;
-  --color-accent-strong: #67e8f9;
-  --color-accent-fg: #04141a;
-  --color-accent-soft: #123138;
-  --color-accent-2: #e879f9;
-  --color-accent-2-soft: #33163f;
-  --color-brand-from: #22d3ee;
-  --color-brand-to: #e879f9;
-  --color-brand-mid: color-mix(in oklab, var(--color-brand-from) 50%, var(--color-brand-to));
-  --color-success: #39ff8f;
-  --color-danger: #ff3b5c;
-  --color-warning: #ffb020;
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45);
-  --shadow-widget: 0 18px 50px rgba(0, 0, 0, 0.6);
-  /* So `.glass` (used for the sidebar/video/participants/chat panels) reads
-     the same dark, cyan-tinted frost regardless of the workspace theme too —
-     otherwise it would pick up whatever `--glass-*` the ambient light/dark
-     theme left behind. */
-  --glass-bg: rgba(11, 15, 36, 0.55);
-  --glass-border: rgba(34, 211, 238, 0.16);
-  --glass-shadow: 0 0 30px rgba(34, 211, 238, 0.08), 0 20px 45px rgba(0, 0, 0, 0.55);
-  color-scheme: dark;
-}
-
+/* ── Meeting screen surface ───────────────────────────────────────────────
+   Call/meeting screens used to force a fixed cyan/magenta "meeting theme"
+   here, overriding every colour token regardless of the workspace's actual
+   light/dark/family/custom theme choice. Removed: these screens now render
+   with the same ambient tokens (--color-bg/-surface/-accent/-brand-*/
+   --glass-*, etc.) as the rest of the app, including `.glass` panels, so a
+   theme change is reflected on a call exactly like everywhere else — see
+   CallRoom.tsx/CallWindow.tsx/JoinCallView.tsx/CallRoomLazy.tsx, which no
+   longer apply a `meeting-theme` class. */
 .meeting-surface {
   min-height: 100vh;
   min-height: 100dvh;
 }
 
-/* The redesign's deep-space backdrop: a near-black gradient with faint,
-   slow-drifting cyan and magenta nebulae. Reuses `.brand-mesh`'s own
-   `bw-float-a`/`bw-float-b` keyframes rather than defining new ones — same
-   drifting-orb technique, just this surface's two accent colours instead of
-   the brand gradient's white highlights.
+/* The call surface's backdrop: a faint, slow-drifting brand-coloured mesh —
+   same drifting-orb technique as `.brand-mesh` (reuses its `bw-float-a`/
+   `bw-float-b` keyframes), recoloured with the SAME brand tokens so it
+   follows whichever family/custom theme is active instead of a fixed palette.
 
    No `position` here, deliberately. This rule is unlayered, so it beats every
    Tailwind utility (they live in `@layer utilities`) whatever the specificity —
@@ -567,9 +533,9 @@
   overflow: hidden;
   overflow: clip;
   background:
-    radial-gradient(ellipse 60% 50% at 15% 20%, rgba(34, 211, 238, 0.1), transparent 65%),
-    radial-gradient(ellipse 55% 45% at 85% 80%, rgba(232, 121, 249, 0.1), transparent 65%),
-    linear-gradient(160deg, #05060f 0%, #0b0f24 55%, #05060f 100%);
+    radial-gradient(ellipse 60% 50% at 15% 20%, color-mix(in oklab, var(--color-brand-from) 14%, transparent), transparent 65%),
+    radial-gradient(ellipse 55% 45% at 85% 80%, color-mix(in oklab, var(--color-brand-to) 14%, transparent), transparent 65%),
+    var(--color-bg);
 }
 .meeting-mesh::before,
 .meeting-mesh::after {
@@ -578,7 +544,7 @@
   border-radius: 9999px;
   filter: blur(90px);
   z-index: -1;
-  opacity: 0.55;
+  opacity: 0.4;
   will-change: transform;
 }
 .meeting-mesh::before {
@@ -586,7 +552,7 @@
   height: 34rem;
   top: -8rem;
   left: -6rem;
-  background: radial-gradient(circle, rgba(34, 211, 238, 0.35), transparent 70%);
+  background: radial-gradient(circle, var(--color-brand-from), transparent 70%);
   animation: bw-float-a 22s ease-in-out infinite;
 }
 .meeting-mesh::after {
@@ -594,7 +560,7 @@
   height: 36rem;
   bottom: -10rem;
   right: -8rem;
-  background: radial-gradient(circle, rgba(232, 121, 249, 0.3), transparent 70%);
+  background: radial-gradient(circle, var(--color-brand-to), transparent 70%);
   animation: bw-float-b 27s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {

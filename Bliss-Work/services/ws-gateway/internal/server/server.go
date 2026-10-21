@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha1" // #nosec G505 -- coturn REST API mandates HMAC-SHA1 for TURN creds
 	"encoding/base64"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -35,9 +37,69 @@ import (
 
 // Electron desktop origins (file://, app://, and the "null" Origin Chromium
 // sends from a file:// document) are allowed in every environment; loopback
-// origins only in non-prod (gated in cors() on the web-origin scheme).
+// origins only in non-prod (gated in isAllowedOrigin on the web-origin
+// scheme).
 var desktopOriginRe = regexp.MustCompile(`(?i)^(file://.*|app://.*|null)$`)
 var localhostOriginRe = regexp.MustCompile(`(?i)^https?://(localhost|127\.0\.0\.1)(:\d+)?$`)
+
+// isAllowedOrigin is the single Origin-validation policy shared by the
+// credentialed CORS middleware (plain HTTP routes) and the WebSocket upgrade
+// handler (handleWS). Keeping one function means the WS path can never drift
+// from — or be weaker than — the allowlist already enforced for HTTP.
+//
+// The comparison is exact, not substring/suffix/prefix: origin is parsed
+// with net/url and its scheme+host (host includes the port) is compared
+// character-for-character against cfg.WebOrigin's parsed scheme+host. This
+// deliberately rejects classic bypass attempts such as:
+//   - "https://evil-example.com"            (naive suffix match on "example.com")
+//   - "https://example.com.evil.com"        (naive prefix match on "example.com")
+//   - "https://exampleXcom"                  (naive character-class confusion)
+//
+// Electron's renderer sends either "null" or a "file://"/"app://" Origin
+// (verified against apps/desktop's WebSocketImpl — Electron's net/WebSocket
+// stack has no HTTP(S) origin to send for a packaged app loaded from disk).
+// That is the one documented, narrow carve-out: those three literal forms
+// are allowed in every environment because there is no "real" origin for a
+// desktop build to send, and the connection is additionally authenticated by
+// the caller's JWT regardless of Origin (see handleWS). Everything else —
+// empty, missing, or unparseable Origin — is rejected.
+func isAllowedOrigin(cfg Config, origin string) bool {
+	if desktopOriginRe.MatchString(origin) {
+		return true
+	}
+	if origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	// Reject anything carrying userinfo, a path, query, or fragment — a
+	// well-formed browser/Electron Origin header never has any of those, and
+	// allowing them would widen the exact-match surface unnecessarily.
+	if u.User != nil || u.Path != "" && u.Path != "/" || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+
+	normalized := u.Scheme + "://" + u.Host
+
+	if want, err := url.Parse(cfg.WebOrigin); err == nil && want.Scheme != "" && want.Host != "" {
+		if normalized == want.Scheme+"://"+want.Host {
+			return true
+		}
+	} else if normalized == cfg.WebOrigin {
+		// cfg.WebOrigin itself failed to parse (should not happen in
+		// practice); fall back to exact string equality rather than failing
+		// open.
+		return true
+	}
+
+	allowLocalhost := !strings.HasPrefix(cfg.WebOrigin, "https://")
+	if allowLocalhost && localhostOriginRe.MatchString(normalized) {
+		return true
+	}
+	return false
+}
 
 // Server wires HTTP + websocket handling.
 type Server struct {
@@ -62,6 +124,11 @@ type Server struct {
 	// lifecycle rather than an unrelated one, and so any future code that
 	// reasonably expects ctx.Done() to fire on shutdown is not surprised.
 	rootCtx context.Context
+	// pushVerifyKeys maps a push.Caller* role to its public key, built once
+	// in New from cfg.PushVerifyKeyDeliverySvc/PushVerifyKeyGatewayPeer. A
+	// role missing here (unset or unparseable at startup) has no signed path
+	// available — handlePush falls back to the legacy header for it.
+	pushVerifyKeys map[string]ed25519.PublicKey
 }
 
 // Config holds server dependencies.
@@ -76,6 +143,12 @@ type Config struct {
 	// entirely — it answers 401 to everything — which is the correct posture
 	// for a deployment not using routed delivery.
 	WSGatewayInternalToken string
+	// PushVerifyKeyDeliverySvc / PushVerifyKeyGatewayPeer are the public
+	// halves of each role's push-signing keypair, base64 — see
+	// internal/push/svcjwt.go. Either or both may be empty; handlePush falls
+	// back to the legacy header for whichever role has no key configured.
+	PushVerifyKeyDeliverySvc string
+	PushVerifyKeyGatewayPeer string
 }
 
 // New constructs a Server. dispatcher / hyd / sig may be nil in tests; in
@@ -95,7 +168,36 @@ func New(
 	log *slog.Logger,
 	rootCtx context.Context,
 ) *Server {
-	return &Server{cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, hydrator: hyd, signal: sig, presence: pres, nodeID: nodeID, log: log, rootCtx: rootCtx}
+	return &Server{
+		cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, hydrator: hyd,
+		signal: sig, presence: pres, nodeID: nodeID, log: log, rootCtx: rootCtx,
+		pushVerifyKeys: buildPushVerifyKeys(cfg, log),
+	}
+}
+
+// buildPushVerifyKeys parses the configured public keys for the signed
+// /internal/push path, logging (never failing startup — see
+// push/svcjwt.go's migration posture) any role whose key is absent or
+// unparseable. A role with no entry here simply has no signed path; its
+// callers keep using the legacy header until a valid key is provisioned.
+func buildPushVerifyKeys(cfg Config, log *slog.Logger) map[string]ed25519.PublicKey {
+	keys := map[string]ed25519.PublicKey{}
+	add := func(role, b64 string) {
+		if b64 == "" {
+			return
+		}
+		pub, err := push.ParseEd25519PublicKey(b64)
+		if err != nil {
+			if log != nil {
+				log.Error("push: verify key misconfigured; signed path unavailable for this role", "role", role, "err", err)
+			}
+			return
+		}
+		keys[role] = pub
+	}
+	add(push.CallerDeliverySvc, cfg.PushVerifyKeyDeliverySvc)
+	add(push.CallerGatewayPeer, cfg.PushVerifyKeyGatewayPeer)
+	return keys
 }
 
 // Handler returns the root HTTP mux. Order of wrappers (outermost first):
@@ -332,9 +434,7 @@ func (s *Server) handleTurnCredentials(w http.ResponseWriter, r *http.Request) {
 func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		allowLocalhost := !strings.HasPrefix(s.cfg.WebOrigin, "https://")
-		if origin != "" && (origin == s.cfg.WebOrigin || desktopOriginRe.MatchString(origin) ||
-			(allowLocalhost && localhostOriginRe.MatchString(origin))) {
+		if origin != "" && isAllowedOrigin(s.cfg, origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -365,6 +465,21 @@ func extractToken(r *http.Request) string {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	// Origin is checked first, before any auth/business logic runs and
+	// before the connection is upgraded — fail closed on a disallowed,
+	// malformed, or missing Origin. This is an additional layer on top of
+	// (not a replacement for) the JWT check below: a stolen/forwarded token
+	// played from a non-allowlisted web origin is still rejected here, and a
+	// same-origin request still needs a valid token to proceed past it. See
+	// isAllowedOrigin for the exact-match policy and the documented Electron
+	// carve-out.
+	origin := r.Header.Get("Origin")
+	if !isAllowedOrigin(s.cfg, origin) {
+		s.log.Warn("ws origin rejected", "origin", origin)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	token := extractToken(r)
 	claims, err := s.verifier.Verify(r.Context(), token)
 	if err != nil {
@@ -374,7 +489,13 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c, err := websocket.Accept(newSmallBufHijacker(w, smallBufHijackSize), r, &websocket.AcceptOptions{
-		// Origin checks already enforced for browsers via JWT; allow Electron.
+		// isAllowedOrigin above already enforces the exact allowlist (web
+		// origin, localhost in non-prod, and the Electron null/file/app
+		// carve-out) before this point is ever reached, so the library's own
+		// same-origin check — which doesn't know about Electron's origins —
+		// would only reject connections this handler has already approved.
+		// InsecureSkipVerify here means "skip the library's redundant check",
+		// not "skip Origin validation": that validation already happened.
 		InsecureSkipVerify: true,
 	})
 	if err != nil {

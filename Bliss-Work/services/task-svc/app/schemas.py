@@ -387,6 +387,13 @@ class StickyTaskDTO(BaseModel):
     title: str
     description: str
     projectId: str | None = None
+    # The channel this task is attached to (task_channels — a task may have
+    # several; this is the first one, same "first channel" semantic as the
+    # legacy tasks.channel_id mirror). Null for a task sent to named people
+    # only. Drives the sticky widget's "Chat" button: with a channel it opens
+    # that channel's conversation, otherwise it falls back to a DM with the
+    # sender.
+    channelId: str | None = None
     senderId: str
     senderUsername: str
     # The allocator's real name. `senderUsername` is the email local-part

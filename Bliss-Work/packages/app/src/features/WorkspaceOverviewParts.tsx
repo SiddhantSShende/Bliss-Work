@@ -13,19 +13,19 @@ import { StatTile } from "@taskboard/ui";
  *  deliberately NOT the shared STATUS_COLORS from TaskAnalyticsParts (which
  *  stays on its original muted mapping for every other analytics panel).
  *  completed/missed/ignored reuse the existing semantic --color-success/
- *  -danger/-muted tokens; acknowledged/sent get the two fixed
+ *  -danger/-muted tokens; acknowledged/sent/left get the three fixed
  *  --color-status-* tokens added to theme.css for this purpose (validated
  *  with the dataviz skill's palette validator for CVD separation and
- *  contrast against those three). ignored and left intentionally share the
- *  muted gray, same as STATUS_COLORS — both read as "no further action",
- *  and the legend/tooltip text still disambiguates them. */
+ *  contrast against those three). ignored keeps the muted gray ("no further
+ *  action"); left gets its own hue (--color-status-left) so the two are no
+ *  longer visually indistinguishable in the donut/flow chart and legends. */
 const OVERVIEW_STATUS_COLORS: Record<keyof StatusBreakdownDTO, string> = {
   completed: "var(--color-success)",
   acknowledged: "var(--color-status-acknowledged)",
   sent: "var(--color-status-sent)",
   missed: "var(--color-danger)",
   ignored: "var(--color-muted)",
-  left: "var(--color-muted)",
+  left: "var(--color-status-left)",
 };
 const STATUS_ORDER = Object.keys(OVERVIEW_STATUS_COLORS) as (keyof StatusBreakdownDTO)[];
 

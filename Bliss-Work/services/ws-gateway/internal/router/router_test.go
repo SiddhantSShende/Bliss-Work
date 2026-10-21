@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/segmentio/kafka-go"
 
 	"github.com/task-board/shared-backoff"
+	"github.com/task-board/ws-gateway/internal/metrics"
 	"github.com/task-board/ws-gateway/internal/push"
 )
 
@@ -35,6 +37,10 @@ type fakeStore struct {
 	outboxWrites    int
 	outboxSucceeded int
 	nodesCalls      int
+	// missingAddrNode, if set, is omitted from NodeAddrs' result even though it
+	// was asked for — simulates a node registration expiring between the
+	// presence read (NodesForUsers) and the address lookup moments later.
+	missingAddrNode string
 }
 
 func (f *fakeStore) AppendOutboxMulti(_ context.Context, _ []string, _ int64, _ []byte) error {
@@ -73,6 +79,9 @@ func (f *fakeStore) NodeAddrs(_ context.Context, ids []string) (map[string]strin
 	}
 	m := map[string]string{}
 	for _, id := range ids {
+		if id == f.missingAddrNode {
+			continue
+		}
 		m[id] = "http://" + id
 	}
 	return m, nil
@@ -135,6 +144,29 @@ func TestRoute_SuccessAndPermanentSkipsReturnNil(t *testing.T) {
 				t.Errorf("outbox writes = %d, pushes = %d; want 1 and 1", st.outboxSucceeded, p.pushes)
 			}
 		})
+	}
+}
+
+// A node whose registration expired between the presence read and the address
+// lookup must be counted as its own thing (PushNodeExpiredTotal), distinct
+// from a push that was actually attempted and failed (PushSentTotal{error}) —
+// see D8 in the websocket-engineering audit: before this, both looked
+// identical on a dashboard.
+func TestRoute_ExpiredNodeAddrCountedSeparatelyFromPushFailure(t *testing.T) {
+	before := testutil.ToFloat64(metrics.PushNodeExpiredTotal)
+	st, p := &fakeStore{missingAddrNode: "node-1"}, &fakePusher{}
+	if err := newTestRouter(st, p).Route(context.Background(), []byte(eventJSON)); err != nil {
+		t.Fatalf("Route = %v; a missing node address must not stall the offset", err)
+	}
+	if p.pushes != 0 {
+		t.Errorf("pushes = %d; want 0 — no HTTP push should be attempted for an expired node", p.pushes)
+	}
+	// eventJSON addresses both its sender and its recipient (see
+	// contract.RecipientsOf for message.created), and the fake routing table
+	// puts both on the same node — so the one expired-node batch carries 2
+	// deliveries, not 1.
+	if got := testutil.ToFloat64(metrics.PushNodeExpiredTotal) - before; got != 2 {
+		t.Errorf("PushNodeExpiredTotal increased by %v; want 2", got)
 	}
 }
 

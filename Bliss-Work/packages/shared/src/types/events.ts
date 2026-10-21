@@ -1272,7 +1272,18 @@ export const ControlFrame = z.discriminatedUnion("type", [
    * `occurredAt` is server time and the client's clock may disagree with it by
    * more than the window would allow.
    */
-  z.object({ type: z.literal("replay.done") }),
+  z.object({
+    type: z.literal("replay.done"),
+    /**
+     * True when the reconnect backlog since the client's cursor exceeded the
+     * gateway's replay cap (maxReplayHard), so this burst was NOT the full
+     * set of missed events — only the most recent slice of it. Optional so
+     * an older gateway that never sends it still parses; absent is treated
+     * the same as `false` (nothing known to be missing) by every consumer.
+     * See services/ws-gateway/internal/store/outbox.go's Replay doc comment.
+     */
+    truncated: z.boolean().optional(),
+  }),
   // WebRTC control frames pushed by the gateway. Treated as control (not
   // ServerEvent) so the WS dedup LRU / replay outbox does NOT see them.
   RtcOfferServer,

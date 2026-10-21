@@ -48,6 +48,11 @@ _ACTIVE = ("SENT", "ACKNOWLEDGED")
 # other terminal outcomes (that mix is still a "completed" card) without reopening
 # them; LEFT/IGNORED only reopen when EVERY row shares that same single outcome.
 _WHOLE_TASK_REOPENABLE = ("LEFT", "IGNORED")
+# A single member can be reassigned on their own, whatever the rest of the task
+# is doing, as long as *their* row is one of these terminal outcomes. MISSED is
+# left out on purpose: that is the deadline sweeper's outcome, and (same as the
+# whole-task route) the deadline is not reopened from under it.
+_MEMBER_REOPENABLE = ("COMPLETED", "LEFT", "IGNORED")
 
 
 @router.post("/tasks/{task_id}/reassign")
@@ -158,6 +163,108 @@ async def reassign_task(task_id: str, principal: Principal = PrincipalDep) -> di
                     detail=exc.detail,
                 )
         response = {"taskId": task_id, "reassignedUserIds": reassigned_ids}
+        if sync_failed:
+            response["projectChannelSyncFailed"] = True
+        return response
+
+
+@router.post("/tasks/{task_id}/assignees/{assignee_id}/reassign")
+async def reassign_member(task_id: str, assignee_id: str, principal: Principal = PrincipalDep) -> dict:
+    """Hand just one member's row back to them, leaving every other assignee's
+    status untouched and the task lifecycle exactly as active (or not) as it
+    already was. For the scenario the whole-task route can't reach: someone
+    ignored (or left, or completed) their part while others are still working
+    the task, so the task is not eligible for `/reassign` yet — but that one
+    person should not have to wait for the rest to finish."""
+    org_id, me = principal.org_id, principal.user_id
+    try:
+        uuid.UUID(task_id)
+        uuid.UUID(assignee_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="task not found") from exc
+
+    async with session() as db:
+        await set_org_context(db, org_id)
+        task = await _task_context(db, org_id, task_id)
+        if str(task.sender_id) != me:
+            raise HTTPException(status_code=403, detail="only the allocator can reassign a task")
+
+        # Locked so two clicks (or two devices) serialise on this one row.
+        row = (
+            await db.execute(
+                text(
+                    "SELECT assignee_id, status FROM task_assignees "
+                    "WHERE org_id = :org AND task_id = :tid AND assignee_id = :uid FOR UPDATE"
+                ),
+                {"org": org_id, "tid": task_id, "uid": assignee_id},
+            )
+        ).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="assignee not found on this task")
+        if row.status not in _MEMBER_REOPENABLE:
+            raise HTTPException(status_code=409, detail="member has nothing to reassign")
+        if task.past_deadline:
+            raise HTTPException(status_code=409, detail="cannot reassign after the task's deadline")
+
+        reopened = (
+            await db.execute(
+                text(
+                    "UPDATE task_assignees "
+                    "SET status = 'SENT', status_version = status_version + 1, "
+                    "    assigned_at = now(), acknowledged_at = NULL, completed_at = NULL "
+                    "WHERE org_id = :org AND task_id = :tid AND assignee_id = :uid "
+                    "RETURNING assignee_id, status_version"
+                ),
+                {"org": org_id, "tid": task_id, "uid": assignee_id},
+            )
+        ).one()
+
+        sender_id = str(task.sender_id)
+        sender_username = await resolve_username(db, org_id, sender_id) or principal.username
+        title = await cryptor().decrypt(db, org_id, task.title_enc) or ""
+        description = await cryptor().decrypt(db, org_id, task.description_enc) or ""
+        all_assignee_ids = (
+            await db.execute(
+                text("SELECT assignee_id FROM task_assignees WHERE org_id = :org AND task_id = :tid"),
+                {"org": org_id, "tid": task_id},
+            )
+        ).all()
+        member_ids = list(dict.fromkeys([sender_id, *(str(r.assignee_id) for r in all_assignee_ids)]))
+        await enqueue_outbox(
+            db,
+            events.TASK_TOPIC,
+            task_id,
+            events.task_assigned(
+                org_id=org_id,
+                task_id=task_id,
+                assignee_id=str(reopened.assignee_id),
+                sender_id=sender_id,
+                status_version=int(reopened.status_version),
+                sender_username=sender_username,
+                title=title,
+                description=description,
+                members=member_ids,
+            ),
+        )
+        await db.commit()
+
+        sync_failed = False
+        if task.project_channel_id is not None:
+            try:
+                await sync_assignees_to_project_channel(
+                    org_id, str(task.project_channel_id), me, [str(reopened.assignee_id)]
+                )
+            except HTTPException as exc:
+                sync_failed = True
+                log.warning(
+                    "task_reassign_member_project_channel_sync_failed",
+                    task_id=task_id,
+                    assignee_id=assignee_id,
+                    channel_id=str(task.project_channel_id),
+                    status=exc.status_code,
+                    detail=exc.detail,
+                )
+        response = {"taskId": task_id, "assigneeId": str(reopened.assignee_id)}
         if sync_failed:
             response["projectChannelSyncFailed"] = True
         return response

@@ -12,6 +12,8 @@ allows the change — see config.py's note on why this stays optional.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 import httpx
 from fastapi import HTTPException, status
 
@@ -19,6 +21,23 @@ from .config import settings
 from .logging_config import log
 
 _TIMEOUT = httpx.Timeout(5.0, connect=2.0)
+
+
+async def init_org_billing(org_id: str, created_at: datetime) -> None:
+    """Hand billing-svc the org's creation time so it can anchor monthly
+    renewals to it (billing-svc has no FK access to `orgs`). Called once,
+    right after an org is created, outside any transaction — best-effort
+    like release_membership_commitment: a lost call only means the org's
+    renewal anchor is missing until retried, never a half-applied org."""
+    if not settings.billing_internal_base:
+        return
+    url = f"{settings.billing_internal_base}/internal/v1/billing/orgs/{org_id}/init"
+    headers = {"X-Internal-Token": settings.billing_internal_token}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        try:
+            await client.put(url, headers=headers, json={"createdAt": created_at.isoformat()})
+        except httpx.HTTPError as exc:
+            log.warning("billing_org_init_failed", org_id=org_id, error=str(exc))
 
 
 async def check_and_reserve_membership(org_id: str, user_id: str, role: str) -> None:

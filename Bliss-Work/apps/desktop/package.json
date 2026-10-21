@@ -11,13 +11,13 @@
   },
   "scripts": {
     "dev": "unset ELECTRON_RUN_AS_NODE; electron-vite dev",
-    "build": "electron-vite build",
+    "build": "ELECTRON_MAJOR_VER=42 electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
-    "package": "electron-vite build && electron-builder",
-    "package:dir": "electron-vite build && electron-builder --dir",
-    "package:store": "electron-vite build && electron-builder --win --config.win.target=appx --publish=never",
+    "package": "ELECTRON_MAJOR_VER=42 electron-vite build && electron-builder",
+    "package:dir": "ELECTRON_MAJOR_VER=42 electron-vite build && electron-builder --dir",
+    "package:store": "ELECTRON_MAJOR_VER=42 electron-vite build && electron-builder --win --config.win.target=appx --publish=never",
     "icon": "bash build/gen-appx-assets.sh"
   },
   "build": {
@@ -25,7 +25,7 @@
     "productName": "BlissWork",
     "executableName": "BlissWork",
     "copyright": "Copyright © 2026 BlissWork",
-    "electronVersion": "42.5.2",
+    "electronVersion": "42.11.18",
     "directories": {
       "buildResources": "build",
       "output": "release"
@@ -161,7 +161,7 @@
     "@types/react-dom": "^19.0.2",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react-swc": "^3.7.2",
-    "electron": "42.5.2",
+    "electron": "42.11.18",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "react": "^19.0.0",

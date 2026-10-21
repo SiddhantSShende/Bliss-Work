@@ -3,9 +3,10 @@ import { useTranslation } from "react-i18next";
 import { ChevronDown, MessageSquarePlus, Star, UserMinus } from "lucide-react";
 import { Avatar, Badge, Button, GlassCard, IconButton } from "@taskboard/ui";
 import type { TaskParticipantDTO } from "@taskboard/shared";
-import { isReassignableTask, type SentAssignee, type SentTaskMatch } from "../lib/sentTaskFilter";
+import { isMemberReassignable, isReassignableTask, type SentAssignee, type SentTaskMatch } from "../lib/sentTaskFilter";
 import { summarizeSentTask, type SentTaskSummaryKind } from "../lib/sentTaskSummary";
 import type { ParticipantTargets } from "./AddParticipantsPicker";
+import { ReassignMemberButton } from "./ReassignMemberButton";
 import { ReassignTaskButton } from "./ReassignTaskButton";
 import { isActive, TaskParticipantAdd } from "./TaskParticipants";
 import { TaskTimes } from "./TaskTimes";
@@ -149,6 +150,7 @@ export function MyTaskCard({
             {participants.map((participant) => (
               <ParticipantRow
                 key={participant.userId}
+                taskId={task.taskId}
                 participant={participant}
                 assignee={assignees.find((a) => a.assigneeId === participant.userId)}
                 name={nameOf(participant.userId, participant.username)}
@@ -157,6 +159,11 @@ export function MyTaskCard({
                 busy={withdrawingId === participant.userId}
                 onWithdraw={() => void withdraw(participant.userId)}
                 onReview={onReview}
+                // Once the whole task is reassignable, the task-wide button above
+                // already covers this row (and every other terminal one) in one
+                // call; a per-row control here would be a redundant second way to
+                // do the identical thing.
+                showMemberReassign={!isReassignableTask(task)}
               />
             ))}
           </ul>
@@ -174,6 +181,7 @@ export function MyTaskCard({
  * person twice.
  */
 function ParticipantRow({
+  taskId,
   participant,
   assignee,
   name,
@@ -182,7 +190,9 @@ function ParticipantRow({
   busy,
   onWithdraw,
   onReview,
+  showMemberReassign,
 }: {
+  taskId: string;
   participant: TaskParticipantDTO;
   assignee?: SentAssignee;
   name: string;
@@ -191,6 +201,7 @@ function ParticipantRow({
   busy: boolean;
   onWithdraw: () => void;
   onReview: (assignee: SentAssignee) => void;
+  showMemberReassign: boolean;
 }) {
   const { t, i18n } = useTranslation("tasks");
   const status = assignee?.status ?? participant.status;
@@ -221,6 +232,10 @@ function ParticipantRow({
             <Button variant="ghost" size="sm" className="max-w-full" onClick={() => onReview(assignee)}>
               <MessageSquarePlus size={14} /> {assignee.review ? t("myTasksBoard.review.edit") : t("myTasksBoard.review.write")}
             </Button>
+          )}
+          {/* Judged on this one row, never the task as a whole — see `isMemberReassignable`. */}
+          {showMemberReassign && assignee && isMemberReassignable(assignee.status) && (
+            <ReassignMemberButton taskId={taskId} userId={assignee.assigneeId} name={name} className="max-w-full" />
           )}
           {removable && (
             <Button

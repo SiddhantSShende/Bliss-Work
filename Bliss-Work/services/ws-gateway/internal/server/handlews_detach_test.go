@@ -188,7 +188,13 @@ func (ts *testServer) wsURL() string {
 // behavior: hub counts, message exchange, or which of several sockets closes).
 func (ts *testServer) dial(t *testing.T, ctx context.Context, token string) *websocket.Conn {
 	t.Helper()
-	c, _, err := websocket.Dial(ctx, ts.wsURL()+"?token="+token, nil)
+	// A real browser always sends an Origin header; set it to the server's
+	// configured WebOrigin so these tests exercise the same allowed path a
+	// legitimate client takes. Origin-specific allow/reject behavior itself
+	// is covered separately by origin_e2e_test.go.
+	c, _, err := websocket.Dial(ctx, ts.wsURL()+"?token="+token, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Origin": {"http://localhost:5173"}},
+	})
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

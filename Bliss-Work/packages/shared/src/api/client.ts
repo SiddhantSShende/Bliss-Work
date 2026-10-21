@@ -2515,6 +2515,21 @@ export class ApiClient {
       }),
     );
   }
+  /** Reopen just this one member's assignment, whatever state the rest of the
+   *  task's assignees are in; the server enforces that their own row is
+   *  COMPLETED/LEFT/IGNORED and that the deadline hasn't passed. */
+  reassignTaskMember(taskId: string, assigneeId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/assignees/${assigneeId}/reassign`,
+      { method: "POST" },
+      z.object({
+        taskId: z.string(),
+        assigneeId: z.string(),
+        projectChannelSyncFailed: z.boolean().optional(),
+      }),
+    );
+  }
   /** Tasks I sent, newest first. The server pages by task (default 50, max 100);
    *  pass `limit`/`offset` to walk further back. A task whose assignee ignored it
    *  is hidden from the sender unless `includeIgnored` is set. */

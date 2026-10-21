@@ -209,6 +209,12 @@
       "done_other": "Tarefa reenviada para {{count}} pessoas",
       "failed": "Não foi possível reatribuir esta tarefa"
     },
+    "reassignMember": {
+      "label": "Readicionar",
+      "pending": "Readicionando…",
+      "done": "{{name}} voltou a esta tarefa",
+      "failed": "Não foi possível readicionar esta pessoa"
+    },
     "milestones": {
       "allocated": "Atribuída",
       "acknowledged": "Confirmada",

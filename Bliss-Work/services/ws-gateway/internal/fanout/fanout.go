@@ -3,6 +3,7 @@ package fanout
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -16,16 +17,23 @@ import (
 	"github.com/task-board/ws-gateway/internal/contract"
 	"github.com/task-board/ws-gateway/internal/hub"
 	"github.com/task-board/ws-gateway/internal/metrics"
-	"github.com/task-board/ws-gateway/internal/store"
 	"github.com/task-board/ws-gateway/internal/tracing"
 )
+
+// outboxStore is the slice of *store.Store that handle() needs, as an
+// interface so the "withhold the commit on a durable outbox failure" path can
+// be tested against a fake rather than a live Redis — the same reasoning
+// internal/router.Store documents for the routed path.
+type outboxStore interface {
+	AppendOutbox(ctx context.Context, userID string, scoreMs int64, raw []byte) error
+}
 
 // Consumer subscribes to all fan-out topics, computes recipients, persists each
 // event to the per-user replay outbox, and pushes to any locally-connected
 // sockets.
 type Consumer struct {
 	reader *kafka.Reader
-	store  *store.Store
+	store  outboxStore
 	hub    *hub.Hub
 	log    *slog.Logger
 }
@@ -45,6 +53,14 @@ const outboxWriteMaxAttempts = 3
 // visibly stall fanout for everyone else on the same event.
 var outboxWriteRetryPolicy = backoff.Policy{Base: 20 * time.Millisecond, Max: 200 * time.Millisecond}
 
+// fanoutRetryPolicy paces re-attempts of a whole event whose outbox write
+// failed durably (outboxWriteMaxAttempts exhausted) for at least one
+// recipient. Mirrors internal/router's routeRetryPolicy for the sibling
+// (routed) path: capped so a sustained Redis outage is probed periodically
+// rather than hammered, jittered so every node does not retry in lockstep. A
+// var so tests can shrink it.
+var fanoutRetryPolicy = backoff.Policy{Base: 100 * time.Millisecond, Max: 5 * time.Second}
+
 // New creates a Consumer.
 //
 // groupID must be unique per NODE (so this instance receives all partitions
@@ -62,7 +78,7 @@ var outboxWriteRetryPolicy = backoff.Policy{Base: 20 * time.Millisecond, Max: 20
 //
 // See config.BroadcastGroupID for how the identity is chosen and what it still
 // cannot cover (a Deployment rollout mints new pod names).
-func New(brokers []string, groupID string, st *store.Store, h *hub.Hub, log *slog.Logger) *Consumer {
+func New(brokers []string, groupID string, st outboxStore, h *hub.Hub, log *slog.Logger) *Consumer {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     brokers,
 		GroupID:     groupID,
@@ -124,15 +140,21 @@ func (c *Consumer) Run(ctx context.Context) {
 				semconv.MessagingOperationName("process"),
 			),
 		)
-		c.handle(msgCtx, msg.Value)
+		done := c.deliver(ctx, msgCtx, msg.Value)
 		span.End()
+		if !done {
+			// Shutting down mid-retry. The event is NOT durably in every
+			// recipient's outbox, so its offset must not move: the next start
+			// re-reads it from the committed one.
+			return
+		}
 
-		// Only now is the event durable in the recipients' replay outboxes, so
-		// only now may the offset move. A commit failure is logged and NOT
-		// retried here: the next successful commit carries this offset with it,
-		// and blocking the loop on it would stall live delivery for a
-		// bookkeeping error whose worst case is re-reading an event the clients
-		// already dedupe.
+		// Only now is the event durable in every recipient's replay outbox (or
+		// permanently undeliverable), so only now may the offset move. A commit
+		// failure is logged and NOT retried here: the next successful commit
+		// carries this offset with it, and blocking the loop on it would stall
+		// live delivery for a bookkeeping error whose worst case is re-reading
+		// an event the clients already dedupe.
 		if err := c.reader.CommitMessages(ctx, msg); err != nil && ctx.Err() == nil {
 			c.log.Warn("kafka commit failed; event will be re-read",
 				"topic", msg.Topic, "partition", msg.Partition, "offset", msg.Offset, "err", err)
@@ -140,21 +162,57 @@ func (c *Consumer) Run(ctx context.Context) {
 	}
 }
 
-func (c *Consumer) handle(ctx context.Context, raw []byte) {
-	// Counted before parsing: an event this node could not read is still an
-	// event this node was made to receive, which is the cost being measured.
+// deliver runs handle, retrying a whole event whose outbox persistence failed
+// durably (every attempt in outboxWriteRetryPolicy exhausted) for at least
+// one recipient, until it succeeds or the consumer is shut down. It returns
+// true when the event is processed (the caller may commit its offset) and
+// false only when ctx was cancelled first (the caller must not).
+//
+// Blocking this node's whole stream on it is deliberate, mirroring
+// internal/router.Consumer.deliver for the sibling (routed) path: this node's
+// group id already covers every partition (see New), so there is nothing else
+// for it to make progress on while Redis is down, and moving past a failed
+// recipient would convert a transient Redis blip into a permanent loss for
+// anyone offline at that instant.
+func (c *Consumer) deliver(ctx, msgCtx context.Context, raw []byte) bool {
+	// Counted once per event, not per retry, so retries do not inflate it.
 	metrics.FanoutEventsConsumed.Inc()
+	for attempt := 1; ; attempt++ {
+		err := c.handle(msgCtx, raw)
+		if err == nil {
+			return true
+		}
+		if ctx.Err() != nil {
+			return false
+		}
+		metrics.FanoutRetriesTotal.Inc()
+		c.log.Error("fan-out failed; retrying without committing the offset",
+			"attempt", attempt, "err", err)
+		if !fanoutRetryPolicy.Sleep(ctx.Done(), attempt) {
+			return false
+		}
+	}
+}
 
+// handle fans one event out to every recipient. It returns nil when the
+// event is DONE — delivered, or deliberately skipped because no retry could
+// ever make it deliverable (unparseable, or addressed to no one) — and an
+// error when at least one recipient's outbox write failed durably, meaning
+// the event is NOT done: the caller (deliver) must retry the whole event and
+// must not let its offset commit in the meantime. A retry costs nothing for
+// recipients that already succeeded: AppendOutbox is an idempotent ZADD of
+// the same member, and live delivery is deduped client-side on eventId.
+func (c *Consumer) handle(ctx context.Context, raw []byte) error {
 	var ev contract.Event
 	if err := json.Unmarshal(raw, &ev); err != nil {
 		c.log.Warn("skip unparseable event", "err", err)
-		return
+		return nil
 	}
 	recipients := ev.RecipientsOf()
 	if len(recipients) == 0 {
 		// Internal-only or unknown event type — never pushed to a socket.
 		c.log.Debug("fanout: no recipients", "type", ev.Type)
-		return
+		return nil
 	}
 
 	score := contract.EpochMs(ev.OccurredAt)
@@ -171,6 +229,8 @@ func (c *Consumer) handle(ctx context.Context, raw []byte) {
 	// step.
 	outboxPayload := contract.TryCompact(&ev, payload)
 
+	var failedRecipients int
+	var lastErr error
 	for _, uid := range recipients {
 		var err error
 		for attempt := 1; attempt <= outboxWriteMaxAttempts; attempt++ {
@@ -185,6 +245,15 @@ func (c *Consumer) handle(ctx context.Context, raw []byte) {
 		if err != nil {
 			c.log.Error("append outbox failed after retries",
 				"user", uid, "attempts", outboxWriteMaxAttempts, "err", err)
+			// Do NOT skip this recipient's live delivery or abort the loop: other
+			// recipients still deserve their best-effort outbox write and live
+			// push this pass, and a retry of the whole event costs nothing for
+			// whoever already succeeded (idempotent ZADD, client-side eventId
+			// dedupe for live pushes). What must not happen is the Kafka offset
+			// committing while this recipient's event is unrecoverable — that is
+			// enforced by the non-nil return below, which withholds the commit.
+			failedRecipients++
+			lastErr = err
 		}
 		// `live` records whether a socket for this recipient existed on this node
 		// at delivery time — the decisive signal when diagnosing "messages need a
@@ -201,4 +270,9 @@ func (c *Consumer) handle(ctx context.Context, raw []byte) {
 		}
 		c.log.Debug("fanout: delivered", "type", ev.Type, "user", uid, "live", live)
 	}
+	if failedRecipients > 0 {
+		return fmt.Errorf("append outbox durably failed for %d of %d recipients: %w",
+			failedRecipients, len(recipients), lastErr)
+	}
+	return nil
 }

@@ -173,8 +173,11 @@ func (r *Router) pushAll(ctx context.Context, byNode map[string][]push.Delivery,
 		if !ok {
 			// The node's registration expired between the presence read and
 			// here — it died, or is mid-restart. Its users' events are in the
-			// outbox and replay on reconnect.
-			metrics.PushSentTotal.WithLabelValues("error").Add(float64(len(deliveries)))
+			// outbox and replay on reconnect. Counted on its own series, not
+			// folded into PushSentTotal{error}: no HTTP push was attempted, so
+			// this is the ordinary "node already gone" case, not evidence that
+			// a live-looking node failed to answer (see PushNodeExpiredTotal).
+			metrics.PushNodeExpiredTotal.Add(float64(len(deliveries)))
 			continue
 		}
 		wg.Add(1)

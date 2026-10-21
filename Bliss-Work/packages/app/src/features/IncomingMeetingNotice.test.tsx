@@ -88,6 +88,30 @@ describe("IncomingMeetingNotice", () => {
     off();
   });
 
+  it("joining through the Electron popup's own action callback clears the card (so the ring effect's cleanup fires)", async () => {
+    api.call.mockResolvedValue(callRow());
+    let invitePopupAction: ((callId: string, media: "video" | "voice") => void) | undefined;
+    runtime.config = {
+      onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => {
+        invitePopupAction = cb;
+        return () => {};
+      },
+    };
+    renderNotice();
+    act(() => announceIncomingMeeting(CALL, "Design review"));
+    await screen.findByRole("button", { name: "Join with camera on" });
+
+    // Simulate the native, always-on-top popup window's own Join click —
+    // a separate BrowserWindow with no access to this component's dismiss().
+    expect(invitePopupAction).toBeDefined();
+    act(() => invitePopupAction?.(CALL, "video"));
+
+    // The card (and the ring effect keyed on `incoming`) must clear even
+    // though nothing here ever called this component's own dismiss().
+    expect(screen.queryByRole("button", { name: "Join with camera on" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
   it("Reject on an ad-hoc call tells the server to decline it", async () => {
     api.call.mockResolvedValue(callRow({ kind: "DIRECT", media: "video" }));
     renderNotice();
