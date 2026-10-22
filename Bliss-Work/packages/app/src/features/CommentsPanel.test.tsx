@@ -109,6 +109,15 @@ describe("pagination", () => {
 });
 
 describe("posting a top-level comment", () => {
+  it("opts the composer controls out of Electron drag regions", async () => {
+    h.api.taskComments.mockResolvedValue(page([]));
+    mount();
+    await screen.findByText("No comments yet.");
+
+    expect(screen.getByPlaceholderText("Write a comment…")).toHaveClass("app-no-drag");
+    expect(screen.getByRole("button", { name: "Post" })).toHaveClass("app-no-drag");
+  });
+
   it("appears immediately with no duplicate, and the draft clears", async () => {
     h.api.taskComments.mockResolvedValue(page([]));
     const posted = comment({ id: "new-1", authorId: ME, authorUsername: "me", body: "hello there" });
