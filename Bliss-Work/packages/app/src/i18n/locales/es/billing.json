@@ -12,6 +12,10 @@
       "title": "Facturación no disponible",
       "hint": "La facturación no está configurada para esta implementación."
     },
+    "freemium": {
+      "title": "Modelo freemium",
+      "hint": "BlissWork actualmente opera con un modelo freemium. La facturación y los planes de pago no están disponibles en esta versión."
+    },
     "states": {
       "loading": "Cargando información de facturación…",
       "error": "No se pudo cargar la información de facturación."

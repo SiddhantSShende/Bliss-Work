@@ -195,12 +195,12 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
   // note has to outlive BlissWork's own window — minimised, or closed to the
   // tray.
   //
-  //   • focusable: false → the note can never take focus or be raised to the
-  //     front by a click, so clicking it never pulls focus off whatever the user
-  //     is working in and it never fights them for the keyboard. Task actions
-  //     are pure click targets — no text input — so this costs nothing. (On
-  //     Linux it also keeps the window manager from managing it as a normal
-  //     window, which is what lets it stay on top across workspaces.)
+  //   • focusable: true → the note's Comments composer can receive keyboard
+  //     input. showInactive() below still prevents the pin from taking focus
+  //     merely because it was created; clicking an interactive control is the
+  //     explicit point where it may receive focus. On Linux this means the
+  //     window manager manages the note, so its always-on-top/workspace options
+  //     below keep it visible.
   //   • skipTaskbar: true → kept out of the taskbar/alt-tab, since it is a
   //     desktop widget, not a window someone switches to directly.
   //   • showInactive() (below) surfaces it WITHOUT stealing focus.
@@ -254,7 +254,7 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
     skipTaskbar: true,
     // Topmost from the first frame off Windows; on Windows the note is NOT topmost.
     alwaysOnTop: !onDesktopLayer,
-    focusable: false, // never raises to the front, never steals focus
+    focusable: true,
     hasShadow: true,
     maximizable: false,
     minimizable: false, // can't be minimised — it's already an unframed widget

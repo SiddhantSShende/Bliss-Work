@@ -94,10 +94,12 @@ describe("Billing (org settings)", () => {
     await waitFor(() => expect(screen.getByText(/couldn't load billing information/i)).toBeInTheDocument());
   });
 
-  it("shows an unavailable state and never calls the API when billingBase is not configured", () => {
+  it("explains the freemium model and never calls the API when billingBase is not configured", () => {
     configMock.billingBase = undefined;
     renderBilling();
-    expect(screen.getByText(/billing unavailable/i)).toBeInTheDocument();
+    expect(
+      screen.getByText("BlissWork currently operates on a freemium model. Billing and paid plans are not available in this version."),
+    ).toBeInTheDocument();
     expect(h.billingBalance).not.toHaveBeenCalled();
   });
 });

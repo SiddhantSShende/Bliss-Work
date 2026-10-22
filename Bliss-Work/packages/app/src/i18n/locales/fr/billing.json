@@ -12,6 +12,10 @@
       "title": "Facturation indisponible",
       "hint": "La facturation n'est pas configurée pour ce déploiement."
     },
+    "freemium": {
+      "title": "Modèle freemium",
+      "hint": "BlissWork fonctionne actuellement selon un modèle freemium. La facturation et les forfaits payants ne sont pas disponibles dans cette version."
+    },
     "states": {
       "loading": "Chargement des informations de facturation…",
       "error": "Impossible de charger les informations de facturation."

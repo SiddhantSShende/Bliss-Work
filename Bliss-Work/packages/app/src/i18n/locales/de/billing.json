@@ -12,6 +12,10 @@
       "title": "Abrechnung nicht verfügbar",
       "hint": "Die Abrechnung ist für diese Bereitstellung nicht konfiguriert."
     },
+    "freemium": {
+      "title": "Freemium-Modell",
+      "hint": "BlissWork verwendet derzeit ein Freemium-Modell. Abrechnung und kostenpflichtige Tarife sind in dieser Version nicht verfügbar."
+    },
     "states": {
       "loading": "Abrechnungsdaten werden geladen…",
       "error": "Abrechnungsdaten konnten nicht geladen werden."

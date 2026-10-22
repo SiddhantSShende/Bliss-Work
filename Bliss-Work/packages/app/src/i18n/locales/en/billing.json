@@ -12,6 +12,10 @@
       "title": "Billing unavailable",
       "hint": "Billing isn't configured for this deployment."
     },
+    "freemium": {
+      "title": "Freemium model",
+      "hint": "BlissWork currently operates on a freemium model. Billing and paid plans are not available in this version."
+    },
     "states": {
       "loading": "Loading billing information…",
       "error": "Couldn't load billing information."

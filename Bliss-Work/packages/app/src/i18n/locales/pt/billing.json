@@ -12,6 +12,10 @@
       "title": "Faturamento indisponível",
       "hint": "O faturamento não está configurado para esta implantação."
     },
+    "freemium": {
+      "title": "Modelo freemium",
+      "hint": "BlissWork opera atualmente em um modelo freemium. O faturamento e os planos pagos não estão disponíveis nesta versão."
+    },
     "states": {
       "loading": "Carregando informações de faturamento…",
       "error": "Não foi possível carregar as informações de faturamento."

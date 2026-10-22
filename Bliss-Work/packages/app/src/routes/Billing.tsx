@@ -79,8 +79,8 @@ export function Billing() {
           {!billingConfigured ? (
             <EmptyState
               icon={<CreditCard size={24} />}
-              title={t("billing:org.unavailable.title")}
-              hint={t("billing:org.unavailable.hint")}
+              title={t("billing:org.freemium.title")}
+              hint={t("billing:org.freemium.hint")}
             />
           ) : isLoading ? (
             <div className="flex items-center justify-center py-16">

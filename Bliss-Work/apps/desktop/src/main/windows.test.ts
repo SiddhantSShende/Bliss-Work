@@ -123,10 +123,10 @@ describe.each<NodeJS.Platform>(["win32", "darwin", "linux"])("pinned popup on %s
     expect(rec.options).not.toHaveProperty("parent");
   });
 
-  it("does not take focus or a taskbar slot", async () => {
+  it("can receive keyboard focus for Comments without taking a taskbar slot", async () => {
     const rec = await createFor(platform);
 
-    expect(rec.options.focusable).toBe(false);
+    expect(rec.options.focusable).toBe(true);
     expect(rec.options.skipTaskbar).toBe(true);
   });
 
