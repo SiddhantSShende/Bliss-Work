@@ -166,7 +166,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       sha: ${{ steps.v.outputs.sha }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
@@ -253,7 +253,7 @@ jobs:
       MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Pinned rather than left to default to the branch tip: a push that
           # lands while this run is still building must not be silently picked
@@ -425,7 +425,7 @@ jobs:
       ES_USERNAME: ${{ secrets.ES_USERNAME }}
       VPS_HOST: ${{ secrets.VPS_HOST }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.version.outputs.sha }}
 
