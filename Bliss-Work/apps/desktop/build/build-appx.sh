@@ -6,7 +6,8 @@
 # process.platform win32 or darwin (it shells out to Windows Kits'
 # makeappx.exe/makepri.exe, fetched automatically) — it will NOT run on
 # Linux, even under WSL. Use a Windows or macOS machine, or the
-# `store-release.yml` GitHub Actions workflow (runs on windows-latest).
+# `.github/workflows/build-msix.yml` GitHub Actions workflow (runs on
+# windows-latest).
 #
 # Unlike the direct-download installers (see SIGNING.md), Store packages do
 # NOT need to be code-signed by you — Microsoft signs the package during
@@ -33,7 +34,7 @@ cd "$(dirname "$0")/.."   # apps/desktop
 PLATFORM="$(node -e 'process.stdout.write(process.platform)')"
 if [[ "$PLATFORM" != "win32" && "$PLATFORM" != "darwin" ]]; then
   echo "✗ AppX packaging requires Node to report win32 or darwin (got: $PLATFORM)." >&2
-  echo "  Build on a real Windows or macOS machine, or use .github/workflows/store-release.yml." >&2
+  echo "  Build on a real Windows or macOS machine, or use .github/workflows/build-msix.yml." >&2
   exit 1
 fi
 

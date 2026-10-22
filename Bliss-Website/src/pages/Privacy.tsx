@@ -67,6 +67,7 @@ const SECTIONS: LegalSection[] = [
         heading: "d) Content and activity data",
         items: [
           `Messages you send, conversation membership, and read receipts, so your team’s conversations synchronise across devices`,
+          `On Windows desktop, while you are signed in, BlissWork records the name of the foreground application's executable and timestamps and durations for active and operating-system-idle intervals. We use these data to calculate activity summaries. We do not collect window titles, full executable paths, keystrokes, screen contents, or browsing history through this tracking. See Section 5 for who can see activity data.`,
         ],
       },
       {

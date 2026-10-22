@@ -1,0 +1,127 @@
+name: Build BlissWork Microsoft Store package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-msix:
+    name: Build Windows Store package
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: Bliss-Work
+
+    steps:
+      - name: Check out the selected revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: Bliss-Work/.nvmrc
+          cache: npm
+          cache-dependency-path: Bliss-Work/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build desktop application
+        working-directory: Bliss-Work/apps/desktop
+        run: npx --no-install electron-vite build
+
+      - name: Package and verify AppX artifact
+        working-directory: Bliss-Work
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $desktop = Join-Path $PWD "apps/desktop"
+          Push-Location $desktop
+          try {
+            npx --no-install electron-builder --win --x64 --config.win.target=appx --publish never
+            if ($LASTEXITCODE -ne 0) {
+              throw "electron-builder AppX packaging failed with exit code $LASTEXITCODE"
+            }
+          } finally {
+            Pop-Location
+          }
+
+          $release = Join-Path $desktop "release"
+          $packages = @(Get-ChildItem -LiteralPath $release -Filter "*.appx" -File)
+          if ($packages.Count -ne 1) {
+            Get-ChildItem -LiteralPath $release -ErrorAction SilentlyContinue | Format-Table Name, Length
+            throw "Expected exactly one electron-builder .appx package in $release; found $($packages.Count)."
+          }
+          if ($packages[0].Length -le 0) {
+            throw "The generated AppX package is empty: $($packages[0].FullName)"
+          }
+
+          $metadata = Get-Content -LiteralPath (Join-Path $desktop "package.json") -Raw | ConvertFrom-Json
+          $appxConfig = $metadata.build.appx
+          $identityName = [string]$appxConfig.identityName
+          $publisher = [string]$appxConfig.publisher
+          $applicationId = [string]$appxConfig.applicationId
+          $version = [string]$metadata.version
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
+          try {
+            $manifestEntry = $archive.GetEntry("AppxManifest.xml")
+            if ($null -eq $manifestEntry) {
+              throw "The generated package does not contain AppxManifest.xml"
+            }
+            $reader = [System.IO.StreamReader]::new($manifestEntry.Open())
+            try {
+              [xml]$manifest = $reader.ReadToEnd()
+            } finally {
+              $reader.Dispose()
+            }
+
+            $identity = $manifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Identity']")
+            if ($null -eq $identity) {
+              throw "AppxManifest.xml does not contain a Package Identity element."
+            }
+            if ([string]::IsNullOrWhiteSpace($identityName) -or [string]$identity.Name -cne $identityName) {
+              throw "Manifest identity '$($identity.Name)' does not match configured identity '$identityName'."
+            }
+            if ([string]::IsNullOrWhiteSpace($publisher) -or [string]$identity.Publisher -cne $publisher) {
+              throw "Manifest publisher '$($identity.Publisher)' does not match configured publisher '$publisher'."
+            }
+            if ([string]$identity.ProcessorArchitecture -cne "x64") {
+              throw "Expected an x64 package, found '$($identity.ProcessorArchitecture)'."
+            }
+            if ([string]$identity.Version -notmatch ("^{0}\.\d+$" -f [regex]::Escape($version))) {
+              throw "Manifest version '$($identity.Version)' does not match app version '$version'."
+            }
+
+            $application = $manifest.SelectSingleNode(
+              "//*[local-name()='Application' and @Id='$applicationId']"
+            )
+            if ($null -eq $application) {
+              throw "Manifest does not declare the configured application ID '$applicationId'."
+            }
+            $taskboardProtocol = $manifest.SelectSingleNode(
+              "//*[local-name()='Extension' and @Category='windows.protocol']/*[local-name()='Protocol' and @Name='taskboard']"
+            )
+            if ($null -eq $taskboardProtocol) {
+              throw "Manifest does not declare the taskboard:// protocol used by the desktop app."
+            }
+          } finally {
+            $archive.Dispose()
+          }
+
+          Write-Host "Verified Store AppX package: $($packages[0].FullName)"
+          Write-Host "Identity: $identityName ($publisher), version $($identity.Version), x64"
+
+      - name: Upload Store package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: BlissWork-Store-Package
+          path: Bliss-Work/apps/desktop/release/*.appx
+          if-no-files-found: error
+          retention-days: 14
