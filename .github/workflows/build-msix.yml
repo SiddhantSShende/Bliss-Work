@@ -17,12 +17,12 @@ jobs:
 
     steps:
       - name: Check out the selected revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: Bliss-Work/.nvmrc
           cache: npm
@@ -33,6 +33,16 @@ jobs:
 
       - name: Build desktop application
         working-directory: Bliss-Work/apps/desktop
+        # electron-vite's own electron-version lookup resolves 'electron/package.json'
+        # relative to where electron-vite itself is installed, not the project dir
+        # (createRequire(import.meta.url), no cwd-aware `paths` option) - it never finds
+        # a workspace-nested, non-hoisted electron install. ELECTRON_MAJOR_VER short-
+        # circuits that lookup entirely; it's the same workaround apps/desktop's own
+        # package.json scripts use (`ELECTRON_MAJOR_VER=42 electron-vite build`), set
+        # here at the job-step level instead of inline so it isn't POSIX-shell-only
+        # (apps/desktop/package.json's version breaks under Windows' default cmd.exe).
+        env:
+          ELECTRON_MAJOR_VER: "42"
         run: npx --no-install electron-vite build
 
       - name: Package and verify AppX artifact
