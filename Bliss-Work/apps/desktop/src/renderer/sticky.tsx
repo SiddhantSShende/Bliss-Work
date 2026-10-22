@@ -226,7 +226,7 @@ function StickyApp() {
     >
       {resizeHandles}
       {/* w-4, no gap: every pixel here comes straight out of the card's own
-          width budget (see windows.ts's FULL_W/minWidth, sized to compensate),
+          width budget (see windows.ts's default width, sized to compensate),
           and the Acknowledge/Ignore row was already once broken by too little
           of it — see StickyWidget's doc comment. */}
       {hasMultiple && (

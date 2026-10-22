@@ -118,6 +118,8 @@ describe("posting a top-level comment", () => {
     await screen.findByText("No comments yet.");
 
     const box = screen.getByPlaceholderText("Write a comment…");
+    expect(box).toHaveClass("app-no-drag");
+    expect(screen.getByRole("button", { name: "Post" })).toHaveClass("app-no-drag");
     await user.type(box, "hello there");
     await user.click(screen.getByRole("button", { name: "Post" }));
 
@@ -191,6 +193,7 @@ describe("replies", () => {
     await waitFor(() => expect(h.api.taskCommentReplies).toHaveBeenCalledWith(TASK_ID, "top-1", { cursor: null, limit: 10 }));
 
     const box = await screen.findByPlaceholderText("Write a reply…");
+    expect(box).toHaveClass("app-no-drag");
     await user.type(box, "a thoughtful reply");
     const replyComposer = box.closest("div")!;
     await user.click(within(replyComposer).getByRole("button", { name: "Post" }));

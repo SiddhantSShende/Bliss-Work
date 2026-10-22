@@ -1,11 +1,29 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("electron", () => ({ screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }) } }));
+const h = vi.hoisted(() => ({ workAreaSize: { width: 1920, height: 1080 } }));
+vi.mock("electron", () => ({
+  screen: {
+    getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+    getPrimaryDisplay: () => ({ workAreaSize: h.workAreaSize }),
+  },
+}));
 
-import { RESIZE_EDGES, draggedBounds, isNoteDrag, resizedBounds, setNoteResizable, STICKY_MAX_SIZE, STICKY_MIN_SIZE } from "./sticky-resize";
+import {
+  RESIZE_EDGES,
+  draggedBounds,
+  getStickyMaxSize,
+  isNoteDrag,
+  resizedBounds,
+  setNoteResizable,
+  STICKY_MIN_SIZE,
+} from "./sticky-resize";
 import type { BrowserWindow } from "electron";
 
 const start = { x: 500, y: 300, width: 380, height: 340 };
+
+afterEach(() => {
+  h.workAreaSize = { width: 1920, height: 1080 };
+});
 
 describe("resizedBounds", () => {
   it("moves only the dragged edge, anchoring the opposite one", () => {
@@ -22,7 +40,7 @@ describe("resizedBounds", () => {
     expect(resizedBounds(start, "sw", -10, 20)).toEqual({ x: 490, y: 300, width: 390, height: 360 });
   });
 
-  it("never goes below the minimum, and the far edge stays fixed when it clamps", () => {
+  it("shrinks to the compact minimum, and the far edge stays fixed when it clamps", () => {
     const b = resizedBounds(start, "nw", 500, 500);
 
     expect(b.width).toBe(STICKY_MIN_SIZE.width);
@@ -31,13 +49,34 @@ describe("resizedBounds", () => {
     expect(b.y + b.height).toBe(start.y + start.height);
   });
 
-  it("never goes above the maximum, and the far edge stays fixed when it clamps", () => {
-    const b = resizedBounds(start, "nw", -500, -500);
+  it("sets the minimum below the former widget-sized threshold", () => {
+    const b = resizedBounds(start, "se", -1_000, -1_000);
 
-    expect(b.width).toBe(STICKY_MAX_SIZE.width);
-    expect(b.height).toBe(STICKY_MAX_SIZE.height);
+    expect(b.width).toBe(180);
+    expect(b.height).toBe(160);
+  });
+
+  it("expands to the available workspace, and the far edge stays fixed when it clamps", () => {
+    const b = resizedBounds(start, "nw", -2_000, -2_000);
+
+    expect(b.width).toBe(1920);
+    expect(b.height).toBe(1080);
     expect(b.x + b.width).toBe(start.x + start.width);
     expect(b.y + b.height).toBe(start.y + start.height);
+  });
+
+  it("uses updated workspace dimensions after display metrics change", () => {
+    h.workAreaSize = { width: 1280, height: 720 };
+
+    expect(getStickyMaxSize()).toEqual({ width: 1280, height: 720 });
+    expect(resizedBounds(start, "se", 2_000, 2_000)).toEqual({
+      x: start.x,
+      y: start.y,
+      width: 1280,
+      height: 720,
+    });
+
+    h.workAreaSize = { width: 1920, height: 1080 };
   });
 
   it("is a no-op for a zero drag on every handle", () => {

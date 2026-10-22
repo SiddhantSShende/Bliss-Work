@@ -51,7 +51,13 @@ vi.mock("electron", () => {
   return {
     BrowserWindow,
     app: { getPath: () => "" },
-    screen: { getAllDisplays: () => [], getPrimaryDisplay: () => ({ workArea: {} }) },
+    screen: {
+      getAllDisplays: () => [],
+      getPrimaryDisplay: () => ({
+        workArea: {},
+        workAreaSize: { width: 1920, height: 1080 },
+      }),
+    },
   };
 });
 vi.mock("./assets", () => ({ appIcon: () => undefined }));
@@ -224,9 +230,8 @@ describe("pinned popup size", () => {
     const rec = await createFor("linux");
     const { width, height, minHeight, maxHeight } = rec.options as Record<"width" | "height" | "minHeight" | "maxHeight", number>;
 
-    // 200px (min 140) squeezed the description to one line, or to nothing.
     expect(height).toBeGreaterThanOrEqual(340);
-    expect(minHeight).toBeGreaterThanOrEqual(300);
+    expect(minHeight).toBe(160);
     expect(minHeight).toBeLessThanOrEqual(height);
     expect(maxHeight).toBeGreaterThan(height);
     expect(width).toBe(380);
@@ -238,7 +243,7 @@ describe.each<NodeJS.Platform>(["win32", "darwin", "linux"])("pinned popup resiz
     const rec = await createFor(platform);
 
     expect(rec.options.resizable).toBe(true);
-    expect(rec.options).toMatchObject({ minWidth: 320, minHeight: 300, maxWidth: 440, maxHeight: 440 });
+    expect(rec.options).toMatchObject({ minWidth: 180, minHeight: 160, maxWidth: 1920, maxHeight: 1080 });
   });
 
   it(

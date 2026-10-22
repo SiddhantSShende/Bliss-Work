@@ -82,9 +82,15 @@ function Composer({
         placeholder={placeholder}
         rows={1}
         maxLength={MAX_COMMENT_LENGTH}
-        className="min-w-0 flex-1 resize-none rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-fg placeholder:text-muted focus-visible:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/25"
+        className="app-no-drag min-w-0 flex-1 resize-none rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-fg placeholder:text-muted focus-visible:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/25"
       />
-      <Button size="sm" variant="subtle" disabled={!draft.trim() || posting} onClick={submit}>
+      <Button
+        size="sm"
+        variant="subtle"
+        disabled={!draft.trim() || posting}
+        onClick={submit}
+        className="app-no-drag"
+      >
         {posting ? busyLabel : postLabel}
       </Button>
       {failed && <p className="text-xs text-danger">{errorLabel}</p>}

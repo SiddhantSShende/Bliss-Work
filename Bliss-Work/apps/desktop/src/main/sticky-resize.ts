@@ -25,10 +25,23 @@ import { screen, type BrowserWindow, type Rectangle } from "electron";
  * border and drag region untouched.
  */
 
-/** Smallest size the content (title, Assigned row, Acknowledge/Ignore) lays out in. */
-export const STICKY_MIN_SIZE = { width: 320, height: 300 };
-/** Close to content size: the window is opaque, so more is just a flat rectangle. */
-export const STICKY_MAX_SIZE = { width: 440, height: 440 };
+/** Compact minimum that still leaves room for the resize handles and a usable card. */
+export const STICKY_MIN_SIZE = { width: 180, height: 160 };
+
+/** Keep expansion within the primary display's usable workspace. */
+export function getStickyMaxSize(): { width: number; height: number } {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  return {
+    width: Math.max(width, STICKY_MIN_SIZE.width),
+    height: Math.max(height, STICKY_MIN_SIZE.height),
+  };
+}
+
+/** Keep Electron's native resize limit in sync with the current workspace. */
+export function setStickyMaximumSize(win: BrowserWindow): void {
+  const { width, height } = getStickyMaxSize();
+  win.setMaximumSize(width, height);
+}
 
 export const RESIZE_EDGES = ["n", "s", "e", "w", "ne", "nw", "se", "sw"] as const;
 export type ResizeEdge = (typeof RESIZE_EDGES)[number];
@@ -57,15 +70,16 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 /** `start` dragged by (dx, dy) on `edge`: the opposite edge stays put, and the
  *  size is held inside the note's min/max. */
 export function resizedBounds(start: Rectangle, edge: ResizeEdge, dx: number, dy: number): Rectangle {
+  const max = getStickyMaxSize();
   let { x, y, width, height } = start;
-  if (edge.includes("e")) width = clamp(start.width + dx, STICKY_MIN_SIZE.width, STICKY_MAX_SIZE.width);
+  if (edge.includes("e")) width = clamp(start.width + dx, STICKY_MIN_SIZE.width, max.width);
   if (edge.includes("w")) {
-    width = clamp(start.width - dx, STICKY_MIN_SIZE.width, STICKY_MAX_SIZE.width);
+    width = clamp(start.width - dx, STICKY_MIN_SIZE.width, max.width);
     x = start.x + start.width - width;
   }
-  if (edge.includes("s")) height = clamp(start.height + dy, STICKY_MIN_SIZE.height, STICKY_MAX_SIZE.height);
+  if (edge.includes("s")) height = clamp(start.height + dy, STICKY_MIN_SIZE.height, max.height);
   if (edge.includes("n")) {
-    height = clamp(start.height - dy, STICKY_MIN_SIZE.height, STICKY_MAX_SIZE.height);
+    height = clamp(start.height - dy, STICKY_MIN_SIZE.height, max.height);
     y = start.y + start.height - height;
   }
   return { x, y, width, height };

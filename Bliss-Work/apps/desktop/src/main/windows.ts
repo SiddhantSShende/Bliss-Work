@@ -5,7 +5,11 @@ import { appIcon } from "./assets";
 import { attachToDesktopLayer } from "./desktop-layer";
 import { hardenWindow } from "./harden";
 import { isSystemAway } from "./window-state-guard";
-import { STICKY_MAX_SIZE, STICKY_MIN_SIZE, setNoteResizable } from "./sticky-resize";
+import {
+  getStickyMaxSize,
+  setNoteResizable,
+  STICKY_MIN_SIZE,
+} from "./sticky-resize";
 import { getMainWindowBounds, saveMainWindowBounds } from "./sticky-state";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -203,6 +207,7 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
   //
   // The StickyManager confines its position to the primary display.
   const onDesktopLayer = process.platform === "win32";
+  const maxSize = getStickyMaxSize();
   const win = new BrowserWindow({
     // Wide enough for "Acknowledge" and "Ignore" to sit side by side with their
     // text labels. The note used to render those two as bare icons to fit 320px,
@@ -218,13 +223,11 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
     height: 340,
     minWidth: STICKY_MIN_SIZE.width,
     minHeight: STICKY_MIN_SIZE.height,
-    // Capped close to content size: this window is opaque (see the transparent
-    // note below), so an unbounded resize left a big flat-coloured rectangle
-    // around the card — exactly the "background/container behind the task"
-    // look. The cap keeps the note a compact widget no matter how far the user
-    // drags its corner.
-    maxWidth: STICKY_MAX_SIZE.width,
-    maxHeight: STICKY_MAX_SIZE.height,
+    // Keep the pin within the available primary-display workspace without an
+    // arbitrary widget-sized cap. StickyManager refreshes these limits when
+    // display metrics change.
+    maxWidth: maxSize.width,
+    maxHeight: maxSize.height,
     frame: false,
     // true everywhere EXCEPT Linux: a transparent frameless window needs GPU
     // compositing to actually render as see-through, and on a Linux session

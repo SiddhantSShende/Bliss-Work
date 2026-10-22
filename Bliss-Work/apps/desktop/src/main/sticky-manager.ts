@@ -24,7 +24,14 @@ import {
   saveGeometry,
 } from "./sticky-state";
 import { reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
-import { beginNoteDrag, endNoteDrag, setNoteResizable, type NoteDrag } from "./sticky-resize";
+import {
+  beginNoteDrag,
+  endNoteDrag,
+  setNoteResizable,
+  setStickyMaximumSize,
+  STICKY_MIN_SIZE,
+  type NoteDrag,
+} from "./sticky-resize";
 
 /**
  * Fixed synthetic geometry key for the single carousel container, in the same
@@ -46,10 +53,6 @@ const SCREEN_PAD = 4;
  *  collapse path must lower setMinimumSize BEFORE resizing (see setCollapsed). */
 const PILL_W = 220;
 const PILL_H = 52;
-/** The note's normal minimum size (mirrors createStickyWindow). Restored when
- *  the user expands a collapsed pill back to a full note. */
-const FULL_MIN_W = 320;
-const FULL_MIN_H = 300;
 /** Fallback full size if we somehow lack a stored expanded size (mirrors
  *  createStickyWindow's default). */
 const FULL_W = 380;
@@ -340,8 +343,8 @@ export class StickyManager {
   /** Collapse a note to a small pill, or expand it back. The note window is
    *  resized in place — never recreated, so it keeps its owner and its place
    *  in the group.
-   *  Order matters: when shrinking below the normal minimum we must lower the
-   *  minimum size BEFORE setBounds, and restore it AFTER expanding. */
+   *  Order matters: set the matching minimum before resizing in either
+   *  direction, so neither collapse nor expand gets clamped by the old size. */
   setCollapsed(collapsed: boolean): void {
     const w = this.win;
     if (!w || w.isDestroyed()) {
@@ -384,7 +387,7 @@ export class StickyManager {
     } else {
       const stored = getGeometry(CONTAINER_ID);
       const fw = stored?.expandedWidth ?? FULL_W;
-      const fh = Math.max(stored?.expandedHeight ?? FULL_H, FULL_MIN_H);
+      const fh = Math.max(stored?.expandedHeight ?? FULL_H, STICKY_MIN_SIZE.height);
       // Save collapsed:false BEFORE setBounds so a same-tick 'resize' persist
       // can't record full bounds while the flag still reads true.
       saveGeometry(CONTAINER_ID, {
@@ -397,8 +400,8 @@ export class StickyManager {
         expandedWidth: fw,
         expandedHeight: fh,
       });
+      w.setMinimumSize(STICKY_MIN_SIZE.width, STICKY_MIN_SIZE.height);
       w.setBounds({ x: b.x, y: b.y, width: fw, height: fh });
-      w.setMinimumSize(FULL_MIN_W, FULL_MIN_H);
       setNoteResizable(w, true);
     }
   }
@@ -407,6 +410,7 @@ export class StickyManager {
    *  add/remove/metrics-change so unplugging the monitor it drifted toward
    *  can't strand it off the main desktop screen. */
   reclampAll(): void {
+    if (this.win && !this.win.isDestroyed()) setStickyMaximumSize(this.win);
     reclampGroupToPrimary(this.win ? [this.win] : []);
   }
 
@@ -484,9 +488,13 @@ export class StickyManager {
         setNoteResizable(w, false);
         w.setBounds({ x: g.x, y: g.y, width: PILL_W, height: PILL_H });
       } else {
-        // A height saved before the minimum was raised would be too short to show the
-        // description; never restore below the current minimum.
-        w.setBounds({ x: g.x, y: g.y, width: g.width, height: Math.max(g.height, FULL_MIN_H) });
+        // Keep older persisted sizes, but raise them only to the compact minimum.
+        w.setBounds({
+          x: g.x,
+          y: g.y,
+          width: Math.max(g.width, STICKY_MIN_SIZE.width),
+          height: Math.max(g.height, STICKY_MIN_SIZE.height),
+        });
       }
       // Deliberately NOT restoring a stored `minimized` flag. This window is
       // built minimizable:false + skipTaskbar:true, so a note that somehow got

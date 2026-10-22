@@ -31,8 +31,8 @@ import {
  * keep the header X as well.
  *
  * Compact also caps the card at its container's height, because that container
- * is an OS window the user can resize and whose document cannot scroll. See the
- * class list below.
+ * is a user-resizable OS window whose document cannot scroll. See the class list
+ * below.
  *
  * Pin model (Electron only): tasks pin to the desktop automatically, so the card
  * itself carries no pin controls.
@@ -148,8 +148,8 @@ export function StickyWidget({
   const selfWithdrawAction = task.actions.includes("LEAVE") ? "LEAVE" : task.actions.includes("IGNORE") ? "IGNORE" : null;
   const withdrawSelf = onWithdrawSelf && selfWithdrawAction ? () => onWithdrawSelf(selfWithdrawAction) : undefined;
 
-  // The floating note is a fixed-size window that clips what does not fit, and its
-  // buttons would otherwise stack into a second row there. Below 15rem of row width
+  // The floating note clips what does not fit, and its buttons would otherwise
+  // stack into a second row there. Below 15rem of row width
   // the (decorative) icons give way instead, so the labels stay whole and the
   // buttons stay on one line. Only the compact note: an in-app card just grows.
   //
@@ -464,12 +464,12 @@ export function StickyWidget({
       } ${
         task.myStatus === "MISSED" ? "border-danger/40" : "border-border"
       } ${
-        // The floating note lives in a fixed-size, user-resizable OS window
+        // The floating note lives in a user-resizable OS window
         // whose document is `overflow: hidden` — anything taller than the window
         // is not scrolled, it is silently cut off. Capping the card at the
         // window height and letting the DESCRIPTION absorb the shortfall (see
         // below) is what keeps the action row on screen; without it, shrinking
-        // the note towards its minimum size clipped Acknowledge and Ignore
+        // the note to a compact size clipped Acknowledge and Ignore
         // away entirely, with no scrollbar and no hint that they existed.
         //
         // `overflow-y-auto` is the Comments panel's safety net, not the
@@ -478,9 +478,7 @@ export function StickyWidget({
         // small note it can still ask for more height than max-h-full leaves.
         // Without an overflow on THIS element that excess render past the
         // card's own box with nowhere to go (the window itself can't scroll)
-        // — verified with a real-browser layout probe at the pin's actual
-        // 320x300 minimum, see the comment-panel review notes. A real
-        // scrollbar here is strictly better than silently losing the bottom
+        // — a real scrollbar here is strictly better than silently losing the bottom
         // of a thread the user explicitly chose to open; the always-visible
         // action row is never affected, since it renders before the panel.
         compact ? "max-h-full min-h-0 overflow-y-auto shadow-widget" : "shadow-soft"

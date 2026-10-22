@@ -25,7 +25,10 @@ const h = vi.hoisted(() => ({ userData: "", windows: [] as unknown[] }));
 vi.mock("electron", () => ({
   app: { getPath: () => h.userData },
   screen: {
-    getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getPrimaryDisplay: () => ({
+      workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+      workAreaSize: { width: 1920, height: 1080 },
+    }),
   },
 }));
 
@@ -42,6 +45,7 @@ vi.mock("./windows", () => ({
       getBounds: () => ({ x: 0, y: 0, width: 380, height: 200 }),
       isMinimized: () => false,
       setMinimumSize: () => {},
+      setMaximumSize: () => {},
       setResizable: () => {},
       on: () => {},
       webContents: {
