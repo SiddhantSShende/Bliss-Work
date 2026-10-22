@@ -1,0 +1,45 @@
+name: _tmp-fetch-artifact
+
+# Temporary, one-off helper: republishes an already-built Actions artifact as
+# a GitHub Release asset so it can be downloaded from a host reachable
+# outside GitHub Actions' blob-storage CDN. Not part of the Store build
+# pipeline — delete this file once you've grabbed the file you needed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Workflow run ID whose artifact to republish"
+        required: true
+      artifact_name:
+        description: "Artifact name"
+        required: true
+      tag:
+        description: "Release tag to publish the asset under"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  republish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: fetched
+
+      - name: Create release and upload asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ inputs.tag }}" fetched/* \
+            --title "Temporary artifact republish" \
+            --notes "Temporary release created to make a CI artifact downloadable outside Actions' blob storage. Safe to delete." \
+            --repo "${{ github.repository }}"
