@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # TEMP: revert to read after retrieving the built .appx
+  contents: read
 
 jobs:
   build-msix:
@@ -135,16 +135,3 @@ jobs:
           path: Bliss-Work/apps/desktop/release/*.appx
           if-no-files-found: error
           retention-days: 14
-
-      # TEMP: also publish the .appx as a release asset, which is reachable from
-      # outside Actions' blob-storage CDN. Remove this step once retrieved.
-      - name: TEMP - publish release asset
-        working-directory: Bliss-Work/apps/desktop
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "tmp-appx-${{ github.run_id }}" release/*.appx \
-            --title "Temporary artifact republish" \
-            --notes "Temporary release so the .appx is downloadable outside Actions' blob storage. Safe to delete." \
-            --repo "${{ github.repository }}"
