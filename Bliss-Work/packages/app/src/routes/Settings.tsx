@@ -11,7 +11,7 @@
  * they sync across devices.
  */
 import { useEffect, useRef, useState } from "react";
-import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, EyeOff, ShieldCheck, MonitorSmartphone, Sun, Moon, CreditCard } from "lucide-react";
+import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, EyeOff, ShieldCheck, MonitorSmartphone, Sun, Moon, CreditCard, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button, PageHeader, useTheme, THEMES, customThemeGradient, themeName, darkCounterpart, type CustomTheme, type ThemeDef, type ThemeId } from "@taskboard/ui";
@@ -23,6 +23,8 @@ import { useGoBack } from "../lib/useGoBack";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { loadDesktopNotifs, saveDesktopNotifs } from "../lib/notificationPrefs";
 import { AnchoredPopover } from "../features/AnchoredPopover";
+
+const CONTACT_EMAIL = "mailto:siddhant.shende@consultrnr.com";
 
 export function Settings() {
   const { t } = useTranslation(["settings", "common", "billing"]);
@@ -81,6 +83,29 @@ export function Settings() {
       />
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-xl space-y-4">
+          <SettingRow
+            icon={<Mail size={18} />}
+            title="Contact us"
+            description={
+              <a
+                href={CONTACT_EMAIL}
+                className="break-all text-accent hover:underline"
+              >
+                siddhant.shende@consultrnr.com
+              </a>
+            }
+            action={
+              <Button
+                size="sm"
+                onClick={() => {
+                  window.location.href = CONTACT_EMAIL;
+                }}
+              >
+                Email us
+              </Button>
+            }
+          />
+
           <SettingRow
             icon={<Palette size={18} />}
             title={t("settings:theme.title")}
@@ -513,7 +538,7 @@ function SettingRow({
 }: {
   icon: React.ReactNode;
   title: string;
-  description: string;
+  description: React.ReactNode;
   action: React.ReactNode;
 }) {
   return (

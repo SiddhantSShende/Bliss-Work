@@ -8,14 +8,16 @@ up in this repo:
 - `build/icon.svg` + `build/gen-appx-assets.sh` — renders the brand mark into
   every required package tile size (`build/appx/*.png`).
 - `build/build-appx.sh` — local/CI build wrapper.
-- `.github/workflows/store-release.yml` — CI job that builds the `.appx` on
-  a Windows runner and uploads it as a downloadable artifact.
+- `.github/workflows/build-msix.yml` — manually triggered CI job that builds
+  the Windows Store package on a Windows runner and uploads it as an artifact.
 - `build/store-assets/README.md` — the Store *listing* assets (screenshots,
   description copy) you upload by hand in Partner Center.
 
-electron-builder packages Windows Store apps as **`.appx`** (its `appx`
-target) — Partner Center accepts `.appx` the same as `.msix`; there's no
-separate "msix" electron-builder target to configure.
+electron-builder packages Windows Store apps using its **`appx` target**;
+there is no separate `msix` target in the installed electron-builder version.
+The workflow verifies the generated AppX manifest and gives the package a
+`.msix` artifact filename. The package contents are produced by electron-builder
+and Partner Center accepts `.appx` packages as well as `.msix` packages.
 
 Unlike the direct-download installers in `SIGNING.md`, **you don't need to
 buy a code-signing certificate for the Store** — Microsoft signs the package
@@ -52,9 +54,9 @@ committing them is fine and having them in the repo is what makes a local Store
 build reproducible.
 
 The `STORE_IDENTITY_NAME` / `STORE_PUBLISHER_ID` env vars used by
-`build/build-appx.sh` and `.github/workflows/store-release.yml` are an
-**override**, for building under a different Partner Center account. They are
-not required for the account above.
+`build/build-appx.sh` are an **override** for building locally under a
+different Partner Center account. The GitHub Actions workflow reads the
+committed identity directly; no repository secrets are needed.
 
 > If you re-reserve the app under a different publisher, change **both** places:
 > the `build.appx` block in `package.json` *and* whichever env vars/CI secrets
@@ -86,12 +88,17 @@ Output: `apps/desktop/release/BlissWork-*.appx`.
 > you're not on Windows/macOS, use CI instead (below).
 
 ### Via CI (recommended)
-1. Add two repo secrets: **Settings → Secrets and variables → Actions**:
-   - `STORE_IDENTITY_NAME`
-   - `STORE_PUBLISHER_ID`
-2. Run the workflow: **Actions → Store Release (Microsoft Store) → Run workflow**
-   (or push a tag: `git tag store-v0.1.0 && git push origin store-v0.1.0`).
-3. Download the `.appx` from the workflow run's **Artifacts** section.
+1. In the repository, open **Actions → Build BlissWork MSIX → Run workflow**.
+   It builds the revision selected in GitHub Actions; it does not publish or
+   submit anything to Partner Center.
+2. Download `BlissWork-MSIX` from that run's **Artifacts** section. It contains
+   `BlissWork-<version>-x64.msix`.
+
+The workflow uses the public identity and publisher already configured in
+`apps/desktop/package.json`; no signing or Store API secrets are required to
+build the artifact. Microsoft signs Store-distributed packages as part of its
+certification and distribution process. The workflow artifact is not a
+standalone signed, trusted installer.
 
 ## 3. Re-render brand assets (only if the logo changes)
 ```bash
@@ -154,20 +161,9 @@ before submitting:
 
 ---
 
-## Optional: fully automated submission from CI
+## Submission and updates
 
-`store-release.yml` has a gated step using Microsoft's official
-[`msstore-cli`](https://github.com/microsoft/msstore-cli) that pushes the
-build straight into a **draft** Partner Center submission (never
-auto-publishes — you still review + submit for certification by hand). It's
-skipped entirely unless you set these secrets:
-
-- `AZURE_STORE_TENANT_ID`, `AZURE_STORE_CLIENT_ID`, `AZURE_STORE_CLIENT_SECRET`
-  — an Azure AD app registration associated with your Partner Center account
-  (Partner Center → **Account settings → User management → Azure AD
-  applications**, or **Tenant details**, depending on account type — grant
-  it the Store API's "Manage app metadata" scope).
-- `STORE_APP_ID` — Partner Center → your app → **App identity → Store ID**.
-
-This is worth setting up only once you're submitting updates regularly;
-skip it for the first submission and just upload the `.appx` by hand.
+The workflow only builds and uploads an artifact. Upload it to Partner Center
+manually, complete certification, and submit it there. Store-installed builds
+are updated by the Store; the existing `electron-updater` feed is for direct
+download installers and does not install Store packages.

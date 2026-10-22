@@ -329,10 +329,11 @@ TB_UPDATE_MANIFEST_MIRROR_URL=https://raw.githubusercontent.com/AE-4pvt/blisswor
 ### Microsoft Store builds are not covered
 
 `updater.ts` early-returns on `process.windowsStore`: the Store manages those
-updates and electron-updater cannot self-install an MSIX. Store releases stay
-tag-driven (`store-v*` → `store-release.yml`) because submissions go through
-certification. **Store users will lag direct-download users**, by however long
-review takes.
+updates and electron-updater cannot self-install an MSIX. The manually triggered
+`.github/workflows/build-msix.yml` workflow builds an MSIX-compatible AppX
+package artifact only; it does not submit or publish it. Upload the artifact to
+Partner Center for certification. **Store users may lag direct-download users**
+by however long review takes.
 
 ## Repository secrets
 
@@ -346,8 +347,6 @@ review takes.
 | `ES_USERNAME`, `ES_PASSWORD`, `ES_CREDENTIAL_ID`, `ES_TOTP_SECRET` | release | No | Windows installer ships **unsigned** (SmartScreen warnings) |
 | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD` | release | No | macOS build ships unsigned |
 | `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | release | No | macOS build is not notarized |
-| `STORE_IDENTITY_NAME`, `STORE_PUBLISHER_ID` | store-release | No | Store workflow hard-fails |
-| `AZURE_STORE_TENANT_ID`, `AZURE_STORE_CLIENT_ID`, `AZURE_STORE_CLIENT_SECRET`, `STORE_APP_ID` | store-release | No | `.appx` is built but not submitted |
 
 The pipeline is safe to merge before any of these exist — every stage that needs a
 secret is gated on its presence.

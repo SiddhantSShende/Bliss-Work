@@ -31,6 +31,21 @@ function renderSettings() {
   return userEvent.setup();
 }
 
+describe("Contact card", () => {
+  it("appears above Theme and links the email address to the support mailbox", () => {
+    renderSettings();
+
+    const contactTitle = screen.getByText("Contact us");
+    const themeTitle = screen.getByText("Theme");
+    expect(contactTitle.compareDocumentPosition(themeTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("link", { name: "siddhant.shende@consultrnr.com" })).toHaveAttribute(
+      "href",
+      "mailto:siddhant.shende@consultrnr.com",
+    );
+    expect(screen.getByRole("button", { name: "Email us" })).toBeInTheDocument();
+  });
+});
+
 /** Saving the custom theme drops back to the menu still open, so opening is a
  *  no-op when it already is — the trigger toggles. */
 async function openMenu(user: ReturnType<typeof userEvent.setup>) {
